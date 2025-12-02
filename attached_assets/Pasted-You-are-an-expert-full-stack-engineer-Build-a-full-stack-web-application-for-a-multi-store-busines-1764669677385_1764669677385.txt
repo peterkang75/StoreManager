@@ -1,0 +1,688 @@
+You are an expert full-stack engineer.
+
+Build a full-stack web application for a multi-store business to manage:
+
+- Hiring & onboarding
+- Staff scheduling (rosters)
+- Time tracking (clock-in/out)
+- Payroll & leave
+- Cash sales & daily closing
+- Supplier invoices & payments
+
+Use this as the specification for the initial implementation.
+
+==============================================================
+TECH STACK
+==============================================================
+- Backend: Node.js + Express
+- Frontend: React (SPA, client-side routing, served by Express)
+- Database: SQLite
+- File uploads: local filesystem (e.g. /uploads) + paths stored in DB
+- No authentication required yet (internal use)
+- Clean, extensible architecture (future features should be easy to add)
+
+==============================================================
+CORE REQUIREMENTS (SUMMARY)
+==============================================================
+The app must provide:
+
+- Mobile candidate interview form optimized for on-site smartphone data entry
+- Secure onboarding token generation system with 14-day expiration for hired candidates
+- Mobile employee onboarding form with file uploads (selfie, passport cover, signature) and token validation
+- Employee list with filtering by store, status, and keyword search in admin interface
+- Employee detail page with editable fields for rate, bank details, superannuation, and status
+- Roster creation and management module for scheduling employees across stores
+- Time tracking with clock-in/clock-out functionality and approval workflows (timesheets)
+- Payroll calculation system with leave management and payment breakdown
+- Cash sales tracking and daily close forms for store financial management
+- Supplier invoice management and payment tracking
+
+- Separate PC-optimized admin layout under `/admin/*` (desktop, tables, multi-column layout)
+- Separate mobile-optimized layout under `/m/*` (smartphone, large buttons, single-column forms)
+
+==============================================================
+UI / LAYOUT REQUIREMENTS
+==============================================================
+
+There must be TWO distinct UI groups that share the same backend API:
+
+--------------------------------------------------------------
+1) Admin Web (PC-first) → `/admin/*`
+--------------------------------------------------------------
+- Optimized for desktop (table views, multi-column layouts, side panels)
+- Used by owner/managers
+- Includes:
+  - Store management
+  - Candidate management (list, edit, onboarding link generation)
+  - Employee management (list, detail, edit)
+  - Roster creation and editing
+  - Timesheet review & approval
+  - Payroll overview and details
+  - Cash sales and daily closing review
+  - Supplier invoices & payment reports
+
+--------------------------------------------------------------
+2) Mobile Web (Employee/Manager) → `/m/*`
+--------------------------------------------------------------
+- Optimized for iPhone/Android smartphone screens
+- Large buttons and simple single-column forms
+- Includes:
+  - On-site candidate interview form
+  - Employee onboarding form (self-service)
+  - Clock-in / Clock-out page
+  - Roster view (see assigned shifts)
+  - Daily close form & cash sales entry (per store/day)
+
+Admin and mobile layouts must be implemented as separate layout components  
+(e.g. `AdminLayout` vs `MobileLayout`) and must not share the same header/nav.
+
+==============================================================
+DATABASE SCHEMA (SQLite)
+==============================================================
+
+Create these tables. Use appropriate data types and add created_at / updated_at where helpful.
+
+-----------------------
+stores
+-----------------------
+id (PK)
+name
+code (unique)
+address
+active (boolean, default true)
+created_at
+updated_at
+
+-----------------------
+candidates
+-----------------------
+id (PK)
+name
+dob
+gender
+nationality
+experience
+availability
+desired_rate
+visa_type
+visa_expiry
+interview_notes
+hire_decision ('PENDING' | 'HIRE' | 'REJECT', default 'PENDING')
+created_at
+updated_at
+
+-----------------------
+employees
+-----------------------
+id (PK)
+nickname
+first_name
+last_name
+email
+phone
+street_address
+street_address2
+suburb
+state
+post_code
+dob
+gender
+marital_status
+visa_type
+visa_expiry
+line_id
+type_of_contact
+rate
+contract_position
+fhc
+salary_type          -- e.g. 'hourly' / 'weekly' / 'salary'
+annual_leave         -- leave balance (hours or days)
+store_id (FK → stores.id)
+fixed_amount
+tfn
+bsb
+account_no
+super_company
+super_membership_no
+status ('ACTIVE' | 'INACTIVE', default 'ACTIVE')
+created_at
+updated_at
+
+-----------------------
+employee_onboarding_tokens
+-----------------------
+id (PK)
+candidate_id (FK → candidates.id)
+employee_id (FK → employees.id, nullable)
+token (unique)
+expires_at
+used_at (nullable)
+created_at
+
+-----------------------
+employee_documents
+-----------------------
+id (PK)
+employee_id (FK → employees.id)
+doc_type ('SELFIE' | 'PASSPORT_COVER' | 'SIGNATURE')
+file_path
+created_at
+
+-----------------------
+roster_periods
+-----------------------
+id (PK)
+store_id (FK → stores.id)
+start_date          -- start of week
+end_date            -- end of week
+description (nullable)
+created_at
+updated_at
+
+-----------------------
+shifts
+-----------------------
+id (PK)
+roster_period_id (FK → roster_periods.id)
+store_id (FK → stores.id)
+employee_id (FK → employees.id)
+date                -- specific day
+start_time          -- e.g. '09:00'
+end_time            -- e.g. '17:00'
+role (nullable)
+notes (nullable)
+created_at
+updated_at
+
+-----------------------
+time_logs
+-----------------------
+id (PK)
+employee_id (FK → employees.id)
+store_id (FK → stores.id)
+shift_id (FK → shifts.id, nullable)
+clock_in (datetime)
+clock_out (datetime, nullable)
+source ('AUTO_FROM_ROSTER' | 'MANUAL' | 'ADJUSTED')
+adjustment_reason (nullable)
+created_at
+updated_at
+
+-----------------------
+timesheets
+-----------------------
+id (PK)
+employee_id (FK → employees.id)
+store_id (FK → stores.id, nullable)
+period_start (date)
+period_end (date)
+total_hours (real)
+status ('PENDING' | 'APPROVED' | 'REJECTED', default 'PENDING')
+manager_id (nullable)   -- ID of approving manager (can be integer, no FK necessary)
+approved_at (nullable)
+notes (nullable)
+created_at
+updated_at
+
+-----------------------
+payrolls
+-----------------------
+id (PK)
+employee_id (FK → employees.id)
+period_start (date)
+period_end (date)
+hours (real)
+rate (real)
+fixed_amount (real)
+calculated_amount (real)   -- hours * rate + fixed_amount
+adjustment (real)
+adjustment_reason (nullable)
+total_with_adjustment (real)
+cash_amount (real)
+bank_deposit_amount (real)
+tax_amount (real)
+super_amount (real)
+memo (nullable)
+created_at
+updated_at
+
+-----------------------
+daily_closings
+-----------------------
+id (PK)
+store_id (FK → stores.id)
+date (date)
+staff_names (text)           -- simple text listing staff on duty
+ubereats_amount (real)
+doordash_amount (real)
+menulog_amount (real)
+pos_sales_amount (real)
+float_amount (real)
+credit_amount (real)
+difference_amount (real)     -- any difference
+notes (nullable)
+created_at
+updated_at
+
+-----------------------
+cash_sales_details
+-----------------------
+id (PK)
+store_id (FK → stores.id)
+date (date)
+envelope_amount (real)
+counted_amount (real)
+note_100_count (integer)
+note_50_count (integer)
+note_20_count (integer)
+note_10_count (integer)
+note_5_count (integer)
+difference_amount (real)
+created_at
+updated_at
+
+-----------------------
+suppliers
+-----------------------
+id (PK)
+name
+contact_name
+email
+phone
+address
+notes (nullable)
+active (boolean, default true)
+created_at
+updated_at
+
+-----------------------
+supplier_invoices
+-----------------------
+id (PK)
+supplier_id (FK → suppliers.id)
+store_id (FK → stores.id, nullable)
+invoice_number
+invoice_date (date)
+due_date (date, nullable)
+amount (real)
+status ('UNPAID' | 'PARTIAL' | 'PAID', default 'UNPAID')
+notes (nullable)
+created_at
+updated_at
+
+-----------------------
+supplier_payments
+-----------------------
+id (PK)
+supplier_id (FK → suppliers.id)
+invoice_id (FK → supplier_invoices.id)
+payment_date (date)
+amount (real)
+method (text)               -- e.g. 'bank', 'cash'
+notes (nullable)
+created_at
+
+==============================================================
+BACKEND API REQUIREMENTS (EXPRESS)
+==============================================================
+
+Implement REST APIs for the following.
+
+--------------------------------------------------------------
+Stores
+--------------------------------------------------------------
+GET  /api/stores
+POST /api/stores
+PUT  /api/stores/:id
+
+--------------------------------------------------------------
+Candidates
+--------------------------------------------------------------
+GET  /api/candidates
+GET  /api/candidates/:id
+POST /api/candidates             -- create interview entry
+PUT  /api/candidates/:id         -- update
+
+POST /api/candidates/:id/hire
+- Set hire_decision = 'HIRE'
+- Create onboarding token (random secure string, 14-day expiry)
+- Return onboarding URL: `/m/onboarding/<token>`
+
+--------------------------------------------------------------
+Onboarding
+--------------------------------------------------------------
+GET  /api/onboarding/:token
+- Validate token exists, not expired, not used
+- Return candidate data as defaults
+
+POST /api/onboarding/:token
+- Validate token
+- Create employees row with posted fields
+- Accept multipart/form-data for:
+  - selfie
+  - passport_cover
+  - signature
+- Save those files under /uploads and create employee_documents rows
+- Mark token as used
+- Return created employee data
+
+--------------------------------------------------------------
+Employees
+--------------------------------------------------------------
+GET  /api/employees
+  Query params:
+  - store_id (optional)
+  - status (optional)
+  - keyword (search in name/nickname)
+
+GET  /api/employees/:id
+PUT  /api/employees/:id
+- Editable: rate, fixed_amount, salary_type, annual_leave,
+  store_id, status,
+  tfn, bsb, account_no,
+  super_company, super_membership_no,
+  memo-like fields
+
+--------------------------------------------------------------
+Rosters & Shifts
+--------------------------------------------------------------
+GET  /api/roster-periods
+POST /api/roster-periods
+PUT  /api/roster-periods/:id
+
+GET  /api/shifts
+  Query: store_id, period_id, date range, employee_id
+POST /api/shifts
+PUT  /api/shifts/:id
+DELETE /api/shifts/:id    -- optional, soft delete allowed
+
+--------------------------------------------------------------
+Time Logs & Timesheets
+--------------------------------------------------------------
+POST /api/time-logs/clock-in
+  Body: employee_id, store_id, optional shift_id
+  → create time_logs row with clock_in = now
+
+POST /api/time-logs/clock-out
+  Body: employee_id, store_id
+  → set clock_out = now on latest open log
+
+GET  /api/time-logs
+  Query: employee_id, store_id, date range
+
+PUT  /api/time-logs/:id
+  -- allow manual adjustment with adjustment_reason
+
+Timesheets:
+POST /api/timesheets/generate
+  Body: period_start, period_end, store_id (optional)
+  - Aggregate time_logs by employee within that period
+  - Create or update timesheets rows
+
+GET  /api/timesheets
+  Query: status, store_id, period range
+
+PUT  /api/timesheets/:id/approve
+  - Set status = 'APPROVED', manager_id, approved_at
+
+PUT  /api/timesheets/:id/reject
+  - Set status = 'REJECTED' with notes
+
+--------------------------------------------------------------
+Payroll
+--------------------------------------------------------------
+POST /api/payrolls/generate
+  Body: period_start, period_end
+  - For each APPROVED timesheet + employee rate/fixed_amount:
+    - calculate hours, rate, fixed_amount,
+      calculated_amount, total_with_adjustment (initially same as calculated)
+  - Create payrolls rows
+
+GET  /api/payrolls
+  Query: period range, employee_id, store_id
+
+PUT  /api/payrolls/:id
+  - Editable fields:
+    adjustment, adjustment_reason,
+    total_with_adjustment,
+    cash_amount, bank_deposit_amount,
+    tax_amount, super_amount, memo
+
+--------------------------------------------------------------
+Cash & Daily Closing
+--------------------------------------------------------------
+Daily Closings:
+GET  /api/daily-closings
+  Query: store_id, date range
+POST /api/daily-closings
+PUT  /api/daily-closings/:id
+
+Cash Sales Details:
+GET  /api/cash-sales
+  Query: store_id, date range
+POST /api/cash-sales
+PUT  /api/cash-sales/:id
+
+--------------------------------------------------------------
+Suppliers & Invoices
+--------------------------------------------------------------
+Suppliers:
+GET  /api/suppliers
+POST /api/suppliers
+PUT  /api/suppliers/:id
+
+Supplier invoices:
+GET  /api/supplier-invoices
+  Query: supplier_id, store_id, status, date range
+POST /api/supplier-invoices
+PUT  /api/supplier-invoices/:id
+
+Supplier payments:
+GET  /api/supplier-payments
+  Query: supplier_id, invoice_id, date range
+POST /api/supplier-payments
+
+- When a payment is created:
+  - Update supplier_invoices.status to 'PARTIAL' or 'PAID'
+    depending on total paid vs invoice amount.
+
+==============================================================
+FRONTEND REQUIREMENTS (REACT)
+==============================================================
+
+Implement a React SPA with routes grouped under `/admin/*` and `/m/*`.
+
+--------------------------------------------------------------
+ADMIN PAGES (/admin/*)
+--------------------------------------------------------------
+
+1) Store Management: `/admin/stores`
+- Table of stores
+- Create/update form
+- Toggle active
+
+2) Candidate Management: `/admin/candidates`
+- Table of candidates with columns:
+  name, nationality, availability, desired_rate, hire_decision, created_at
+- Filters/search
+- Row click → candidate detail/edit view
+- Button: "Generate Onboarding Link"
+  - Calls POST /api/candidates/:id/hire
+  - Shows resulting `/m/onboarding/<token>` URL
+
+3) Employee List: `/admin/employees`
+- Filters:
+  - store
+  - status
+  - keyword
+- Table:
+  - name, nickname, store, status, rate, visa_expiry
+
+4) Employee Detail: `/admin/employees/:id`
+- Show all main fields
+- Editable:
+  - store_id, rate, fixed_amount
+  - salary_type, annual_leave
+  - status
+  - tfn, bsb, account_no
+  - super_company, super_membership_no
+  - memo
+- Save via PUT /api/employees/:id
+
+5) Roster Management: `/admin/rosters`
+- Select store + week (or create new roster_period)
+- Week view with days and employees
+- List of shifts per day
+- Ability to add/edit/delete shifts:
+  - employee, date, start_time, end_time, notes
+- UI does not need drag&drop; simple forms are acceptable.
+
+6) Timesheet Approval: `/admin/timesheets`
+- Filter by period, store, status
+- List:
+  - employee, store, period, total_hours, status
+- Detail view:
+  - see underlying time logs for that employee/period
+- Actions:
+  - Approve (set status = APPROVED)
+  - Reject (REJECTED with notes)
+
+7) Payroll Overview: `/admin/payrolls`
+- Ability to generate payroll for a period:
+  - call POST /api/payrolls/generate
+- List payrolls:
+  - employee, period, hours, calculated_amount, total_with_adjustment
+- Detail/edit page: `/admin/payrolls/:id`
+  - Edit:
+    - adjustment, adjustment_reason
+    - total_with_adjustment
+    - cash_amount, bank_deposit_amount
+    - tax_amount, super_amount
+    - memo
+
+8) Daily Closing & Cash: `/admin/cash`
+- Filter by store + date range
+- Show:
+  - daily_closings per day (POS, delivery apps, float, credit, difference)
+  - cash_sales_details per day (envelope, counted, breakdown, difference)
+
+9) Supplier Management: `/admin/suppliers`
+- Supplier list (name, contact, active)
+- Create/edit supplier
+
+10) Supplier Invoices & Payments: `/admin/suppliers/invoices`
+- List invoices with filters: supplier, store, status, date range
+- Create/edit invoice
+- View payments for an invoice
+- Button "Add Payment" → creates supplier_payment and updates invoice status
+
+--------------------------------------------------------------
+MOBILE PAGES (/m/*)
+--------------------------------------------------------------
+
+1) Mobile Candidate Interview: `/m/interview`
+- Single-column, mobile-friendly form
+- Fields:
+  name, dob, gender, nationality,
+  experience, availability,
+  desired_rate,
+  visa_type, visa_expiry,
+  interview_notes
+- On submit → POST /api/candidates
+- Show confirmation message
+
+2) Mobile Onboarding Form: `/m/onboarding/:token`
+- On load, call GET /api/onboarding/:token
+- If invalid/expired/used → show error
+- If valid → prefill candidate fields where applicable
+- Fields:
+  nickname, first_name, last_name
+  email, phone
+  street_address, street_address2, suburb, state, post_code
+  dob, gender, marital_status
+  visa_type, visa_expiry
+  line_id, type_of_contact
+  rate, contract_position, fhc
+  salary_type, annual_leave
+  store selection
+  fixed_amount
+  tfn, bsb, account_no
+  super_company, super_membership_no
+- File uploads:
+  - selfie
+  - passport cover
+  - signature
+- Submit as multipart/form-data → POST /api/onboarding/:token
+- Show "Completed" screen after success
+
+3) Mobile Roster View: `/m/roster`
+- Employee selects store (optional) and week
+- See their upcoming shifts (date, time, store)
+
+4) Mobile Clock-in/out: `/m/clock`
+- Show today's shifts for logged-in employee (for now, allow employee_id selection or simple input)
+- Buttons:
+  - "Clock In" → POST /api/time-logs/clock-in
+  - "Clock Out" → POST /api/time-logs/clock-out
+- Show current status and last clock-in/out time
+
+5) Mobile Daily Close / Cash Entry: `/m/daily-close`
+- Select store + date
+- Form to fill:
+  - staff_names
+  - ubereats_amount, doordash_amount, menulog_amount
+  - pos_sales_amount, float_amount, credit_amount
+- Cash section:
+  - envelope_amount
+  - note_100_count, note_50_count, note_20_count, note_10_count, note_5_count
+  - auto-calc counted_amount & difference_amount
+- On submit:
+  - POST to /api/daily-closings
+  - POST to /api/cash-sales (or a combined endpoint if easier)
+- Show confirmation
+
+==============================================================
+PROJECT STRUCTURE
+==============================================================
+
+Suggested:
+
+/server
+  index.js
+  db.js
+  migrations/
+  routes/
+  controllers/
+  models/
+
+/client
+  src/
+    layouts/AdminLayout.jsx
+    layouts/MobileLayout.jsx
+    pages/admin/...
+    pages/mobile/...
+    components/...
+  admin.css
+  mobile.css
+
+Backend serves the built React app.
+
+==============================================================
+GENERAL NOTES
+==============================================================
+- Styling can be minimal; focus on correctness and clarity.
+- Separate admin and mobile layouts.
+- Code should be clean and organized for future expansion.
+- Include a README with:
+  - how to install dependencies
+  - how to initialize the SQLite database
+  - how to run the backend and frontend
+
+Generate:
+- All DB schema and migrations
+- Express routes and controllers for all APIs
+- React pages and routing for `/admin/*` and `/m/*`
+- File upload handling for onboarding documents
+- Basic validation and error handling
+
+This specification should be implemented as a working application.

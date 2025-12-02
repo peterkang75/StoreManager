@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, date, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, date, integer, timestamp, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -126,6 +126,239 @@ export const insertEmployeeDocumentSchema = createInsertSchema(employeeDocuments
 
 export type InsertEmployeeDocument = z.infer<typeof insertEmployeeDocumentSchema>;
 export type EmployeeDocument = typeof employeeDocuments.$inferSelect;
+
+export const rosterPeriods = pgTable("roster_periods", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertRosterPeriodSchema = createInsertSchema(rosterPeriods).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertRosterPeriod = z.infer<typeof insertRosterPeriodSchema>;
+export type RosterPeriod = typeof rosterPeriods.$inferSelect;
+
+export const shifts = pgTable("shifts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  rosterPeriodId: varchar("roster_period_id").references(() => rosterPeriods.id).notNull(),
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  employeeId: varchar("employee_id").references(() => employees.id).notNull(),
+  date: text("date").notNull(),
+  startTime: text("start_time").notNull(),
+  endTime: text("end_time").notNull(),
+  role: text("role"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertShiftSchema = createInsertSchema(shifts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertShift = z.infer<typeof insertShiftSchema>;
+export type Shift = typeof shifts.$inferSelect;
+
+export const timeLogs = pgTable("time_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  employeeId: varchar("employee_id").references(() => employees.id).notNull(),
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  shiftId: varchar("shift_id").references(() => shifts.id),
+  clockIn: timestamp("clock_in").notNull(),
+  clockOut: timestamp("clock_out"),
+  source: text("source").default("MANUAL").notNull(),
+  adjustmentReason: text("adjustment_reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertTimeLogSchema = createInsertSchema(timeLogs).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertTimeLog = z.infer<typeof insertTimeLogSchema>;
+export type TimeLog = typeof timeLogs.$inferSelect;
+
+export const timesheets = pgTable("timesheets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  employeeId: varchar("employee_id").references(() => employees.id).notNull(),
+  storeId: varchar("store_id").references(() => stores.id),
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  totalHours: real("total_hours").default(0).notNull(),
+  status: text("status").default("PENDING").notNull(),
+  managerId: varchar("manager_id"),
+  approvedAt: timestamp("approved_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertTimesheetSchema = createInsertSchema(timesheets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertTimesheet = z.infer<typeof insertTimesheetSchema>;
+export type Timesheet = typeof timesheets.$inferSelect;
+
+export const payrolls = pgTable("payrolls", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  employeeId: varchar("employee_id").references(() => employees.id).notNull(),
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  hours: real("hours").default(0).notNull(),
+  rate: real("rate").default(0).notNull(),
+  fixedAmount: real("fixed_amount").default(0).notNull(),
+  calculatedAmount: real("calculated_amount").default(0).notNull(),
+  adjustment: real("adjustment").default(0).notNull(),
+  adjustmentReason: text("adjustment_reason"),
+  totalWithAdjustment: real("total_with_adjustment").default(0).notNull(),
+  cashAmount: real("cash_amount").default(0).notNull(),
+  bankDepositAmount: real("bank_deposit_amount").default(0).notNull(),
+  taxAmount: real("tax_amount").default(0).notNull(),
+  superAmount: real("super_amount").default(0).notNull(),
+  memo: text("memo"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPayrollSchema = createInsertSchema(payrolls).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertPayroll = z.infer<typeof insertPayrollSchema>;
+export type Payroll = typeof payrolls.$inferSelect;
+
+export const dailyClosings = pgTable("daily_closings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  date: text("date").notNull(),
+  staffNames: text("staff_names"),
+  ubereatsAmount: real("ubereats_amount").default(0).notNull(),
+  doordashAmount: real("doordash_amount").default(0).notNull(),
+  menulogAmount: real("menulog_amount").default(0).notNull(),
+  posSalesAmount: real("pos_sales_amount").default(0).notNull(),
+  floatAmount: real("float_amount").default(0).notNull(),
+  creditAmount: real("credit_amount").default(0).notNull(),
+  differenceAmount: real("difference_amount").default(0).notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertDailyClosingSchema = createInsertSchema(dailyClosings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertDailyClosing = z.infer<typeof insertDailyClosingSchema>;
+export type DailyClosing = typeof dailyClosings.$inferSelect;
+
+export const cashSalesDetails = pgTable("cash_sales_details", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  date: text("date").notNull(),
+  envelopeAmount: real("envelope_amount").default(0).notNull(),
+  countedAmount: real("counted_amount").default(0).notNull(),
+  note100Count: integer("note_100_count").default(0).notNull(),
+  note50Count: integer("note_50_count").default(0).notNull(),
+  note20Count: integer("note_20_count").default(0).notNull(),
+  note10Count: integer("note_10_count").default(0).notNull(),
+  note5Count: integer("note_5_count").default(0).notNull(),
+  differenceAmount: real("difference_amount").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCashSalesDetailSchema = createInsertSchema(cashSalesDetails).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertCashSalesDetail = z.infer<typeof insertCashSalesDetailSchema>;
+export type CashSalesDetail = typeof cashSalesDetails.$inferSelect;
+
+export const suppliers = pgTable("suppliers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  contactName: text("contact_name"),
+  email: text("email"),
+  phone: text("phone"),
+  address: text("address"),
+  notes: text("notes"),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSupplierSchema = createInsertSchema(suppliers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertSupplier = z.infer<typeof insertSupplierSchema>;
+export type Supplier = typeof suppliers.$inferSelect;
+
+export const supplierInvoices = pgTable("supplier_invoices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  supplierId: varchar("supplier_id").references(() => suppliers.id).notNull(),
+  storeId: varchar("store_id").references(() => stores.id),
+  invoiceNumber: text("invoice_number").notNull(),
+  invoiceDate: text("invoice_date").notNull(),
+  dueDate: text("due_date"),
+  amount: real("amount").default(0).notNull(),
+  status: text("status").default("UNPAID").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSupplierInvoiceSchema = createInsertSchema(supplierInvoices).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertSupplierInvoice = z.infer<typeof insertSupplierInvoiceSchema>;
+export type SupplierInvoice = typeof supplierInvoices.$inferSelect;
+
+export const supplierPayments = pgTable("supplier_payments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  supplierId: varchar("supplier_id").references(() => suppliers.id).notNull(),
+  invoiceId: varchar("invoice_id").references(() => supplierInvoices.id).notNull(),
+  paymentDate: text("payment_date").notNull(),
+  amount: real("amount").default(0).notNull(),
+  method: text("method"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertSupplierPaymentSchema = createInsertSchema(supplierPayments).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertSupplierPayment = z.infer<typeof insertSupplierPaymentSchema>;
+export type SupplierPayment = typeof supplierPayments.$inferSelect;
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
