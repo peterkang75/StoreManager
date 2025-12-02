@@ -1,0 +1,125 @@
+import { Link, useLocation } from "wouter";
+import { 
+  Store, 
+  Users, 
+  UserCheck, 
+  LayoutDashboard,
+  Menu
+} from "lucide-react";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
+
+const adminNavItems = [
+  {
+    title: "Dashboard",
+    url: "/admin",
+    icon: LayoutDashboard,
+  },
+  {
+    title: "Stores",
+    url: "/admin/stores",
+    icon: Store,
+  },
+  {
+    title: "Candidates",
+    url: "/admin/candidates",
+    icon: Users,
+  },
+  {
+    title: "Employees",
+    url: "/admin/employees",
+    icon: UserCheck,
+  },
+];
+
+interface AdminLayoutProps {
+  children: React.ReactNode;
+  title?: string;
+}
+
+function AdminSidebar() {
+  const [location] = useLocation();
+
+  return (
+    <Sidebar collapsible="icon">
+      <SidebarHeader className="p-4 border-b border-sidebar-border">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
+            <Store className="w-4 h-4 text-primary-foreground" />
+          </div>
+          <div className="flex flex-col group-data-[collapsible=icon]:hidden">
+            <span className="text-sm font-semibold">Staff Manager</span>
+            <span className="text-xs text-muted-foreground">Admin Portal</span>
+          </div>
+        </div>
+      </SidebarHeader>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel>Management</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {adminNavItems.map((item) => {
+                const isActive = location === item.url || 
+                  (item.url !== "/admin" && location.startsWith(item.url));
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton 
+                      asChild 
+                      isActive={isActive}
+                      tooltip={item.title}
+                    >
+                      <Link href={item.url} data-testid={`link-admin-${item.title.toLowerCase()}`}>
+                        <item.icon className="w-4 h-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+    </Sidebar>
+  );
+}
+
+export function AdminLayout({ children, title }: AdminLayoutProps) {
+  const style = {
+    "--sidebar-width": "16rem",
+    "--sidebar-width-icon": "3rem",
+  };
+
+  return (
+    <SidebarProvider style={style as React.CSSProperties}>
+      <div className="flex h-screen w-full">
+        <AdminSidebar />
+        <div className="flex flex-col flex-1 min-w-0">
+          <header className="h-14 flex items-center gap-4 px-4 border-b bg-background sticky top-0 z-40">
+            <SidebarTrigger data-testid="button-sidebar-toggle" />
+            {title && (
+              <h1 className="text-lg font-semibold" data-testid="text-page-title">{title}</h1>
+            )}
+          </header>
+          <main className="flex-1 overflow-auto bg-muted/30">
+            <div className="p-6 max-w-7xl mx-auto">
+              {children}
+            </div>
+          </main>
+        </div>
+      </div>
+    </SidebarProvider>
+  );
+}

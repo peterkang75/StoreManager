@@ -1,0 +1,167 @@
+import { useQuery } from "@tanstack/react-query";
+import { AdminLayout } from "@/components/layouts/AdminLayout";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Store, Users, UserCheck, ClipboardList } from "lucide-react";
+import { Link } from "wouter";
+import type { Store as StoreType, Candidate, Employee } from "@shared/schema";
+
+function StatCard({ 
+  title, 
+  value, 
+  icon: Icon, 
+  href, 
+  isLoading 
+}: { 
+  title: string; 
+  value: number | string; 
+  icon: React.ElementType; 
+  href: string;
+  isLoading?: boolean;
+}) {
+  return (
+    <Link href={href}>
+      <Card className="hover-elevate cursor-pointer transition-all">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            {title}
+          </CardTitle>
+          <Icon className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <Skeleton className="h-8 w-16" />
+          ) : (
+            <div className="text-2xl font-bold" data-testid={`text-stat-${title.toLowerCase().replace(/\s/g, '-')}`}>
+              {value}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
+export function AdminDashboard() {
+  const { data: stores, isLoading: storesLoading } = useQuery<StoreType[]>({
+    queryKey: ["/api/stores"],
+  });
+
+  const { data: candidates, isLoading: candidatesLoading } = useQuery<Candidate[]>({
+    queryKey: ["/api/candidates"],
+  });
+
+  const { data: employees, isLoading: employeesLoading } = useQuery<Employee[]>({
+    queryKey: ["/api/employees"],
+  });
+
+  const activeStores = stores?.filter(s => s.active).length ?? 0;
+  const pendingCandidates = candidates?.filter(c => c.hireDecision === "PENDING").length ?? 0;
+  const activeEmployees = employees?.filter(e => e.status === "ACTIVE").length ?? 0;
+  const recentHires = candidates?.filter(c => c.hireDecision === "HIRE").length ?? 0;
+
+  return (
+    <AdminLayout title="Dashboard">
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight" data-testid="text-welcome">
+            Welcome to Staff Manager
+          </h2>
+          <p className="text-muted-foreground">
+            Manage your stores, candidates, and employees all in one place.
+          </p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            title="Active Stores"
+            value={activeStores}
+            icon={Store}
+            href="/admin/stores"
+            isLoading={storesLoading}
+          />
+          <StatCard
+            title="Pending Candidates"
+            value={pendingCandidates}
+            icon={Users}
+            href="/admin/candidates"
+            isLoading={candidatesLoading}
+          />
+          <StatCard
+            title="Active Employees"
+            value={activeEmployees}
+            icon={UserCheck}
+            href="/admin/employees"
+            isLoading={employeesLoading}
+          />
+          <StatCard
+            title="Recent Hires"
+            value={recentHires}
+            icon={ClipboardList}
+            href="/admin/candidates"
+            isLoading={candidatesLoading}
+          />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Quick Actions</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Link href="/admin/stores">
+                <div className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer" data-testid="link-manage-stores">
+                  <Store className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="font-medium">Manage Stores</p>
+                    <p className="text-sm text-muted-foreground">Add or edit store locations</p>
+                  </div>
+                </div>
+              </Link>
+              <Link href="/admin/candidates">
+                <div className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer" data-testid="link-review-candidates">
+                  <Users className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="font-medium">Review Candidates</p>
+                    <p className="text-sm text-muted-foreground">View and process interview results</p>
+                  </div>
+                </div>
+              </Link>
+              <Link href="/admin/employees">
+                <div className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer" data-testid="link-view-employees">
+                  <UserCheck className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="font-medium">View Employees</p>
+                    <p className="text-sm text-muted-foreground">Manage employee details and status</p>
+                  </div>
+                </div>
+              </Link>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Mobile Access</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Link href="/m/interview">
+                <div className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer" data-testid="link-mobile-interview">
+                  <ClipboardList className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="font-medium">Mobile Interview Form</p>
+                    <p className="text-sm text-muted-foreground">Conduct on-site candidate interviews</p>
+                  </div>
+                </div>
+              </Link>
+              <div className="p-3 rounded-md bg-muted/50">
+                <p className="text-sm text-muted-foreground">
+                  Access the mobile interview form at <code className="text-xs bg-muted px-1 py-0.5 rounded">/m/interview</code> on your phone for on-site candidate interviews.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </AdminLayout>
+  );
+}
