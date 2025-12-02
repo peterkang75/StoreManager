@@ -10,8 +10,18 @@ import { AdminStores } from "@/pages/admin/Stores";
 import { AdminCandidates } from "@/pages/admin/Candidates";
 import { AdminEmployees } from "@/pages/admin/Employees";
 import { AdminEmployeeDetail } from "@/pages/admin/EmployeeDetail";
+import { AdminRosters } from "@/pages/admin/Rosters";
+import { AdminTimesheets } from "@/pages/admin/Timesheets";
+import { AdminPayrolls } from "@/pages/admin/Payrolls";
+import { AdminCash } from "@/pages/admin/Cash";
+import { AdminSuppliers } from "@/pages/admin/Suppliers";
+import { AdminSupplierInvoices } from "@/pages/admin/SupplierInvoices";
+
 import { MobileInterview } from "@/pages/mobile/Interview";
 import { MobileOnboarding } from "@/pages/mobile/Onboarding";
+import { MobileRoster } from "@/pages/mobile/Roster";
+import { MobileClock } from "@/pages/mobile/Clock";
+import { MobileDailyClose } from "@/pages/mobile/DailyClose";
 
 function Router() {
   return (
@@ -25,9 +35,18 @@ function Router() {
       <Route path="/admin/candidates" component={AdminCandidates} />
       <Route path="/admin/employees" component={AdminEmployees} />
       <Route path="/admin/employees/:id" component={AdminEmployeeDetail} />
+      <Route path="/admin/rosters" component={AdminRosters} />
+      <Route path="/admin/timesheets" component={AdminTimesheets} />
+      <Route path="/admin/payrolls" component={AdminPayrolls} />
+      <Route path="/admin/cash" component={AdminCash} />
+      <Route path="/admin/suppliers" component={AdminSuppliers} />
+      <Route path="/admin/suppliers/invoices" component={AdminSupplierInvoices} />
       
       <Route path="/m/interview" component={MobileInterview} />
       <Route path="/m/onboarding/:token" component={MobileOnboarding} />
+      <Route path="/m/roster" component={MobileRoster} />
+      <Route path="/m/clock" component={MobileClock} />
+      <Route path="/m/daily-close" component={MobileDailyClose} />
       
       <Route component={NotFound} />
     </Switch>

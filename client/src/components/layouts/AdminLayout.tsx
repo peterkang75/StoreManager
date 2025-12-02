@@ -4,7 +4,12 @@ import {
   Users, 
   UserCheck, 
   LayoutDashboard,
-  Menu
+  Calendar,
+  Clock,
+  DollarSign,
+  Wallet,
+  Truck,
+  FileText
 } from "lucide-react";
 import {
   Sidebar,
@@ -19,9 +24,8 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import { Button } from "@/components/ui/button";
 
-const adminNavItems = [
+const hiringNavItems = [
   {
     title: "Dashboard",
     url: "/admin",
@@ -44,6 +48,42 @@ const adminNavItems = [
   },
 ];
 
+const operationsNavItems = [
+  {
+    title: "Rosters",
+    url: "/admin/rosters",
+    icon: Calendar,
+  },
+  {
+    title: "Timesheets",
+    url: "/admin/timesheets",
+    icon: Clock,
+  },
+  {
+    title: "Payroll",
+    url: "/admin/payrolls",
+    icon: DollarSign,
+  },
+];
+
+const financeNavItems = [
+  {
+    title: "Cash & Close",
+    url: "/admin/cash",
+    icon: Wallet,
+  },
+  {
+    title: "Suppliers",
+    url: "/admin/suppliers",
+    icon: Truck,
+  },
+  {
+    title: "Invoices",
+    url: "/admin/suppliers/invoices",
+    icon: FileText,
+  },
+];
+
 interface AdminLayoutProps {
   children: React.ReactNode;
   title?: string;
@@ -51,6 +91,11 @@ interface AdminLayoutProps {
 
 function AdminSidebar() {
   const [location] = useLocation();
+
+  const isActive = (url: string) => {
+    if (url === "/admin") return location === url;
+    return location === url || location.startsWith(url + "/");
+  };
 
   return (
     <Sidebar collapsible="icon">
@@ -67,27 +112,65 @@ function AdminSidebar() {
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Management</SidebarGroupLabel>
+          <SidebarGroupLabel>Hiring</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {adminNavItems.map((item) => {
-                const isActive = location === item.url || 
-                  (item.url !== "/admin" && location.startsWith(item.url));
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton 
-                      asChild 
-                      isActive={isActive}
-                      tooltip={item.title}
-                    >
-                      <Link href={item.url} data-testid={`link-admin-${item.title.toLowerCase()}`}>
-                        <item.icon className="w-4 h-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
+              {hiringNavItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton 
+                    asChild 
+                    isActive={isActive(item.url)}
+                    tooltip={item.title}
+                  >
+                    <Link href={item.url} data-testid={`link-admin-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
+                      <item.icon className="w-4 h-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Operations</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {operationsNavItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton 
+                    asChild 
+                    isActive={isActive(item.url)}
+                    tooltip={item.title}
+                  >
+                    <Link href={item.url} data-testid={`link-admin-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
+                      <item.icon className="w-4 h-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Finance</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {financeNavItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton 
+                    asChild 
+                    isActive={isActive(item.url)}
+                    tooltip={item.title}
+                  >
+                    <Link href={item.url} data-testid={`link-admin-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
+                      <item.icon className="w-4 h-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
