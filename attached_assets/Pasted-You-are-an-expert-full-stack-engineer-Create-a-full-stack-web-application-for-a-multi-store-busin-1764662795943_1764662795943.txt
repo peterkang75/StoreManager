@@ -1,0 +1,327 @@
+You are an expert full-stack engineer.  
+Create a full-stack web application for a multi-store business to manage hiring, employee details, and basic internal workflows.
+
+This is Phase 1 only.  
+Later phases (roster, time tracking, payroll, cash, suppliers) will be added, so structure code cleanly.
+
+Use the following tech stack:
+
+## Tech Stack
+- Backend: Node.js + Express
+- Database: SQLite
+- ORM: optional (use raw SQL or a lightweight ORM)
+- Frontend: React (Vite or CRA)
+- Single-page application with client-side routing
+- Serve React build through Express
+- No authentication for now (internal use)
+
+---
+
+# =========================================================
+#   UI / LAYOUT REQUIREMENT
+# =========================================================
+
+The app must support **two separate interface groups**:
+
+## 1) Admin Web (PC-first UI)
+- URL prefix: `/admin/*`
+- Layout optimized for desktop monitors.
+- Use tables, multi-column layouts, side panels, detail drawers.
+- Used by business owner and managers.
+- Includes:
+  - Store management
+  - Candidate management (list + edit)
+  - Employee list & detail
+  - (Future) roster management
+  - (Future) time approvals
+  - (Future) payroll
+  - (Future) cash tracking and supplier modules
+
+## 2) Mobile Web (Employee/Manager)
+- URL prefix: `/m/*`
+- Optimized for smartphone screens (iPhone/Android).
+- Large buttons, single-column forms, minimal UI.
+- Includes:
+  - Candidate interview input page (on-site mobile interview)
+  - Employee onboarding form (self-service)
+  - (Future) Clock-in / Clock-out
+  - (Future) Roster view
+  - (Future) Daily close form
+  - (Future) Cash sales entry
+
+The two UI groups must have **separate layouts** and must not share the same header/navigation.
+
+---
+
+# =========================================================
+#   DATA MODEL (SQLite Tables)
+# =========================================================
+
+Create the following tables:
+
+### stores
+- id (PK)
+- name
+- code (unique)
+- address
+- active (boolean, default true)
+- created_at
+- updated_at
+
+### candidates
+- id (PK)
+- name
+- dob
+- gender
+- nationality
+- experience
+- availability
+- desired_rate
+- visa_type
+- visa_expiry
+- interview_notes
+- hire_decision ('PENDING' | 'HIRE' | 'REJECT', default PENDING)
+- created_at
+- updated_at
+
+### employees
+- id (PK)
+- nickname
+- first_name
+- last_name
+- email
+- phone
+- street_address
+- street_address2
+- suburb
+- state
+- post_code
+- dob
+- gender
+- marital_status
+- visa_type
+- visa_expiry
+- line_id
+- type_of_contact
+- rate
+- contract_position
+- fhc
+- salary_type
+- annual_leave
+- store_id (FK → stores.id)
+- fixed_amount
+- tfn
+- bsb
+- account_no
+- super_company
+- super_membership_no
+- status ('ACTIVE' | 'INACTIVE', default ACTIVE)
+- created_at
+- updated_at
+
+### employee_onboarding_tokens
+- id (PK)
+- candidate_id (FK)
+- employee_id (FK, nullable)
+- token (unique)
+- expires_at
+- used_at (nullable)
+- created_at
+
+### employee_documents
+- id (PK)
+- employee_id (FK)
+- doc_type ('SELFIE' | 'PASSPORT_COVER' | 'SIGNATURE')
+- file_path
+- created_at
+
+---
+
+# =========================================================
+#   BACKEND REQUIREMENTS (Express API)
+# =========================================================
+
+## Stores API
+- GET /api/stores
+- POST /api/stores
+- PUT /api/stores/:id
+
+## Candidate API
+- GET /api/candidates
+- GET /api/candidates/:id
+- POST /api/candidates            → create
+- PUT /api/candidates/:id         → update
+- POST /api/candidates/:id/hire   → mark hire_decision = 'HIRE'
+  - Generate onboarding token:
+    - token = secure random string
+    - expires_at = now + 14 days
+  - Return onboarding URL: `/m/onboarding/<token>`
+
+## Onboarding API
+- GET /api/onboarding/:token
+  - Validate token: exists, not expired, not used.
+  - Return candidate data as default values.
+
+- POST /api/onboarding/:token
+  - Validate token.
+  - Create employees row with submitted fields.
+  - Save optional uploaded files:
+    - Selfie
+    - Passport cover
+    - Signature
+  - Insert into employee_documents table.
+  - Mark token used.
+  - Return created employee.
+
+## Employees API
+- GET /api/employees           → with filters: store_id, status, keyword
+- GET /api/employees/:id
+- PUT /api/employees/:id       → update (rate, bank info, store, status, etc.)
+
+No delete; use status = INACTIVE.
+
+---
+
+# =========================================================
+#   FRONTEND REQUIREMENTS (React)
+# =========================================================
+
+# -------------------------
+# ADMIN (PC Web)
+# -------------------------
+Place under `/admin/*`.
+
+## 1. Admin Store Management Page (/admin/stores)
+- Table of stores
+- Create / update form
+- Toggle active flag
+
+## 2. Admin Candidate Management Page (/admin/candidates)
+- Desktop table view:
+  - name, nationality, availability, desired_rate, hire_decision, created_at
+- Click row → open Detail/Edit panel
+- Edit fields:
+  - dob, gender, nationality
+  - experience, availability
+  - desired_rate
+  - visa_type, visa_expiry
+  - interview_notes
+  - hire_decision
+- Button: Generate Onboarding Link  
+  → Calls POST /api/candidates/:id/hire  
+  → Shows the generated `/m/onboarding/<token>` URL to copy.
+
+## 3. Admin Employee List Page (/admin/employees)
+- Table with filters:
+  - store filter
+  - status filter
+  - search by name
+- Show:
+  - name, nickname, store, status, rate, visa_expiry
+
+## 4. Admin Employee Detail Page (/admin/employees/:id)
+- Show all major employee fields
+- Editable:
+  - rate
+  - fixed_amount
+  - store_id
+  - salary_type, annual_leave
+  - status
+  - tfn, bsb, account_no
+  - super_company, super_membership_no
+- Save button → PUT /api/employees/:id
+
+---
+
+# -------------------------
+# MOBILE (Employee / Manager)
+# -------------------------
+Place under `/m/*`, mobile-first layout.
+
+## 1. Mobile Candidate Interview Page (/m/interview)
+- Simple, large-button mobile form.
+- Fields:
+  - name
+  - dob
+  - gender
+  - nationality
+  - experience
+  - availability
+  - desired_rate
+  - visa_type
+  - visa_expiry
+  - interview_notes
+- hire_decision is automatically PENDING.
+- Submit → POST /api/candidates
+- After submit, show “Interview Saved” message.
+
+## 2. Mobile Onboarding Form (/m/onboarding/:token)
+- Fetch default data with GET /api/onboarding/:token.
+- If invalid token → show error.
+- Form fields:
+  - nickname, first_name, last_name
+  - email, phone
+  - street address fields
+  - suburb, state, post code
+  - dob, gender, marital_status
+  - visa_type, visa_expiry
+  - line_id, type_of_contact
+  - rate, contract_position, fhc
+  - salary_type, annual_leave
+  - store selector
+  - fixed_amount
+  - tfn, bsb, account_no
+  - super_company, super_membership_no
+  - Upload fields:
+    - selfie
+    - passport cover
+    - signature
+- Submit → POST /api/onboarding/:token (multipart/form-data)
+- Show “Thank you” screen after success.
+
+---
+
+# =========================================================
+#   PROJECT STRUCTURE
+# =========================================================
+
+Recommended structure:
+
+/server
+  - index.js
+  - db.js
+  - migrations/
+  - routes/
+  - controllers/
+  - models/
+
+/client
+  - src/
+     - App.jsx
+     - pages/admin/*
+     - pages/mobile/*
+     - components/*
+  - mobile.css (mobile-first adjustments)
+  - admin.css (desktop UI)
+
+Backend serves frontend build.
+
+---
+
+# =========================================================
+#   GENERAL NOTES
+# =========================================================
+
+- Keep styling simple (no need for fancy UI).
+- Prioritize correctness of data flow and UI separation.
+- Code must be clean and easy to expand because future phases will add:
+  - Roster creation
+  - Clocking
+  - Approvals
+  - Payroll calculation
+  - Cash sales
+  - Supplier invoice & payment
+  - Store balances and cash transfer
+
+Generate all necessary boilerplate code and file structure.
+Return instructions to run both backend and frontend.

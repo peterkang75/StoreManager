@@ -1,0 +1,330 @@
+You are an expert full-stack engineer.
+
+Build a full-stack web application (Phase 1) for multi-store staff management, hiring workflow, and onboarding.
+
+The system must include:
+
+==============================================================
+CORE REQUIREMENTS (SUMMARY)
+==============================================================
+- Mobile candidate interview form optimized for on-site smartphone data entry
+- Secure onboarding token generation system with 14-day expiration for hired candidates
+- Mobile employee onboarding form with file uploads (selfie, passport, signature) and token validation
+- Employee list with filters by store, status, and keyword search in admin interface
+- Employee detail page with editable fields (rate, bank details, superannuation, status)
+- Separate PC-optimized admin layout under `/admin/*` (table views, multi-column layout)
+- Separate mobile-optimized layout under `/m/*` (large buttons, single-column forms)
+- SQLite database with tables: stores, candidates, employees, onboarding_tokens, documents
+
+Tech stack:
+- Backend: Node.js + Express
+- Frontend: React (SPA) using client-side routing
+- Database: SQLite
+- Build system: Vite or CRA for React
+- Frontend served by Express backend
+- No authentication required for Phase 1
+
+==============================================================
+UI / LAYOUT REQUIREMENTS
+==============================================================
+
+There must be TWO distinct UI groups:
+
+--------------------------------------------------------------
+1) Admin Web (PC-first) → `/admin/*`
+--------------------------------------------------------------
+- Optimized for desktop monitors
+- Table views, multi-column layouts
+- Used by owner/managers
+
+Admin includes:
+- Store management
+- Candidate list and edit page
+- Employee list with filters
+- Employee detail & edit page
+(Future phases will add roster, timesheet approvals, payroll, cash tracking, suppliers)
+
+--------------------------------------------------------------
+2) Mobile Web (Employee/Manager) → `/m/*`
+--------------------------------------------------------------
+- Smartphone-optimized UI
+- Large buttons, single-column forms
+- Minimal clutter
+- Used by managers on-site and employees
+
+Mobile includes:
+- Candidate interview entry form (on-site interview)
+- Employee onboarding form (with file uploads)
+(Future: clock-in/out, roster view, daily close, cash entry)
+
+Admin UI and Mobile UI must use fully separate layout components.
+
+==============================================================
+DATABASE SCHEMA (SQLite)
+==============================================================
+
+Create the following tables:
+
+-----------------------
+stores
+-----------------------
+id (PK)
+name
+code (unique)
+address
+active (boolean, default true)
+created_at
+updated_at
+
+-----------------------
+candidates
+-----------------------
+id (PK)
+name
+dob
+gender
+nationality
+experience
+availability
+desired_rate
+visa_type
+visa_expiry
+interview_notes
+hire_decision ('PENDING' | 'HIRE' | 'REJECT', default PENDING)
+created_at
+updated_at
+
+-----------------------
+employees
+-----------------------
+id (PK)
+nickname
+first_name
+last_name
+email
+phone
+street_address
+street_address2
+suburb
+state
+post_code
+dob
+gender
+marital_status
+visa_type
+visa_expiry
+line_id
+type_of_contact
+rate
+contract_position
+fhc
+salary_type
+annual_leave
+store_id (FK → stores.id)
+fixed_amount
+tfn
+bsb
+account_no
+super_company
+super_membership_no
+status ('ACTIVE' | 'INACTIVE', default ACTIVE)
+created_at
+updated_at
+
+-----------------------
+employee_onboarding_tokens
+-----------------------
+id (PK)
+candidate_id (FK → candidates.id)
+employee_id (FK, nullable)
+token (unique)
+expires_at
+used_at (nullable)
+created_at
+
+-----------------------
+employee_documents
+-----------------------
+id (PK)
+employee_id (FK)
+doc_type ('SELFIE' | 'PASSPORT_COVER' | 'SIGNATURE')
+file_path
+created_at
+
+==============================================================
+BACKEND API REQUIREMENTS (EXPRESS)
+==============================================================
+
+--------------------------------------------------------------
+STORES API
+--------------------------------------------------------------
+GET  /api/stores
+POST /api/stores
+PUT  /api/stores/:id
+
+--------------------------------------------------------------
+CANDIDATES API
+--------------------------------------------------------------
+GET  /api/candidates
+GET  /api/candidates/:id
+POST /api/candidates             → create interview entry
+PUT  /api/candidates/:id         → update interview entry
+
+POST /api/candidates/:id/hire
+- hire_decision → 'HIRE'
+- generate onboarding token (secure random string)
+- expires_at = now + 14 days
+- return URL `/m/onboarding/<token>`
+
+--------------------------------------------------------------
+ONBOARDING API
+--------------------------------------------------------------
+GET /api/onboarding/:token
+- Validate token exists, not expired, not used
+- Return candidate data as default values
+
+POST /api/onboarding/:token
+- Validate token
+- Create employees row with submitted fields
+- Accept multipart/form-data:
+  - selfie
+  - passport cover
+  - signature
+- Save via employee_documents table
+- Mark token as used
+- Return created employee
+
+--------------------------------------------------------------
+EMPLOYEES API
+--------------------------------------------------------------
+GET  /api/employees
+  filters:
+  - ?store_id=
+  - ?status=
+  - ?keyword=
+
+GET  /api/employees/:id
+PUT  /api/employees/:id
+- editable fields: rate, fixed_amount, salary_type, annual_leave,
+  store_id, status, bank details, super information
+
+==============================================================
+FRONTEND REQUIREMENTS (REACT)
+==============================================================
+
+--------------------------------------------------------------
+ADMIN PAGES  (/admin/*)
+--------------------------------------------------------------
+
+### 1) Store Management (/admin/stores)
+- Table list of stores
+- Create / edit form
+- Toggle active flag
+
+### 2) Candidate Management (/admin/candidates)
+- Desktop table
+- Filters (basic)
+- Row click → detail/edit panel
+- Edit fields:
+  dob, gender, nationality, experience, availability,
+  desired_rate, visa_type, visa_expiry, interview_notes,
+  hire_decision
+- Button → Generate Onboarding Link  
+  Calls POST /api/candidates/:id/hire  
+  Displays onboarding URL
+
+### 3) Employee List (/admin/employees)
+- Filters:
+  store, status, keyword search
+- Columns: name, nickname, store, status, rate, visa_expiry
+
+### 4) Employee Detail (/admin/employees/:id)
+- Show all employee fields
+- Editable:
+  rate, fixed_amount, salary_type, annual_leave,
+  store_id, status,
+  tfn, bsb, account_no,
+  super_company, super_membership_no
+- Save → PUT /api/employees/:id
+
+--------------------------------------------------------------
+MOBILE PAGES (/m/*)
+--------------------------------------------------------------
+
+### 1) Mobile Candidate Interview (/m/interview)
+- Mobile-only layout
+- Large input fields / large buttons
+- Fields:
+  name, dob, gender, nationality,
+  experience, availability,
+  desired_rate,
+  visa_type, visa_expiry,
+  interview_notes
+- hire_decision defaults to PENDING
+- Submit → POST /api/candidates
+- After success: show “Interview Saved” screen
+
+### 2) Mobile Onboarding Form (/m/onboarding/:token)
+- Validate token through GET
+- Show pre-filled fields from candidate
+- Fields:
+  nickname, first_name, last_name,
+  email, phone,
+  address fields,
+  dob, gender, marital_status,
+  visa info,
+  line_id, type_of_contact,
+  rate, contract_position, fhc,
+  salary_type, annual_leave,
+  store, fixed_amount,
+  tfn, bsb, account_no,
+  super info
+- Uploads:
+  selfie
+  passport cover
+  signature
+- Submit → POST multipart/form-data
+- Show "Completed" screen
+
+==============================================================
+PROJECT STRUCTURE
+==============================================================
+
+/server
+  index.js
+  db.js
+  migrations/
+  routes/
+  controllers/
+  models/
+
+/client
+  src/
+    pages/admin/*
+    pages/mobile/*
+    components/*
+  admin.css
+  mobile.css
+
+==============================================================
+FINAL NOTES
+==============================================================
+
+- Keep styling simple
+- Maintain clean separation between admin and mobile UIs
+- Backend must be structured for future phases:
+  - roster
+  - clocking
+  - timesheet approval
+  - payroll
+  - daily close
+  - cash sales
+  - cash convert
+  - supplier payments
+
+Generate the full initial project, including:
+- backend APIs
+- frontend pages and routing
+- SQLite schema
+- file upload handling
+- instructions (README) for running both backend/frontend
