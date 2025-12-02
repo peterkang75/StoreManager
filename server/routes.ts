@@ -1,7 +1,21 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage, generateSecureToken } from "./storage";
-import { insertStoreSchema, insertCandidateSchema, insertEmployeeSchema } from "@shared/schema";
+import { 
+  insertStoreSchema, 
+  insertCandidateSchema, 
+  insertEmployeeSchema,
+  insertRosterPeriodSchema,
+  insertShiftSchema,
+  insertTimeLogSchema,
+  insertTimesheetSchema,
+  insertPayrollSchema,
+  insertDailyClosingSchema,
+  insertCashSalesDetailSchema,
+  insertSupplierSchema,
+  insertSupplierInvoiceSchema,
+  insertSupplierPaymentSchema,
+} from "@shared/schema";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -319,6 +333,662 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error updating employee:", error);
       res.status(500).json({ error: "Failed to update employee" });
+    }
+  });
+
+  app.get("/api/roster-periods", async (req: Request, res: Response) => {
+    try {
+      const filters: { storeId?: string } = {};
+      if (req.query.store_id && typeof req.query.store_id === "string") {
+        filters.storeId = req.query.store_id;
+      }
+      const periods = await storage.getRosterPeriods(filters);
+      res.json(periods);
+    } catch (error) {
+      console.error("Error fetching roster periods:", error);
+      res.status(500).json({ error: "Failed to fetch roster periods" });
+    }
+  });
+
+  app.post("/api/roster-periods", async (req: Request, res: Response) => {
+    try {
+      const parsed = insertRosterPeriodSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.message });
+      }
+      const period = await storage.createRosterPeriod(parsed.data);
+      res.status(201).json(period);
+    } catch (error) {
+      console.error("Error creating roster period:", error);
+      res.status(500).json({ error: "Failed to create roster period" });
+    }
+  });
+
+  app.put("/api/roster-periods/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const period = await storage.updateRosterPeriod(id, req.body);
+      if (!period) {
+        return res.status(404).json({ error: "Roster period not found" });
+      }
+      res.json(period);
+    } catch (error) {
+      console.error("Error updating roster period:", error);
+      res.status(500).json({ error: "Failed to update roster period" });
+    }
+  });
+
+  app.get("/api/shifts", async (req: Request, res: Response) => {
+    try {
+      const filters: { storeId?: string; periodId?: string; employeeId?: string; startDate?: string; endDate?: string } = {};
+      if (req.query.store_id && typeof req.query.store_id === "string") {
+        filters.storeId = req.query.store_id;
+      }
+      if (req.query.period_id && typeof req.query.period_id === "string") {
+        filters.periodId = req.query.period_id;
+      }
+      if (req.query.employee_id && typeof req.query.employee_id === "string") {
+        filters.employeeId = req.query.employee_id;
+      }
+      if (req.query.start_date && typeof req.query.start_date === "string") {
+        filters.startDate = req.query.start_date;
+      }
+      if (req.query.end_date && typeof req.query.end_date === "string") {
+        filters.endDate = req.query.end_date;
+      }
+      const shifts = await storage.getShifts(filters);
+      res.json(shifts);
+    } catch (error) {
+      console.error("Error fetching shifts:", error);
+      res.status(500).json({ error: "Failed to fetch shifts" });
+    }
+  });
+
+  app.post("/api/shifts", async (req: Request, res: Response) => {
+    try {
+      const parsed = insertShiftSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.message });
+      }
+      const shift = await storage.createShift(parsed.data);
+      res.status(201).json(shift);
+    } catch (error) {
+      console.error("Error creating shift:", error);
+      res.status(500).json({ error: "Failed to create shift" });
+    }
+  });
+
+  app.put("/api/shifts/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const shift = await storage.updateShift(id, req.body);
+      if (!shift) {
+        return res.status(404).json({ error: "Shift not found" });
+      }
+      res.json(shift);
+    } catch (error) {
+      console.error("Error updating shift:", error);
+      res.status(500).json({ error: "Failed to update shift" });
+    }
+  });
+
+  app.delete("/api/shifts/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const deleted = await storage.deleteShift(id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Shift not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting shift:", error);
+      res.status(500).json({ error: "Failed to delete shift" });
+    }
+  });
+
+  app.post("/api/time-logs/clock-in", async (req: Request, res: Response) => {
+    try {
+      const { employee_id, store_id, shift_id } = req.body;
+      
+      if (!employee_id || !store_id) {
+        return res.status(400).json({ error: "employee_id and store_id are required" });
+      }
+
+      const existingOpen = await storage.getOpenTimeLog(employee_id, store_id);
+      if (existingOpen) {
+        return res.status(400).json({ error: "Already clocked in" });
+      }
+
+      const log = await storage.createTimeLog({
+        employeeId: employee_id,
+        storeId: store_id,
+        shiftId: shift_id || null,
+        clockIn: new Date(),
+        clockOut: null,
+        source: "MANUAL",
+        adjustmentReason: null,
+      });
+      res.status(201).json(log);
+    } catch (error) {
+      console.error("Error clocking in:", error);
+      res.status(500).json({ error: "Failed to clock in" });
+    }
+  });
+
+  app.post("/api/time-logs/clock-out", async (req: Request, res: Response) => {
+    try {
+      const { employee_id, store_id } = req.body;
+      
+      if (!employee_id || !store_id) {
+        return res.status(400).json({ error: "employee_id and store_id are required" });
+      }
+
+      const openLog = await storage.getOpenTimeLog(employee_id, store_id);
+      if (!openLog) {
+        return res.status(400).json({ error: "No active clock-in found" });
+      }
+
+      const updated = await storage.updateTimeLog(openLog.id, { clockOut: new Date() });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error clocking out:", error);
+      res.status(500).json({ error: "Failed to clock out" });
+    }
+  });
+
+  app.get("/api/time-logs", async (req: Request, res: Response) => {
+    try {
+      const filters: { employeeId?: string; storeId?: string; startDate?: string; endDate?: string } = {};
+      if (req.query.employee_id && typeof req.query.employee_id === "string") {
+        filters.employeeId = req.query.employee_id;
+      }
+      if (req.query.store_id && typeof req.query.store_id === "string") {
+        filters.storeId = req.query.store_id;
+      }
+      if (req.query.start_date && typeof req.query.start_date === "string") {
+        filters.startDate = req.query.start_date;
+      }
+      if (req.query.end_date && typeof req.query.end_date === "string") {
+        filters.endDate = req.query.end_date;
+      }
+      const logs = await storage.getTimeLogs(filters);
+      res.json(logs);
+    } catch (error) {
+      console.error("Error fetching time logs:", error);
+      res.status(500).json({ error: "Failed to fetch time logs" });
+    }
+  });
+
+  app.put("/api/time-logs/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const log = await storage.updateTimeLog(id, req.body);
+      if (!log) {
+        return res.status(404).json({ error: "Time log not found" });
+      }
+      res.json(log);
+    } catch (error) {
+      console.error("Error updating time log:", error);
+      res.status(500).json({ error: "Failed to update time log" });
+    }
+  });
+
+  app.post("/api/timesheets/generate", async (req: Request, res: Response) => {
+    try {
+      const { period_start, period_end, store_id } = req.body;
+      
+      if (!period_start || !period_end) {
+        return res.status(400).json({ error: "period_start and period_end are required" });
+      }
+
+      const logs = await storage.getTimeLogs({
+        storeId: store_id,
+        startDate: period_start,
+        endDate: period_end,
+      });
+
+      const employeeHours: Map<string, { hours: number; storeId: string | null }> = new Map();
+
+      for (const log of logs) {
+        if (log.clockIn && log.clockOut) {
+          const hours = (new Date(log.clockOut).getTime() - new Date(log.clockIn).getTime()) / (1000 * 60 * 60);
+          const existing = employeeHours.get(log.employeeId);
+          if (existing) {
+            existing.hours += hours;
+          } else {
+            employeeHours.set(log.employeeId, { hours, storeId: log.storeId });
+          }
+        }
+      }
+
+      const timesheets = [];
+      for (const [employeeId, data] of employeeHours) {
+        const sheet = await storage.createTimesheet({
+          employeeId,
+          storeId: data.storeId,
+          periodStart: period_start,
+          periodEnd: period_end,
+          totalHours: Math.round(data.hours * 100) / 100,
+          status: "PENDING",
+          managerId: null,
+          approvedAt: null,
+          notes: null,
+        });
+        timesheets.push(sheet);
+      }
+
+      res.status(201).json(timesheets);
+    } catch (error) {
+      console.error("Error generating timesheets:", error);
+      res.status(500).json({ error: "Failed to generate timesheets" });
+    }
+  });
+
+  app.get("/api/timesheets", async (req: Request, res: Response) => {
+    try {
+      const filters: { status?: string; storeId?: string; periodStart?: string; periodEnd?: string } = {};
+      if (req.query.status && typeof req.query.status === "string") {
+        filters.status = req.query.status;
+      }
+      if (req.query.store_id && typeof req.query.store_id === "string") {
+        filters.storeId = req.query.store_id;
+      }
+      if (req.query.period_start && typeof req.query.period_start === "string") {
+        filters.periodStart = req.query.period_start;
+      }
+      if (req.query.period_end && typeof req.query.period_end === "string") {
+        filters.periodEnd = req.query.period_end;
+      }
+      const sheets = await storage.getTimesheets(filters);
+      res.json(sheets);
+    } catch (error) {
+      console.error("Error fetching timesheets:", error);
+      res.status(500).json({ error: "Failed to fetch timesheets" });
+    }
+  });
+
+  app.get("/api/timesheets/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const sheet = await storage.getTimesheet(id);
+      if (!sheet) {
+        return res.status(404).json({ error: "Timesheet not found" });
+      }
+      res.json(sheet);
+    } catch (error) {
+      console.error("Error fetching timesheet:", error);
+      res.status(500).json({ error: "Failed to fetch timesheet" });
+    }
+  });
+
+  app.put("/api/timesheets/:id/approve", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { manager_id } = req.body;
+      const sheet = await storage.updateTimesheet(id, {
+        status: "APPROVED",
+        managerId: manager_id || null,
+        approvedAt: new Date(),
+      });
+      if (!sheet) {
+        return res.status(404).json({ error: "Timesheet not found" });
+      }
+      res.json(sheet);
+    } catch (error) {
+      console.error("Error approving timesheet:", error);
+      res.status(500).json({ error: "Failed to approve timesheet" });
+    }
+  });
+
+  app.put("/api/timesheets/:id/reject", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { notes } = req.body;
+      const sheet = await storage.updateTimesheet(id, {
+        status: "REJECTED",
+        notes: notes || null,
+      });
+      if (!sheet) {
+        return res.status(404).json({ error: "Timesheet not found" });
+      }
+      res.json(sheet);
+    } catch (error) {
+      console.error("Error rejecting timesheet:", error);
+      res.status(500).json({ error: "Failed to reject timesheet" });
+    }
+  });
+
+  app.post("/api/payrolls/generate", async (req: Request, res: Response) => {
+    try {
+      const { period_start, period_end } = req.body;
+      
+      if (!period_start || !period_end) {
+        return res.status(400).json({ error: "period_start and period_end are required" });
+      }
+
+      const timesheets = await storage.getTimesheets({
+        status: "APPROVED",
+        periodStart: period_start,
+        periodEnd: period_end,
+      });
+
+      const payrolls = [];
+      for (const sheet of timesheets) {
+        const employee = await storage.getEmployee(sheet.employeeId);
+        if (!employee) continue;
+
+        const rate = parseFloat(employee.rate || "0");
+        const fixedAmount = parseFloat(employee.fixedAmount || "0");
+        const hours = sheet.totalHours;
+        const calculatedAmount = hours * rate + fixedAmount;
+
+        const payroll = await storage.createPayroll({
+          employeeId: sheet.employeeId,
+          periodStart: period_start,
+          periodEnd: period_end,
+          hours,
+          rate,
+          fixedAmount,
+          calculatedAmount,
+          adjustment: 0,
+          adjustmentReason: null,
+          totalWithAdjustment: calculatedAmount,
+          cashAmount: 0,
+          bankDepositAmount: calculatedAmount,
+          taxAmount: 0,
+          superAmount: 0,
+          memo: null,
+        });
+        payrolls.push(payroll);
+      }
+
+      res.status(201).json(payrolls);
+    } catch (error) {
+      console.error("Error generating payrolls:", error);
+      res.status(500).json({ error: "Failed to generate payrolls" });
+    }
+  });
+
+  app.get("/api/payrolls", async (req: Request, res: Response) => {
+    try {
+      const filters: { employeeId?: string; periodStart?: string; periodEnd?: string } = {};
+      if (req.query.employee_id && typeof req.query.employee_id === "string") {
+        filters.employeeId = req.query.employee_id;
+      }
+      if (req.query.period_start && typeof req.query.period_start === "string") {
+        filters.periodStart = req.query.period_start;
+      }
+      if (req.query.period_end && typeof req.query.period_end === "string") {
+        filters.periodEnd = req.query.period_end;
+      }
+      const payrolls = await storage.getPayrolls(filters);
+      res.json(payrolls);
+    } catch (error) {
+      console.error("Error fetching payrolls:", error);
+      res.status(500).json({ error: "Failed to fetch payrolls" });
+    }
+  });
+
+  app.get("/api/payrolls/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const payroll = await storage.getPayroll(id);
+      if (!payroll) {
+        return res.status(404).json({ error: "Payroll not found" });
+      }
+      res.json(payroll);
+    } catch (error) {
+      console.error("Error fetching payroll:", error);
+      res.status(500).json({ error: "Failed to fetch payroll" });
+    }
+  });
+
+  app.put("/api/payrolls/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const payroll = await storage.updatePayroll(id, req.body);
+      if (!payroll) {
+        return res.status(404).json({ error: "Payroll not found" });
+      }
+      res.json(payroll);
+    } catch (error) {
+      console.error("Error updating payroll:", error);
+      res.status(500).json({ error: "Failed to update payroll" });
+    }
+  });
+
+  app.get("/api/daily-closings", async (req: Request, res: Response) => {
+    try {
+      const filters: { storeId?: string; startDate?: string; endDate?: string } = {};
+      if (req.query.store_id && typeof req.query.store_id === "string") {
+        filters.storeId = req.query.store_id;
+      }
+      if (req.query.start_date && typeof req.query.start_date === "string") {
+        filters.startDate = req.query.start_date;
+      }
+      if (req.query.end_date && typeof req.query.end_date === "string") {
+        filters.endDate = req.query.end_date;
+      }
+      const closings = await storage.getDailyClosings(filters);
+      res.json(closings);
+    } catch (error) {
+      console.error("Error fetching daily closings:", error);
+      res.status(500).json({ error: "Failed to fetch daily closings" });
+    }
+  });
+
+  app.post("/api/daily-closings", async (req: Request, res: Response) => {
+    try {
+      const parsed = insertDailyClosingSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.message });
+      }
+      const closing = await storage.createDailyClosing(parsed.data);
+      res.status(201).json(closing);
+    } catch (error) {
+      console.error("Error creating daily closing:", error);
+      res.status(500).json({ error: "Failed to create daily closing" });
+    }
+  });
+
+  app.put("/api/daily-closings/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const closing = await storage.updateDailyClosing(id, req.body);
+      if (!closing) {
+        return res.status(404).json({ error: "Daily closing not found" });
+      }
+      res.json(closing);
+    } catch (error) {
+      console.error("Error updating daily closing:", error);
+      res.status(500).json({ error: "Failed to update daily closing" });
+    }
+  });
+
+  app.get("/api/cash-sales", async (req: Request, res: Response) => {
+    try {
+      const filters: { storeId?: string; startDate?: string; endDate?: string } = {};
+      if (req.query.store_id && typeof req.query.store_id === "string") {
+        filters.storeId = req.query.store_id;
+      }
+      if (req.query.start_date && typeof req.query.start_date === "string") {
+        filters.startDate = req.query.start_date;
+      }
+      if (req.query.end_date && typeof req.query.end_date === "string") {
+        filters.endDate = req.query.end_date;
+      }
+      const details = await storage.getCashSalesDetails(filters);
+      res.json(details);
+    } catch (error) {
+      console.error("Error fetching cash sales:", error);
+      res.status(500).json({ error: "Failed to fetch cash sales" });
+    }
+  });
+
+  app.post("/api/cash-sales", async (req: Request, res: Response) => {
+    try {
+      const parsed = insertCashSalesDetailSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.message });
+      }
+      const detail = await storage.createCashSalesDetail(parsed.data);
+      res.status(201).json(detail);
+    } catch (error) {
+      console.error("Error creating cash sales:", error);
+      res.status(500).json({ error: "Failed to create cash sales" });
+    }
+  });
+
+  app.put("/api/cash-sales/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const detail = await storage.updateCashSalesDetail(id, req.body);
+      if (!detail) {
+        return res.status(404).json({ error: "Cash sales not found" });
+      }
+      res.json(detail);
+    } catch (error) {
+      console.error("Error updating cash sales:", error);
+      res.status(500).json({ error: "Failed to update cash sales" });
+    }
+  });
+
+  app.get("/api/suppliers", async (req: Request, res: Response) => {
+    try {
+      const suppliers = await storage.getSuppliers();
+      res.json(suppliers);
+    } catch (error) {
+      console.error("Error fetching suppliers:", error);
+      res.status(500).json({ error: "Failed to fetch suppliers" });
+    }
+  });
+
+  app.post("/api/suppliers", async (req: Request, res: Response) => {
+    try {
+      const parsed = insertSupplierSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.message });
+      }
+      const supplier = await storage.createSupplier(parsed.data);
+      res.status(201).json(supplier);
+    } catch (error) {
+      console.error("Error creating supplier:", error);
+      res.status(500).json({ error: "Failed to create supplier" });
+    }
+  });
+
+  app.put("/api/suppliers/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const supplier = await storage.updateSupplier(id, req.body);
+      if (!supplier) {
+        return res.status(404).json({ error: "Supplier not found" });
+      }
+      res.json(supplier);
+    } catch (error) {
+      console.error("Error updating supplier:", error);
+      res.status(500).json({ error: "Failed to update supplier" });
+    }
+  });
+
+  app.get("/api/supplier-invoices", async (req: Request, res: Response) => {
+    try {
+      const filters: { supplierId?: string; storeId?: string; status?: string; startDate?: string; endDate?: string } = {};
+      if (req.query.supplier_id && typeof req.query.supplier_id === "string") {
+        filters.supplierId = req.query.supplier_id;
+      }
+      if (req.query.store_id && typeof req.query.store_id === "string") {
+        filters.storeId = req.query.store_id;
+      }
+      if (req.query.status && typeof req.query.status === "string") {
+        filters.status = req.query.status;
+      }
+      if (req.query.start_date && typeof req.query.start_date === "string") {
+        filters.startDate = req.query.start_date;
+      }
+      if (req.query.end_date && typeof req.query.end_date === "string") {
+        filters.endDate = req.query.end_date;
+      }
+      const invoices = await storage.getSupplierInvoices(filters);
+      res.json(invoices);
+    } catch (error) {
+      console.error("Error fetching supplier invoices:", error);
+      res.status(500).json({ error: "Failed to fetch supplier invoices" });
+    }
+  });
+
+  app.post("/api/supplier-invoices", async (req: Request, res: Response) => {
+    try {
+      const parsed = insertSupplierInvoiceSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.message });
+      }
+      const invoice = await storage.createSupplierInvoice(parsed.data);
+      res.status(201).json(invoice);
+    } catch (error) {
+      console.error("Error creating supplier invoice:", error);
+      res.status(500).json({ error: "Failed to create supplier invoice" });
+    }
+  });
+
+  app.put("/api/supplier-invoices/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const invoice = await storage.updateSupplierInvoice(id, req.body);
+      if (!invoice) {
+        return res.status(404).json({ error: "Supplier invoice not found" });
+      }
+      res.json(invoice);
+    } catch (error) {
+      console.error("Error updating supplier invoice:", error);
+      res.status(500).json({ error: "Failed to update supplier invoice" });
+    }
+  });
+
+  app.get("/api/supplier-payments", async (req: Request, res: Response) => {
+    try {
+      const filters: { supplierId?: string; invoiceId?: string; startDate?: string; endDate?: string } = {};
+      if (req.query.supplier_id && typeof req.query.supplier_id === "string") {
+        filters.supplierId = req.query.supplier_id;
+      }
+      if (req.query.invoice_id && typeof req.query.invoice_id === "string") {
+        filters.invoiceId = req.query.invoice_id;
+      }
+      if (req.query.start_date && typeof req.query.start_date === "string") {
+        filters.startDate = req.query.start_date;
+      }
+      if (req.query.end_date && typeof req.query.end_date === "string") {
+        filters.endDate = req.query.end_date;
+      }
+      const payments = await storage.getSupplierPayments(filters);
+      res.json(payments);
+    } catch (error) {
+      console.error("Error fetching supplier payments:", error);
+      res.status(500).json({ error: "Failed to fetch supplier payments" });
+    }
+  });
+
+  app.post("/api/supplier-payments", async (req: Request, res: Response) => {
+    try {
+      const parsed = insertSupplierPaymentSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.message });
+      }
+      const payment = await storage.createSupplierPayment(parsed.data);
+
+      const payments = await storage.getSupplierPayments({ invoiceId: parsed.data.invoiceId });
+      const totalPaid = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+      
+      const invoice = await storage.getSupplierInvoice(parsed.data.invoiceId);
+      if (invoice) {
+        const newStatus = totalPaid >= invoice.amount ? "PAID" : "PARTIAL";
+        await storage.updateSupplierInvoice(invoice.id, { status: newStatus });
+      }
+
+      res.status(201).json(payment);
+    } catch (error) {
+      console.error("Error creating supplier payment:", error);
+      res.status(500).json({ error: "Failed to create supplier payment" });
     }
   });
 
