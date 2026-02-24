@@ -1,154 +1,52 @@
 # Staff Manager - Multi-Store Business Management System
 
 ## Overview
-A comprehensive full-stack web application for multi-store businesses to manage hiring, employee onboarding, rostering, time tracking, payroll, cash management, and supplier invoices. Features separate admin PC interface and mobile interface for on-site data entry.
+This project aims to develop an integrated staff management system for multi-store food and retail businesses based in Australia. It digitalizes the entire operational process, from recruitment and onboarding to work schedules, timekeeping, payroll, daily cash reconciliation, and supplier invoice management. Administrators will use a desktop interface, while on-site staff will utilize a mobile interface for tasks like interviews, clocking in/out, and daily closing procedures. The vision is to streamline operations, reduce manual errors, and provide real-time insights into store performance and staff management, enhancing efficiency and scalability for businesses.
 
-## Tech Stack
-- **Frontend**: React (Vite) with TypeScript, TailwindCSS, Shadcn UI components
-- **Backend**: Node.js with Express
-- **Database**: PostgreSQL (Drizzle ORM)
-- **Routing**: Wouter for client-side routing
-- **State Management**: TanStack Query for server state
-- **File Uploads**: Multer for handling employee document uploads
+## User Preferences
+I prefer clear and concise communication. For coding tasks, I appreciate an iterative development approach where major changes are discussed before implementation. Please ensure that all new features or modifications align with the existing architectural patterns and coding conventions. Do not modify the `vite.ts`, `drizzle.config.ts`, and `package.json` files. For all other files, I want you to make necessary changes to implement the requested features.
 
-## Application Structure
+## System Architecture
+The system is built as a Single Page Application (SPA) using React 18 with Vite and TypeScript for the frontend, and Node.js with Express for the backend API. PostgreSQL, backed by Neon, serves as the primary database, with Drizzle ORM for type-safe query building.
 
-### Two Distinct UI Groups
+### UI/UX Decisions
+- **Admin Web (`/admin/*`)**: Designed for PC desktops, featuring a fixed left sidebar based on Shadcn UI, with three navigation sections (Hiring, Operations, Finance). The main content area has a `max-width 7xl` and `p-6` padding.
+- **Mobile Web (`/m/*`)**: Optimized for smartphones, utilizing a `MobileLayout` with a simple header and back button. It features a `p-4` padded full-height layout, large touch targets, and single-column forms.
+- **Component Library**: Shadcn UI with TailwindCSS is used for consistent and responsive UI components.
+- **Icons**: `lucide-react` is used for all icons.
 
-#### Admin Web (`/admin/*`) - PC-first desktop interface
-- `/admin` - Dashboard with stats and quick actions
-- `/admin/stores` - Store management (CRUD)
-- `/admin/candidates` - Candidate interview management with detail panels
-- `/admin/employees` - Employee list with filters
-- `/admin/employees/:id` - Employee detail/edit page
-- `/admin/rosters` - Weekly roster management per store
-- `/admin/timesheets` - Timesheet generation and approval
-- `/admin/payrolls` - Payroll generation and editing
-- `/admin/cash` - Daily closing records and cash sales details
-- `/admin/suppliers` - Supplier management
-- `/admin/suppliers/invoices` - Supplier invoice and payment management
+### Technical Implementations
+- **Frontend**: React 18, Vite, TypeScript, Shadcn UI, TailwindCSS, Wouter for routing, TanStack Query v5 for server state management.
+- **Backend**: Node.js, Express for REST API endpoints.
+- **Database Interaction**: Drizzle ORM for database operations with Zod for schema validation.
+- **File Uploads**: Multer is used for handling file uploads, storing them in the `/uploads` directory.
+- **API Request Handling**: A centralized `apiRequest` function manages all HTTP requests, including JSON serialization, header settings, and error handling.
+- **State Management**: Local component state is managed with `useState`, while server state is managed with `TanStack Query`.
+- **Core Workflows**:
+    - **Hiring Flow**: From mobile interview forms to admin review, token-based onboarding, and employee registration with document uploads.
+    - **Work-to-Pay Flow**: Involves roster creation, mobile clock-in/out, timesheet generation and approval, leading to payroll calculation.
+    - **Daily Close Flow**: Mobile submission of daily sales data and cash reconciliation, followed by admin review.
+    - **Supplier Flow**: Registration of suppliers, invoice entry, and payment recording with automatic status updates.
 
-#### Mobile Web (`/m/*`) - Smartphone-optimized interface  
-- `/m/interview` - On-site candidate interview form
-- `/m/onboarding/:token` - Employee onboarding form with file uploads
-- `/m/roster` - View personal shifts for the week
-- `/m/clock` - Clock in/out functionality
-- `/m/daily-close` - Submit daily closing and cash count
+### Feature Specifications
+- **Admin Pages (11)**: Dashboard, Stores, Candidates, Employees, EmployeeDetail, Rosters, Timesheets, Payrolls, Cash, Suppliers, SupplierInvoices.
+- **Mobile Pages (5)**: Interview, Onboarding, Roster, Clock, DailyClose.
+- **Employee Management**: Comprehensive employee records, including personal, address, visa, employment, and payroll details.
+- **Roster & Time Management**: Weekly roster creation, shift assignments, and accurate clock-in/out logging.
+- **Payroll**: Automated payroll calculation based on approved timesheets, with adjustments and split payments (cash/bank).
+- **Financial Tracking**: Daily closing reports, detailed cash sales records, and supplier invoice/payment management.
 
-### Data Models (shared/schema.ts)
-- `stores` - Store locations
-- `candidates` - Interview records
-- `employees` - Employee records
-- `employeeOnboardingTokens` - Secure onboarding links
-- `employeeDocuments` - Document storage references
-- `rosterPeriods` - Weekly roster periods per store
-- `shifts` - Individual shift assignments
-- `timeLogs` - Clock in/out records
-- `timesheets` - Aggregated time records for payroll
-- `payrolls` - Payroll calculations and adjustments
-- `dailyClosings` - Daily sales closing records
-- `cashSalesDetails` - Cash counting details
-- `suppliers` - Supplier information
-- `supplierInvoices` - Invoice records from suppliers
-- `supplierPayments` - Payment records for invoices
-
-### API Endpoints
-
-#### Stores API
-- `GET /api/stores` - List all stores
-- `POST /api/stores` - Create store
-- `PUT /api/stores/:id` - Update store
-
-#### Candidates API
-- `GET /api/candidates` - List all candidates
-- `GET /api/candidates/:id` - Get candidate
-- `POST /api/candidates` - Create interview entry
-- `PUT /api/candidates/:id` - Update candidate
-- `POST /api/candidates/:id/hire` - Mark as hired, generate onboarding token
-
-#### Employees API
-- `GET /api/employees` - List with filters (?store_id, ?status, ?keyword)
-- `GET /api/employees/:id` - Get employee details
-- `PUT /api/employees/:id` - Update employee
-
-#### Roster API
-- `GET /api/roster-periods` - List roster periods
-- `POST /api/roster-periods` - Create roster period
-- `GET /api/shifts` - List shifts (filter by period, employee, date range)
-- `POST /api/shifts` - Create shift
-- `DELETE /api/shifts/:id` - Delete shift
-
-#### Time Tracking API
-- `GET /api/time-logs` - List time logs with filters
-- `POST /api/time-logs/clock-in` - Clock in
-- `POST /api/time-logs/clock-out` - Clock out
-- `GET /api/timesheets` - List timesheets
-- `POST /api/timesheets/generate` - Generate timesheets from time logs
-- `PUT /api/timesheets/:id/approve` - Approve timesheet
-- `PUT /api/timesheets/:id/reject` - Reject timesheet
-
-#### Payroll API
-- `GET /api/payrolls` - List payroll records
-- `POST /api/payrolls/generate` - Generate payrolls from approved timesheets
-- `PUT /api/payrolls/:id` - Update payroll (adjustments, cash/bank split, etc.)
-
-#### Cash Management API
-- `GET /api/daily-closings` - List daily closing records
-- `POST /api/daily-closings` - Create daily closing
-- `GET /api/cash-sales` - List cash sales details
-- `POST /api/cash-sales` - Create cash sales detail
-
-#### Supplier API
-- `GET /api/suppliers` - List suppliers
-- `POST /api/suppliers` - Create supplier
-- `PUT /api/suppliers/:id` - Update supplier
-- `GET /api/supplier-invoices` - List invoices
-- `POST /api/supplier-invoices` - Create invoice
-- `GET /api/supplier-payments` - List payments
-- `POST /api/supplier-payments` - Record payment
-
-## Key Workflows
-
-### Hiring Flow
-1. Manager conducts interview using mobile form (`/m/interview`)
-2. Admin reviews candidates and marks decision as "HIRE"
-3. System generates secure onboarding link (14-day expiry)
-4. Candidate completes onboarding form (`/m/onboarding/:token`)
-5. Employee record created with uploaded documents
-
-### Roster Management
-1. Admin selects store and week
-2. Creates roster period for the week
-3. Adds shifts for employees with start/end times and roles
-4. Employees view their shifts on mobile
-
-### Time Tracking
-1. Employees clock in/out via mobile app
-2. Admin generates timesheets for a period
-3. Admin reviews and approves/rejects timesheets
-4. Approved timesheets feed into payroll
-
-### Payroll Processing
-1. Admin generates payrolls from approved timesheets
-2. System calculates based on hours × rate
-3. Admin can add adjustments (bonus, deductions)
-4. Split amounts between cash and bank deposit
-
-### Daily Closing
-1. Staff submits daily closing via mobile with:
-   - POS sales, delivery platform amounts
-   - Float and credit amounts
-   - Cash count (notes breakdown)
-2. System calculates differences automatically
-3. Admin reviews all closings in cash management
-
-### Supplier Invoice Management
-1. Admin creates supplier and records invoices
-2. Records payments against invoices
-3. System updates invoice status (UNPAID → PARTIAL → PAID)
-
-## Development Notes
-- Frontend port: 5000
-- Uses PostgreSQL database
-- Follows Material Design principles for business productivity
-- Admin sidebar organized into: Hiring, Operations, Finance sections
+## External Dependencies
+- **Database**: PostgreSQL (Neon-backed)
+- **Frontend Framework**: React 18
+- **Build Tool**: Vite
+- **Language**: TypeScript
+- **UI Library**: Shadcn UI (with Radix primitives)
+- **Styling**: TailwindCSS
+- **Routing**: Wouter
+- **Server State Management**: TanStack Query v5
+- **Backend Framework**: Node.js, Express
+- **ORM**: Drizzle ORM
+- **Schema Validation**: Zod, drizzle-zod
+- **File Upload Middleware**: Multer
+- **Icons**: Lucide-react
