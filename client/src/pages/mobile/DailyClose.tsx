@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { MobileLayout } from "@/components/layouts/MobileLayout";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Wallet, CheckCircle2, Loader2 } from "lucide-react";
+import { Wallet, CheckCircle2, Loader2, AlertTriangle } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Store } from "@shared/schema";
 
@@ -27,12 +27,13 @@ export function MobileDailyClose() {
 
   const [closingForm, setClosingForm] = useState({
     staffNames: "",
+    previousFloat: 0,
+    salesTotal: 0,
+    cashSales: 0,
+    cashOut: 0,
+    nextFloat: 0,
     ubereatsAmount: 0,
     doordashAmount: 0,
-    menulogAmount: 0,
-    posSalesAmount: 0,
-    floatAmount: 0,
-    creditAmount: 0,
     notes: "",
   });
 
@@ -49,14 +50,17 @@ export function MobileDailyClose() {
     queryKey: ["/api/stores"],
   });
 
-  const countedAmount = 
+  const actualCashCounted =
     cashForm.note100Count * 100 +
     cashForm.note50Count * 50 +
     cashForm.note20Count * 20 +
     cashForm.note10Count * 10 +
     cashForm.note5Count * 5;
 
-  const cashDifference = countedAmount - cashForm.envelopeAmount;
+  const expectedCash = closingForm.previousFloat + closingForm.cashSales - closingForm.cashOut;
+  const differenceAmount = expectedCash - actualCashCounted;
+  const creditAmount = actualCashCounted - closingForm.nextFloat;
+  const cashDifference = actualCashCounted - cashForm.envelopeAmount;
 
   const submitMutation = useMutation({
     mutationFn: async () => {
@@ -64,13 +68,16 @@ export function MobileDailyClose() {
         storeId,
         date,
         staffNames: closingForm.staffNames || null,
+        previousFloat: closingForm.previousFloat,
+        salesTotal: closingForm.salesTotal,
+        cashSales: closingForm.cashSales,
+        cashOut: closingForm.cashOut,
+        nextFloat: closingForm.nextFloat,
+        actualCashCounted,
+        differenceAmount,
+        creditAmount,
         ubereatsAmount: closingForm.ubereatsAmount,
         doordashAmount: closingForm.doordashAmount,
-        menulogAmount: closingForm.menulogAmount,
-        posSalesAmount: closingForm.posSalesAmount,
-        floatAmount: closingForm.floatAmount,
-        creditAmount: closingForm.creditAmount,
-        differenceAmount: 0,
         notes: closingForm.notes || null,
       };
 
@@ -78,7 +85,7 @@ export function MobileDailyClose() {
         storeId,
         date,
         envelopeAmount: cashForm.envelopeAmount,
-        countedAmount,
+        countedAmount: actualCashCounted,
         note100Count: cashForm.note100Count,
         note50Count: cashForm.note50Count,
         note20Count: cashForm.note20Count,
@@ -107,12 +114,13 @@ export function MobileDailyClose() {
     setSubmitted(false);
     setClosingForm({
       staffNames: "",
+      previousFloat: 0,
+      salesTotal: 0,
+      cashSales: 0,
+      cashOut: 0,
+      nextFloat: 0,
       ubereatsAmount: 0,
       doordashAmount: 0,
-      menulogAmount: 0,
-      posSalesAmount: 0,
-      floatAmount: 0,
-      creditAmount: 0,
       notes: "",
     });
     setCashForm({
@@ -123,6 +131,10 @@ export function MobileDailyClose() {
       note10Count: 0,
       note5Count: 0,
     });
+  };
+
+  const updateClosing = (field: string, value: string) => {
+    setClosingForm({ ...closingForm, [field]: parseFloat(value) || 0 });
   };
 
   if (storesLoading) {
@@ -203,22 +215,73 @@ export function MobileDailyClose() {
         <Card>
           <CardContent className="p-4 space-y-4">
             <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
-              Sales Amounts
+              Sales & Float
             </h3>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="pos">POS Sales</Label>
+                <Label htmlFor="previousFloat">Previous Float</Label>
                 <Input
-                  id="pos"
+                  id="previousFloat"
                   type="number"
                   step="0.01"
-                  value={closingForm.posSalesAmount || ""}
-                  onChange={(e) => setClosingForm({...closingForm, posSalesAmount: parseFloat(e.target.value) || 0})}
+                  value={closingForm.previousFloat || ""}
+                  onChange={(e) => updateClosing("previousFloat", e.target.value)}
                   className="h-12 text-base"
-                  data-testid="input-pos"
+                  data-testid="input-previous-float"
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="salesTotal">Sales Total</Label>
+                <Input
+                  id="salesTotal"
+                  type="number"
+                  step="0.01"
+                  value={closingForm.salesTotal || ""}
+                  onChange={(e) => updateClosing("salesTotal", e.target.value)}
+                  className="h-12 text-base"
+                  data-testid="input-sales-total"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cashSales">Cash Sales</Label>
+                <Input
+                  id="cashSales"
+                  type="number"
+                  step="0.01"
+                  value={closingForm.cashSales || ""}
+                  onChange={(e) => updateClosing("cashSales", e.target.value)}
+                  className="h-12 text-base"
+                  data-testid="input-cash-sales"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cashOut">Cash Out</Label>
+                <Input
+                  id="cashOut"
+                  type="number"
+                  step="0.01"
+                  value={closingForm.cashOut || ""}
+                  onChange={(e) => updateClosing("cashOut", e.target.value)}
+                  className="h-12 text-base"
+                  data-testid="input-cash-out"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="nextFloat">Next Float</Label>
+                <Input
+                  id="nextFloat"
+                  type="number"
+                  step="0.01"
+                  value={closingForm.nextFloat || ""}
+                  onChange={(e) => updateClosing("nextFloat", e.target.value)}
+                  className="h-12 text-base"
+                  data-testid="input-next-float"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="ubereats">UberEats</Label>
                 <Input
@@ -226,7 +289,7 @@ export function MobileDailyClose() {
                   type="number"
                   step="0.01"
                   value={closingForm.ubereatsAmount || ""}
-                  onChange={(e) => setClosingForm({...closingForm, ubereatsAmount: parseFloat(e.target.value) || 0})}
+                  onChange={(e) => updateClosing("ubereatsAmount", e.target.value)}
                   className="h-12 text-base"
                   data-testid="input-ubereats"
                 />
@@ -238,48 +301,9 @@ export function MobileDailyClose() {
                   type="number"
                   step="0.01"
                   value={closingForm.doordashAmount || ""}
-                  onChange={(e) => setClosingForm({...closingForm, doordashAmount: parseFloat(e.target.value) || 0})}
+                  onChange={(e) => updateClosing("doordashAmount", e.target.value)}
                   className="h-12 text-base"
                   data-testid="input-doordash"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="menulog">Menulog</Label>
-                <Input
-                  id="menulog"
-                  type="number"
-                  step="0.01"
-                  value={closingForm.menulogAmount || ""}
-                  onChange={(e) => setClosingForm({...closingForm, menulogAmount: parseFloat(e.target.value) || 0})}
-                  className="h-12 text-base"
-                  data-testid="input-menulog"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="float">Float</Label>
-                <Input
-                  id="float"
-                  type="number"
-                  step="0.01"
-                  value={closingForm.floatAmount || ""}
-                  onChange={(e) => setClosingForm({...closingForm, floatAmount: parseFloat(e.target.value) || 0})}
-                  className="h-12 text-base"
-                  data-testid="input-float"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="credit">Credit</Label>
-                <Input
-                  id="credit"
-                  type="number"
-                  step="0.01"
-                  value={closingForm.creditAmount || ""}
-                  onChange={(e) => setClosingForm({...closingForm, creditAmount: parseFloat(e.target.value) || 0})}
-                  className="h-12 text-base"
-                  data-testid="input-credit"
                 />
               </div>
             </div>
@@ -358,16 +382,70 @@ export function MobileDailyClose() {
               </div>
             </div>
 
-            <div className="p-3 bg-muted rounded-lg space-y-2">
-              <div className="flex justify-between">
+            <div className="p-3 bg-muted rounded-md space-y-2">
+              <div className="flex flex-wrap justify-between gap-1">
                 <span className="text-muted-foreground">Counted Total:</span>
-                <span className="font-bold">${countedAmount.toFixed(2)}</span>
+                <span className="font-bold" data-testid="text-counted-total">${actualCashCounted.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Difference:</span>
-                <span className={`font-bold ${cashDifference !== 0 ? (cashDifference > 0 ? 'text-green-600' : 'text-red-600') : ''}`}>
+              <div className="flex flex-wrap justify-between gap-1">
+                <span className="text-muted-foreground">Envelope Diff:</span>
+                <span className={`font-bold ${cashDifference !== 0 ? (cashDifference > 0 ? 'text-green-600' : 'text-red-600') : ''}`} data-testid="text-envelope-diff">
                   {cashDifference > 0 ? '+' : ''}${cashDifference.toFixed(2)}
                 </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
+              Reconciliation Summary
+            </h3>
+
+            <div className="p-4 bg-muted rounded-md space-y-3">
+              <div className="flex flex-wrap justify-between gap-1 text-sm">
+                <span className="text-muted-foreground">Expected Cash</span>
+                <span className="text-xs text-muted-foreground">(Prev Float + Cash Sales - Cash Out)</span>
+              </div>
+              <div className="flex flex-wrap justify-between gap-1">
+                <span className="font-semibold">Expected Cash:</span>
+                <span className="font-bold text-lg" data-testid="text-expected-cash">${expectedCash.toFixed(2)}</span>
+              </div>
+
+              <div className="border-t pt-3">
+                <div className="flex flex-wrap justify-between gap-1 items-center">
+                  <span className="font-semibold">Difference:</span>
+                  <span
+                    className={`font-bold text-lg ${differenceAmount > 0 ? 'text-red-600' : differenceAmount < 0 ? 'text-green-600' : ''}`}
+                    data-testid="text-difference"
+                  >
+                    ${differenceAmount.toFixed(2)}
+                    {differenceAmount > 0 && (
+                      <span className="text-xs ml-1">(Shortage)</span>
+                    )}
+                    {differenceAmount < 0 && (
+                      <span className="text-xs ml-1">(Overage)</span>
+                    )}
+                  </span>
+                </div>
+                {differenceAmount > 0 && (
+                  <div className="flex items-center gap-1 mt-1 text-red-600 text-xs">
+                    <AlertTriangle className="w-3 h-3" />
+                    <span>Cash shortage detected</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t pt-3">
+                <div className="flex flex-wrap justify-between gap-1 text-sm">
+                  <span className="text-muted-foreground">Credit to Owner</span>
+                  <span className="text-xs text-muted-foreground">(Actual Cash - Next Float)</span>
+                </div>
+                <div className="flex flex-wrap justify-between gap-1">
+                  <span className="font-semibold">Credit Amount:</span>
+                  <span className="font-bold text-lg" data-testid="text-credit">${creditAmount.toFixed(2)}</span>
+                </div>
               </div>
             </div>
           </CardContent>

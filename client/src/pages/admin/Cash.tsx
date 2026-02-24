@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Wallet, Receipt } from "lucide-react";
+import { Wallet, Receipt, AlertTriangle } from "lucide-react";
 import type { Store, DailyClosing, CashSalesDetail } from "@shared/schema";
 
 export function AdminCash() {
@@ -150,33 +150,52 @@ export function AdminCash() {
                           <TableHead>Date</TableHead>
                           <TableHead>Store</TableHead>
                           <TableHead>Staff</TableHead>
-                          <TableHead className="text-right">POS</TableHead>
+                          <TableHead className="text-right">Prev Float</TableHead>
+                          <TableHead className="text-right">Sales Total</TableHead>
+                          <TableHead className="text-right">Cash Sales</TableHead>
+                          <TableHead className="text-right">Cash Out</TableHead>
+                          <TableHead className="text-right">Actual Cash</TableHead>
+                          <TableHead className="text-right">Next Float</TableHead>
                           <TableHead className="text-right">UberEats</TableHead>
                           <TableHead className="text-right">DoorDash</TableHead>
-                          <TableHead className="text-right">Menulog</TableHead>
-                          <TableHead className="text-right">Float</TableHead>
+                          <TableHead className="text-right">Difference</TableHead>
                           <TableHead className="text-right">Credit</TableHead>
-                          <TableHead className="text-right">Diff</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {dailyClosings.map(closing => (
-                          <TableRow key={closing.id} data-testid={`row-closing-${closing.id}`}>
-                            <TableCell>{closing.date}</TableCell>
-                            <TableCell>{getStoreName(closing.storeId)}</TableCell>
-                            <TableCell className="max-w-[150px] truncate">{closing.staffNames || "-"}</TableCell>
-                            <TableCell className="text-right">${closing.posSalesAmount.toFixed(2)}</TableCell>
-                            <TableCell className="text-right">${closing.ubereatsAmount.toFixed(2)}</TableCell>
-                            <TableCell className="text-right">${closing.doordashAmount.toFixed(2)}</TableCell>
-                            <TableCell className="text-right">${closing.menulogAmount.toFixed(2)}</TableCell>
-                            <TableCell className="text-right">${closing.floatAmount.toFixed(2)}</TableCell>
-                            <TableCell className="text-right">${closing.creditAmount.toFixed(2)}</TableCell>
-                            <TableCell className={`text-right font-medium ${closing.differenceAmount !== 0 ? (closing.differenceAmount > 0 ? 'text-green-600' : 'text-red-600') : ''}`}>
-                              {closing.differenceAmount !== 0 && (closing.differenceAmount > 0 ? '+' : '')}
-                              ${closing.differenceAmount.toFixed(2)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                        {dailyClosings.map(closing => {
+                          const isShortage = closing.differenceAmount > 0;
+                          return (
+                            <TableRow key={closing.id} data-testid={`row-closing-${closing.id}`}>
+                              <TableCell>{closing.date}</TableCell>
+                              <TableCell>{getStoreName(closing.storeId)}</TableCell>
+                              <TableCell className="max-w-[150px] truncate">{closing.staffNames || "-"}</TableCell>
+                              <TableCell className="text-right">${closing.previousFloat.toFixed(2)}</TableCell>
+                              <TableCell className="text-right">${closing.salesTotal.toFixed(2)}</TableCell>
+                              <TableCell className="text-right">${closing.cashSales.toFixed(2)}</TableCell>
+                              <TableCell className="text-right">${closing.cashOut.toFixed(2)}</TableCell>
+                              <TableCell className="text-right">${closing.actualCashCounted.toFixed(2)}</TableCell>
+                              <TableCell className="text-right">${closing.nextFloat.toFixed(2)}</TableCell>
+                              <TableCell className="text-right">${closing.ubereatsAmount.toFixed(2)}</TableCell>
+                              <TableCell className="text-right">${closing.doordashAmount.toFixed(2)}</TableCell>
+                              <TableCell className="text-right" data-testid={`text-diff-${closing.id}`}>
+                                {isShortage ? (
+                                  <span className="inline-flex items-center gap-1 text-red-600 font-bold">
+                                    <AlertTriangle className="w-3 h-3" />
+                                    ${closing.differenceAmount.toFixed(2)}
+                                  </span>
+                                ) : closing.differenceAmount < 0 ? (
+                                  <span className="text-green-600 font-medium">
+                                    -${Math.abs(closing.differenceAmount).toFixed(2)}
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground">$0.00</span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right font-medium">${closing.creditAmount.toFixed(2)}</TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </div>
