@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Store, Users, UserCheck, ClipboardList } from "lucide-react";
+import { Store, Users, UserCheck, ClipboardList, Smartphone, FileText, CalendarDays, Clock, Wallet, ExternalLink } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
 import type { Store as StoreType, Candidate, Employee } from "@shared/schema";
 
@@ -140,22 +141,56 @@ export function AdminDashboard() {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Mobile Access</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Smartphone className="h-4 w-4" />
+                Mobile Forms
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               <Link href="/m/interview">
                 <div className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer" data-testid="link-mobile-interview">
                   <ClipboardList className="h-5 w-5 text-primary" />
-                  <div>
-                    <p className="font-medium">Mobile Interview Form</p>
-                    <p className="text-sm text-muted-foreground">Conduct on-site candidate interviews</p>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium">Interview Form</p>
+                    <p className="text-sm text-muted-foreground">On-site candidate interviews</p>
                   </div>
+                  <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 </div>
               </Link>
-              <div className="p-3 rounded-md bg-muted/50">
+              <Link href="/m/roster">
+                <div className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer" data-testid="link-mobile-roster">
+                  <CalendarDays className="h-5 w-5 text-primary" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium">Roster View</p>
+                    <p className="text-sm text-muted-foreground">Staff shift schedule</p>
+                  </div>
+                  <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                </div>
+              </Link>
+              <Link href="/m/clock">
+                <div className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer" data-testid="link-mobile-clock">
+                  <Clock className="h-5 w-5 text-primary" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium">Clock In/Out</p>
+                    <p className="text-sm text-muted-foreground">Attendance tracking</p>
+                  </div>
+                  <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                </div>
+              </Link>
+              <Link href="/m/daily-close">
+                <div className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer" data-testid="link-mobile-daily-close">
+                  <Wallet className="h-5 w-5 text-primary" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium">Daily Close</p>
+                    <p className="text-sm text-muted-foreground">End-of-day cash reconciliation</p>
+                  </div>
+                  <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                </div>
+              </Link>
+              <div className="p-3 rounded-md bg-muted/50 mt-3">
                 <p className="text-sm text-muted-foreground">
-                  Access the mobile interview form at <code className="text-xs bg-muted px-1 py-0.5 rounded">/m/interview</code> on your phone for on-site candidate interviews.
+                  Share these links with staff for mobile access. Onboarding links are generated per candidate from the Candidates page.
                 </p>
               </div>
             </CardContent>
