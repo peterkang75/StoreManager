@@ -503,7 +503,7 @@ export function AdminFinance() {
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2 flex-wrap">
                 <Bell className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                <span>Pending Bank Transfers ({pendingBankTransfers.length})</span>
+                <span>은행 이체 대기 ({pendingBankTransfers.length}건)</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -516,10 +516,10 @@ export function AdminFinance() {
                   <div className="flex items-center gap-2 text-sm flex-wrap">
                     <Bell className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
                     <span className="text-amber-900 dark:text-amber-200">
-                      Don't forget to transfer{" "}
+                      <strong>{getStoreName(tx.fromStoreId)}</strong>에서{" "}
+                      <strong>{getStoreName(tx.toStoreId)}</strong>로{" "}
                       <strong className="font-mono">${tx.bankAmount.toFixed(2)}</strong>{" "}
-                      from <strong>{getStoreName(tx.fromStoreId)}</strong>{" "}
-                      to <strong>{getStoreName(tx.toStoreId)}</strong>
+                      이체 필요
                     </span>
                     <span className="text-xs text-muted-foreground">
                       ({formatDateTime(tx.executedAt as unknown as string)})
@@ -533,7 +533,7 @@ export function AdminFinance() {
                     data-testid={`button-settle-${tx.id}`}
                   >
                     <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                    Mark as Transferred
+                    이체 완료
                   </Button>
                 </div>
               ))}
