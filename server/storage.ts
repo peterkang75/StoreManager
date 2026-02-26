@@ -15,8 +15,14 @@ import {
   type SupplierInvoice, type InsertSupplierInvoice,
   type SupplierPayment, type InsertSupplierPayment,
   type FinancialTransaction, type InsertFinancialTransaction,
+  stores, candidates, employees, employeeOnboardingTokens, employeeDocuments,
+  rosterPeriods, shifts, timeLogs, timesheets, payrolls,
+  dailyClosings, cashSalesDetails, suppliers, supplierInvoices, supplierPayments,
+  financialTransactions,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
+import { db } from "./db";
+import { eq, desc, and, gte, lte, or, ilike, isNull, asc } from "drizzle-orm";
 
 export interface IStorage {
   getStores(): Promise<Store[]>;
@@ -793,8 +799,394 @@ export class MemStorage implements IStorage {
   }
 }
 
+export class DatabaseStorage implements IStorage {
+  async getStores(): Promise<Store[]> {
+    return db.select().from(stores).orderBy(desc(stores.createdAt));
+  }
+
+  async getStore(id: string): Promise<Store | undefined> {
+    const [store] = await db.select().from(stores).where(eq(stores.id, id));
+    return store;
+  }
+
+  async createStore(data: InsertStore): Promise<Store> {
+    const [store] = await db.insert(stores).values(data).returning();
+    return store;
+  }
+
+  async updateStore(id: string, data: Partial<InsertStore>): Promise<Store | undefined> {
+    const [store] = await db.update(stores).set({ ...data, updatedAt: new Date() }).where(eq(stores.id, id)).returning();
+    return store;
+  }
+
+  async getCandidates(): Promise<Candidate[]> {
+    return db.select().from(candidates).orderBy(desc(candidates.createdAt));
+  }
+
+  async getCandidate(id: string): Promise<Candidate | undefined> {
+    const [c] = await db.select().from(candidates).where(eq(candidates.id, id));
+    return c;
+  }
+
+  async createCandidate(data: InsertCandidate): Promise<Candidate> {
+    const [c] = await db.insert(candidates).values(data).returning();
+    return c;
+  }
+
+  async updateCandidate(id: string, data: Partial<InsertCandidate>): Promise<Candidate | undefined> {
+    const [c] = await db.update(candidates).set({ ...data, updatedAt: new Date() }).where(eq(candidates.id, id)).returning();
+    return c;
+  }
+
+  async getEmployees(filters?: { storeId?: string; status?: string; keyword?: string }): Promise<Employee[]> {
+    const conditions = [];
+    if (filters?.storeId) conditions.push(eq(employees.storeId, filters.storeId));
+    if (filters?.status) conditions.push(eq(employees.status, filters.status));
+    if (filters?.keyword) {
+      const kw = `%${filters.keyword}%`;
+      conditions.push(or(
+        ilike(employees.firstName, kw),
+        ilike(employees.lastName, kw),
+        ilike(employees.nickname, kw),
+        ilike(employees.email, kw),
+      ));
+    }
+    const query = db.select().from(employees).orderBy(desc(employees.createdAt));
+    if (conditions.length > 0) {
+      return query.where(and(...conditions));
+    }
+    return query;
+  }
+
+  async getEmployee(id: string): Promise<Employee | undefined> {
+    const [e] = await db.select().from(employees).where(eq(employees.id, id));
+    return e;
+  }
+
+  async createEmployee(data: InsertEmployee): Promise<Employee> {
+    const [e] = await db.insert(employees).values(data).returning();
+    return e;
+  }
+
+  async updateEmployee(id: string, data: Partial<InsertEmployee>): Promise<Employee | undefined> {
+    const [e] = await db.update(employees).set({ ...data, updatedAt: new Date() }).where(eq(employees.id, id)).returning();
+    return e;
+  }
+
+  async createOnboardingToken(data: InsertOnboardingToken): Promise<OnboardingToken> {
+    const [t] = await db.insert(employeeOnboardingTokens).values(data).returning();
+    return t;
+  }
+
+  async getOnboardingToken(token: string): Promise<OnboardingToken | undefined> {
+    const [t] = await db.select().from(employeeOnboardingTokens).where(eq(employeeOnboardingTokens.token, token));
+    return t;
+  }
+
+  async markOnboardingTokenUsed(token: string, employeeId: string): Promise<OnboardingToken | undefined> {
+    const [t] = await db.update(employeeOnboardingTokens)
+      .set({ employeeId, usedAt: new Date() })
+      .where(eq(employeeOnboardingTokens.token, token))
+      .returning();
+    return t;
+  }
+
+  async createEmployeeDocument(data: InsertEmployeeDocument): Promise<EmployeeDocument> {
+    const [doc] = await db.insert(employeeDocuments).values(data).returning();
+    return doc;
+  }
+
+  async getEmployeeDocuments(employeeId: string): Promise<EmployeeDocument[]> {
+    return db.select().from(employeeDocuments).where(eq(employeeDocuments.employeeId, employeeId));
+  }
+
+  async getRosterPeriods(filters?: { storeId?: string }): Promise<RosterPeriod[]> {
+    if (filters?.storeId) {
+      return db.select().from(rosterPeriods).where(eq(rosterPeriods.storeId, filters.storeId)).orderBy(desc(rosterPeriods.startDate));
+    }
+    return db.select().from(rosterPeriods).orderBy(desc(rosterPeriods.startDate));
+  }
+
+  async getRosterPeriod(id: string): Promise<RosterPeriod | undefined> {
+    const [p] = await db.select().from(rosterPeriods).where(eq(rosterPeriods.id, id));
+    return p;
+  }
+
+  async createRosterPeriod(data: InsertRosterPeriod): Promise<RosterPeriod> {
+    const [p] = await db.insert(rosterPeriods).values(data).returning();
+    return p;
+  }
+
+  async updateRosterPeriod(id: string, data: Partial<InsertRosterPeriod>): Promise<RosterPeriod | undefined> {
+    const [p] = await db.update(rosterPeriods).set({ ...data, updatedAt: new Date() }).where(eq(rosterPeriods.id, id)).returning();
+    return p;
+  }
+
+  async getShifts(filters?: { storeId?: string; periodId?: string; employeeId?: string; startDate?: string; endDate?: string }): Promise<Shift[]> {
+    const conditions = [];
+    if (filters?.storeId) conditions.push(eq(shifts.storeId, filters.storeId));
+    if (filters?.periodId) conditions.push(eq(shifts.rosterPeriodId, filters.periodId));
+    if (filters?.employeeId) conditions.push(eq(shifts.employeeId, filters.employeeId));
+    if (filters?.startDate) conditions.push(gte(shifts.date, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(shifts.date, filters.endDate));
+    const query = db.select().from(shifts).orderBy(asc(shifts.date), asc(shifts.startTime));
+    if (conditions.length > 0) {
+      return query.where(and(...conditions));
+    }
+    return query;
+  }
+
+  async getShift(id: string): Promise<Shift | undefined> {
+    const [s] = await db.select().from(shifts).where(eq(shifts.id, id));
+    return s;
+  }
+
+  async createShift(data: InsertShift): Promise<Shift> {
+    const [s] = await db.insert(shifts).values(data).returning();
+    return s;
+  }
+
+  async updateShift(id: string, data: Partial<InsertShift>): Promise<Shift | undefined> {
+    const [s] = await db.update(shifts).set({ ...data, updatedAt: new Date() }).where(eq(shifts.id, id)).returning();
+    return s;
+  }
+
+  async deleteShift(id: string): Promise<boolean> {
+    const result = await db.delete(shifts).where(eq(shifts.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getTimeLogs(filters?: { employeeId?: string; storeId?: string; startDate?: string; endDate?: string }): Promise<TimeLog[]> {
+    const conditions = [];
+    if (filters?.employeeId) conditions.push(eq(timeLogs.employeeId, filters.employeeId));
+    if (filters?.storeId) conditions.push(eq(timeLogs.storeId, filters.storeId));
+    if (filters?.startDate) conditions.push(gte(timeLogs.clockIn, new Date(filters.startDate)));
+    if (filters?.endDate) {
+      const end = new Date(filters.endDate);
+      end.setHours(23, 59, 59, 999);
+      conditions.push(lte(timeLogs.clockIn, end));
+    }
+    const query = db.select().from(timeLogs).orderBy(desc(timeLogs.clockIn));
+    if (conditions.length > 0) {
+      return query.where(and(...conditions));
+    }
+    return query;
+  }
+
+  async getTimeLog(id: string): Promise<TimeLog | undefined> {
+    const [l] = await db.select().from(timeLogs).where(eq(timeLogs.id, id));
+    return l;
+  }
+
+  async createTimeLog(data: InsertTimeLog): Promise<TimeLog> {
+    const [l] = await db.insert(timeLogs).values(data).returning();
+    return l;
+  }
+
+  async updateTimeLog(id: string, data: Partial<InsertTimeLog>): Promise<TimeLog | undefined> {
+    const [l] = await db.update(timeLogs).set({ ...data, updatedAt: new Date() }).where(eq(timeLogs.id, id)).returning();
+    return l;
+  }
+
+  async getOpenTimeLog(employeeId: string, storeId: string): Promise<TimeLog | undefined> {
+    const [l] = await db.select().from(timeLogs).where(
+      and(eq(timeLogs.employeeId, employeeId), eq(timeLogs.storeId, storeId), isNull(timeLogs.clockOut))
+    );
+    return l;
+  }
+
+  async getTimesheets(filters?: { status?: string; storeId?: string; periodStart?: string; periodEnd?: string }): Promise<Timesheet[]> {
+    const conditions = [];
+    if (filters?.status) conditions.push(eq(timesheets.status, filters.status));
+    if (filters?.storeId) conditions.push(eq(timesheets.storeId, filters.storeId));
+    if (filters?.periodStart) conditions.push(gte(timesheets.periodStart, filters.periodStart));
+    if (filters?.periodEnd) conditions.push(lte(timesheets.periodEnd, filters.periodEnd));
+    const query = db.select().from(timesheets).orderBy(desc(timesheets.periodStart));
+    if (conditions.length > 0) {
+      return query.where(and(...conditions));
+    }
+    return query;
+  }
+
+  async getTimesheet(id: string): Promise<Timesheet | undefined> {
+    const [s] = await db.select().from(timesheets).where(eq(timesheets.id, id));
+    return s;
+  }
+
+  async createTimesheet(data: InsertTimesheet): Promise<Timesheet> {
+    const [s] = await db.insert(timesheets).values(data).returning();
+    return s;
+  }
+
+  async updateTimesheet(id: string, data: Partial<InsertTimesheet>): Promise<Timesheet | undefined> {
+    const [s] = await db.update(timesheets).set({ ...data, updatedAt: new Date() }).where(eq(timesheets.id, id)).returning();
+    return s;
+  }
+
+  async getPayrolls(filters?: { employeeId?: string; periodStart?: string; periodEnd?: string }): Promise<Payroll[]> {
+    const conditions = [];
+    if (filters?.employeeId) conditions.push(eq(payrolls.employeeId, filters.employeeId));
+    if (filters?.periodStart) conditions.push(gte(payrolls.periodStart, filters.periodStart));
+    if (filters?.periodEnd) conditions.push(lte(payrolls.periodEnd, filters.periodEnd));
+    const query = db.select().from(payrolls).orderBy(desc(payrolls.periodStart));
+    if (conditions.length > 0) {
+      return query.where(and(...conditions));
+    }
+    return query;
+  }
+
+  async getPayroll(id: string): Promise<Payroll | undefined> {
+    const [p] = await db.select().from(payrolls).where(eq(payrolls.id, id));
+    return p;
+  }
+
+  async createPayroll(data: InsertPayroll): Promise<Payroll> {
+    const [p] = await db.insert(payrolls).values(data).returning();
+    return p;
+  }
+
+  async updatePayroll(id: string, data: Partial<InsertPayroll>): Promise<Payroll | undefined> {
+    const [p] = await db.update(payrolls).set({ ...data, updatedAt: new Date() }).where(eq(payrolls.id, id)).returning();
+    return p;
+  }
+
+  async getDailyClosings(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<DailyClosing[]> {
+    const conditions = [];
+    if (filters?.storeId) conditions.push(eq(dailyClosings.storeId, filters.storeId));
+    if (filters?.startDate) conditions.push(gte(dailyClosings.date, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(dailyClosings.date, filters.endDate));
+    const query = db.select().from(dailyClosings).orderBy(desc(dailyClosings.date));
+    if (conditions.length > 0) {
+      return query.where(and(...conditions));
+    }
+    return query;
+  }
+
+  async getDailyClosing(id: string): Promise<DailyClosing | undefined> {
+    const [c] = await db.select().from(dailyClosings).where(eq(dailyClosings.id, id));
+    return c;
+  }
+
+  async createDailyClosing(data: InsertDailyClosing): Promise<DailyClosing> {
+    const [c] = await db.insert(dailyClosings).values(data).returning();
+    return c;
+  }
+
+  async updateDailyClosing(id: string, data: Partial<InsertDailyClosing>): Promise<DailyClosing | undefined> {
+    const [c] = await db.update(dailyClosings).set({ ...data, updatedAt: new Date() }).where(eq(dailyClosings.id, id)).returning();
+    return c;
+  }
+
+  async getCashSalesDetails(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<CashSalesDetail[]> {
+    const conditions = [];
+    if (filters?.storeId) conditions.push(eq(cashSalesDetails.storeId, filters.storeId));
+    if (filters?.startDate) conditions.push(gte(cashSalesDetails.date, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(cashSalesDetails.date, filters.endDate));
+    const query = db.select().from(cashSalesDetails).orderBy(desc(cashSalesDetails.date));
+    if (conditions.length > 0) {
+      return query.where(and(...conditions));
+    }
+    return query;
+  }
+
+  async getCashSalesDetail(id: string): Promise<CashSalesDetail | undefined> {
+    const [d] = await db.select().from(cashSalesDetails).where(eq(cashSalesDetails.id, id));
+    return d;
+  }
+
+  async createCashSalesDetail(data: InsertCashSalesDetail): Promise<CashSalesDetail> {
+    const [d] = await db.insert(cashSalesDetails).values(data).returning();
+    return d;
+  }
+
+  async updateCashSalesDetail(id: string, data: Partial<InsertCashSalesDetail>): Promise<CashSalesDetail | undefined> {
+    const [d] = await db.update(cashSalesDetails).set({ ...data, updatedAt: new Date() }).where(eq(cashSalesDetails.id, id)).returning();
+    return d;
+  }
+
+  async getSuppliers(): Promise<Supplier[]> {
+    return db.select().from(suppliers).orderBy(asc(suppliers.name));
+  }
+
+  async getSupplier(id: string): Promise<Supplier | undefined> {
+    const [s] = await db.select().from(suppliers).where(eq(suppliers.id, id));
+    return s;
+  }
+
+  async createSupplier(data: InsertSupplier): Promise<Supplier> {
+    const [s] = await db.insert(suppliers).values(data).returning();
+    return s;
+  }
+
+  async updateSupplier(id: string, data: Partial<InsertSupplier>): Promise<Supplier | undefined> {
+    const [s] = await db.update(suppliers).set({ ...data, updatedAt: new Date() }).where(eq(suppliers.id, id)).returning();
+    return s;
+  }
+
+  async getSupplierInvoices(filters?: { supplierId?: string; storeId?: string; status?: string; startDate?: string; endDate?: string }): Promise<SupplierInvoice[]> {
+    const conditions = [];
+    if (filters?.supplierId) conditions.push(eq(supplierInvoices.supplierId, filters.supplierId));
+    if (filters?.storeId) conditions.push(eq(supplierInvoices.storeId, filters.storeId));
+    if (filters?.status) conditions.push(eq(supplierInvoices.status, filters.status));
+    if (filters?.startDate) conditions.push(gte(supplierInvoices.invoiceDate, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(supplierInvoices.invoiceDate, filters.endDate));
+    const query = db.select().from(supplierInvoices).orderBy(desc(supplierInvoices.invoiceDate));
+    if (conditions.length > 0) {
+      return query.where(and(...conditions));
+    }
+    return query;
+  }
+
+  async getSupplierInvoice(id: string): Promise<SupplierInvoice | undefined> {
+    const [i] = await db.select().from(supplierInvoices).where(eq(supplierInvoices.id, id));
+    return i;
+  }
+
+  async createSupplierInvoice(data: InsertSupplierInvoice): Promise<SupplierInvoice> {
+    const [i] = await db.insert(supplierInvoices).values(data).returning();
+    return i;
+  }
+
+  async updateSupplierInvoice(id: string, data: Partial<InsertSupplierInvoice>): Promise<SupplierInvoice | undefined> {
+    const [i] = await db.update(supplierInvoices).set({ ...data, updatedAt: new Date() }).where(eq(supplierInvoices.id, id)).returning();
+    return i;
+  }
+
+  async getSupplierPayments(filters?: { supplierId?: string; invoiceId?: string; startDate?: string; endDate?: string }): Promise<SupplierPayment[]> {
+    const conditions = [];
+    if (filters?.supplierId) conditions.push(eq(supplierPayments.supplierId, filters.supplierId));
+    if (filters?.invoiceId) conditions.push(eq(supplierPayments.invoiceId, filters.invoiceId));
+    if (filters?.startDate) conditions.push(gte(supplierPayments.paymentDate, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(supplierPayments.paymentDate, filters.endDate));
+    const query = db.select().from(supplierPayments).orderBy(desc(supplierPayments.paymentDate));
+    if (conditions.length > 0) {
+      return query.where(and(...conditions));
+    }
+    return query;
+  }
+
+  async getSupplierPayment(id: string): Promise<SupplierPayment | undefined> {
+    const [p] = await db.select().from(supplierPayments).where(eq(supplierPayments.id, id));
+    return p;
+  }
+
+  async createSupplierPayment(data: InsertSupplierPayment): Promise<SupplierPayment> {
+    const [p] = await db.insert(supplierPayments).values(data).returning();
+    return p;
+  }
+
+  async getFinancialTransactions(limit: number = 30): Promise<FinancialTransaction[]> {
+    return db.select().from(financialTransactions).orderBy(desc(financialTransactions.executedAt)).limit(limit);
+  }
+
+  async createFinancialTransaction(data: InsertFinancialTransaction): Promise<FinancialTransaction> {
+    const [tx] = await db.insert(financialTransactions).values(data).returning();
+    return tx;
+  }
+}
+
 export function generateSecureToken(): string {
   return randomBytes(32).toString('hex');
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
