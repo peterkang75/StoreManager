@@ -102,6 +102,7 @@ export interface IStorage {
   createFinancialTransaction(tx: InsertFinancialTransaction): Promise<FinancialTransaction>;
   deleteFinancialTransaction(id: string): Promise<boolean>;
   settleFinancialTransaction(id: string): Promise<boolean>;
+  createFinancialTransactionWithDate(tx: InsertFinancialTransaction, executedAt: Date): Promise<FinancialTransaction>;
 }
 
 export class MemStorage implements IStorage {
@@ -810,6 +811,24 @@ export class MemStorage implements IStorage {
     tx.isBankSettled = true;
     return true;
   }
+
+  async createFinancialTransactionWithDate(insertTx: InsertFinancialTransaction, executedAt: Date): Promise<FinancialTransaction> {
+    const id = randomUUID();
+    const tx: FinancialTransaction = {
+      id,
+      transactionType: insertTx.transactionType,
+      fromStoreId: insertTx.fromStoreId ?? null,
+      toStoreId: insertTx.toStoreId ?? null,
+      cashAmount: insertTx.cashAmount ?? 0,
+      bankAmount: insertTx.bankAmount ?? 0,
+      referenceNote: insertTx.referenceNote ?? null,
+      executedAt,
+      executedBy: insertTx.executedBy ?? null,
+      isBankSettled: insertTx.isBankSettled ?? false,
+    };
+    this.financialTransactions.set(id, tx);
+    return tx;
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1209,6 +1228,11 @@ export class DatabaseStorage implements IStorage {
       .where(eq(financialTransactions.id, id))
       .returning();
     return result.length > 0;
+  }
+
+  async createFinancialTransactionWithDate(data: InsertFinancialTransaction, executedAt: Date): Promise<FinancialTransaction> {
+    const [tx] = await db.insert(financialTransactions).values({ ...data, executedAt }).returning();
+    return tx;
   }
 }
 

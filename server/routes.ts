@@ -1141,6 +1141,94 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/finance/import-legacy-converts", upload.single("file"), async (req: Request, res: Response) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const fileContent = fs.readFileSync(req.file.path, "utf-8");
+      const lines = fileContent.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+
+      if (lines.length < 2) {
+        return res.status(400).json({ error: "File is empty or has no data rows" });
+      }
+
+      const allStores = await storage.getStores();
+      const storeByName = new Map<string, string>();
+      allStores.forEach(s => storeByName.set(s.name.toLowerCase(), s.id));
+
+      const results = { imported: 0, skipped: 0, errors: [] as string[] };
+
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split("\t");
+        if (cols.length < 6) {
+          results.skipped++;
+          continue;
+        }
+
+        const description = cols[1]?.trim() || "";
+        if (!description.startsWith("CVT. From ")) {
+          results.skipped++;
+          continue;
+        }
+
+        const fromStoreName = description.replace("CVT. From ", "").trim();
+        const toStoreName = (cols[2]?.trim()) || "";
+        const amount = Math.abs(parseFloat(cols[3]?.trim() || "0"));
+        const executedDateStr = (cols[5]?.trim()) || "";
+
+        const fromStoreId = storeByName.get(fromStoreName.toLowerCase());
+        const toStoreId = storeByName.get(toStoreName.toLowerCase());
+
+        if (!fromStoreId) {
+          results.errors.push(`Row ${i + 1}: From store "${fromStoreName}" not found`);
+          continue;
+        }
+        if (!toStoreId) {
+          results.errors.push(`Row ${i + 1}: To store "${toStoreName}" not found`);
+          continue;
+        }
+        if (amount <= 0) {
+          results.errors.push(`Row ${i + 1}: Invalid amount`);
+          continue;
+        }
+
+        let executedAt = new Date();
+        if (executedDateStr) {
+          const parts = executedDateStr.match(/^(\d{2})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
+          if (parts) {
+            const year = 2000 + parseInt(parts[3]);
+            const month = parseInt(parts[1]) - 1;
+            const day = parseInt(parts[2]);
+            const hour = parseInt(parts[4]);
+            const min = parseInt(parts[5]);
+            const sec = parseInt(parts[6]);
+            executedAt = new Date(year, month, day, hour, min, sec);
+          }
+        }
+
+        await storage.createFinancialTransactionWithDate({
+          transactionType: "CONVERT",
+          fromStoreId,
+          toStoreId,
+          cashAmount: amount,
+          bankAmount: amount,
+          referenceNote: null,
+          executedBy: "legacy-import",
+          isBankSettled: false,
+        }, executedAt);
+        results.imported++;
+      }
+
+      fs.unlinkSync(req.file.path);
+      res.json(results);
+    } catch (error) {
+      console.error("Error importing legacy converts:", error);
+      res.status(500).json({ error: "Failed to import legacy data" });
+    }
+  });
+
   app.delete("/api/finance/transactions/:id", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
