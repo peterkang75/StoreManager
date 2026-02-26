@@ -115,7 +115,7 @@ export function AdminSupplierInvoices() {
       if (invoiceForm.amount <= 0) throw new Error("Amount must be greater than 0");
       const res = await apiRequest("POST", "/api/supplier-invoices", {
         ...invoiceForm,
-        storeId: invoiceForm.storeId || null,
+        storeId: invoiceForm.storeId === "none" ? null : (invoiceForm.storeId || null),
       });
       return res.json();
     },
@@ -253,7 +253,7 @@ export function AdminSupplierInvoices() {
                             <SelectValue placeholder="Select store" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">No store</SelectItem>
+                            <SelectItem value="none">No store</SelectItem>
                             {stores?.filter(s => s.active).map(store => (
                               <SelectItem key={store.id} value={store.id}>{store.name}</SelectItem>
                             ))}
