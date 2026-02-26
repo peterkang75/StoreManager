@@ -1,0 +1,42 @@
+Let's build the Finance module, focusing on inter-store cash flows, preventing human accounting errors, and handling complex operational scenarios (like temporary cash loans between stores that span across days).
+
+Based on the business rules, we need to implement two main concepts:
+1. "Convert" (Two-way cash/bank exchange between operating stores).
+2. "Remittance" (One-way cash transfer from an operating store to the Head Office - HO).
+
+Please implement the following in one go:
+
+1. Database Schema (`shared/schema.ts`):
+Create a new table named `financialTransactions` to handle a double-entry style ledger.
+Columns needed:
+- `id` (UUID, PK)
+- `transactionType` (Enum: "CONVERT", "REMITTANCE", "MANUAL_INCOME", "MANUAL_EXPENSE")
+- `fromStoreId` (UUID, references stores.id) - nullable for external income
+- `toStoreId` (UUID, references stores.id) - nullable for external expense
+- `cashAmount` (Real) - The actual cash moved.
+- `bankAmount` (Real) - The calculated bank equivalent (only used in CONVERT).
+- `referenceNote` (Text) - Memo for the transaction.
+- `executedAt` (Timestamp, default now)
+- `executedBy` (UUID or Text)
+
+2. Backend API (`server/routes.ts`):
+Create endpoints for these transactions:
+- `POST /api/finance/convert`: Receives `fromStoreId`, `toStoreId`, `amount`, `referenceNote`. Validation: `fromStoreId` and `toStoreId` must be different. Logic: Records a CONVERT transaction (Store A Cash -, Store B Cash +, Store A Bank +, Store B Bank -). Keep it as a single transaction record for traceability.
+- `POST /api/finance/remittance`: Receives `fromStoreId` (Operating Store), `toStoreId` (Must be HO), `amount` (Cash only), `referenceNote`. Logic: Records a REMITTANCE transaction.
+- `GET /api/finance/transactions`: Fetch recent financial transactions, ordered by `executedAt` descending (limit to the last 30 records).
+
+3. Frontend UI (`client/src/pages/admin/Finance.tsx` or similar):
+Create a dedicated "Finance / Cash Flow" page with two main sections:
+
+Section A: The Entry Form (Use Tabs)
+- Tab 1: [Convert] - Select "From Store", "To Store", "Amount", and "Memo (Reference Note)".
+- Tab 2: [Remittance (To HO)] - Locked to send cash ONLY to the "HO" store.
+- Tab 3: [Manual Entry] - For arbitrary income/expenses. *CRITICAL UX GUARDRAIL:* In this form, do NOT allow selecting another store as the source/destination. Add a clear alert banner: "⚠️ Moving cash between stores? Please use the 'Convert' tab to prevent accounting errors."
+*UX Detail:* Ensure the form clears quickly and focuses the cursor back after submission, making it easy to input multiple consecutive transactions.
+
+Section B: Recent Transactions Panel
+- Right below the form tabs, add a data table showing "Recent Financial Transactions" fetching from the new GET API.
+- Show Columns: Date/Time, Type (Badge: Convert/Remittance), From, To, Amount, and crucially, the **Reference Note**.
+- Highlight the "Reference Note" clearly. This is vital so if an admin writes "[Temp Loan - Meat to reimburse tomorrow]" during a multi-step cash move, the morning shift admin can immediately see it and process the corresponding second transaction.
+
+Please update the schema, run the DB push, and build the UI/API. Let me know when you are done.

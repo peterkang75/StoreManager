@@ -9,7 +9,8 @@ import {
   DollarSign,
   Wallet,
   Truck,
-  FileText
+  FileText,
+  ArrowLeftRight,
 } from "lucide-react";
 import {
   Sidebar,
@@ -67,6 +68,11 @@ const operationsNavItems = [
 ];
 
 const financeNavItems = [
+  {
+    title: "Cash Flow",
+    url: "/admin/finance",
+    icon: ArrowLeftRight,
+  },
   {
     title: "Cash & Close",
     url: "/admin/cash",

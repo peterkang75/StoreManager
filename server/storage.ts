@@ -14,6 +14,7 @@ import {
   type Supplier, type InsertSupplier,
   type SupplierInvoice, type InsertSupplierInvoice,
   type SupplierPayment, type InsertSupplierPayment,
+  type FinancialTransaction, type InsertFinancialTransaction,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 
@@ -90,6 +91,9 @@ export interface IStorage {
   getSupplierPayments(filters?: { supplierId?: string; invoiceId?: string; startDate?: string; endDate?: string }): Promise<SupplierPayment[]>;
   getSupplierPayment(id: string): Promise<SupplierPayment | undefined>;
   createSupplierPayment(payment: InsertSupplierPayment): Promise<SupplierPayment>;
+
+  getFinancialTransactions(limit?: number): Promise<FinancialTransaction[]>;
+  createFinancialTransaction(tx: InsertFinancialTransaction): Promise<FinancialTransaction>;
 }
 
 export class MemStorage implements IStorage {
@@ -108,6 +112,7 @@ export class MemStorage implements IStorage {
   private suppliers: Map<string, Supplier>;
   private supplierInvoices: Map<string, SupplierInvoice>;
   private supplierPayments: Map<string, SupplierPayment>;
+  private financialTransactions: Map<string, FinancialTransaction>;
 
   constructor() {
     this.stores = new Map();
@@ -125,6 +130,7 @@ export class MemStorage implements IStorage {
     this.suppliers = new Map();
     this.supplierInvoices = new Map();
     this.supplierPayments = new Map();
+    this.financialTransactions = new Map();
   }
 
   async getStores(): Promise<Store[]> {
@@ -761,6 +767,29 @@ export class MemStorage implements IStorage {
     };
     this.supplierPayments.set(id, payment);
     return payment;
+  }
+
+  async getFinancialTransactions(limit: number = 30): Promise<FinancialTransaction[]> {
+    return Array.from(this.financialTransactions.values())
+      .sort((a, b) => new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime())
+      .slice(0, limit);
+  }
+
+  async createFinancialTransaction(insertTx: InsertFinancialTransaction): Promise<FinancialTransaction> {
+    const id = randomUUID();
+    const tx: FinancialTransaction = {
+      id,
+      transactionType: insertTx.transactionType,
+      fromStoreId: insertTx.fromStoreId ?? null,
+      toStoreId: insertTx.toStoreId ?? null,
+      cashAmount: insertTx.cashAmount ?? 0,
+      bankAmount: insertTx.bankAmount ?? 0,
+      referenceNote: insertTx.referenceNote ?? null,
+      executedAt: new Date(),
+      executedBy: insertTx.executedBy ?? null,
+    };
+    this.financialTransactions.set(id, tx);
+    return tx;
   }
 }
 

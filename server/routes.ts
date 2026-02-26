@@ -15,6 +15,7 @@ import {
   insertSupplierSchema,
   insertSupplierInvoiceSchema,
   insertSupplierPaymentSchema,
+  insertFinancialTransactionSchema,
 } from "@shared/schema";
 import multer from "multer";
 import path from "path";
@@ -989,6 +990,140 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error creating supplier payment:", error);
       res.status(500).json({ error: "Failed to create supplier payment" });
+    }
+  });
+
+  app.get("/api/finance/transactions", async (req: Request, res: Response) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 30;
+      const transactions = await storage.getFinancialTransactions(limit);
+      res.json(transactions);
+    } catch (error) {
+      console.error("Error fetching financial transactions:", error);
+      res.status(500).json({ error: "Failed to fetch financial transactions" });
+    }
+  });
+
+  app.post("/api/finance/convert", async (req: Request, res: Response) => {
+    try {
+      const { fromStoreId, toStoreId, amount, referenceNote } = req.body;
+
+      if (!fromStoreId || !toStoreId || amount === undefined || amount === null) {
+        return res.status(400).json({ error: "fromStoreId, toStoreId, and amount are required" });
+      }
+
+      if (fromStoreId === toStoreId) {
+        return res.status(400).json({ error: "From and To store must be different" });
+      }
+
+      const parsedAmount = parseFloat(amount);
+      if (isNaN(parsedAmount) || parsedAmount <= 0) {
+        return res.status(400).json({ error: "Amount must be a positive number" });
+      }
+
+      const fromStore = await storage.getStore(fromStoreId);
+      const toStore = await storage.getStore(toStoreId);
+      if (!fromStore || !toStore) {
+        return res.status(404).json({ error: "One or both stores not found" });
+      }
+
+      const tx = await storage.createFinancialTransaction({
+        transactionType: "CONVERT",
+        fromStoreId,
+        toStoreId,
+        cashAmount: parsedAmount,
+        bankAmount: parsedAmount,
+        referenceNote: referenceNote || null,
+        executedBy: null,
+      });
+
+      res.status(201).json(tx);
+    } catch (error) {
+      console.error("Error creating convert transaction:", error);
+      res.status(500).json({ error: "Failed to create convert transaction" });
+    }
+  });
+
+  app.post("/api/finance/remittance", async (req: Request, res: Response) => {
+    try {
+      const { fromStoreId, toStoreId, amount, referenceNote } = req.body;
+
+      if (!fromStoreId || !toStoreId || amount === undefined || amount === null) {
+        return res.status(400).json({ error: "fromStoreId, toStoreId, and amount are required" });
+      }
+
+      const parsedAmount = parseFloat(amount);
+      if (isNaN(parsedAmount) || parsedAmount <= 0) {
+        return res.status(400).json({ error: "Amount must be a positive number" });
+      }
+
+      const fromStore = await storage.getStore(fromStoreId);
+      const toStore = await storage.getStore(toStoreId);
+      if (!fromStore || !toStore) {
+        return res.status(404).json({ error: "One or both stores not found" });
+      }
+
+      if (toStore.code.toUpperCase() !== "HO" && !toStore.name.toUpperCase().includes("HEAD OFFICE")) {
+        return res.status(400).json({ error: "Remittance destination must be the Head Office (HO) store" });
+      }
+
+      if (fromStoreId === toStoreId) {
+        return res.status(400).json({ error: "From and To store must be different" });
+      }
+
+      const tx = await storage.createFinancialTransaction({
+        transactionType: "REMITTANCE",
+        fromStoreId,
+        toStoreId,
+        cashAmount: parsedAmount,
+        bankAmount: 0,
+        referenceNote: referenceNote || null,
+        executedBy: null,
+      });
+
+      res.status(201).json(tx);
+    } catch (error) {
+      console.error("Error creating remittance:", error);
+      res.status(500).json({ error: "Failed to create remittance" });
+    }
+  });
+
+  app.post("/api/finance/manual", async (req: Request, res: Response) => {
+    try {
+      const { transactionType, storeId, amount, referenceNote } = req.body;
+
+      if (!transactionType || !storeId || amount === undefined || amount === null) {
+        return res.status(400).json({ error: "transactionType, storeId, and amount are required" });
+      }
+
+      if (transactionType !== "MANUAL_INCOME" && transactionType !== "MANUAL_EXPENSE") {
+        return res.status(400).json({ error: "transactionType must be MANUAL_INCOME or MANUAL_EXPENSE" });
+      }
+
+      const parsedAmount = parseFloat(amount);
+      if (isNaN(parsedAmount) || parsedAmount <= 0) {
+        return res.status(400).json({ error: "Amount must be a positive number" });
+      }
+
+      const store = await storage.getStore(storeId);
+      if (!store) {
+        return res.status(404).json({ error: "Store not found" });
+      }
+
+      const tx = await storage.createFinancialTransaction({
+        transactionType,
+        fromStoreId: transactionType === "MANUAL_EXPENSE" ? storeId : null,
+        toStoreId: transactionType === "MANUAL_INCOME" ? storeId : null,
+        cashAmount: parsedAmount,
+        bankAmount: 0,
+        referenceNote: referenceNote || null,
+        executedBy: null,
+      });
+
+      res.status(201).json(tx);
+    } catch (error) {
+      console.error("Error creating manual transaction:", error);
+      res.status(500).json({ error: "Failed to create manual transaction" });
     }
   });
 

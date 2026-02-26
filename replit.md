@@ -27,9 +27,10 @@ The system is built as a Single Page Application (SPA) using React 18 with Vite 
     - **Work-to-Pay Flow**: Involves roster creation, mobile clock-in/out, timesheet generation and approval, leading to payroll calculation.
     - **Daily Close Flow**: Mobile submission of daily sales data and cash reconciliation, followed by admin review.
     - **Supplier Flow**: Registration of suppliers, invoice entry, and payment recording with automatic status updates.
+    - **Finance / Cash Flow**: Inter-store cash exchanges (Convert), one-way remittance to HO, and manual income/expense entries with reference note tracking.
 
 ### Feature Specifications
-- **Admin Pages (11)**: Dashboard, Stores, Candidates, Employees, EmployeeDetail, Rosters, Timesheets, Payrolls, Cash, Suppliers, SupplierInvoices.
+- **Admin Pages (12)**: Dashboard, Stores, Candidates, Employees, EmployeeDetail, Rosters, Timesheets, Payrolls, Cash, Finance, Suppliers, SupplierInvoices.
 - **Mobile Pages (5)**: Interview, Onboarding, Roster, Clock, DailyClose.
 - **Employee Management**: Comprehensive employee records, including personal, address, visa, employment, and payroll details.
 - **Roster & Time Management**: Weekly roster creation, shift assignments, and accurate clock-in/out logging.

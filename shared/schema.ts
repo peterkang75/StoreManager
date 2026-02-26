@@ -363,6 +363,26 @@ export const insertSupplierPaymentSchema = createInsertSchema(supplierPayments).
 export type InsertSupplierPayment = z.infer<typeof insertSupplierPaymentSchema>;
 export type SupplierPayment = typeof supplierPayments.$inferSelect;
 
+export const financialTransactions = pgTable("financial_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  transactionType: text("transaction_type").notNull(),
+  fromStoreId: varchar("from_store_id").references(() => stores.id),
+  toStoreId: varchar("to_store_id").references(() => stores.id),
+  cashAmount: real("cash_amount").default(0).notNull(),
+  bankAmount: real("bank_amount").default(0).notNull(),
+  referenceNote: text("reference_note"),
+  executedAt: timestamp("executed_at").defaultNow().notNull(),
+  executedBy: text("executed_by"),
+});
+
+export const insertFinancialTransactionSchema = createInsertSchema(financialTransactions).omit({
+  id: true,
+  executedAt: true,
+});
+
+export type InsertFinancialTransaction = z.infer<typeof insertFinancialTransactionSchema>;
+export type FinancialTransaction = typeof financialTransactions.$inferSelect;
+
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
