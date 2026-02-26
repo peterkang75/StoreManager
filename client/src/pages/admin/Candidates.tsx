@@ -45,9 +45,9 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Candidate, InsertCandidate } from "@shared/schema";
 
 const hireDecisionOptions = [
-  { value: "PENDING", label: "Pending", variant: "secondary" as const },
-  { value: "HIRE", label: "Hire", variant: "default" as const },
-  { value: "REJECT", label: "Reject", variant: "destructive" as const },
+  { value: "PENDING", label: "대기", variant: "secondary" as const },
+  { value: "HIRE", label: "채용", variant: "default" as const },
+  { value: "REJECT", label: "불합격", variant: "destructive" as const },
 ];
 
 function getDecisionBadge(decision: string) {
@@ -76,10 +76,10 @@ function CandidateDetailSheet({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/candidates"] });
-      toast({ title: "Candidate updated successfully" });
+      toast({ title: "후보자가 성공적으로 업데이트되었습니다" });
     },
     onError: (error: Error) => {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
 

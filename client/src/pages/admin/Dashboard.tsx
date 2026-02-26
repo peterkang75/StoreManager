@@ -66,37 +66,37 @@ export function AdminDashboard() {
       <div className="space-y-6">
         <div>
           <h2 className="text-2xl font-bold tracking-tight" data-testid="text-welcome">
-            Welcome to Staff Manager
+            직원 관리에 오신 것을 환영합니다
           </h2>
           <p className="text-muted-foreground">
-            Manage your stores, candidates, and employees all in one place.
+            매장, 후보자, 직원을 한 곳에서 관리하세요.
           </p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <StatCard
-            title="Active Stores"
+            title="활성 매장"
             value={activeStores}
             icon={Store}
             href="/admin/stores"
             isLoading={storesLoading}
           />
           <StatCard
-            title="Pending Candidates"
+            title="대기 후보자"
             value={pendingCandidates}
             icon={Users}
             href="/admin/candidates"
             isLoading={candidatesLoading}
           />
           <StatCard
-            title="Active Employees"
+            title="활성 직원"
             value={activeEmployees}
             icon={UserCheck}
             href="/admin/employees"
             isLoading={employeesLoading}
           />
           <StatCard
-            title="Recent Hires"
+            title="최근 채용"
             value={recentHires}
             icon={ClipboardList}
             href="/admin/candidates"
