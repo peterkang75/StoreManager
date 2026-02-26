@@ -1199,8 +1199,8 @@ export async function registerRoutes(
           const parts = executedDateStr.match(/^(\d{2})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
           if (parts) {
             const year = 2000 + parseInt(parts[3]);
-            const month = parseInt(parts[1]) - 1;
-            const day = parseInt(parts[2]);
+            const day = parseInt(parts[1]);
+            const month = parseInt(parts[2]) - 1;
             const hour = parseInt(parts[4]);
             const min = parseInt(parts[5]);
             const sec = parseInt(parts[6]);
