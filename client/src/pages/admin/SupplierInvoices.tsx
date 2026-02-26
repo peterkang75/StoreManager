@@ -329,7 +329,7 @@ export function AdminSupplierInvoices() {
             {!invoices?.length ? (
               <div className="text-center py-12 text-muted-foreground">
                 <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>No invoices found</p>
+                <p>청구서가 없습니다</p>
               </div>
             ) : (
               <Table>

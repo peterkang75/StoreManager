@@ -179,7 +179,7 @@ export function AdminStores() {
           <div>
             <h2 className="text-xl font-semibold">Stores</h2>
             <p className="text-sm text-muted-foreground">
-              Manage your store locations
+              매장 위치를 관리합니다
             </p>
           </div>
           <Button onClick={() => handleOpenDialog()} data-testid="button-add-store">
@@ -201,7 +201,7 @@ export function AdminStores() {
                 <StoreIcon className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
                 <h3 className="text-lg font-medium mb-2">No stores yet</h3>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Get started by adding your first store location.
+                  첫 번째 매장을 추가하여 시작하세요.
                 </p>
                 <Button onClick={() => handleOpenDialog()} data-testid="button-add-first-store">
                   <Plus className="w-4 h-4 mr-2" />

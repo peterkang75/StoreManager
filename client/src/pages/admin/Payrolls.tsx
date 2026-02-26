@@ -171,7 +171,7 @@ export function AdminPayrolls() {
               </Button>
             </div>
             <p className="text-sm text-muted-foreground mt-2">
-              This will create payroll records for all approved timesheets in the selected period.
+              선택한 기간의 승인된 근무 기록표를 기반으로 급여 기록이 생성됩니다.
             </p>
           </CardContent>
         </Card>
@@ -210,7 +210,7 @@ export function AdminPayrolls() {
             {!payrolls?.length ? (
               <div className="text-center py-12 text-muted-foreground">
                 <DollarSign className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>No payroll records found</p>
+                <p>급여 기록이 없습니다</p>
               </div>
             ) : (
               <div className="overflow-x-auto">

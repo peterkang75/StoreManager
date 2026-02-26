@@ -69,7 +69,7 @@ export function AdminDashboard() {
             Welcome to Staff Manager
           </h2>
           <p className="text-muted-foreground">
-            Manage your stores, candidates, and employees all in one place.
+            매장, 후보자, 직원을 한 곳에서 관리하세요.
           </p>
         </div>
 
@@ -115,7 +115,7 @@ export function AdminDashboard() {
                   <Store className="h-5 w-5 text-primary" />
                   <div>
                     <p className="font-medium">Manage Stores</p>
-                    <p className="text-sm text-muted-foreground">Add or edit store locations</p>
+                    <p className="text-sm text-muted-foreground">매장 위치 추가 또는 수정</p>
                   </div>
                 </div>
               </Link>
@@ -124,7 +124,7 @@ export function AdminDashboard() {
                   <Users className="h-5 w-5 text-primary" />
                   <div>
                     <p className="font-medium">Review Candidates</p>
-                    <p className="text-sm text-muted-foreground">View and process interview results</p>
+                    <p className="text-sm text-muted-foreground">면접 결과 확인 및 처리</p>
                   </div>
                 </div>
               </Link>
@@ -133,7 +133,7 @@ export function AdminDashboard() {
                   <UserCheck className="h-5 w-5 text-primary" />
                   <div>
                     <p className="font-medium">View Employees</p>
-                    <p className="text-sm text-muted-foreground">Manage employee details and status</p>
+                    <p className="text-sm text-muted-foreground">직원 정보 및 상태 관리</p>
                   </div>
                 </div>
               </Link>
@@ -153,7 +153,7 @@ export function AdminDashboard() {
                   <ClipboardList className="h-5 w-5 text-primary" />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium">Interview Form</p>
-                    <p className="text-sm text-muted-foreground">On-site candidate interviews</p>
+                    <p className="text-sm text-muted-foreground">현장 후보자 면접</p>
                   </div>
                   <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 </div>
@@ -163,7 +163,7 @@ export function AdminDashboard() {
                   <CalendarDays className="h-5 w-5 text-primary" />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium">Roster View</p>
-                    <p className="text-sm text-muted-foreground">Staff shift schedule</p>
+                    <p className="text-sm text-muted-foreground">직원 근무 일정</p>
                   </div>
                   <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 </div>
@@ -173,7 +173,7 @@ export function AdminDashboard() {
                   <Clock className="h-5 w-5 text-primary" />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium">Clock In/Out</p>
-                    <p className="text-sm text-muted-foreground">Attendance tracking</p>
+                    <p className="text-sm text-muted-foreground">출퇴근 기록</p>
                   </div>
                   <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 </div>
@@ -183,14 +183,14 @@ export function AdminDashboard() {
                   <Wallet className="h-5 w-5 text-primary" />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium">Daily Close</p>
-                    <p className="text-sm text-muted-foreground">End-of-day cash reconciliation</p>
+                    <p className="text-sm text-muted-foreground">일일 마감 정산</p>
                   </div>
                   <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 </div>
               </Link>
               <div className="p-3 rounded-md bg-muted/50 mt-3">
                 <p className="text-sm text-muted-foreground">
-                  Share these links with staff for mobile access. Onboarding links are generated per candidate from the Candidates page.
+                  직원에게 이 링크를 공유하여 모바일로 접근할 수 있습니다. 온보딩 링크는 Candidates 페이지에서 후보자별로 생성됩니다.
                 </p>
               </div>
             </CardContent>

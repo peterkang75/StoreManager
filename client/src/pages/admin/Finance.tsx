@@ -69,7 +69,7 @@ function ConvertForm({ stores }: { stores: Store[] }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Two-way cash/bank exchange between operating stores. Store A sends cash, Store B sends equivalent bank transfer.
+        운영 매장 간 양방향 현금/은행 교환. 매장 A가 현금을 보내면, 매장 B가 동일 금액을 은행 이체로 보냅니다.
       </p>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">

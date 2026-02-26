@@ -223,7 +223,7 @@ export function AdminSuppliers() {
             {!suppliers?.length ? (
               <div className="text-center py-12 text-muted-foreground">
                 <Truck className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>No suppliers yet</p>
+                <p>등록된 거래처가 없습니다</p>
               </div>
             ) : (
               <Table>

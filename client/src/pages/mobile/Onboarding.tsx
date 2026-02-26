@@ -124,10 +124,10 @@ function SuccessScreen() {
         Onboarding Complete
       </h2>
       <p className="text-muted-foreground mb-8 max-w-sm">
-        Thank you for completing your onboarding. Your information has been submitted successfully.
+        온보딩을 완료해 주셔서 감사합니다. 정보가 성공적으로 제출되었습니다.
       </p>
       <p className="text-sm text-muted-foreground">
-        You can now close this page.
+        이제 이 페이지를 닫으셔도 됩니다.
       </p>
     </div>
   );
@@ -140,10 +140,10 @@ function InvalidTokenScreen() {
         <AlertCircle className="w-10 h-10 text-red-600 dark:text-red-400" />
       </div>
       <h2 className="text-2xl font-bold mb-2" data-testid="text-error-title">
-        Invalid or Expired Link
+        유효하지 않거나 만료된 링크
       </h2>
       <p className="text-muted-foreground max-w-sm">
-        This onboarding link is either invalid, expired, or has already been used. Please contact your manager for a new link.
+        이 온보딩 링크는 유효하지 않거나 만료되었거나 이미 사용되었습니다. 관리자에게 새 링크를 요청하세요.
       </p>
     </div>
   );

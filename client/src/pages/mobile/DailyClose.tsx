@@ -103,10 +103,10 @@ export function MobileDailyClose() {
       queryClient.invalidateQueries({ queryKey: ["/api/daily-closings"] });
       queryClient.invalidateQueries({ queryKey: ["/api/cash-sales"] });
       setSubmitted(true);
-      toast({ title: "Daily close submitted successfully!" });
+      toast({ title: "일일 마감이 성공적으로 제출되었습니다!" });
     },
     onError: () => {
-      toast({ title: "Failed to submit daily close", variant: "destructive" });
+      toast({ title: "일일 마감 제출에 실패했습니다", variant: "destructive" });
     },
   });
 
@@ -155,7 +155,7 @@ export function MobileDailyClose() {
           <CardContent className="p-8 text-center">
             <CheckCircle2 className="w-16 h-16 mx-auto mb-4 text-green-600" />
             <h2 className="text-2xl font-bold mb-2" data-testid="text-success-title">Submitted!</h2>
-            <p className="text-muted-foreground mb-6">Daily close has been recorded successfully.</p>
+            <p className="text-muted-foreground mb-6">일일 마감이 성공적으로 기록되었습니다.</p>
             <Button onClick={resetForm} className="w-full h-12" data-testid="button-new-close">
               Submit Another
             </Button>
@@ -432,7 +432,7 @@ export function MobileDailyClose() {
                 {differenceAmount > 0 && (
                   <div className="flex items-center gap-1 mt-1 text-red-600 text-xs">
                     <AlertTriangle className="w-3 h-3" />
-                    <span>Cash shortage detected</span>
+                    <span>현금 부족이 감지되었습니다</span>
                   </div>
                 )}
               </div>

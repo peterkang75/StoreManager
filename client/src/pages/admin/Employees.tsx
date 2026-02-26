@@ -72,7 +72,7 @@ export function AdminEmployees() {
           <div>
             <h2 className="text-xl font-semibold">Employees</h2>
             <p className="text-sm text-muted-foreground">
-              View and manage employee information
+              직원 정보를 확인하고 관리합니다
             </p>
           </div>
         </div>
@@ -127,8 +127,8 @@ export function AdminEmployees() {
                 <h3 className="text-lg font-medium mb-2">No employees found</h3>
                 <p className="text-sm text-muted-foreground">
                   {employees?.length === 0
-                    ? "Employees will appear here after they complete onboarding."
-                    : "Try adjusting your search or filter criteria."}
+                    ? "온보딩을 완료한 직원이 여기에 표시됩니다."
+                    : "검색어 또는 필터 조건을 조정해 보세요."}
                 </p>
               </div>
             ) : (

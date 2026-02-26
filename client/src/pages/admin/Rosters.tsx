@@ -238,12 +238,12 @@ export function AdminRosters() {
             {!selectedStore ? (
               <div className="text-center py-12 text-muted-foreground">
                 <Calendar className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>Select a store to manage rosters</p>
+                <p>매장을 선택하여 근무표를 관리하세요</p>
               </div>
             ) : !selectedPeriod ? (
               <div className="text-center py-12">
                 <Calendar className="w-12 h-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
-                <p className="text-muted-foreground mb-4">No roster period for this week</p>
+                <p className="text-muted-foreground mb-4">이번 주에 대한 근무 기간이 없습니다</p>
                 <Dialog open={showPeriodDialog} onOpenChange={setShowPeriodDialog}>
                   <DialogTrigger asChild>
                     <Button data-testid="button-create-period">
@@ -390,7 +390,7 @@ export function AdminRosters() {
                       {activeEmployees.length === 0 ? (
                         <TableRow>
                           <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
-                            No active employees for this store
+                            이 매장에 활성 직원이 없습니다
                           </TableCell>
                         </TableRow>
                       ) : (

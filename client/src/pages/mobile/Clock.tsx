@@ -59,10 +59,10 @@ export function MobileClock() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/time-logs"] });
-      toast({ title: "Clocked in successfully!" });
+      toast({ title: "출근이 기록되었습니다!" });
     },
     onError: (error: Error) => {
-      toast({ title: error.message || "Failed to clock in", variant: "destructive" });
+      toast({ title: error.message || "출근 기록에 실패했습니다", variant: "destructive" });
     },
   });
 
@@ -76,10 +76,10 @@ export function MobileClock() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/time-logs"] });
-      toast({ title: "Clocked out successfully!" });
+      toast({ title: "퇴근이 기록되었습니다!" });
     },
     onError: (error: Error) => {
-      toast({ title: error.message || "Failed to clock out", variant: "destructive" });
+      toast({ title: error.message || "퇴근 기록에 실패했습니다", variant: "destructive" });
     },
   });
 
@@ -252,7 +252,7 @@ export function MobileClock() {
         {(!employeeId || !storeId) && (
           <div className="text-center py-12 text-muted-foreground">
             <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            <p>Select your name and store to clock in/out</p>
+            <p>이름과 매장을 선택하여 출퇴근을 기록하세요</p>
           </div>
         )}
       </div>

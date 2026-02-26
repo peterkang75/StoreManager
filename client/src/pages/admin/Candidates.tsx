@@ -286,7 +286,7 @@ function OnboardingLinkDialog({
         <DialogHeader>
           <DialogTitle>Onboarding Link Generated</DialogTitle>
           <DialogDescription>
-            Share this link with the candidate to complete their onboarding. The link expires in 14 days.
+            이 링크를 후보자에게 공유하여 온보딩을 완료하세요. 링크는 14일 후 만료됩니다.
           </DialogDescription>
         </DialogHeader>
         <div className="flex items-center gap-2">
@@ -371,7 +371,7 @@ export function AdminCandidates() {
           <div>
             <h2 className="text-xl font-semibold">Candidates</h2>
             <p className="text-sm text-muted-foreground">
-              Review and manage candidate interviews
+              후보자 면접을 검토하고 관리합니다
             </p>
           </div>
         </div>
@@ -416,8 +416,8 @@ export function AdminCandidates() {
                 <h3 className="text-lg font-medium mb-2">No candidates found</h3>
                 <p className="text-sm text-muted-foreground">
                   {candidates?.length === 0
-                    ? "Candidates will appear here after conducting interviews on mobile."
-                    : "Try adjusting your search or filter criteria."}
+                    ? "모바일에서 면접을 진행하면 후보자가 여기에 표시됩니다."
+                    : "검색어 또는 필터 조건을 조정해 보세요."}
                 </p>
               </div>
             ) : (

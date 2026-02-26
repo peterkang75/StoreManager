@@ -247,7 +247,7 @@ export function AdminTimesheets() {
             {!timesheets?.length ? (
               <div className="text-center py-12 text-muted-foreground">
                 <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>No timesheets found</p>
+                <p>근무 기록표가 없습니다</p>
               </div>
             ) : (
               <Table>
@@ -342,7 +342,7 @@ export function AdminTimesheets() {
               <div>
                 <h4 className="font-medium mb-2">Time Logs</h4>
                 {!timeLogs?.length ? (
-                  <p className="text-sm text-muted-foreground">No time logs found for this period</p>
+                  <p className="text-sm text-muted-foreground">해당 기간의 출퇴근 기록이 없습니다</p>
                 ) : (
                   <Table>
                     <TableHeader>

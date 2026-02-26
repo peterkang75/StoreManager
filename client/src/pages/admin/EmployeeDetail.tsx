@@ -105,7 +105,7 @@ export function AdminEmployeeDetail() {
             <User className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium mb-2">Employee not found</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              The employee you're looking for doesn't exist.
+              찾고 있는 직원이 존재하지 않습니다.
             </p>
             <Link href="/admin/employees">
               <Button>Back to Employees</Button>
