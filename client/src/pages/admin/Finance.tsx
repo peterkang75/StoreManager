@@ -387,7 +387,7 @@ export function AdminFinance() {
   const displayCodes = ["SUSHI", "SANDWICH", "MEAT", "TRADING", "HO"];
 
   const balances = (() => {
-    if (!stores || !transactions) return [];
+    if (!stores) return [];
     const balMap = new Map<string, { cash: number; bank: number }>();
     stores.forEach((s) => {
       if (displayCodes.includes(s.code.toUpperCase())) {
@@ -395,7 +395,7 @@ export function AdminFinance() {
       }
     });
 
-    for (const tx of transactions) {
+    for (const tx of (transactions || [])) {
       if (tx.fromStoreId && balMap.has(tx.fromStoreId)) {
         const b = balMap.get(tx.fromStoreId)!;
         b.cash -= tx.cashAmount;
@@ -425,7 +425,7 @@ export function AdminFinance() {
   return (
     <AdminLayout title="Finance / Cash Flow">
       <div className="space-y-6">
-        {!storesLoading && !txLoading && balances.length > 0 && (
+        {!storesLoading && balances.length > 0 && (
           <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
             {balances.map((b) => (
               <Card key={b.code}>
