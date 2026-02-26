@@ -56,35 +56,35 @@ function StoreForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="name">매장 이름 *</Label>
+          <Label htmlFor="name">Store Name *</Label>
           <Input
             id="name"
             value={formData.name}
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            placeholder="매장 이름 입력"
+            placeholder="Enter store name"
             required
             data-testid="input-store-name"
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="code">매장 코드 *</Label>
+          <Label htmlFor="code">Store Code *</Label>
           <Input
             id="code"
             value={formData.code}
             onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
-            placeholder="예: SYD01"
+            placeholder="e.g., SYD01"
             required
             data-testid="input-store-code"
           />
         </div>
       </div>
       <div className="space-y-2">
-        <Label htmlFor="address">주소</Label>
+        <Label htmlFor="address">Address</Label>
         <Input
           id="address"
           value={formData.address ?? ""}
           onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-          placeholder="매장 주소 입력"
+          placeholder="Enter store address"
           data-testid="input-store-address"
         />
       </div>
@@ -95,15 +95,15 @@ function StoreForm({
           onCheckedChange={(checked) => setFormData({ ...formData, active: checked })}
           data-testid="switch-store-active"
         />
-        <Label htmlFor="active">매장 활성화</Label>
+        <Label htmlFor="active">Store is active</Label>
       </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel} data-testid="button-cancel">
-          취소
+          Cancel
         </Button>
         <Button type="submit" disabled={isPending} data-testid="button-save-store">
           {isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-          {store ? "매장 업데이트" : "매장 생성"}
+          {store ? "Update Store" : "Create Store"}
         </Button>
       </DialogFooter>
     </form>
@@ -127,10 +127,10 @@ export function AdminStores() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
       setDialogOpen(false);
-      toast({ title: "매장이 생성되었습니다" });
+      toast({ title: "Store created successfully" });
     },
     onError: (error: Error) => {
-      toast({ title: "오류", description: error.message, variant: "destructive" });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
 
@@ -143,10 +143,10 @@ export function AdminStores() {
       queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
       setDialogOpen(false);
       setEditingStore(undefined);
-      toast({ title: "매장이 업데이트되었습니다" });
+      toast({ title: "Store updated successfully" });
     },
     onError: (error: Error) => {
-      toast({ title: "오류", description: error.message, variant: "destructive" });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
 

@@ -28,22 +28,22 @@ import {
 
 const hiringNavItems = [
   {
-    title: "대시보드",
+    title: "Dashboard",
     url: "/admin",
     icon: LayoutDashboard,
   },
   {
-    title: "매장",
+    title: "Stores",
     url: "/admin/stores",
     icon: Store,
   },
   {
-    title: "후보자",
+    title: "Candidates",
     url: "/admin/candidates",
     icon: Users,
   },
   {
-    title: "직원",
+    title: "Employees",
     url: "/admin/employees",
     icon: UserCheck,
   },
@@ -51,17 +51,17 @@ const hiringNavItems = [
 
 const operationsNavItems = [
   {
-    title: "근무표",
+    title: "Rosters",
     url: "/admin/rosters",
     icon: Calendar,
   },
   {
-    title: "근무시간표",
+    title: "Timesheets",
     url: "/admin/timesheets",
     icon: Clock,
   },
   {
-    title: "급여",
+    title: "Payroll",
     url: "/admin/payrolls",
     icon: DollarSign,
   },
@@ -69,22 +69,22 @@ const operationsNavItems = [
 
 const financeNavItems = [
   {
-    title: "자금 흐름",
+    title: "Cash Flow",
     url: "/admin/finance",
     icon: ArrowLeftRight,
   },
   {
-    title: "현금 정산",
+    title: "Cash & Close",
     url: "/admin/cash",
     icon: Wallet,
   },
   {
-    title: "거래처",
+    title: "Suppliers",
     url: "/admin/suppliers",
     icon: Truck,
   },
   {
-    title: "청구서",
+    title: "Invoices",
     url: "/admin/suppliers/invoices",
     icon: FileText,
   },
@@ -118,7 +118,7 @@ function AdminSidebar() {
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>채용</SidebarGroupLabel>
+          <SidebarGroupLabel>Hiring</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {hiringNavItems.map((item) => (
