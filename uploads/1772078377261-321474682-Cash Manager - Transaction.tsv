@@ -1,0 +1,538 @@
+Date	Description	Shop	Amount	Memo	Executed Date	ConvertDeposited	Deposit Date	Executed By
+08/04/2025	Opening Balance	Trading	450		08/04/25 10:25:46			
+08/04/2025	Opening Balance	Sushi	1840		08/04/25 10:27:30			
+08/04/2025	Openign Balance	Meat	35		08/04/25 10:28:11			
+08/04/2025	Opening Balance	Sandwich	1000		08/04/25 10:28:58			
+08/04/25	Cash Sales	Meat	5200	31/3, 1/4, 3/4, 4/4 are merged on 3/4 envelope	08/04/25 10:34:34			
+08/04/25	Cash Sales	Sandwich	4170		08/04/25 10:43:55			
+08/04/25	Cash Sales	Sushi	6520		08/04/25 10:55:09			
+08/04/2025	Note Change	Meat	-310		08/04/25 11:02:49			
+08/04/2025	Note Change Adjustment	Meat	10		08/04/25 11:03:52			
+08/04/2025	Note Change	Trading	-50		08/04/25 11:04:39			
+08/04/2025	Note change	Meat	300		08/04/25 11:07:23			
+08/04/2025	Note Change	Trading	50		08/04/25 11:07:41			
+08/04/25	CVT. From Meat	Sandwich	515		08/04/25 11:34:40	515		
+08/04/25	CVT. To Sandwich	Meat	-515		08/04/25 11:34:40			
+08/04/2025	Cash Wage	Sandwich	-5685		08/04/2025			peter.kang@eatem.com.au
+08/04/2025	Cash Wage	Sushi	-6415		08/04/2025 11:46:16			peter.kang@eatem.com.au
+08/04/2025	Cash Wage	CK	-112.5		08/04/2025 11:49:02			peter.kang@eatem.com.au
+08/04/2025	Cash Wage	Meat	-2325		08/04/2025 11:59:16			peter.kang@eatem.com.au
+08/04/25	CVT. From Sushi	Sandwich	100		08/04/25 12:01:19	100		
+08/04/25	CVT. To Sandwich	Sushi	-100		08/04/25 12:01:19			
+08/04/2025	Cash Wage	Sandwich	-100		08/04/2025 12:01:24			peter.kang@eatem.com.au
+08/04/2025	Cash Wage	HO	-1700		08/04/2025 12:21:15			peter.kang@eatem.com.au
+08/04/25	CVT. From Sushi	Sandwich	567		08/04/25 12:22:42	567		
+08/04/25	CVT. To Sandwich	Sushi	-567		08/04/25 12:22:42			
+08/04/25	CVT. From Sushi	HO	567		08/04/25 12:43:01			
+08/04/25	CVT. To HO	Sushi	-567		08/04/25 12:43:01			
+08/04/25	CVT. From Sandwich	HO	567		08/04/25 12:43:01			
+08/04/25	CVT. To HO	Sandwich	-567		08/04/25 12:43:01			
+08/04/25	CVT. From Meat	HO	567		08/04/25 12:43:01			
+08/04/25	CVT. To HO	Meat	-567		08/04/25 12:43:01			
+08/04/2025	Karma Overpaid last week	Sandwich	248		08/04/25 13:24:09			
+11/04/25	Cash Sales	Meat	1100		11/04/25 09:43:09			
+11/04/25	CVT. From Sushi	Sandwich	11		11/04/25 14:52:51			
+11/04/25	CVT. To Sandwich	Sushi	-11		11/04/25 14:52:51			
+11/04/2025	swaraj remaining pay	Sandwich	-790		11/04/25 15:29:06			
+11/04/2025	payment to all that meat inv. AT2025-01574 and AT2025-01763	Meat			11/04/25 15:32:51			
+11/04/2025	payment to all that meat inv. AT2025-01574 and AT2025-01763	Meat	-2353.05		11/04/25 16:17:17			
+14/04/25	CVT. From Sushi	Sandwich	531		14/04/25 11:59:21	531		
+14/04/25	CVT. To Sandwich	Sushi	-531		14/04/25 11:59:21			
+14/04/25	Cash Sales	Meat	1800		14/04/25 12:02:35			
+14/04/25	Cash Sales	Trading	630		14/04/25 12:05:58			
+14/04/25	CVT. From Trading	Meat	720.2		14/04/25 12:15:43			
+14/04/25	CVT. To Meat	Trading	-720.2		14/04/25 12:15:43			
+14/04/25	CVT. From Trading	Meat	359.8		14/04/25 12:43:59			
+14/04/25	CVT. To Meat	Trading	-359.8		14/04/25 12:43:59			
+14/04/2025	All That Meat Payment. #01653, #01807 $3455 out of $5834.21	Meat	-3455		14/04/25 12:56:25			
+22/04/25	Cash Sales	Meat	3250		22/04/25 10:43:52			
+22/04/25	Cash Sales	Sandwich	4500		22/04/25 10:58:34			
+22/04/25	Cash Sales	Sushi	6660		22/04/25 11:17:33			
+22/04/2025	Cash Wage	Sushi	-4197.5		22/04/2025 11:35:43			peter.kang@eatem.com.au
+22/04/25	CVT. From Sushi	Sandwich	1418		22/04/25 11:52:32			
+22/04/25	CVT. To Sandwich	Sushi	-1418		22/04/25 11:52:32			
+22/04/2025	Cash Wage	Sandwich	-4375.5		22/04/2025 11:52:41			peter.kang@eatem.com.au
+22/04/2025	Cash Wage	Meat	-2150		22/04/2025 11:55:00			peter.kang@eatem.com.au
+22/04/25	CVT. From Sushi	HO	700		22/04/25 12:11:32			
+22/04/25	CVT. To HO	Sushi	-700		22/04/25 12:11:32			
+22/04/25	CVT. From Meat	HO	700		22/04/25 12:11:32			
+22/04/25	CVT. To HO	Meat	-700		22/04/25 12:11:32			
+22/04/25	CVT. From Sushi	Sandwich	350		22/04/25 12:12:24			
+22/04/25	CVT. To Sandwich	Sushi	-350		22/04/25 12:12:24			
+22/04/25	CVT. From Meat	Sandwich	350		22/04/25 12:12:24			
+22/04/25	CVT. To Sandwich	Meat	-350		22/04/25 12:12:24			
+22/04/25	CVT. From Sandwich	HO	700		22/04/25 12:12:59			
+22/04/25	CVT. To HO	Sandwich	-700		22/04/25 12:12:59			
+22/04/2025	Cash Wage	HO	-2100		22/04/2025 12:15:39			peter.kang@eatem.com.au
+22/04/25	CVT. From Sandwich	Sushi	270		22/04/25 14:29:34			
+22/04/25	CVT. To Sushi	Sandwich	-270		22/04/25 14:29:34			
+22/04/25	CVT. From Sandwich	Meat	400		22/04/25 14:32:43			
+22/04/25	CVT. To Meat	Sandwich	-400		22/04/25 14:32:43			
+22/04/25	CVT. From Sushi	HO	433.5		22/04/25 14:34:59			
+22/04/25	CVT. To HO	Sushi	-433.5		22/04/25 14:34:59			
+22/04/25	CVT. From Sandwich	HO	440		22/04/25 14:34:59			
+22/04/25	CVT. To HO	Sandwich	-440		22/04/25 14:34:59			
+22/04/25	CVT. From Meat	HO	426.5		22/04/25 14:34:59			
+22/04/25	CVT. To HO	Meat	-426.5		22/04/25 14:34:59			
+22/04/2025	Cash Wage	HO	-1300					
+28/04/25	Cash Sales	Meat	4000	20/04, 22/04 IN 22/04 COMBINED	28/04/25 14:31:37			
+30/04/2025	All That Meat Payment AT2025-01893 AT2025-02013	Meat	-3850		30/04/25 11:32:57			
+06/05/25	Cash Sales	Meat	3935	20/04 TO 22/04	06/05/25 13:28:07			
+06/05/25	Cash Sales	Sandwich	4580		06/05/25 13:44:33			
+06/05/25	Cash Sales	Sushi	5200		06/05/25 13:55:58			
+06/05/2025	Cash Wage	Sandwich	-4884.64		06/05/2025 14:06:42			peter.kang@eatem.com.au
+06/05/2025	Cash Wage	Sushi	-3170		06/05/2025 14:14:35			peter.kang@eatem.com.au
+06/05/2025	Cash Wage	Meat	-3920		06/05/2025 14:29:57			peter.kang@eatem.com.au
+06/05/25	CVT. From Sandwich	Sushi	70		06/05/25 14:30:27			
+06/05/25	CVT. To Sushi	Sandwich	-70		06/05/25 14:30:27			
+06/05/2025	Cash Wage	Sushi	-96		06/05/2025 14:32:58			peter.kang@eatem.com.au
+06/05/25	CVT. From Meat	Sushi	700		06/05/25 14:38:16			
+06/05/25	CVT. To Sushi	Meat	-700		06/05/25 14:38:16			
+06/05/25	CVT. From Meat	Sandwich	650		06/05/25 14:38:29			
+06/05/25	CVT. To Sandwich	Meat	-650		06/05/25 14:38:29			
+06/05/25	CVT. From Sushi	HO	700		06/05/25 14:42:54			
+06/05/25	CVT. To HO	Sushi	-700		06/05/25 14:42:54			
+06/05/25	CVT. From Sandwich	HO	700		06/05/25 14:42:54			
+06/05/25	CVT. To HO	Sandwich	-700		06/05/25 14:42:54			
+06/05/25	CVT. From Meat	HO	700		06/05/25 14:42:54			
+06/05/25	CVT. To HO	Meat	-700		06/05/25 14:42:54			
+06/05/2025	Cash Wage	HO	-2100		06/05/2025 14:43:17			peter.kang@eatem.com.au
+06/05/25	CVT. From Sushi	Meat	2000		06/05/25 15:15:09			
+06/05/25	CVT. To Meat	Sushi	-2000		06/05/25 15:15:09			
+15/05/25	Cash Sales	Meat	3000		15/05/25 09:56:10			
+15/05/2025	Unitied Meat (250331-8 250401-6 $2266.92)	Meat	-2270		15/05/25 12:55:50			
+19/05/25	Cash Sales	Meat	2400		19/05/25 09:32:53			
+19/05/25	Cash Sales	Trading	1250		19/05/25 09:34:18			
+19/05/25	CVT. From Meat	Sandwich	1200		19/05/25 09:36:33			
+19/05/25	CVT. To Sandwich	Meat	-1200		19/05/25 09:36:33			
+19/05/25	CVT. From Meat	Trading	1800		19/05/25 10:19:00			
+19/05/25	CVT. To Trading	Meat	-1800		19/05/25 10:19:00			
+19/05/2025	Shareholder Dividends	Trading	-3050		19/05/25 15:25:27			
+20/05/25	Cash Sales	Meat	300		20/05/25 14:14:16			
+20/05/25	Cash Sales	Sushi	8260		20/05/25 14:49:06			
+20/05/25	Cash Sales	Sandwich	5040		20/05/25 15:03:26			
+20/05/2025	Cash Wage	Sushi	-6056.28		20/05/2025 15:48:39			peter.kang@eatem.com.au
+20/05/25	CVT. From Sushi	Sandwich	1200		20/05/25 16:00:42			
+20/05/25	CVT. To Sandwich	Sushi	-1200		20/05/25 16:00:42			
+20/05/2025	Cash Wage	Sandwich	-7368.46		20/05/2025 16:02:29			peter.kang@eatem.com.au
+20/05/25	CVT. From Sushi	Meat	777		20/05/25 16:08:04			
+20/05/25	CVT. To Meat	Sushi	-777		20/05/25 16:08:04			
+20/05/25	CVT. From Sandwich	Meat	75		20/05/25 16:08:04			
+20/05/25	CVT. To Meat	Sandwich	-75		20/05/25 16:08:04			
+20/05/2025	Cash Wage	Meat	-2812.5		20/05/2025 16:08:57			peter.kang@eatem.com.au
+20/05/25	CVT. From Sushi	Meat	195		20/05/25 16:26:17			
+20/05/25	CVT. To Meat	Sushi	-195		20/05/25 16:26:17			
+20/05/2025	Cash Wage	HO	-3400		20/05/2025 16:56:41			peter.kang@eatem.com.au
+23/05/25	Cash Sales	Meat	1200		23/05/25 11:34:52			
+28/05/25	Cash Sales	Meat	3550		28/05/25 10:28:07			
+20/05/2025	Cash Injection	HO	3400					
+28/05/2025	Cash Injection from PK	Meat	200					
+28/05/25	CVT. From Sushi	Meat	35.72		28/05/25 10:58:25			
+28/05/25	CVT. To Meat	Sushi	-35.72		28/05/25 10:58:25			
+28/05/25	CVT. From Sandwich	Meat	4.4		28/05/25 10:58:25			
+28/05/25	CVT. To Meat	Sandwich	-4.4		28/05/25 10:58:25			
+28/05/25	CVT. From HO	Meat	1		28/05/25 10:58:25			
+28/05/25	CVT. To Meat	HO	-1		28/05/25 10:58:25			
+28/05/2025	Payment for All that meat AT2025-02728 AT2025-02843 	Meat	-3769.57		28/05/25 11:04:26			
+03/06/25	Cash Sales	Meat	2650		03/06/25 12:55:35			
+03/06/25	Cash Sales	Sandwich	5390		03/06/25 13:16:08			
+03/06/25	Cash Sales	Sushi	8320		03/06/25 13:34:05			
+03/06/2025	Cash Wage	Sushi	-6064.39		03/06/2025 13:53:18			peter.kang@eatem.com.au
+03/06/25	CVT. From Sushi	Sandwich	715		03/06/25 14:18:24			
+03/06/25	CVT. To Sandwich	Sushi	-715		03/06/25 14:18:24			
+03/06/2025	Cash Wage	Sandwich	-5103.76		03/06/2025 14:19:24			peter.kang@eatem.com.au
+03/06/2025	Cash Wage	Meat	-3825		03/06/2025 14:45:15			peter.kang@eatem.com.au
+03/06/25	CVT. From Sushi	HO	1540		03/06/25 14:45:48			
+03/06/25	CVT. To HO	Sushi	-1540		03/06/25 14:45:48			
+03/06/25	CVT. From Sandwich	HO	300		03/06/25 14:45:48			
+03/06/25	CVT. To HO	Sandwich	-300		03/06/25 14:45:48			
+03/06/25	CVT. From Meat	HO	1150		03/06/25 14:45:48			
+03/06/25	CVT. To HO	Meat	-1150		03/06/25 14:45:48			
+03/06/2025	Cash Wage	HO	-2900		03/06/2025 14:46:58			peter.kang@eatem.com.au
+06/06/25	Cash Sales	Meat	1750		06/06/25 11:10:03			
+06/06/25	CVT. From Sandwich	Meat	550		06/06/25 11:17:55			
+06/06/25	CVT. To Meat	Sandwich	-550		06/06/25 11:17:55			
+11/06/25	Cash Sales	Meat	2750		11/06/25 09:04:30			
+11/06/25	Cash Sales	Trading	970		11/06/25 09:05:12			
+11/06/2025	All that meat (AT2025-03166 $2611.11)	Meat	-2620		11/06/25 12:31:28			
+16/06/25	Cash Sales	Meat	3050		16/06/25 16:10:21			
+16/06/25	CVT. From Meat	Sandwich	1000		16/06/25 16:10:55			
+16/06/25	CVT. To Sandwich	Meat	-1000		16/06/25 16:10:55			
+17/06/25	Cash Sales	Meat	450		17/06/25 13:15:58			
+17/06/25	Cash Sales	Sandwich	5900		17/06/25 13:39:26			
+17/06/25	Cash Sales	Sushi	8060		17/06/25 14:09:39			
+17/06/2025	Cash Wage	Sandwich	-6134.7		17/06/2025 14:36:07			peter.kang@eatem.com.au
+17/06/2025	Cash Wage	Sushi	-6943.19		17/06/2025 14:46:32			peter.kang@eatem.com.au
+17/06/2025	Cash Wage	Meat	-3825		17/06/2025 14:49:36			peter.kang@eatem.com.au
+17/06/25	CVT. From Sushi	HO	900		17/06/25 14:52:49			
+17/06/25	CVT. To HO	Sushi	-900		17/06/25 14:52:49			
+17/06/25	CVT. From Sandwich	HO	900		17/06/25 14:52:49			
+17/06/25	CVT. To HO	Sandwich	-900		17/06/25 14:52:49			
+17/06/25	CVT. From Meat	HO	900		17/06/25 14:52:49			
+17/06/25	CVT. To HO	Meat	-900		17/06/25 14:52:49			
+17/06/2025	Cash Wage	HO	-2700		17/06/2025 14:53:51			peter.kang@eatem.com.au
+20/06/25	Cash Sales	Meat	1000		20/06/25 12:27:32			
+23/06/25	Cash Sales	Meat	3300		23/06/25 14:19:56			
+23/06/25	CVT. From Meat	Trading	3550		23/06/25 14:21:08			
+23/06/25	CVT. To Trading	Meat	-3550		23/06/25 14:21:08			
+23/06/25	CVT. From Trading	Meat	1345.5		23/06/25 14:35:12			
+23/06/25	CVT. To Meat	Trading	-1345.5		23/06/25 14:35:12			
+27/06/25	Cash Sales	Meat	2000		27/06/25 11:02:26			
+24/06/2025	Trading Dividand	Trading	-3174		27/06/25 11:03:49			
+27/06/25	CVT. From Meat	Trading	2000		27/06/25 11:24:51			
+27/06/25	CVT. To Trading	Meat	-2000		27/06/25 11:24:51			
+30/06/25	Cash Sales	Meat	2800		30/06/25 12:48:40			
+01/07/25	Cash Sales	Sandwich	5760		01/07/25 14:14:29			
+01/07/25	Cash Sales	Sushi	8400		01/07/25 15:08:40			
+02/07/2025	Cash Wage	Sushi	-7378.64		02/07/2025 12:18:29			peter.kang@eatem.com.au
+02/07/2025	Cash Wage	Sandwich	-5679		02/07/2025 12:20:29			peter.kang@eatem.com.au
+02/07/25	CVT. From Meat	Sandwich	810		02/07/25 12:24:45			
+02/07/25	CVT. To Sandwich	Meat	-810		02/07/25 12:24:45			
+02/07/25	CVT. From Sushi	HO	900		02/07/25 12:26:04			
+02/07/25	CVT. To HO	Sushi	-900		02/07/25 12:26:04			
+02/07/25	CVT. From Sandwich	HO	900		02/07/25 12:26:04			
+02/07/25	CVT. To HO	Sandwich	-900		02/07/25 12:26:04			
+02/07/25	CVT. From Meat	HO	900		02/07/25 12:26:04			
+02/07/25	CVT. To HO	Meat	-900		02/07/25 12:26:04			
+02/07/2025	Cash Wage	HO	-2700		02/07/2025 12:26:24			peter.kang@eatem.com.au
+02/07/25	CVT. From Sushi	Meat	160		02/07/25 12:30:04			
+02/07/25	CVT. To Meat	Sushi	-160		02/07/25 12:30:04			
+02/07/25	CVT. From Trading	Meat	500		02/07/25 12:30:04			
+02/07/25	CVT. To Meat	Trading	-500		02/07/25 12:30:04			
+02/07/2025	Cash Wage	Meat	-1750		02/07/2025 12:31:34			peter.kang@eatem.com.au
+04/07/25	Cash Sales	Meat	1750		04/07/25 11:26:40			
+04/07/25	CVT. From Trading	Meat	550		04/07/25 11:43:18			
+04/07/25	CVT. To Meat	Trading	-550		04/07/25 11:43:18			
+04/07/2025	Jeff's Cash Wage	Meat	-2300		04/07/25 11:44:07			
+09/07/25	Cash Sales	Meat	1200		09/07/25 12:50:07			
+09/07/25	CVT. From Meat	Trading	1190		09/07/25 12:50:56			
+09/07/25	CVT. To Trading	Meat	-1190		09/07/25 12:50:56			
+11/07/25	Cash Sales	Meat	1650		11/07/25 12:00:49			
+15/07/25	Cash Sales	Meat	2480		15/07/25 11:54:00			
+15/07/25	Cash Sales	Sandwich	4620		15/07/25 12:04:03			
+15/07/25	Cash Sales	Sushi	6040		15/07/25 12:59:10			
+15/07/25	CVT. From Meat	Sushi	140		15/07/25 14:23:30			
+15/07/25	CVT. To Sushi	Meat	-140		15/07/25 14:23:30			
+15/07/2025	Cash Wage	Sushi	-6355.85		15/07/2025 14:26:52			peter.kang@eatem.com.au
+15/07/2025	Cash Wage	Sandwich	-4680.34		15/07/2025 14:40:24			peter.kang@eatem.com.au
+15/07/25	CVT. From Meat	Sushi	1200		15/07/25 14:41:48			
+15/07/25	CVT. To Sushi	Meat	-1200		15/07/25 14:41:48			
+15/07/25	CVT. From Sushi	HO	1140		15/07/25 14:43:38			
+15/07/25	CVT. To HO	Sushi	-1140		15/07/25 14:43:38			
+15/07/25	CVT. From Sandwich	HO	1130		15/07/25 14:43:38			
+15/07/25	CVT. To HO	Sandwich	-1130		15/07/25 14:43:38			
+15/07/25	CVT. From Meat	HO	1130		15/07/25 14:43:38			
+15/07/25	CVT. To HO	Meat	-1130		15/07/25 14:43:38			
+15/07/2025	Cash Wage	HO	-3400		15/07/2025 14:57:21			peter.kang@eatem.com.au
+15/07/25	CVT. From HO	Meat	80		15/07/25 14:58:05			
+15/07/25	CVT. To Meat	HO	-80		15/07/25 14:58:05			
+15/07/2025	Cash Wage	Meat	-1750		15/07/2025 14:58:22			peter.kang@eatem.com.au
+15/07/25	CVT. From Trading	Sandwich	1185		15/07/25 16:05:32			
+15/07/25	CVT. To Sandwich	Trading	-1185		15/07/25 16:05:32			
+18/07/25	Cash Sales	Meat	1150		18/07/25 12:30:33			
+21/07/25	Cash Sales	Meat	1480		21/07/25 13:21:15			
+28/07/25	CVT. From Meat	Sandwich	2630		28/07/25 11:02:40			
+28/07/25	CVT. To Sandwich	Meat	-2630		28/07/25 11:02:40			
+28/07/25	Cash Sales	Meat	4600		28/07/25 11:15:18			
+28/07/25	CVT. From Meat	Trading	1400		28/07/25 11:15:43			
+28/07/25	CVT. To Trading	Meat	-1400		28/07/25 11:15:43			
+28/07/25	CVT. From Sandwich	Meat	500		28/07/25 15:49:33			
+28/07/25	CVT. To Meat	Sandwich	-500		28/07/25 15:49:33			
+29/07/25	Cash Sales	Sandwich	5860		29/07/25 11:25:02			
+29/07/25	Cash Sales	Sushi	5350		29/07/25 11:44:30			
+29/07/2025	Cash Wage	Sushi	-5337.61		29/07/2025 12:03:24			peter.kang@eatem.com.au
+29/07/2025	Cash Wage	Sandwich	-4992.56		29/07/2025 12:08:52			peter.kang@eatem.com.au
+29/07/2025	Cash Wage	Meat	-1587.5		29/07/2025 12:10:06			peter.kang@eatem.com.au
+29/07/25	CVT. From Sandwich	HO	1700		29/07/25 12:21:09			
+29/07/25	CVT. To HO	Sandwich	-1700		29/07/25 12:21:09			
+29/07/25	CVT. From Meat	HO	1700		29/07/25 12:21:09			
+29/07/25	CVT. To HO	Meat	-1700		29/07/25 12:21:09			
+29/07/2025	Cash Wage	HO	-3400		29/07/2025 12:21:28			peter.kang@eatem.com.au
+30/07/25	Cash Sales	Trading	1820		30/07/25 11:45:59			
+30/07/25	Cash Sales	Meat	500		30/07/25 11:46:50			
+30/07/25	CVT. From Meat	Sandwich	700		30/07/25 11:53:55			
+30/07/25	CVT. To Sandwich	Meat	-700		30/07/25 11:53:55			
+30/07/25	CVT. From Sushi	Trading	60		30/07/25 11:54:38			
+30/07/25	CVT. To Trading	Sushi	-60		30/07/25 11:54:38			
+30/07/2025	Wage Adjustment	Sandwich	-1999.64		30/07/25 11:55:33			
+04/08/25	Cash Sales	Meat	2650		04/08/25 11:22:16			
+04/08/2025	Jung Mo Wage	Meat	-2650		04/08/25 11:43:30			
+04/08/2025	Trading Profit to shareholders	Trading	-4200		04/08/25 11:44:36			
+11/08/25	Cash Sales	Meat	3450		11/08/25 12:21:36			
+11/08/25	CVT. From Meat	Sandwich	3200		11/08/25 12:23:09			
+11/08/25	CVT. To Sandwich	Meat	-3200		11/08/25 12:23:09			
+12/08/25	Cash Sales	Sandwich	6115		12/08/25 12:11:04			
+12/08/25	Cash Sales	Sushi	9290		12/08/25 12:43:43			
+12/08/2025	Cash Wage	Sushi	-7660.74		12/08/2025 13:59:12			peter.kang@eatem.com.au
+12/08/2025	Cash Wage	Sandwich	-5914.06		12/08/2025 14:12:21			peter.kang@eatem.com.au
+12/08/25	CVT. From Sandwich	Meat	700		12/08/25 14:14:10			
+12/08/25	CVT. To Meat	Sandwich	-700		12/08/25 14:14:10			
+12/08/25	CVT. From Sushi	HO	1135		12/08/25 14:15:23			
+12/08/25	CVT. To HO	Sushi	-1135		12/08/25 14:15:23			
+12/08/25	CVT. From Sandwich	HO	1135		12/08/25 14:15:23			
+12/08/25	CVT. To HO	Sandwich	-1135		12/08/25 14:15:23			
+12/08/25	CVT. From Meat	HO	1135		12/08/25 14:15:23			
+12/08/25	CVT. To HO	Meat	-1135		12/08/25 14:15:23			
+12/08/2025	Cash Wage	HO	-3400		12/08/2025 14:15:41			peter.kang@eatem.com.au
+12/08/25	CVT. From Sushi	Meat	180		12/08/25 14:17:36			
+12/08/25	CVT. To Meat	Sushi	-180		12/08/25 14:17:36			
+12/08/25	CVT. From Sandwich	Meat	1500		12/08/25 14:17:36			
+12/08/25	CVT. To Meat	Sandwich	-1500		12/08/25 14:17:36			
+12/08/25	CVT. From HO	Meat	5		12/08/25 14:17:56			
+12/08/25	CVT. To Meat	HO	-5		12/08/25 14:17:56			
+12/08/2025	Cash Wage	Meat	-1712.5		12/08/2025 14:18:18			peter.kang@eatem.com.au
+15/08/25	Cash Sales	Meat	1390		15/08/25 11:30:00			
+18/08/25	Cash Sales	Meat	1450		18/08/25 14:27:21			
+18/08/25	CVT. From Meat	Sandwich	2400		18/08/25 14:29:03			
+18/08/25	CVT. To Sandwich	Meat	-2400		18/08/25 14:29:03			
+22/08/25	CVT. From Sandwich	Meat	1200		22/08/25 09:59:22			
+22/08/25	CVT. To Meat	Sandwich	-1200		22/08/25 09:59:22			
+13/08/2025	Jeff Wage	Meat	-1600		22/08/25 09:59:41			
+22/08/25	Cash Sales	Meat	1650		22/08/25 10:02:36			
+22/08/25	CVT. From Meat	Sandwich	1690		22/08/25 11:14:47			
+22/08/25	CVT. To Sandwich	Meat	-1690		22/08/25 11:14:47			
+26/08/25	Cash Sales	Meat	2050		26/08/25 12:17:29			
+26/08/25	Cash Sales	Sushi	7690		26/08/25 13:14:32			
+26/08/25	Cash Sales	Sandwich	5515		26/08/25 13:39:37			
+26/08/2025	Cash Wage	Sandwich	-5676.66		26/08/2025 13:52:10			peter.kang@eatem.com.au
+26/08/2025	Cash Wage	Sushi	-7124.5		26/08/2025 13:59:29			peter.kang@eatem.com.au
+26/08/2025	Cash Wage	Meat	-1750		26/08/2025 14:00:00			peter.kang@eatem.com.au
+26/08/25	CVT. From Sandwich	Sushi	810		26/08/25 14:03:20			
+26/08/25	CVT. To Sushi	Sandwich	-810		26/08/25 14:03:20			
+26/08/25	CVT. From Sushi	HO	1700		26/08/25 14:04:16			
+26/08/25	CVT. To HO	Sushi	-1700		26/08/25 14:04:16			
+26/08/25	CVT. From Sandwich	HO	1700		26/08/25 14:04:16			
+26/08/25	CVT. To HO	Sandwich	-1700		26/08/25 14:04:16			
+26/08/2025	Cash Wage	HO	-3400		26/08/2025 14:04:39			peter.kang@eatem.com.au
+29/08/25	Cash Sales	Meat	800		29/08/25 10:08:09			
+01/09/25	Cash Sales	Trading	840		01/09/25 16:12:36			
+01/09/25	Cash Sales	Meat	1500		01/09/25 16:15:44			
+01/09/25	CVT. From Meat	Sandwich	2600		01/09/25 16:16:01			
+01/09/25	CVT. To Sandwich	Meat	-2600		01/09/25 16:16:01			
+08/09/25	Cash Sales	Meat	2000		08/09/25 12:14:29			
+09/09/25	Cash Sales	Meat	200		09/09/25 09:49:44			
+09/09/25	Cash Sales	Sushi	8710		09/09/25 10:20:57			
+09/09/25	Cash Sales	Sandwich	5700		09/09/25 10:43:51			
+10/09/2025	Cash Wage	Sushi	-6974.65		10/09/2025 10:08:23			peter.kang@eatem.com.au
+10/09/2025	Cash Wage	Sandwich	-7586.91		10/09/2025 10:36:53			peter.kang@eatem.com.au
+10/09/25	CVT. From Sushi	HO	1740		10/09/25 10:42:49			
+10/09/25	CVT. To HO	Sushi	-1740		10/09/25 10:42:49			
+10/09/25	CVT. From Sandwich	HO	997.37		10/09/25 10:42:49			
+10/09/25	CVT. To HO	Sandwich	-997.37		10/09/25 10:42:49			
+10/09/25	CVT. From Meat	HO	670		10/09/25 10:42:49			
+10/09/25	CVT. To HO	Meat	-670		10/09/25 10:42:49			
+10/09/2025	Cash Wage	HO	-3400		10/09/2025 10:43:20			peter.kang@eatem.com.au
+10/09/25	CVT. From Trading	Meat	20		10/09/25 10:45:00			
+10/09/25	CVT. To Meat	Trading	-20		10/09/25 10:45:00			
+10/09/2025	Cash Wage	Meat	-1550		10/09/2025 10:45:16			peter.kang@eatem.com.au
+12/09/25	Cash Sales	Meat	1400		12/09/25 11:03:31			
+12/09/25	Cash Sales	Trading	1470		12/09/25 11:04:43			
+12/09/2025	Adjustment 	Trading	-760.8					
+12/09/25	CVT. From Sushi	Meat	0.43		12/09/25 11:25:05			
+12/09/25	CVT. To Meat	Sushi	-0.43		12/09/25 11:25:05			
+12/09/25	CVT. From Trading	Meat	1564.7		12/09/25 11:25:05			
+12/09/25	CVT. To Meat	Trading	-1564.7		12/09/25 11:25:05			
+12/09/25	CVT. From HO	Meat	17.37		12/09/25 11:25:05			
+12/09/25	CVT. To Meat	HO	-17.37		12/09/25 11:25:05			
+12/09/2025	Adjustment 	Meat	-112.5					
+12/09/2025	Jeff Wage	Meat	-2300		12/09/25 11:29:47			
+12/09/25	CVT. From Meat	Sandwich	570		12/09/25 11:30:20			
+12/09/25	CVT. To Sandwich	Meat	-570		12/09/25 11:30:20			
+12/09/25	CVT. From Sandwich	Meat	290		12/09/25 16:50:35			
+12/09/25	CVT. To Meat	Sandwich	-290		12/09/25 16:50:35			
+12/09/2025	Jeff wage (Missed lastweek)	Meat	-290		12/09/25 16:51:56			
+15/09/25	Cash Sales	Meat	2100		15/09/25 09:54:40			
+15/09/25	Cash Sales	Trading	420		15/09/25 10:06:56			
+15/09/25	CVT. From Meat	Sandwich	2100		15/09/25 12:30:18			
+15/09/25	CVT. To Sandwich	Meat	-2100		15/09/25 12:30:18			
+19/09/25	Cash Sales	Meat	1850		19/09/25 13:53:41			
+19/09/25	Cash Sales	Trading	825		19/09/25 13:55:09			
+22/09/25	CVT. From Meat	Sandwich	1850		22/09/25 16:29:37			
+22/09/25	CVT. To Sandwich	Meat	-1850		22/09/25 16:29:37			
+23/09/25	Cash Sales	Trading	3310		23/09/25 13:16:19			
+23/09/25	Cash Sales	Meat	910		23/09/25 13:19:18			
+23/09/2025	Cash Sales	Sushi	7640		23/09/25 14:09:15			
+23/09/2025	Cash Sales	Sandwich	5510		23/09/25 14:10:28			
+24/09/2025	Cash Wage	Sushi	-7068.25		24/09/2025 10:20:59			peter.kang@eatem.com.au
+24/09/25	CVT. From Sandwich	Sushi	500		24/09/25 10:21:50			
+24/09/25	CVT. To Sushi	Sandwich	-500		24/09/25 10:21:50			
+25/09/2025	Cash Wage	Sandwich	-7491.64		25/09/2025 15:25:39			peter.kang@eatem.com.au
+25/09/25	CVT. From Trading	Meat	870		25/09/25 15:27:30			
+25/09/25	CVT. To Meat	Trading	-870		25/09/25 15:27:30			
+25/09/2025	Cash Wage	Meat	-1775		25/09/2025 15:27:46			peter.kang@eatem.com.au
+25/09/25	CVT. From Trading	Sushi	600		25/09/25 15:30:20			
+25/09/25	CVT. To Sushi	Trading	-600		25/09/25 15:30:20			
+25/09/25	CVT. From Sushi	HO	600		25/09/25 15:33:08			
+25/09/25	CVT. To HO	Sushi	-600		25/09/25 15:33:08			
+25/09/25	CVT. From Sandwich	HO	1700		25/09/25 15:33:08			
+25/09/25	CVT. To HO	Sandwich	-1700		25/09/25 15:33:08			
+25/09/2025	Cash Wage	HO	-2300		25/09/2025 15:33:49			peter.kang@eatem.com.au
+25/09/25	Cash Sales	Trading	1415		25/09/25 15:35:17			
+25/09/2025	Corey wage back for Payslip	Meat	600		25/09/25 16:56:31			
+26/09/25	Cash Sales	Meat	850		26/09/25 14:34:49			
+26/09/25	Cash Sales	Trading	640		26/09/25 14:35:30			
+26/09/25	CVT. From Trading	Meat	345		26/09/25 15:58:08			
+26/09/25	CVT. To Meat	Trading	-345		26/09/25 15:58:08			
+26/09/2025	Jeff Cash Wage	Meat	-1800		26/09/25 16:02:34			
+07/10/25	Cash Sales	Trading	1900		07/10/25 18:09:54			
+07/10/25	Cash Sales	Sandwich	3400		07/10/25 18:10:38			
+07/10/25	Cash Sales	Sushi	6470		07/10/25 18:39:35			
+07/10/25	Cash Sales	Trading	485		07/10/25 18:42:39			
+07/10/25	Cash Sales	Sandwich	4700		07/10/25 19:24:13			
+07/10/2025	Cash Wage	Sushi	-5810.91		07/10/2025 20:35:46			peter.kang@eatem.com.au
+07/10/2025	Cash Wage	Sandwich	-5452.17		07/10/2025 20:45:29			peter.kang@eatem.com.au
+07/10/25	CVT. From Sushi	HO	1700		07/10/25 20:46:06			
+07/10/25	CVT. To HO	Sushi	-1700		07/10/25 20:46:06			
+07/10/25	CVT. From Sandwich	HO	1700		07/10/25 20:46:06			
+07/10/25	CVT. To HO	Sandwich	-1700		07/10/25 20:46:06			
+07/10/2025	Cash Wage	HO	-3400		07/10/2025 20:46:23			peter.kang@eatem.com.au
+07/10/25	CVT. From Sandwich	Trading	990		07/10/25 21:29:33			
+07/10/25	CVT. To Trading	Sandwich	-990		07/10/25 21:29:33			
+08/10/2025	Profit Sharing	Trading	-8170		08/10/25 18:05:44			
+22/10/25	Cash Sales	Sandwich	4850	 	22/10/25 12:58:57			
+22/10/25	Cash Sales	Sushi	7160		22/10/25 13:37:45			
+22/10/25	CVT. From Sushi	Sandwich	849.55		22/10/25 13:46:24			
+22/10/25	CVT. To Sandwich	Sushi	-849.55		22/10/25 13:46:24			
+22/10/2025	Cash Wage	Sandwich	-5705.74		22/10/2025 13:46:55			peter.kang@eatem.com.au
+22/10/2025	Cash Wage	Sushi	-6341		22/10/2025 14:06:35			peter.kang@eatem.com.au
+22/10/2025	Adjustment 		112.21					
+22/10/2025	Adjustment 		0.29					
+22/10/2025	Adjustment 	sushi	-0.29					
+27/10/2025	Sandwich Cash Convert	Sandwich	2500		27/10/25 14:35:58			
+27/10/2025	Trading Sales	Trading	790		27/10/25 14:36:19			
+03/11/2025	Meat Sales	Meat	3500		03/11/25 18:59:43			
+03/11/25	CVT. From Meat	Sushi	1500		03/11/25 19:00:06			
+03/11/25	CVT. To Sushi	Meat	-1500		03/11/25 19:00:06			
+03/11/2025	Trading income	Trading	500		03/11/25 19:00:38			
+03/11/25	CVT. From Meat	Sandwich	2000		03/11/25 19:01:08			
+03/11/25	CVT. To Sandwich	Meat	-2000		03/11/25 19:01:08			
+04/11/25	Cash Sales	Sushi	8165		04/11/25 13:06:54			
+04/11/25	Cash Sales	Sandwich	5165		04/11/25 13:38:50			
+04/11/2025	Cash Wage	Sushi	-6723.84		04/11/2025 15:55:24			peter.kang@eatem.com.au
+04/11/2025	Cash Wage	Sandwich	-6648.56		04/11/2025 16:05:29			peter.kang@eatem.com.au
+04/11/25	CVT. From Sushi	HO	1700		04/11/25 16:40:46			
+04/11/25	CVT. To HO	Sushi	-1700		04/11/25 16:40:46			
+04/11/25	CVT. From Sandwich	HO	1700		04/11/25 16:40:46			
+04/11/25	CVT. To HO	Sandwich	-1700		04/11/25 16:40:46			
+04/11/2025	Cash Wage	HO	-3400		04/11/2025 16:41:37			peter.kang@eatem.com.au
+18/11/2025	Convert from Meat	Sandwich	3000		18/11/25 15:57:52			
+18/11/2025	Convert from Meat	Sushi	2500		18/11/25 15:58:13			
+18/11/2025	Trading Sales	Trading	250		18/11/25 15:59:14			
+18/11/25	Cash Sales	Sandwich	4900		18/11/25 16:35:56			
+18/11/25	Cash Sales	Sushi	8310		18/11/25 17:58:58			
+19/11/2025	Cash Wage	Sushi	-7470		19/11/2025 18:15:23			peter.kang@eatem.com.au
+19/11/2025	Cash Wage	Sandwich	-5147.66		19/11/2025 18:22:28			peter.kang@eatem.com.au
+19/11/25	CVT. From Sushi	HO	1700		19/11/25 18:22:53			
+19/11/25	CVT. To HO	Sushi	-1700		19/11/25 18:22:53			
+19/11/25	CVT. From Sandwich	HO	1700		19/11/25 18:22:53			
+19/11/25	CVT. To HO	Sandwich	-1700		19/11/25 18:22:53			
+19/11/2025	Cash Wage	HO	-3400		19/11/2025 18:24:02			peter.kang@eatem.com.au
+02/12/25	Cash Sales	Sandwich	4200		02/12/25 16:15:29			
+02/12/2025	Cash Sales	Meat	3500		02/12/25 16:15:54			
+02/12/25	CVT. From Meat	Sandwich	1500		02/12/25 16:16:14			
+02/12/25	CVT. To Sandwich	Meat	-1500		02/12/25 16:16:14			
+02/12/25	CVT. From Meat	Sushi	2000		02/12/25 16:16:31			
+02/12/25	CVT. To Sushi	Meat	-2000		02/12/25 16:16:31			
+02/12/25	Cash Sales	Sushi	7125		02/12/25 16:38:58			
+02/12/2025	Cash Wage	Sushi	-6177.44		02/12/2025 16:49:58			peter.kang@eatem.com.au
+02/12/2025	Cash Wage	Sandwich	-5955.57		02/12/2025 16:54:35			peter.kang@eatem.com.au
+02/12/25	CVT. From Sushi	HO	1700		02/12/25 16:54:56			
+02/12/25	CVT. To HO	Sushi	-1700		02/12/25 16:54:56			
+02/12/25	CVT. From Sandwich	HO	1700		02/12/25 16:54:56			
+02/12/25	CVT. To HO	Sandwich	-1700		02/12/25 16:54:56			
+02/12/2025	Director profit share_ Sue	Sushi	-700		02/12/25 16:55:58			
+02/12/2025	Cash Wage	HO	-3400		02/12/2025 17:05:45			peter.kang@eatem.com.au
+08/12/2025	Cash Convert	Sushi	2000		16/12/25 15:39:54			
+08/12/2025	Cash Convert	Sandwich	1000		16/12/25 15:40:08			
+16/12/25	Cash Sales	Sushi	7570		16/12/25 16:12:02			
+16/12/25	Cash Sales	Sandwich	4170		16/12/25 16:32:00			
+16/12/2025	Cash Wage	Sushi	-7608.4		16/12/2025 21:46:49			peter.kang@eatem.com.au
+16/12/25	CVT. From Sushi	Sandwich	1350.6		16/12/25 21:55:54			
+16/12/25	CVT. To Sandwich	Sushi	-1350.6		16/12/25 21:55:54			
+16/12/2025	Cash Wage	Sandwich	-6933.8		16/12/2025 22:00:53			peter.kang@eatem.com.au
+16/12/2025	Trading convert from Meat	Trading	1500		16/12/25 22:02:10			
+16/12/2025	trading profit sharing	Trading	-3000		16/12/25 22:02:51			
+16/12/2025	Profit sharing _ Sue	Sushi	-600		16/12/25 22:03:59			
+16/12/25	CVT. From Sushi	HO	3400		16/12/25 22:04:16			
+16/12/25	CVT. To HO	Sushi	-3400		16/12/25 22:04:16			
+16/12/2025	Cash Wage	HO	-3400		16/12/2025 22:04:31			peter.kang@eatem.com.au
+16/12/2025	Cash Convert from Meat	Sandwich	1000		16/12/25 22:39:06			
+18/12/25	CVT. From Sandwich	Sushi	1000		18/12/25 12:24:27			
+18/12/25	CVT. To Sushi	Sandwich	-1000		18/12/25 12:24:27			
+30/12/2025	Cash Convert	Sushi	2000		30/12/25 13:44:35			
+30/12/2025	Cash Convert	Sandwich	2000		30/12/25 13:44:49			
+23/12/2025	Cash convert	Sushi	1500		30/12/25 13:45:14			
+23/12/2025	Cash Convert	Sandwich	2000		30/12/25 13:45:33			
+30/12/25	Cash Sales	Sandwich	3540		30/12/25 14:52:06			
+30/12/25	Cash Sales	Sushi	5375		30/12/25 15:15:53			
+31/12/2025	Cash Wage	Sandwich	-5699		31/12/2025 09:27:01			peter.kang@eatem.com.au
+31/12/2025	Cash Wage	Sushi	-5417					peter.kang@eatem.com.au
+31/12/25	CVT. From Sushi	HO	1700		31/12/25 10:07:10			
+31/12/25	CVT. To HO	Sushi	-1700		31/12/25 10:07:10			
+31/12/25	CVT. From Sandwich	HO	1700		31/12/25 10:07:10			
+31/12/25	CVT. To HO	Sandwich	-1700		31/12/25 10:07:10			
+31/12/2025	Cash Wage	HO	-3400		31/12/2025 10:07:33			peter.kang@eatem.com.au
+13/01/2026	trading sale	Trading	370		13/01/26 16:25:11			
+07/01/2026	Trading Sales	Trading	2060		13/01/26 16:25:55			
+07/01/2026	Cash convert	Sushi	1000		13/01/26 16:26:16			
+07/01/2026	Cash Convert	Sandwich	1000		13/01/26 16:26:43			
+13/07/2026	Cash Convert	Sushi	2000		13/01/26 16:27:11			
+13/01/2026	Cash Convert	Sandwich	1000		13/01/26 16:27:36			
+13/01/26	Cash Sales	Sandwich	3250		13/01/26 16:55:21			
+13/01/26	Cash Sales	Sushi	4150		13/01/26 17:05:27			
+13/01/2026	Cash Wage	Sandwich	-3832.4		13/01/2026 17:12:25			peter.kang@eatem.com.au
+13/01/2026	Cash Wage	Sushi	-5377.5		13/01/2026 17:15:11			peter.kang@eatem.com.au
+13/01/26	CVT. From Sushi	HO	1900		13/01/26 17:15:53			
+13/01/26	CVT. To HO	Sushi	-1900		13/01/26 17:15:53			
+13/01/26	CVT. From Sandwich	HO	1500		13/01/26 17:15:53			
+13/01/26	CVT. To HO	Sandwich	-1500		13/01/26 17:15:53			
+13/01/2026	Cash Wage	HO	-3400		13/01/2026 17:16:10			peter.kang@eatem.com.au
+19/01/2026	Karma Profit share	Sushi	-250		19/01/26 09:32:50			
+19/01/2026	Angy missed cash wage	Sandwich	-450		19/01/26 09:33:18			
+27/01/2026	Cash Convert	Sushi	2000		27/01/26 14:45:28			
+27/01/2026	Cash Convert	Sandwich	2000		27/01/26 14:45:50			
+27/01/26	Cash Sales	Sandwich	3640		27/01/26 15:24:19			
+27/01/26	Cash Sales	Sushi	3615		27/01/26 15:47:37			
+28/01/2026	Cash Wage	Sushi	-4553.8		28/01/2026 13:29:29			peter.kang@eatem.com.au
+28/01/26	CVT. From Sushi	Sandwich	500		28/01/26 13:34:39			
+28/01/26	CVT. To Sandwich	Sushi	-500		28/01/26 13:34:39			
+28/01/2026	Cash Wage	Sandwich	-5728.4		28/01/2026 13:39:14			peter.kang@eatem.com.au
+28/01/26	CVT. From Sushi	HO	2980		28/01/26 13:40:56			
+28/01/26	CVT. To HO	Sushi	-2980		28/01/26 13:40:56			
+28/01/26	CVT. From Sandwich	HO	20		28/01/26 13:40:56			
+28/01/26	CVT. To HO	Sandwich	-20		28/01/26 13:40:56			
+28/01/2026	Cash Wage	HO	-3000		28/01/2026 13:43:00			peter.kang@eatem.com.au
+28/01/2026	Dawa Missed Wage	Sushi	-925		28/01/26 14:21:11			
+10/02/2026	Cash Convert	Trading	7000		10/02/26 13:46:56			
+10/02/2026	Cash Convert	Sushi	2000		10/02/26 13:48:01			
+10/02/2026	Cash Convert	Sandwich	1000		10/02/26 13:48:20			
+10/02/26	Cash Sales	Sushi	5700		10/02/26 14:06:58			
+10/02/26	Cash Sales	Sandwich	3765		10/02/26 14:20:24			
+10/02/2026	Cash Wage	Sushi	-5620.5		10/02/2026 14:29:51			peter.kang@eatem.com.au
+10/02/2026	Cash Wage	Sandwich	-4696.4		10/02/2026 14:40:28			peter.kang@eatem.com.au
+10/02/26	CVT. From Trading	Sushi	600		10/02/26 14:42:49			
+10/02/26	CVT. To Sushi	Trading	-600		10/02/26 14:42:49			
+10/02/26	CVT. From Trading	Sandwich	1600		10/02/26 14:45:50			
+10/02/26	CVT. To Sandwich	Trading	-1600		10/02/26 14:45:50			
+10/02/26	CVT. From Sushi	HO	1755		10/02/26 14:46:30			
+10/02/26	CVT. To HO	Sushi	-1755		10/02/26 14:46:30			
+10/02/26	CVT. From Sandwich	HO	1645		10/02/26 14:46:30			
+10/02/26	CVT. To HO	Sandwich	-1645		10/02/26 14:46:30			
+10/02/2026	Cash Wage	HO	-3400		10/02/2026 14:46:43			peter.kang@eatem.com.au
+17/02/2026	trading cash sales	Trading	4700		17/02/26 21:27:01			
+17/02/2026	Cash Convert from Meat	Trading	4000		17/02/26 21:27:38			
+17/02/2026	Trading Cash Sales	Trading	330		17/02/26 21:28:32			
+24/02/26	Cash Sales	Sandwich	4350		24/02/26 14:45:07			
+24/02/26	Cash Sales	Sushi	6615		24/02/26 15:00:30			
+24/02/2026	Cash Wage	Sushi	-6710.3		24/02/2026 21:54:06			peter.kang@eatem.com.au
+24/02/2026	Cash Wage	Sandwich	-5608.1		24/02/2026 22:14:56			peter.kang@eatem.com.au
+24/02/26	CVT. From Trading	Sushi	2000		24/02/26 22:17:41			
+24/02/26	CVT. To Sushi	Trading	-2000		24/02/26 22:17:41			
+24/02/26	CVT. From Trading	Sandwich	2500		24/02/26 22:18:07			
+24/02/26	CVT. To Sandwich	Trading	-2500		24/02/26 22:18:07			
+24/02/26	CVT. From Sushi	HO	1900		24/02/26 22:18:29			
+24/02/26	CVT. To HO	Sushi	-1900		24/02/26 22:18:29			
+24/02/26	CVT. From Sandwich	HO	1260		24/02/26 22:18:29			
+24/02/26	CVT. To HO	Sandwich	-1260		24/02/26 22:18:29			
+24/02/2026	Cash Wage	HO	-3160		24/02/2026 22:19:06			peter.kang@eatem.com.au
+24/02/2026	Profit _ PK	Trading	-1500		24/02/26 23:03:36			
