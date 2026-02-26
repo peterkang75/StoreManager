@@ -1208,15 +1208,16 @@ export async function registerRoutes(
           }
         }
 
+        const isToHO = toStoreName.toLowerCase() === "ho";
         await storage.createFinancialTransactionWithDate({
-          transactionType: "CONVERT",
+          transactionType: isToHO ? "REMITTANCE" : "CONVERT",
           fromStoreId,
           toStoreId,
           cashAmount: amount,
-          bankAmount: amount,
+          bankAmount: isToHO ? 0 : amount,
           referenceNote: null,
           executedBy: "legacy-import",
-          isBankSettled: false,
+          isBankSettled: isToHO ? true : false,
         }, executedAt);
         results.imported++;
       }
