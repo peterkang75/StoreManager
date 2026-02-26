@@ -384,13 +384,13 @@ export function AdminFinance() {
     });
   };
 
-  const displayCodes = ["SUSHI", "SANDWICH", "MEAT", "TRADING", "HO"];
+  const displayNames = ["Sushi", "Sandwich", "Meat", "Trading", "HO"];
 
   const balances = (() => {
     if (!stores) return [];
     const balMap = new Map<string, { cash: number; bank: number }>();
     stores.forEach((s) => {
-      if (displayCodes.includes(s.code.toUpperCase())) {
+      if (displayNames.some((dn) => s.name.toLowerCase() === dn.toLowerCase())) {
         balMap.set(s.id, { cash: 0, bank: 0 });
       }
     });
@@ -412,9 +412,9 @@ export function AdminFinance() {
       }
     }
 
-    return displayCodes
-      .map((code) => {
-        const store = stores.find((s) => s.code.toUpperCase() === code);
+    return displayNames
+      .map((dn) => {
+        const store = stores.find((s) => s.name.toLowerCase() === dn.toLowerCase());
         if (!store) return null;
         const bal = balMap.get(store.id);
         return bal ? { name: store.name, code: store.code, cash: bal.cash, bank: bal.bank } : null;
