@@ -1127,5 +1127,19 @@ export async function registerRoutes(
     }
   });
 
+  app.delete("/api/finance/transactions/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const deleted = await storage.deleteFinancialTransaction(id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Transaction not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting financial transaction:", error);
+      res.status(500).json({ error: "Failed to delete transaction" });
+    }
+  });
+
   return httpServer;
 }

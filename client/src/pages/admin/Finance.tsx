@@ -24,7 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowLeftRight, Send, PenLine, AlertTriangle } from "lucide-react";
+import { ArrowLeftRight, Send, PenLine, AlertTriangle, Trash2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Store, FinancialTransaction } from "@shared/schema";
@@ -349,6 +349,21 @@ export function AdminFinance() {
     queryKey: ["/api/finance/transactions"],
   });
 
+  const { toast } = useToast();
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/finance/transactions/${id}`);
+    },
+    onSuccess: () => {
+      toast({ title: "Transaction deleted" });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/transactions"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   const storeMap = new Map<string, Store>();
   stores?.forEach((s) => storeMap.set(s.id, s));
 
@@ -439,6 +454,7 @@ export function AdminFinance() {
                       <TableHead className="text-right">Cash</TableHead>
                       <TableHead className="text-right">Bank</TableHead>
                       <TableHead className="min-w-[250px]">Reference Note</TableHead>
+                      <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -466,6 +482,17 @@ export function AdminFinance() {
                           ) : (
                             <span className="text-sm text-muted-foreground">-</span>
                           )}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => deleteMutation.mutate(tx.id)}
+                            disabled={deleteMutation.isPending}
+                            data-testid={`button-delete-tx-${tx.id}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-muted-foreground" />
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}

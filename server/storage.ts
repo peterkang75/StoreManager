@@ -100,6 +100,7 @@ export interface IStorage {
 
   getFinancialTransactions(limit?: number): Promise<FinancialTransaction[]>;
   createFinancialTransaction(tx: InsertFinancialTransaction): Promise<FinancialTransaction>;
+  deleteFinancialTransaction(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -797,6 +798,10 @@ export class MemStorage implements IStorage {
     this.financialTransactions.set(id, tx);
     return tx;
   }
+
+  async deleteFinancialTransaction(id: string): Promise<boolean> {
+    return this.financialTransactions.delete(id);
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1182,6 +1187,11 @@ export class DatabaseStorage implements IStorage {
   async createFinancialTransaction(data: InsertFinancialTransaction): Promise<FinancialTransaction> {
     const [tx] = await db.insert(financialTransactions).values(data).returning();
     return tx;
+  }
+
+  async deleteFinancialTransaction(id: string): Promise<boolean> {
+    const result = await db.delete(financialTransactions).where(eq(financialTransactions.id, id)).returning();
+    return result.length > 0;
   }
 }
 
