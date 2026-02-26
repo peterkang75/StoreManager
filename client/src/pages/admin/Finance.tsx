@@ -79,7 +79,7 @@ function ConvertForm({ stores }: { stores: Store[] }) {
             </SelectTrigger>
             <SelectContent>
               {activeStores.map((s) => (
-                <SelectItem key={s.id} value={s.id}>{s.name} ({s.code})</SelectItem>
+                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -92,7 +92,7 @@ function ConvertForm({ stores }: { stores: Store[] }) {
             </SelectTrigger>
             <SelectContent>
               {availableToStores.map((s) => (
-                <SelectItem key={s.id} value={s.id}>{s.name} ({s.code})</SelectItem>
+                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -185,14 +185,14 @@ function RemittanceForm({ stores }: { stores: Store[] }) {
           </SelectTrigger>
           <SelectContent>
             {operatingStores.map((s) => (
-              <SelectItem key={s.id} value={s.id}>{s.name} ({s.code})</SelectItem>
+              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
       <div className="space-y-2">
         <Label>To</Label>
-        <Input value={hoStore ? `${hoStore.name} (${hoStore.code})` : "HO not configured"} disabled data-testid="input-remittance-to" />
+        <Input value={hoStore ? hoStore.name : "HO not configured"} disabled data-testid="input-remittance-to" />
       </div>
       <div className="space-y-2">
         <Label>Cash Amount ($)</Label>
@@ -287,7 +287,7 @@ function ManualEntryForm({ stores }: { stores: Store[] }) {
           </SelectTrigger>
           <SelectContent>
             {activeStores.map((s) => (
-              <SelectItem key={s.id} value={s.id}>{s.name} ({s.code})</SelectItem>
+              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -383,7 +383,7 @@ export function AdminFinance() {
   const getStoreName = (id: string | null) => {
     if (!id) return "-";
     const store = storeMap.get(id);
-    return store ? `${store.name} (${store.code})` : id;
+    return store ? store.name : id;
   };
 
   const formatDateTime = (dateStr: string) => {

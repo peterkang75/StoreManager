@@ -213,7 +213,6 @@ export function AdminStores() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
-                    <TableHead>Code</TableHead>
                     <TableHead>Address</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -223,9 +222,6 @@ export function AdminStores() {
                   {stores?.map((store) => (
                     <TableRow key={store.id} data-testid={`row-store-${store.id}`}>
                       <TableCell className="font-medium">{store.name}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{store.code}</Badge>
-                      </TableCell>
                       <TableCell className="text-muted-foreground">
                         {store.address || "—"}
                       </TableCell>
