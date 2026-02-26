@@ -69,7 +69,7 @@ function ConvertForm({ stores }: { stores: Store[] }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        운영 매장 간 양방향 현금/은행 교환. 매장 A가 현금을 보내면, 매장 B가 동일 금액을 은행 이체로 보냅니다.
+        Two-way cash/bank exchange between operating stores. Store A sends cash, Store B sends equivalent bank transfer.
       </p>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
@@ -164,26 +164,26 @@ function RemittanceForm({ stores }: { stores: Store[] }) {
       setTimeout(() => amountRef.current?.focus(), 100);
     },
     onError: (error: Error) => {
-      toast({ title: "오류", description: error.message, variant: "destructive" });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        운영 매장에서 본사(HO)로의 단방향 현금 이체. 현금만 가능 - 은행 교환 없음.
+        One-way cash transfer from operating store to HO. Cash only - no bank exchange.
       </p>
       {!hoStore && (
         <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 text-destructive text-sm">
           <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-          <span>본사(HO) 매장을 찾을 수 없습니다. 송금 기능을 사용하려면 코드 "HO"로 매장을 생성하세요.</span>
+          <span>HO store not found. Create a store with code "HO" to use remittance.</span>
         </div>
       )}
       <div className="space-y-2">
-        <Label>보내는 매장</Label>
+        <Label>From Store</Label>
         <Select value={fromStoreId} onValueChange={setFromStoreId}>
           <SelectTrigger data-testid="select-remittance-from">
-            <SelectValue placeholder="운영 매장 선택" />
+            <SelectValue placeholder="Select operating store" />
           </SelectTrigger>
           <SelectContent>
             {operatingStores.map((s) => (
@@ -193,11 +193,11 @@ function RemittanceForm({ stores }: { stores: Store[] }) {
         </Select>
       </div>
       <div className="space-y-2">
-        <Label>받는 곳</Label>
-        <Input value={hoStore ? hoStore.name : "HO 미설정"} disabled data-testid="input-remittance-to" />
+        <Label>To</Label>
+        <Input value={hoStore ? hoStore.name : "HO not set"} disabled data-testid="input-remittance-to" />
       </div>
       <div className="space-y-2">
-        <Label>현금 금액 ($)</Label>
+        <Label>Cash Amount ($)</Label>
         <Input
           ref={amountRef}
           type="number"
@@ -210,9 +210,9 @@ function RemittanceForm({ stores }: { stores: Store[] }) {
         />
       </div>
       <div className="space-y-2">
-        <Label>참고 메모</Label>
+        <Label>Reference Note</Label>
         <Textarea
-          placeholder="예: 주간 현금 송금"
+          placeholder="e.g. Weekly cash remittance"
           value={referenceNote}
           onChange={(e) => setReferenceNote(e.target.value)}
           data-testid="input-remittance-note"
@@ -223,7 +223,7 @@ function RemittanceForm({ stores }: { stores: Store[] }) {
         disabled={!fromStoreId || !amount || !hoStore || mutation.isPending}
         data-testid="button-submit-remittance"
       >
-        {mutation.isPending ? "처리 중..." : "송금 기록"}
+        {mutation.isPending ? "Processing..." : "Record Remittance"}
       </Button>
     </div>
   );
@@ -250,7 +250,7 @@ function ManualEntryForm({ stores }: { stores: Store[] }) {
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "수동 입력이 성공적으로 기록되었습니다" });
+      toast({ title: "Manual entry recorded successfully" });
       setTxType("");
       setStoreId("");
       setAmount("");
@@ -260,7 +260,7 @@ function ManualEntryForm({ stores }: { stores: Store[] }) {
       setTimeout(() => amountRef.current?.focus(), 100);
     },
     onError: (error: Error) => {
-      toast({ title: "오류", description: error.message, variant: "destructive" });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
 
@@ -268,25 +268,25 @@ function ManualEntryForm({ stores }: { stores: Store[] }) {
     <div className="space-y-4">
       <div className="flex items-start gap-2 p-3 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm">
         <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-        <span>매장 간 현금 이동이 필요하신가요? 회계 오류를 방지하려면 <strong>환전</strong> 탭을 사용하세요.</span>
+        <span>Need to move cash between stores? Use the <strong>Convert</strong> tab to prevent accounting errors.</span>
       </div>
       <div className="space-y-2">
-        <Label>유형</Label>
+        <Label>Type</Label>
         <Select value={txType} onValueChange={setTxType}>
           <SelectTrigger data-testid="select-manual-type">
-            <SelectValue placeholder="유형 선택" />
+            <SelectValue placeholder="Select type" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="MANUAL_INCOME">수입 (현금 입금)</SelectItem>
-            <SelectItem value="MANUAL_EXPENSE">지출 (현금 출금)</SelectItem>
+            <SelectItem value="MANUAL_INCOME">Income (Cash In)</SelectItem>
+            <SelectItem value="MANUAL_EXPENSE">Expense (Cash Out)</SelectItem>
           </SelectContent>
         </Select>
       </div>
       <div className="space-y-2">
-        <Label>매장</Label>
+        <Label>Store</Label>
         <Select value={storeId} onValueChange={setStoreId}>
           <SelectTrigger data-testid="select-manual-store">
-            <SelectValue placeholder="매장 선택" />
+            <SelectValue placeholder="Select store" />
           </SelectTrigger>
           <SelectContent>
             {activeStores.map((s) => (
@@ -296,7 +296,7 @@ function ManualEntryForm({ stores }: { stores: Store[] }) {
         </Select>
       </div>
       <div className="space-y-2">
-        <Label>금액 ($)</Label>
+        <Label>Amount ($)</Label>
         <Input
           ref={amountRef}
           type="number"
@@ -309,9 +309,9 @@ function ManualEntryForm({ stores }: { stores: Store[] }) {
         />
       </div>
       <div className="space-y-2">
-        <Label>참고 메모</Label>
+        <Label>Reference Note</Label>
         <Textarea
-          placeholder="수입 또는 지출 내용을 설명하세요"
+          placeholder="Describe the income or expense"
           value={referenceNote}
           onChange={(e) => setReferenceNote(e.target.value)}
           data-testid="input-manual-note"
@@ -322,7 +322,7 @@ function ManualEntryForm({ stores }: { stores: Store[] }) {
         disabled={!txType || !storeId || !amount || mutation.isPending}
         data-testid="button-submit-manual"
       >
-        {mutation.isPending ? "처리 중..." : "항목 기록"}
+        {mutation.isPending ? "Processing..." : "Record Entry"}
       </Button>
     </div>
   );
@@ -331,13 +331,13 @@ function ManualEntryForm({ stores }: { stores: Store[] }) {
 function TransactionTypeBadge({ type }: { type: string }) {
   switch (type) {
     case "CONVERT":
-      return <Badge variant="default" data-testid={`badge-type-${type}`}>환전</Badge>;
+      return <Badge variant="default" data-testid={`badge-type-${type}`}>Convert</Badge>;
     case "REMITTANCE":
-      return <Badge variant="secondary" data-testid={`badge-type-${type}`}>송금</Badge>;
+      return <Badge variant="secondary" data-testid={`badge-type-${type}`}>Remittance</Badge>;
     case "MANUAL_INCOME":
-      return <Badge variant="outline" className="border-green-500 text-green-700 dark:text-green-400" data-testid={`badge-type-${type}`}>수입</Badge>;
+      return <Badge variant="outline" className="border-green-500 text-green-700 dark:text-green-400" data-testid={`badge-type-${type}`}>Income</Badge>;
     case "MANUAL_EXPENSE":
-      return <Badge variant="outline" className="border-red-500 text-red-700 dark:text-red-400" data-testid={`badge-type-${type}`}>지출</Badge>;
+      return <Badge variant="outline" className="border-red-500 text-red-700 dark:text-red-400" data-testid={`badge-type-${type}`}>Expense</Badge>;
     default:
       return <Badge variant="outline" data-testid={`badge-type-${type}`}>{type}</Badge>;
   }
@@ -364,20 +364,20 @@ function LegacyImport() {
     },
     onSuccess: (data) => {
       setResult(data);
-      toast({ title: `가져오기 완료: ${data.imported}건의 거래가 가져와졌습니다` });
+      toast({ title: `Import complete: ${data.imported} transactions imported` });
       queryClient.invalidateQueries({ queryKey: ["/api/finance/transactions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/finance/balances"] });
       if (fileRef.current) fileRef.current.value = "";
     },
     onError: (error: Error) => {
-      toast({ title: "가져오기 실패", description: error.message, variant: "destructive" });
+      toast({ title: "Import failed", description: error.message, variant: "destructive" });
     },
   });
 
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        레거시 TSV 파일 (Cash Manager - Transaction.tsv)을 업로드하여 과거 환전 거래를 가져옵니다.
+        Upload a legacy TSV file (Cash Manager - Transaction.tsv) to import past convert transactions.
       </p>
       <div className="flex items-center gap-3 flex-wrap">
         <Input
@@ -395,13 +395,13 @@ function LegacyImport() {
           disabled={mutation.isPending}
           data-testid="button-import-legacy"
         >
-          {mutation.isPending ? "가져오는 중..." : "가져오기"}
+          {mutation.isPending ? "Importing..." : "Import"}
         </Button>
       </div>
       {result && (
         <div className="text-sm space-y-1 p-3 rounded-md bg-muted">
           <p data-testid="text-import-result">
-            가져옴: <strong>{result.imported}</strong> | 건너뜀: <strong>{result.skipped}</strong>
+            Imported: <strong>{result.imported}</strong> | Skipped: <strong>{result.skipped}</strong>
           </p>
           {result.errors.length > 0 && (
             <div className="text-destructive">
@@ -432,12 +432,12 @@ export function AdminFinance() {
       await apiRequest("DELETE", `/api/finance/transactions/${id}`);
     },
     onSuccess: () => {
-      toast({ title: "거래가 삭제되었습니다" });
+      toast({ title: "Transaction deleted" });
       queryClient.invalidateQueries({ queryKey: ["/api/finance/transactions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/finance/balances"] });
     },
     onError: (error: Error) => {
-      toast({ title: "오류", description: error.message, variant: "destructive" });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
 
@@ -446,12 +446,12 @@ export function AdminFinance() {
       await apiRequest("PUT", `/api/finance/transactions/${id}/settle`);
     },
     onSuccess: () => {
-      toast({ title: "이체 완료 처리되었습니다" });
+      toast({ title: "Bank transfer settled" });
       queryClient.invalidateQueries({ queryKey: ["/api/finance/transactions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/finance/balances"] });
     },
     onError: (error: Error) => {
-      toast({ title: "오류", description: error.message, variant: "destructive" });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
 
@@ -466,7 +466,7 @@ export function AdminFinance() {
 
   const formatDateTime = (dateStr: string) => {
     const d = new Date(dateStr);
-    return d.toLocaleString("ko-KR", {
+    return d.toLocaleString("en-AU", {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -495,7 +495,7 @@ export function AdminFinance() {
   );
 
   return (
-    <AdminLayout title="재무 / 자금 흐름">
+    <AdminLayout title="Finance / Cash Flow">
       <div className="space-y-6">
         {!storesLoading && balances.length > 0 && (
           <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
@@ -513,7 +513,7 @@ export function AdminFinance() {
                   >
                     ${b.cash.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
-                  <p className="text-xs text-muted-foreground mt-1">현금 잔액</p>
+                  <p className="text-xs text-muted-foreground mt-1">Cash Balance</p>
                 </CardContent>
               </Card>
             ))}
@@ -521,7 +521,7 @@ export function AdminFinance() {
         )}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">거래 기록</CardTitle>
+            <CardTitle className="text-base">Transaction Entry</CardTitle>
           </CardHeader>
           <CardContent>
             {storesLoading ? (
@@ -534,15 +534,15 @@ export function AdminFinance() {
                 <TabsList className="mb-4">
                   <TabsTrigger value="convert" data-testid="tab-convert" className="gap-1">
                     <ArrowLeftRight className="h-3.5 w-3.5" />
-                    환전
+                    Convert
                   </TabsTrigger>
                   <TabsTrigger value="remittance" data-testid="tab-remittance" className="gap-1">
                     <Send className="h-3.5 w-3.5" />
-                    송금 (본사)
+                    Remittance (HO)
                   </TabsTrigger>
                   <TabsTrigger value="manual" data-testid="tab-manual" className="gap-1">
                     <PenLine className="h-3.5 w-3.5" />
-                    수동 입력
+                    Manual Entry
                   </TabsTrigger>
                 </TabsList>
                 <TabsContent value="convert">
@@ -563,7 +563,7 @@ export function AdminFinance() {
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2 flex-wrap">
               <Upload className="h-4 w-4" />
-              레거시 데이터 가져오기 (TSV)
+              Legacy Data Import (TSV)
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -576,7 +576,7 @@ export function AdminFinance() {
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2 flex-wrap">
                 <Bell className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                <span>은행 이체 대기 ({pendingBankTransfers.length}건)</span>
+                <span>Pending Bank Transfers ({pendingBankTransfers.length})</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -589,10 +589,9 @@ export function AdminFinance() {
                   <div className="flex items-center gap-2 text-sm flex-wrap">
                     <Bell className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
                     <span className="text-amber-900 dark:text-amber-200">
-                      <strong>{getStoreName(tx.fromStoreId)}</strong>에서{" "}
-                      <strong>{getStoreName(tx.toStoreId)}</strong>로{" "}
-                      <strong className="font-mono">${tx.bankAmount.toFixed(2)}</strong>{" "}
-                      이체 필요
+                      Transfer <strong className="font-mono">${tx.bankAmount.toFixed(2)}</strong>{" "}
+                      from <strong>{getStoreName(tx.fromStoreId)}</strong> to{" "}
+                      <strong>{getStoreName(tx.toStoreId)}</strong>
                     </span>
                     <span className="text-xs text-muted-foreground">
                       ({formatDateTime(tx.executedAt as unknown as string)})
@@ -606,7 +605,7 @@ export function AdminFinance() {
                     data-testid={`button-settle-${tx.id}`}
                   >
                     <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                    이체 완료
+                    Settled
                   </Button>
                 </div>
               ))}
@@ -616,7 +615,7 @@ export function AdminFinance() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">최근 금융 거래</CardTitle>
+            <CardTitle className="text-base">Recent Transactions</CardTitle>
           </CardHeader>
           <CardContent>
             {txLoading ? (
@@ -627,20 +626,20 @@ export function AdminFinance() {
               </div>
             ) : !transactions || transactions.length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center" data-testid="text-no-transactions">
-                거래 내역이 없습니다. 위의 양식을 사용하여 첫 번째 거래를 기록하세요.
+                No transactions yet. Use the forms above to record your first transaction.
               </p>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>날짜/시간</TableHead>
-                      <TableHead>유형</TableHead>
-                      <TableHead>보내는 곳</TableHead>
-                      <TableHead>받는 곳</TableHead>
-                      <TableHead className="text-right">현금</TableHead>
-                      <TableHead className="text-right">은행</TableHead>
-                      <TableHead className="min-w-[250px]">참고 메모</TableHead>
+                      <TableHead>Date/Time</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>From</TableHead>
+                      <TableHead>To</TableHead>
+                      <TableHead className="text-right">Cash</TableHead>
+                      <TableHead className="text-right">Bank</TableHead>
+                      <TableHead className="min-w-[250px]">Reference Note</TableHead>
                       <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
                   </TableHeader>
