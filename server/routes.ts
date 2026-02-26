@@ -1200,11 +1200,12 @@ export async function registerRoutes(
           if (parts) {
             const year = 2000 + parseInt(parts[3]);
             const day = parseInt(parts[1]);
-            const month = parseInt(parts[2]) - 1;
-            const hour = parseInt(parts[4]);
-            const min = parseInt(parts[5]);
-            const sec = parseInt(parts[6]);
-            executedAt = new Date(year, month, day, hour, min, sec);
+            const month = String(parseInt(parts[2])).padStart(2, "0");
+            const dayStr = String(day).padStart(2, "0");
+            const hour = parts[4];
+            const min = parts[5];
+            const sec = parts[6];
+            executedAt = new Date(`${year}-${month}-${dayStr}T${hour}:${min}:${sec}+11:00`);
           }
         }
 
