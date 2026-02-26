@@ -384,9 +384,80 @@ export function AdminFinance() {
     });
   };
 
+  const displayCodes = ["SUSHI", "SANDWICH", "MEAT", "TRADING", "HO"];
+
+  const balances = (() => {
+    if (!stores || !transactions) return [];
+    const balMap = new Map<string, { cash: number; bank: number }>();
+    stores.forEach((s) => {
+      if (displayCodes.includes(s.code.toUpperCase())) {
+        balMap.set(s.id, { cash: 0, bank: 0 });
+      }
+    });
+
+    for (const tx of transactions) {
+      if (tx.fromStoreId && balMap.has(tx.fromStoreId)) {
+        const b = balMap.get(tx.fromStoreId)!;
+        b.cash -= tx.cashAmount;
+        if (tx.transactionType === "CONVERT") {
+          b.bank += tx.bankAmount;
+        }
+      }
+      if (tx.toStoreId && balMap.has(tx.toStoreId)) {
+        const b = balMap.get(tx.toStoreId)!;
+        b.cash += tx.cashAmount;
+        if (tx.transactionType === "CONVERT") {
+          b.bank -= tx.bankAmount;
+        }
+      }
+    }
+
+    return displayCodes
+      .map((code) => {
+        const store = stores.find((s) => s.code.toUpperCase() === code);
+        if (!store) return null;
+        const bal = balMap.get(store.id);
+        return bal ? { name: store.name, code: store.code, cash: bal.cash, bank: bal.bank } : null;
+      })
+      .filter(Boolean) as { name: string; code: string; cash: number; bank: number }[];
+  })();
+
   return (
     <AdminLayout title="Finance / Cash Flow">
       <div className="space-y-6">
+        {!storesLoading && !txLoading && balances.length > 0 && (
+          <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+            {balances.map((b) => (
+              <Card key={b.code}>
+                <CardHeader className="pb-1 pt-4 px-4">
+                  <CardTitle className="text-sm font-medium text-muted-foreground" data-testid={`text-balance-name-${b.code}`}>
+                    {b.name}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 pb-4 space-y-1">
+                  <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                    <span className="text-xs text-muted-foreground">Cash</span>
+                    <span
+                      className={`text-lg font-bold font-mono ${b.cash < 0 ? "text-red-600 dark:text-red-400" : ""}`}
+                      data-testid={`text-balance-cash-${b.code}`}
+                    >
+                      ${b.cash.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                    <span className="text-xs text-muted-foreground">Bank</span>
+                    <span
+                      className={`text-sm font-medium font-mono ${b.bank < 0 ? "text-red-600 dark:text-red-400" : ""}`}
+                      data-testid={`text-balance-bank-${b.code}`}
+                    >
+                      ${b.bank.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Record Transaction</CardTitle>
