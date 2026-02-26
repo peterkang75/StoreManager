@@ -1127,6 +1127,33 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/finance/balances", async (req: Request, res: Response) => {
+    try {
+      const allTx = await storage.getFinancialTransactions(10000);
+      const allStores = await storage.getStores();
+      const balMap = new Map<string, number>();
+      allStores.forEach(s => balMap.set(s.id, 0));
+
+      for (const tx of allTx) {
+        if (tx.fromStoreId && balMap.has(tx.fromStoreId)) {
+          balMap.set(tx.fromStoreId, balMap.get(tx.fromStoreId)! - tx.cashAmount);
+        }
+        if (tx.toStoreId && balMap.has(tx.toStoreId)) {
+          balMap.set(tx.toStoreId, balMap.get(tx.toStoreId)! + tx.cashAmount);
+        }
+      }
+
+      const result: Record<string, number> = {};
+      allStores.forEach(s => {
+        result[s.name] = Math.round((balMap.get(s.id) || 0) * 100) / 100;
+      });
+      res.json(result);
+    } catch (error) {
+      console.error("Error calculating balances:", error);
+      res.status(500).json({ error: "Failed to calculate balances" });
+    }
+  });
+
   app.put("/api/finance/transactions/:id/settle", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;

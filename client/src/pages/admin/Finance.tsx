@@ -56,6 +56,7 @@ function ConvertForm({ stores }: { stores: Store[] }) {
       setAmount("");
       setReferenceNote("");
       queryClient.invalidateQueries({ queryKey: ["/api/finance/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/balances"] });
       setTimeout(() => amountRef.current?.focus(), 100);
     },
     onError: (error: Error) => {
@@ -159,6 +160,7 @@ function RemittanceForm({ stores }: { stores: Store[] }) {
       setAmount("");
       setReferenceNote("");
       queryClient.invalidateQueries({ queryKey: ["/api/finance/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/balances"] });
       setTimeout(() => amountRef.current?.focus(), 100);
     },
     onError: (error: Error) => {
@@ -254,6 +256,7 @@ function ManualEntryForm({ stores }: { stores: Store[] }) {
       setAmount("");
       setReferenceNote("");
       queryClient.invalidateQueries({ queryKey: ["/api/finance/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/balances"] });
       setTimeout(() => amountRef.current?.focus(), 100);
     },
     onError: (error: Error) => {
@@ -363,6 +366,7 @@ function LegacyImport() {
       setResult(data);
       toast({ title: `Import complete: ${data.imported} transactions imported` });
       queryClient.invalidateQueries({ queryKey: ["/api/finance/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/balances"] });
       if (fileRef.current) fileRef.current.value = "";
     },
     onError: (error: Error) => {
@@ -430,6 +434,7 @@ export function AdminFinance() {
     onSuccess: () => {
       toast({ title: "Transaction deleted" });
       queryClient.invalidateQueries({ queryKey: ["/api/finance/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/balances"] });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -443,6 +448,7 @@ export function AdminFinance() {
     onSuccess: () => {
       toast({ title: "Marked as transferred" });
       queryClient.invalidateQueries({ queryKey: ["/api/finance/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/balances"] });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -471,35 +477,18 @@ export function AdminFinance() {
 
   const displayNames = ["Sushi", "Sandwich", "Meat", "Trading", "HO"];
 
-  const balances = (() => {
-    if (!stores) return [];
-    const balMap = new Map<string, { cash: number }>();
-    stores.forEach((s) => {
-      if (displayNames.some((dn) => s.name.toLowerCase() === dn.toLowerCase())) {
-        balMap.set(s.id, { cash: 0 });
-      }
-    });
+  const { data: serverBalances } = useQuery<Record<string, number>>({
+    queryKey: ["/api/finance/balances"],
+  });
 
-    for (const tx of (transactions || [])) {
-      if (tx.fromStoreId && balMap.has(tx.fromStoreId)) {
-        const b = balMap.get(tx.fromStoreId)!;
-        b.cash -= tx.cashAmount;
-      }
-      if (tx.toStoreId && balMap.has(tx.toStoreId)) {
-        const b = balMap.get(tx.toStoreId)!;
-        b.cash += tx.cashAmount;
-      }
-    }
-
-    return displayNames
-      .map((dn) => {
-        const store = stores.find((s) => s.name.toLowerCase() === dn.toLowerCase());
-        if (!store) return null;
-        const bal = balMap.get(store.id);
-        return bal ? { name: store.name, code: store.code, cash: bal.cash } : null;
-      })
-      .filter(Boolean) as { name: string; code: string; cash: number }[];
-  })();
+  const balances = displayNames
+    .map((dn) => {
+      if (!serverBalances) return null;
+      const cash = serverBalances[dn];
+      if (cash === undefined) return null;
+      return { name: dn, code: dn, cash };
+    })
+    .filter(Boolean) as { name: string; code: string; cash: number }[];
 
   const pendingBankTransfers = (transactions || []).filter(
     (tx) => tx.transactionType === "CONVERT" && !tx.isBankSettled
