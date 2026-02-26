@@ -50,7 +50,7 @@ function ConvertForm({ stores }: { stores: Store[] }) {
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Convert recorded successfully" });
+      toast({ title: "환전이 성공적으로 기록되었습니다" });
       setFromStoreId("");
       setToStoreId("");
       setAmount("");
@@ -60,7 +60,7 @@ function ConvertForm({ stores }: { stores: Store[] }) {
       setTimeout(() => amountRef.current?.focus(), 100);
     },
     onError: (error: Error) => {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
 
@@ -69,14 +69,14 @@ function ConvertForm({ stores }: { stores: Store[] }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Two-way cash/bank exchange between operating stores. Store A sends cash, Store B sends equivalent bank transfer.
+        매장 간 현금/은행 양방향 교환. 매장 A가 현금을 보내고, 매장 B가 동일 금액의 은행 이체를 보냅니다.
       </p>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
-          <Label>From Store (Cash Out)</Label>
+          <Label>보내는 매장 (현금 출금)</Label>
           <Select value={fromStoreId} onValueChange={(v) => { setFromStoreId(v); if (v === toStoreId) setToStoreId(""); }}>
             <SelectTrigger data-testid="select-convert-from">
-              <SelectValue placeholder="Select store" />
+              <SelectValue placeholder="매장 선택" />
             </SelectTrigger>
             <SelectContent>
               {activeStores.map((s) => (
@@ -86,10 +86,10 @@ function ConvertForm({ stores }: { stores: Store[] }) {
           </Select>
         </div>
         <div className="space-y-2">
-          <Label>To Store (Cash In)</Label>
+          <Label>받는 매장 (현금 입금)</Label>
           <Select value={toStoreId} onValueChange={setToStoreId}>
             <SelectTrigger data-testid="select-convert-to">
-              <SelectValue placeholder="Select store" />
+              <SelectValue placeholder="매장 선택" />
             </SelectTrigger>
             <SelectContent>
               {availableToStores.map((s) => (
@@ -100,7 +100,7 @@ function ConvertForm({ stores }: { stores: Store[] }) {
         </div>
       </div>
       <div className="space-y-2">
-        <Label>Amount ($)</Label>
+        <Label>금액 ($)</Label>
         <Input
           ref={amountRef}
           type="number"
@@ -113,9 +113,9 @@ function ConvertForm({ stores }: { stores: Store[] }) {
         />
       </div>
       <div className="space-y-2">
-        <Label>Reference Note / Memo</Label>
+        <Label>참고 메모</Label>
         <Textarea
-          placeholder="e.g. [Temp Loan - Meat to reimburse tomorrow]"
+          placeholder="예: [임시 대출 - Meat 내일 상환 예정]"
           value={referenceNote}
           onChange={(e) => setReferenceNote(e.target.value)}
           data-testid="input-convert-note"
@@ -126,7 +126,7 @@ function ConvertForm({ stores }: { stores: Store[] }) {
         disabled={!fromStoreId || !toStoreId || !amount || mutation.isPending}
         data-testid="button-submit-convert"
       >
-        {mutation.isPending ? "Processing..." : "Record Convert"}
+        {mutation.isPending ? "처리 중..." : "환전 기록"}
       </Button>
     </div>
   );
@@ -145,7 +145,7 @@ function RemittanceForm({ stores }: { stores: Store[] }) {
 
   const mutation = useMutation({
     mutationFn: async () => {
-      if (!hoStore) throw new Error("HO (Head Office) store not found. Please create a store with code 'HO' first.");
+      if (!hoStore) throw new Error("HO (본사) 매장을 찾을 수 없습니다. 코드 'HO'로 매장을 먼저 생성하세요.");
       const res = await apiRequest("POST", "/api/finance/remittance", {
         fromStoreId,
         toStoreId: hoStore.id,

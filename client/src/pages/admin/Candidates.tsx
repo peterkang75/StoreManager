@@ -103,7 +103,7 @@ function CandidateDetailSheet({
         <SheetHeader>
           <SheetTitle>{candidate.name}</SheetTitle>
           <SheetDescription>
-            Candidate interview details
+            후보자 면접 상세 정보
           </SheetDescription>
         </SheetHeader>
         

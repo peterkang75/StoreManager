@@ -143,10 +143,10 @@ export function AdminStores() {
       queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
       setDialogOpen(false);
       setEditingStore(undefined);
-      toast({ title: "Store updated successfully" });
+      toast({ title: "매장이 업데이트되었습니다" });
     },
     onError: (error: Error) => {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
 
