@@ -1127,6 +1127,20 @@ export async function registerRoutes(
     }
   });
 
+  app.put("/api/finance/transactions/:id/settle", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const settled = await storage.settleFinancialTransaction(id);
+      if (!settled) {
+        return res.status(404).json({ error: "Transaction not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error settling transaction:", error);
+      res.status(500).json({ error: "Failed to settle transaction" });
+    }
+  });
+
   app.delete("/api/finance/transactions/:id", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;

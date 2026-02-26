@@ -373,6 +373,7 @@ export const financialTransactions = pgTable("financial_transactions", {
   referenceNote: text("reference_note"),
   executedAt: timestamp("executed_at").defaultNow().notNull(),
   executedBy: text("executed_by"),
+  isBankSettled: boolean("is_bank_settled").default(false).notNull(),
 });
 
 export const insertFinancialTransactionSchema = createInsertSchema(financialTransactions).omit({

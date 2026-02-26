@@ -24,7 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowLeftRight, Send, PenLine, AlertTriangle, Trash2 } from "lucide-react";
+import { ArrowLeftRight, Send, PenLine, AlertTriangle, Trash2, Bell, CheckCircle2, Check } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Store, FinancialTransaction } from "@shared/schema";
@@ -364,6 +364,19 @@ export function AdminFinance() {
     },
   });
 
+  const settleMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("PUT", `/api/finance/transactions/${id}/settle`);
+    },
+    onSuccess: () => {
+      toast({ title: "Marked as transferred" });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/transactions"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   const storeMap = new Map<string, Store>();
   stores?.forEach((s) => storeMap.set(s.id, s));
 
@@ -388,10 +401,10 @@ export function AdminFinance() {
 
   const balances = (() => {
     if (!stores) return [];
-    const balMap = new Map<string, { cash: number; bank: number }>();
+    const balMap = new Map<string, { cash: number }>();
     stores.forEach((s) => {
       if (displayNames.some((dn) => s.name.toLowerCase() === dn.toLowerCase())) {
-        balMap.set(s.id, { cash: 0, bank: 0 });
+        balMap.set(s.id, { cash: 0 });
       }
     });
 
@@ -399,16 +412,10 @@ export function AdminFinance() {
       if (tx.fromStoreId && balMap.has(tx.fromStoreId)) {
         const b = balMap.get(tx.fromStoreId)!;
         b.cash -= tx.cashAmount;
-        if (tx.transactionType === "CONVERT") {
-          b.bank += tx.bankAmount;
-        }
       }
       if (tx.toStoreId && balMap.has(tx.toStoreId)) {
         const b = balMap.get(tx.toStoreId)!;
         b.cash += tx.cashAmount;
-        if (tx.transactionType === "CONVERT") {
-          b.bank -= tx.bankAmount;
-        }
       }
     }
 
@@ -417,10 +424,14 @@ export function AdminFinance() {
         const store = stores.find((s) => s.name.toLowerCase() === dn.toLowerCase());
         if (!store) return null;
         const bal = balMap.get(store.id);
-        return bal ? { name: store.name, code: store.code, cash: bal.cash, bank: bal.bank } : null;
+        return bal ? { name: store.name, code: store.code, cash: bal.cash } : null;
       })
-      .filter(Boolean) as { name: string; code: string; cash: number; bank: number }[];
+      .filter(Boolean) as { name: string; code: string; cash: number }[];
   })();
+
+  const pendingBankTransfers = (transactions || []).filter(
+    (tx) => tx.transactionType === "CONVERT" && !tx.isBankSettled
+  );
 
   return (
     <AdminLayout title="Finance / Cash Flow">
@@ -434,25 +445,14 @@ export function AdminFinance() {
                     {b.name}
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="px-4 pb-4 space-y-1">
-                  <div className="flex items-baseline justify-between gap-2 flex-wrap">
-                    <span className="text-xs text-muted-foreground">Cash</span>
-                    <span
-                      className={`text-lg font-bold font-mono ${b.cash < 0 ? "text-red-600 dark:text-red-400" : ""}`}
-                      data-testid={`text-balance-cash-${b.code}`}
-                    >
-                      ${b.cash.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div className="flex items-baseline justify-between gap-2 flex-wrap">
-                    <span className="text-xs text-muted-foreground">Bank</span>
-                    <span
-                      className={`text-sm font-medium font-mono ${b.bank < 0 ? "text-red-600 dark:text-red-400" : ""}`}
-                      data-testid={`text-balance-bank-${b.code}`}
-                    >
-                      ${b.bank.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
+                <CardContent className="px-4 pb-4">
+                  <span
+                    className={`text-xl font-bold font-mono ${b.cash < 0 ? "text-red-600 dark:text-red-400" : ""}`}
+                    data-testid={`text-balance-cash-${b.code}`}
+                  >
+                    ${b.cash.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                  <p className="text-xs text-muted-foreground mt-1">Cash Balance</p>
                 </CardContent>
               </Card>
             ))}
@@ -497,6 +497,49 @@ export function AdminFinance() {
             )}
           </CardContent>
         </Card>
+
+        {pendingBankTransfers.length > 0 && (
+          <Card className="border-amber-300 dark:border-amber-700">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2 flex-wrap">
+                <Bell className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                <span>Pending Bank Transfers ({pendingBankTransfers.length})</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {pendingBankTransfers.map((tx) => (
+                <div
+                  key={tx.id}
+                  className="flex items-center justify-between gap-3 p-3 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 flex-wrap"
+                  data-testid={`pending-transfer-${tx.id}`}
+                >
+                  <div className="flex items-center gap-2 text-sm flex-wrap">
+                    <Bell className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                    <span className="text-amber-900 dark:text-amber-200">
+                      Don't forget to transfer{" "}
+                      <strong className="font-mono">${tx.bankAmount.toFixed(2)}</strong>{" "}
+                      from <strong>{getStoreName(tx.fromStoreId)}</strong>{" "}
+                      to <strong>{getStoreName(tx.toStoreId)}</strong>
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      ({formatDateTime(tx.executedAt as unknown as string)})
+                    </span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => settleMutation.mutate(tx.id)}
+                    disabled={settleMutation.isPending}
+                    data-testid={`button-settle-${tx.id}`}
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                    Mark as Transferred
+                  </Button>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
@@ -543,7 +586,12 @@ export function AdminFinance() {
                           ${tx.cashAmount.toFixed(2)}
                         </TableCell>
                         <TableCell className="text-right font-mono text-sm">
-                          {tx.bankAmount > 0 ? `$${tx.bankAmount.toFixed(2)}` : "-"}
+                          <span className="inline-flex items-center gap-1">
+                            {tx.bankAmount > 0 ? `$${tx.bankAmount.toFixed(2)}` : "-"}
+                            {tx.transactionType === "CONVERT" && tx.isBankSettled && (
+                              <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+                            )}
+                          </span>
                         </TableCell>
                         <TableCell>
                           {tx.referenceNote ? (

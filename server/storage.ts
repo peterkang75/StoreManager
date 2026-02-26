@@ -101,6 +101,7 @@ export interface IStorage {
   getFinancialTransactions(limit?: number): Promise<FinancialTransaction[]>;
   createFinancialTransaction(tx: InsertFinancialTransaction): Promise<FinancialTransaction>;
   deleteFinancialTransaction(id: string): Promise<boolean>;
+  settleFinancialTransaction(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -802,6 +803,13 @@ export class MemStorage implements IStorage {
   async deleteFinancialTransaction(id: string): Promise<boolean> {
     return this.financialTransactions.delete(id);
   }
+
+  async settleFinancialTransaction(id: string): Promise<boolean> {
+    const tx = this.financialTransactions.get(id);
+    if (!tx) return false;
+    tx.isBankSettled = true;
+    return true;
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1191,6 +1199,15 @@ export class DatabaseStorage implements IStorage {
 
   async deleteFinancialTransaction(id: string): Promise<boolean> {
     const result = await db.delete(financialTransactions).where(eq(financialTransactions.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async settleFinancialTransaction(id: string): Promise<boolean> {
+    const result = await db
+      .update(financialTransactions)
+      .set({ isBankSettled: true })
+      .where(eq(financialTransactions.id, id))
+      .returning();
     return result.length > 0;
   }
 }
