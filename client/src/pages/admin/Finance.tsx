@@ -481,12 +481,16 @@ export function AdminFinance() {
 
   const internalStores = (stores || []).filter((s) => s.active && !s.isExternal);
 
-  const balances = internalStores
-    .map((s) => {
+  const balanceDisplayOrder = ["Sushi", "Sandwich", "Trading", "HO"];
+
+  const balances = balanceDisplayOrder
+    .map((name) => {
       if (!serverBalances) return null;
-      const cash = serverBalances[s.name];
+      const store = internalStores.find((s) => s.name === name);
+      if (!store) return null;
+      const cash = serverBalances[name];
       if (cash === undefined) return null;
-      return { name: s.name, code: s.code, cash };
+      return { name, code: store.code, cash };
     })
     .filter(Boolean) as { name: string; code: string; cash: number }[];
 
