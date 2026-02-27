@@ -140,7 +140,7 @@ function RemittanceForm({ stores }: { stores: Store[] }) {
   const { toast } = useToast();
 
   const activeStores = stores.filter((s) => s.active);
-  const hoStore = stores.find((s) => s.code.toUpperCase() === "HO" || s.name.toUpperCase().includes("HEAD OFFICE"));
+  const hoStore = stores.find((s) => s.code.toUpperCase() === "HO" || s.name.toUpperCase() === "HO" || s.name.toUpperCase().includes("HEAD OFFICE"));
   const operatingStores = activeStores.filter((s) => s.id !== hoStore?.id);
 
   const mutation = useMutation({
