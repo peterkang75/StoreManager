@@ -74,6 +74,23 @@ function ConvertForm({ stores }: { stores: Store[] }) {
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
           <Label>From Store (Cash Out)</Label>
+          <div className="flex gap-1 flex-wrap">
+            {["Meat", "Trading"].map((name) => {
+              const store = activeStores.find((s) => s.name === name);
+              if (!store) return null;
+              return (
+                <Button
+                  key={store.id}
+                  size="sm"
+                  variant={fromStoreId === store.id ? "default" : "outline"}
+                  onClick={() => { setFromStoreId(store.id); if (store.id === toStoreId) setToStoreId(""); }}
+                  data-testid={`button-quick-from-${name.toLowerCase()}`}
+                >
+                  {name}
+                </Button>
+              );
+            })}
+          </div>
           <Select value={fromStoreId} onValueChange={(v) => { setFromStoreId(v); if (v === toStoreId) setToStoreId(""); }}>
             <SelectTrigger data-testid="select-convert-from">
               <SelectValue placeholder="Select store" />
@@ -87,6 +104,23 @@ function ConvertForm({ stores }: { stores: Store[] }) {
         </div>
         <div className="space-y-2">
           <Label>To Store (Cash In)</Label>
+          <div className="flex gap-1 flex-wrap">
+            {["Sushi", "Sandwich", "Trading"].map((name) => {
+              const store = availableToStores.find((s) => s.name === name);
+              if (!store) return null;
+              return (
+                <Button
+                  key={store.id}
+                  size="sm"
+                  variant={toStoreId === store.id ? "default" : "outline"}
+                  onClick={() => setToStoreId(store.id)}
+                  data-testid={`button-quick-to-${name.toLowerCase()}`}
+                >
+                  {name}
+                </Button>
+              );
+            })}
+          </div>
           <Select value={toStoreId} onValueChange={setToStoreId}>
             <SelectTrigger data-testid="select-convert-to">
               <SelectValue placeholder="Select store" />
