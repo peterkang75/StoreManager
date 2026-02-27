@@ -9,6 +9,7 @@ export const stores = pgTable("stores", {
   code: text("code").notNull().unique(),
   address: text("address"),
   active: boolean("active").default(true).notNull(),
+  isExternal: boolean("is_external").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

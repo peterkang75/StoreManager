@@ -475,18 +475,18 @@ export function AdminFinance() {
     });
   };
 
-  const displayNames = ["Sushi", "Sandwich", "Meat", "Trading", "HO"];
-
   const { data: serverBalances } = useQuery<Record<string, number>>({
     queryKey: ["/api/finance/balances"],
   });
 
-  const balances = displayNames
-    .map((dn) => {
+  const internalStores = (stores || []).filter((s) => s.active && !s.isExternal);
+
+  const balances = internalStores
+    .map((s) => {
       if (!serverBalances) return null;
-      const cash = serverBalances[dn];
+      const cash = serverBalances[s.name];
       if (cash === undefined) return null;
-      return { name: dn, code: dn, cash };
+      return { name: s.name, code: s.code, cash };
     })
     .filter(Boolean) as { name: string; code: string; cash: number }[];
 
