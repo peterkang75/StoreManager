@@ -47,20 +47,28 @@ function getLastFortnight(): { start: string; end: string } {
 }
 
 function calculatePaygTax(fortnightlyGross: number): number {
-  const annual = fortnightlyGross * 26;
-  let tax = 0;
-  if (annual <= 18200) {
-    tax = 0;
-  } else if (annual <= 45000) {
-    tax = (annual - 18200) * 0.19;
-  } else if (annual <= 120000) {
-    tax = 5092 + (annual - 45000) * 0.325;
-  } else if (annual <= 180000) {
-    tax = 29467 + (annual - 120000) * 0.37;
-  } else {
-    tax = 51667 + (annual - 180000) * 0.45;
+  const g = fortnightlyGross;
+  if (g <= 0) return 0;
+
+  const brackets: [number, number, number, number][] = [
+    [546, 0, 0, 0],
+    [700, 0.19, 0.19, 103.8462],
+    [1282, 0.2348, 0.2348, 103.8462],
+    [1730, 0.219, 0.219, 83.5769],
+    [3461, 0.3477, 0.3477, 306.2692],
+    [6924, 0.345, 0.345, 306.2692],
+    [Infinity, 0.47, 0.47, -398.1154],
+  ];
+
+  for (const [upper, a, b, c] of brackets) {
+    if (g < upper) {
+      const weekly = Math.max(0, a * (g / 2) - c / 2);
+      return Math.round(weekly * 2 * 100) / 100;
+    }
   }
-  return Math.round((tax / 26) * 100) / 100;
+
+  const weekly = Math.max(0, 0.47 * (g / 2) + 398.1154 / 2);
+  return Math.round(weekly * 2 * 100) / 100;
 }
 
 const SUPER_RATE = 0.115;
@@ -281,6 +289,11 @@ export function AdminPayrolls() {
           (r) => r.json()
         ),
         ...memoUpdates,
+        selectedStoreId
+          ? apiRequest("PUT", `/api/stores/${selectedStoreId}/payroll-note`, {
+              globalPayrollNote: globalNote || null,
+            })
+          : Promise.resolve(),
       ]);
       return payrollResult;
     },
@@ -290,6 +303,7 @@ export function AdminPayrolls() {
         queryKey: ["/api/payrolls/current", selectedStoreId, periodStart, periodEnd],
       });
       queryClient.invalidateQueries({ queryKey: ["/api/payrolls"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
     },
     onError: (error: Error) => {
       toast({
@@ -297,18 +311,6 @@ export function AdminPayrolls() {
         description: error.message,
         variant: "destructive",
       });
-    },
-  });
-
-  const saveNoteMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("PUT", `/api/stores/${selectedStoreId}/payroll-note`, {
-        globalPayrollNote: globalNote || null,
-      });
-    },
-    onSuccess: () => {
-      toast({ title: "Payroll note saved" });
-      queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
     },
   });
 
@@ -364,120 +366,110 @@ export function AdminPayrolls() {
   return (
     <AdminLayout title="Timesheet & Payroll">
       <div className="space-y-6">
-        {!storesLoading && <CashBalances stores={stores || []} />}
+        <div className="sticky top-0 z-30 bg-background pb-4 space-y-4 border-b">
+          {!storesLoading && <CashBalances stores={stores || []} />}
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2 flex-wrap">
-              <DollarSign className="h-4 w-4" />
-              Quick Convert
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {storesLoading ? (
-              <Skeleton className="h-32 w-full" />
-            ) : (
-              <ConvertForm stores={stores || []} />
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2 flex-wrap">
+                <DollarSign className="h-4 w-4" />
+                Quick Convert
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {storesLoading ? (
+                <Skeleton className="h-32 w-full" />
+              ) : (
+                <ConvertForm stores={stores || []} />
+              )}
+            </CardContent>
+          </Card>
+
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="space-y-2 min-w-[200px]">
+              <Label>Store</Label>
+              <Select
+                value={selectedStoreId}
+                onValueChange={handleStoreChange}
+              >
+                <SelectTrigger data-testid="select-payroll-store">
+                  <SelectValue placeholder="Select store" />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeInternalStores.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Period Start</Label>
+              <Input
+                type="date"
+                value={periodStart}
+                onChange={(e) => setPeriodStart(e.target.value)}
+                data-testid="input-period-start"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Period End</Label>
+              <Input
+                type="date"
+                value={periodEnd}
+                onChange={(e) => setPeriodEnd(e.target.value)}
+                data-testid="input-period-end"
+              />
+            </div>
+            <div>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".csv,.tsv,.txt"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) importMutation.mutate(file);
+                  e.target.value = "";
+                }}
+                data-testid="input-import-file"
+              />
+              <Button
+                variant="outline"
+                onClick={() => fileRef.current?.click()}
+                disabled={importMutation.isPending}
+                data-testid="button-import-employees"
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Import Employees
+              </Button>
+            </div>
+            {periodStart && periodEnd && (
+              <p className="text-sm text-muted-foreground self-center" data-testid="text-period-label">
+                {formatPeriodLabel(periodStart, periodEnd)}
+              </p>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Payroll Grid</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex flex-wrap items-end gap-4">
-              <div className="space-y-2 min-w-[200px]">
-                <Label>Store</Label>
-                <Select
-                  value={selectedStoreId}
-                  onValueChange={handleStoreChange}
-                >
-                  <SelectTrigger data-testid="select-payroll-store">
-                    <SelectValue placeholder="Select store" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {activeInternalStores.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Period Start</Label>
-                <Input
-                  type="date"
-                  value={periodStart}
-                  onChange={(e) => setPeriodStart(e.target.value)}
-                  data-testid="input-period-start"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Period End</Label>
-                <Input
-                  type="date"
-                  value={periodEnd}
-                  onChange={(e) => setPeriodEnd(e.target.value)}
-                  data-testid="input-period-end"
-                />
-              </div>
-              <div>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept=".csv,.tsv,.txt"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) importMutation.mutate(file);
-                    e.target.value = "";
-                  }}
-                  data-testid="input-import-file"
-                />
-                <Button
-                  variant="outline"
-                  onClick={() => fileRef.current?.click()}
-                  disabled={importMutation.isPending}
-                  data-testid="button-import-employees"
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Import Employees
-                </Button>
-              </div>
-            </div>
-
-            {periodStart && periodEnd && (
-              <p className="text-sm text-muted-foreground" data-testid="text-period-label">
-                {formatPeriodLabel(periodStart, periodEnd)}
-              </p>
-            )}
-
             {selectedStore && (
               <div className="space-y-2">
                 <Label className="text-sm">
                   Global Payroll Note ({selectedStore.name})
                 </Label>
-                <div className="flex gap-2 items-start">
-                  <Textarea
-                    value={globalNote}
-                    onChange={(e) => setGlobalNote(e.target.value)}
-                    placeholder="이 매장의 급여 관련 메모를 입력하세요 (삭제할 때까지 유지됩니다)"
-                    className="text-sm"
-                    data-testid="textarea-global-note"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => saveNoteMutation.mutate()}
-                    disabled={saveNoteMutation.isPending}
-                    data-testid="button-save-note"
-                  >
-                    Save
-                  </Button>
-                </div>
+                <Textarea
+                  value={globalNote}
+                  onChange={(e) => setGlobalNote(e.target.value)}
+                  placeholder="이 매장의 급여 관련 메모를 입력하세요 (삭제할 때까지 유지됩니다)"
+                  className="text-sm"
+                  data-testid="textarea-global-note"
+                />
               </div>
             )}
 

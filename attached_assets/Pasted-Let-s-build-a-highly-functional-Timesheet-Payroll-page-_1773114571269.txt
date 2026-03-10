@@ -1,0 +1,41 @@
+Let's build a highly functional "Timesheet & Payroll" page that works like an intelligent spreadsheet. This page must handle complex Australian payroll logic (FY 2025/2026) and integrate with our existing Finance components.
+
+### 1. Database & API Enhancements
+- Update `employees` table: Add `persistentMemo` (text).
+- Update `stores` table: Add `globalPayrollNote` (text).
+- Update `payrolls` table: Add `grossAmount` (real), `taxAmount` (real), `superAmount` (real).
+- Create `POST /api/employees/import`: To bulk update employee rates/fixed amounts via TSV/CSV.
+- Create `GET /api/payrolls/latest-period`: To fetch the most recent saved payroll dates for a store.
+
+### 2. UI Layout: "The Command Center" (client/src/pages/admin/Payrolls.tsx)
+- **Top Sticky Section**: 
+  - Render `<CashBalances />` and `<ConvertForm />` (Refactor these from Finance page into reusable components).
+  - Add "Store Selector", "Fortnight Date Pickers", and "Import Employees" button.
+- **Date Logic**: Auto-calculate the default period. If today is Tue March 10, 2026, set the range to Mon Feb 23 – Sun March 8 (the last completed Mon-Sun block).
+- **Global Store Memo**: A persistent textarea linked to `stores.globalPayrollNote`.
+
+### 3. The Spreadsheet Grid (Real-time Calculation Engine)
+Render a 14-column table for all active employees in the selected store.
+Columns & Interaction Logic:
+1. **Employee Name**: Read-only.
+2. **Hours**: Editable (number).
+3. **Rate**: Read-only (from employee record).
+4. **Fixed Amount**: Read-only (if > 0, use this instead of Hours * Rate).
+5. **Calculated Amount**: (Hours * Rate) OR Fixed Amount.
+6. **Adjustment**: Editable (+/- amount).
+7. **Adj Reason**: Editable (text).
+8. **Total w/ Adj**: [Calculated Amount] + [Adjustment].
+9. **Gross**: Editable. (If changed: `Cash = TotalWithAdj - Gross`).
+10. **Cash**: Editable. (If changed: `Gross = TotalWithAdj - Cash`).
+11. **Tax (PAYG)**: Auto-calculate using ATO Fortnightly Tax Table logic (Schedule 1), but keep it MANUALLY EDITABLE.
+12. **Super**: Read-only. (`Gross * 0.115`).
+13. **Bank Deposit**: Read-only. (`Gross - Tax`).
+14. **Employee Memo**: Persistent textarea linked to `employees.persistentMemo`.
+
+### 4. Summary & Persistence
+- **Totals Row**: A bottom row showing the SUM of all numeric columns (Total Hours, Total Cash, Total Gross, Total Tax, etc.).
+- **Save All Button**: A single action to bulk-save/update all payroll records and both Global/Employee persistent memos.
+
+### 5. Tech Stack Requirements
+- Use `react-hook-form` or local state with `useMemo` for high-performance real-time recalculations while typing.
+- Ensure the UI feels snappy like Excel.

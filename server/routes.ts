@@ -730,6 +730,29 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/payrolls/latest-period", async (req: Request, res: Response) => {
+    try {
+      const { store_id } = req.query as Record<string, string>;
+      if (!store_id) {
+        return res.status(400).json({ error: "store_id is required" });
+      }
+      const emps = await storage.getEmployees({ storeId: store_id, status: "ACTIVE" });
+      if (emps.length === 0) {
+        return res.json({ periodStart: null, periodEnd: null });
+      }
+      const allPayrolls = await storage.getPayrolls({});
+      const storePayrolls = allPayrolls.filter(p => emps.some(e => e.id === p.employeeId));
+      if (storePayrolls.length === 0) {
+        return res.json({ periodStart: null, periodEnd: null });
+      }
+      storePayrolls.sort((a, b) => (b.periodEnd > a.periodEnd ? 1 : -1));
+      res.json({ periodStart: storePayrolls[0].periodStart, periodEnd: storePayrolls[0].periodEnd });
+    } catch (error) {
+      console.error("Error fetching latest period:", error);
+      res.status(500).json({ error: "Failed to fetch latest period" });
+    }
+  });
+
   app.get("/api/payrolls/current", async (req: Request, res: Response) => {
     try {
       const { store_id, period_start, period_end } = req.query as Record<string, string>;
