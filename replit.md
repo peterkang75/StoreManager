@@ -44,6 +44,12 @@ The system is built as a Single Page Application (SPA) using React 18 with Vite 
 - **Cash Wage Auto-Deduction**: When payroll is saved via `/api/payrolls/bulk`, a `CASH_WAGE` financial transaction is automatically created (fromStoreId = store, cashAmount = total cash wages for the period). This deducts cash wages from the store's cash balance immediately. Re-saving the same store+period replaces the previous CASH_WAGE transaction (keyed by `referenceNote` pattern `CASH_WAGE:{storeId}:{periodStart}~{periodEnd}`). The Payrolls page "Cash Balance" in store totals now shows the actual balance (already reflecting the wage deduction) instead of computing a manual difference.
 - **Financial Tracking**: Daily closing reports, detailed cash sales records, and supplier invoice/payment management.
 
+### Production Database Seeding
+- **Seed Data**: `server/seed-data.json` contains exported dev database (stores:8, employees:72, assignments:54, payrolls:433, cash_sales_details:28, financial_transactions:150).
+- **Auto-Seed**: `server/seed.ts` runs on startup via `seedDatabaseIfEmpty()`. If the `stores` table is empty, it seeds all tables from the JSON file. Otherwise it skips.
+- **Build**: `script/build.ts` copies `seed-data.json` to `dist/` so production has access to it.
+- **Key Mapping**: Seed data uses snake_case (from PostgreSQL export); the seed script converts to camelCase for Drizzle ORM.
+
 ## External Dependencies
 - **Database**: PostgreSQL (Neon-backed)
 - **Frontend Framework**: React 18
