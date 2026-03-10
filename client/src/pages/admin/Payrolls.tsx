@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { DollarSign, Save, Upload, FileSpreadsheet } from "lucide-react";
+import { DollarSign, Save, Upload, FileSpreadsheet, ChevronDown, ChevronUp } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { CashBalances } from "@/components/CashBalances";
 import { ConvertForm } from "@/components/ConvertForm";
@@ -141,6 +141,7 @@ export function AdminPayrolls() {
   const [periodEnd, setPeriodEnd] = useState(fortnight.end);
   const [selectedStoreId, setSelectedStoreId] = useState("");
   const [rows, setRows] = useState<PayrollRow[]>([]);
+  const [convertOpen, setConvertOpen] = useState(false);
   const [globalNote, setGlobalNote] = useState("");
   const [noteLoaded, setNoteLoaded] = useState(false);
 
@@ -371,19 +372,30 @@ export function AdminPayrolls() {
           {!storesLoading && <CashBalances stores={stores || []} />}
 
           <Card>
-            <CardHeader>
+            <CardHeader
+              className="cursor-pointer select-none"
+              onClick={() => setConvertOpen((v) => !v)}
+              data-testid="button-toggle-convert"
+            >
               <CardTitle className="text-base flex items-center gap-2 flex-wrap">
                 <DollarSign className="h-4 w-4" />
                 Quick Convert
+                {convertOpen ? (
+                  <ChevronUp className="h-4 w-4 ml-auto text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 ml-auto text-muted-foreground" />
+                )}
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              {storesLoading ? (
-                <Skeleton className="h-32 w-full" />
-              ) : (
-                <ConvertForm stores={stores || []} />
-              )}
-            </CardContent>
+            {convertOpen && (
+              <CardContent>
+                {storesLoading ? (
+                  <Skeleton className="h-32 w-full" />
+                ) : (
+                  <ConvertForm stores={stores || []} />
+                )}
+              </CardContent>
+            )}
           </Card>
 
           <div className="flex flex-wrap items-end gap-4">
