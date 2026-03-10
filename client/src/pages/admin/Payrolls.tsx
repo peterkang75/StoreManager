@@ -412,30 +412,10 @@ export function AdminPayrolls() {
               variant="outline"
               size="sm"
               className="self-end"
-              onClick={async () => {
-                if (!selectedStoreId) return;
-                try {
-                  const res = await fetch(`/api/payrolls/latest-period?store_id=${selectedStoreId}`);
-                  const data = await res.json();
-                  if (data.periodEnd) {
-                    const endDate = new Date(data.periodEnd);
-                    const nextStart = new Date(endDate);
-                    nextStart.setDate(endDate.getDate() + 1);
-                    const nextEnd = new Date(nextStart);
-                    nextEnd.setDate(nextStart.getDate() + 13);
-                    const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-                    setPeriodStart(fmt(nextStart));
-                    setPeriodEnd(fmt(nextEnd));
-                  } else {
-                    const f = getLastFortnight();
-                    setPeriodStart(f.start);
-                    setPeriodEnd(f.end);
-                  }
-                } catch {
-                  const f = getLastFortnight();
-                  setPeriodStart(f.start);
-                  setPeriodEnd(f.end);
-                }
+              onClick={() => {
+                const f = getLastFortnight();
+                setPeriodStart(f.start);
+                setPeriodEnd(f.end);
               }}
               data-testid="button-this-week"
             >
