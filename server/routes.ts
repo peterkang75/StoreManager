@@ -861,6 +861,158 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/payrolls/import-archive", upload.single("file"), async (req: Request, res: Response) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+      const content = fs.readFileSync(req.file.path, "utf-8");
+      fs.unlinkSync(req.file.path);
+
+      const lines = content.split("\n").filter(l => l.trim());
+      if (lines.length < 2) {
+        return res.status(400).json({ error: "File is empty or has no data rows" });
+      }
+
+      const allStores = await storage.getStores();
+      const allEmployees = await storage.getEmployees({});
+
+      const storeMap: Record<string, string> = {};
+      const storeAliases: Record<string, string> = {
+        "eatem sandwiches": "sandwich", "butcher shop": "meat",
+        "head office": "ho", "sushime": "sushi", "cafe": "trading", "ck": "trading",
+      };
+      for (const s of allStores) {
+        storeMap[s.name.toLowerCase()] = s.id;
+        storeMap[s.code.toLowerCase()] = s.id;
+      }
+      const resolveStore = (val: string): string | undefined => {
+        const lower = val.toLowerCase().trim();
+        if (storeMap[lower]) return storeMap[lower];
+        const alias = storeAliases[lower];
+        if (alias && storeMap[alias]) return storeMap[alias];
+        for (const s of allStores) {
+          if (s.name.toLowerCase().includes(lower) || lower.includes(s.name.toLowerCase())) return s.id;
+        }
+        return undefined;
+      };
+
+      const empByNickname: Record<string, typeof allEmployees[0]> = {};
+      const empByFullName: Record<string, typeof allEmployees[0]> = {};
+      const empByFirstName: Record<string, typeof allEmployees[0]> = {};
+      for (const emp of allEmployees) {
+        if (emp.nickname) empByNickname[emp.nickname.toLowerCase()] = emp;
+        empByFullName[`${emp.firstName} ${emp.lastName}`.toLowerCase()] = emp;
+        empByFirstName[emp.firstName.toLowerCase()] = emp;
+      }
+      const resolveEmployee = (name: string): typeof allEmployees[0] | undefined => {
+        const lower = name.toLowerCase().trim();
+        return empByNickname[lower] || empByFullName[lower] || empByFirstName[lower];
+      };
+
+      const parseDDMMYYYY = (val: string): string => {
+        const parts = val.trim().split("/");
+        if (parts.length !== 3) return val;
+        const [d, m, y] = parts;
+        const year = y.length === 2 ? `20${y}` : y;
+        return `${year}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+      };
+
+      const parseNum = (val: string): number => {
+        if (!val || val.trim() === "" || val.trim() === "-") return 0;
+        const cleaned = val.replace(/[$,]/g, "").trim();
+        if (cleaned === "" || /[\/a-zA-Z]/.test(cleaned)) return 0;
+        const num = parseFloat(cleaned);
+        return isNaN(num) ? 0 : num;
+      };
+
+      const existingPayrolls = await storage.getPayrolls({});
+      const existingKey = new Set(
+        existingPayrolls.map(p =>
+          `${p.employeeId}|${p.storeId || ""}|${p.periodStart}|${p.periodEnd}|${p.hours}|${p.rate}|${p.grossAmount}|${p.cashAmount}`
+        )
+      );
+
+      const results = { imported: 0, skipped: 0, errors: [] as string[] };
+
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split("\t");
+        if (cols.length < 19) { results.skipped++; continue; }
+
+        const storeName = (cols[5] || "").trim();
+        const employeeName = (cols[6] || "").trim();
+        const dateFrom = (cols[3] || "").trim();
+        const dateTo = (cols[4] || "").trim();
+
+        if (!storeName || !employeeName || !dateFrom || !dateTo) {
+          results.errors.push(`Row ${i + 1}: Missing required fields`);
+          results.skipped++;
+          continue;
+        }
+
+        const storeId = resolveStore(storeName);
+        if (!storeId) {
+          results.errors.push(`Row ${i + 1}: Store "${storeName}" not found`);
+          results.skipped++;
+          continue;
+        }
+
+        const employee = resolveEmployee(employeeName);
+        if (!employee) {
+          results.errors.push(`Row ${i + 1}: Employee "${employeeName}" not found`);
+          results.skipped++;
+          continue;
+        }
+
+        const periodStart = parseDDMMYYYY(dateFrom);
+        const periodEnd = parseDDMMYYYY(dateTo);
+
+        const hours = parseNum(cols[7]);
+        const rate = parseNum(cols[8]);
+        const fixedAmount = parseNum(cols[9]);
+        const calculatedAmount = parseNum(cols[10]);
+        const adjustment = parseNum(cols[11]);
+        const adjustmentReason = (cols[12] || "").trim() || null;
+        const totalWithAdjustment = parseNum(cols[13]);
+        const cashAmount = parseNum(cols[14]);
+        const grossAmount = parseNum(cols[15]);
+        const taxAmount = parseNum(cols[16]);
+        const bankDepositAmount = parseNum(cols[17]);
+        const superAmount = parseNum(cols[18]);
+        const memo = (cols[19] || "").trim() || null;
+
+        const key = `${employee.id}|${storeId}|${periodStart}|${periodEnd}|${hours}|${rate}|${grossAmount}|${cashAmount}`;
+
+        if (existingKey.has(key)) {
+          results.skipped++;
+          continue;
+        }
+
+        try {
+          await storage.createPayroll({
+            employeeId: employee.id,
+            storeId,
+            periodStart,
+            periodEnd,
+            hours, rate, fixedAmount, calculatedAmount, adjustment,
+            adjustmentReason, totalWithAdjustment,
+            cashAmount, grossAmount, taxAmount, bankDepositAmount, superAmount,
+            memo,
+          });
+          existingKey.add(key);
+          results.imported++;
+        } catch (err: any) {
+          results.errors.push(`Row ${i + 1}: ${err.message}`);
+        }
+      }
+
+      res.json(results);
+    } catch (error) {
+      console.error("Error importing payroll archive:", error);
+      res.status(500).json({ error: "Failed to import payroll archive" });
+    }
+  });
+
   app.get("/api/payrolls/:id", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
