@@ -1854,7 +1854,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "One or both stores not found" });
       }
 
-      if (toStore.code.toUpperCase() !== "HO" && !toStore.name.toUpperCase().includes("HEAD OFFICE")) {
+      if (toStore.name.toUpperCase() !== "HO" && !toStore.name.toUpperCase().includes("HEAD OFFICE")) {
         return res.status(400).json({ error: "Remittance destination must be the Head Office (HO) store" });
       }
 
