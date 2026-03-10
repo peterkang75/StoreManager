@@ -11,10 +11,20 @@ function snakeToCamel(s: string): string {
   return s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 }
 
+const timestampFields = new Set([
+  "createdAt", "updatedAt", "executedAt", "expiresAt", "usedAt",
+  "clockIn", "clockOut", "approvedAt"
+]);
+
 function convertKeys(obj: Record<string, any>): Record<string, any> {
   const result: Record<string, any> = {};
   for (const [key, value] of Object.entries(obj)) {
-    result[snakeToCamel(key)] = value;
+    const camelKey = snakeToCamel(key);
+    if (timestampFields.has(camelKey) && value != null && typeof value === "string") {
+      result[camelKey] = new Date(value);
+    } else {
+      result[camelKey] = value;
+    }
   }
   return result;
 }
