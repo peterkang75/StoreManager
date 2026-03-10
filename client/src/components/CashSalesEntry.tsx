@@ -504,7 +504,8 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                         type="text"
                         inputMode="numeric"
                         className="h-6 text-xs px-1 tabular-nums font-mono text-center"
-                        value={dateEditValues[idx] !== undefined ? dateEditValues[idx] : `${dayLabel} ${formatDateDisplay(row.date)}`}
+                        placeholder={`${dayLabel} ${formatDateDisplay(row.date)}`}
+                        value={dateEditValues[idx] !== undefined ? dateEditValues[idx] : ""}
                         onChange={(e) => {
                           setDateEditValues((prev) => ({ ...prev, [idx]: e.target.value }));
                         }}
