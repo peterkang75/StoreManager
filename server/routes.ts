@@ -36,7 +36,18 @@ const multerStorage = multer.diskStorage({
   },
 });
 
-const upload = multer({ storage: multerStorage });
+const allowedMimeTypes = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+const upload = multer({
+  storage: multerStorage,
+  limits: { fileSize: 10 * 1024 * 1024, files: 3 },
+  fileFilter: (_req, file, cb) => {
+    if (allowedMimeTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Invalid file type. Only JPEG, PNG, WebP and PDF are allowed."));
+    }
+  },
+});
 
 export async function registerRoutes(
   httpServer: Server,
@@ -284,6 +295,80 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error completing onboarding:", error);
       res.status(500).json({ error: "Failed to complete onboarding" });
+    }
+  });
+
+  app.post("/api/direct-register", onboardingUpload, async (req: Request, res: Response) => {
+    try {
+      const employeeData = {
+        firstName: req.body.firstName,
+        lastName: req.body.lastName,
+        nickname: req.body.nickname || null,
+        email: req.body.email || null,
+        phone: req.body.phone || null,
+        streetAddress: req.body.streetAddress || null,
+        streetAddress2: req.body.streetAddress2 || null,
+        suburb: req.body.suburb || null,
+        state: req.body.state || null,
+        postCode: req.body.postCode || null,
+        dob: req.body.dob || null,
+        gender: req.body.gender || null,
+        maritalStatus: req.body.maritalStatus || null,
+        visaType: req.body.visaType || null,
+        visaExpiry: req.body.visaExpiry || null,
+        lineId: req.body.lineId || null,
+        typeOfContact: req.body.typeOfContact || null,
+        rate: req.body.rate || null,
+        contractPosition: req.body.contractPosition || null,
+        fhc: req.body.fhc || null,
+        salaryType: req.body.salaryType || null,
+        annualLeave: req.body.annualLeave || null,
+        storeId: req.body.storeId || null,
+        fixedAmount: req.body.fixedAmount || null,
+        tfn: req.body.tfn || null,
+        bsb: req.body.bsb || null,
+        accountNo: req.body.accountNo || null,
+        superCompany: req.body.superCompany || null,
+        superMembershipNo: req.body.superMembershipNo || null,
+        status: "ACTIVE",
+      };
+
+      if (!employeeData.firstName || !employeeData.lastName) {
+        return res.status(400).json({ error: "First name and last name are required" });
+      }
+
+      const employee = await storage.createEmployee(employeeData);
+
+      const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+
+      if (files?.selfie?.[0]) {
+        await storage.createEmployeeDocument({
+          employeeId: employee.id,
+          docType: "SELFIE",
+          filePath: files.selfie[0].path,
+        });
+      }
+
+      if (files?.passport?.[0]) {
+        await storage.createEmployeeDocument({
+          employeeId: employee.id,
+          docType: "PASSPORT_COVER",
+          filePath: files.passport[0].path,
+        });
+      }
+
+      if (files?.signature?.[0]) {
+        await storage.createEmployeeDocument({
+          employeeId: employee.id,
+          docType: "SIGNATURE",
+          filePath: files.signature[0].path,
+        });
+      }
+
+      res.status(201).json({ success: true, id: employee.id, name: `${employee.firstName} ${employee.lastName}` });
+    } catch (error) {
+      console.error("Error completing direct registration:", error);
+      res.status(500).json({ error: "Failed to complete registration" });
     }
   });
 

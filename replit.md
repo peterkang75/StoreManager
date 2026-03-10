@@ -31,7 +31,7 @@ The system is built as a Single Page Application (SPA) using React 18 with Vite 
 
 ### Feature Specifications
 - **Admin Pages (12)**: Dashboard, Stores, Candidates, Employees, EmployeeDetail, Rosters, Timesheets, Payrolls, Cash, Finance, Suppliers, SupplierInvoices.
-- **Mobile Pages (5)**: Interview, Onboarding, Roster, Clock, DailyClose.
+- **Mobile Pages (6)**: Interview, Onboarding, Roster, Clock, DailyClose, DirectRegister.
 - **Employee Management**: Comprehensive employee records, including personal, address, visa, employment, and payroll details.
 - **Roster & Time Management**: Weekly roster creation, shift assignments, and accurate clock-in/out logging.
 - **Payroll**: Two-column master-detail layout replacing the old wide spreadsheet grid. Left column (38%): searchable employee list with name/hours/total summary. Right column (62%): detail editing card with grouped sections (Basis: rate/fixed; Inputs: hours/adjustment/reason; Payment Split: gross/cash/tax editable; Results: calculated/total/super/bank read-only; Memo). Sticky footer bar shows running store grand totals. Arrow key navigation in employee list. Quick Convert is collapsible (default collapsed). All real-time calculations preserved (Gross/Cash reciprocal, PAYG tax via ATO Schedule 1 fortnightly coefficients, Super 11.5%, Bank Deposit). Supports fortnightly period auto-detection, bulk save, CSV/TSV employee import, persistent employee memos, and global store payroll notes.

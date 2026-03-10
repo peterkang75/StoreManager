@@ -20,7 +20,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { UserCheck, Search } from "lucide-react";
+import { UserCheck, Search, Link2, Check } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -28,6 +29,7 @@ import type { Employee, Store, EmployeeStoreAssignment } from "@shared/schema";
 
 export function AdminEmployees() {
   const [, setLocation] = useLocation();
+  const [linkCopied, setLinkCopied] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [storeFilter, setStoreFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -117,6 +119,21 @@ export function AdminEmployees() {
               직원 정보를 확인하고 관리합니다
             </p>
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            data-testid="button-copy-register-link"
+            onClick={() => {
+              const url = `${window.location.origin}/m/register`;
+              navigator.clipboard.writeText(url);
+              setLinkCopied(true);
+              toast({ title: "Link Copied", description: "신규 직원 등록 링크가 복사되었습니다" });
+              setTimeout(() => setLinkCopied(false), 2000);
+            }}
+          >
+            {linkCopied ? <Check className="h-4 w-4 mr-1.5" /> : <Link2 className="h-4 w-4 mr-1.5" />}
+            {linkCopied ? "Copied!" : "Copy Registration Link"}
+          </Button>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-4">

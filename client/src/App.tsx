@@ -24,6 +24,7 @@ import { MobileOnboarding } from "@/pages/mobile/Onboarding";
 import { MobileRoster } from "@/pages/mobile/Roster";
 import { MobileClock } from "@/pages/mobile/Clock";
 import { MobileDailyClose } from "@/pages/mobile/DailyClose";
+import { MobileDirectRegister } from "@/pages/mobile/DirectRegister";
 
 function Router() {
   return (
@@ -51,6 +52,7 @@ function Router() {
       <Route path="/m/roster" component={MobileRoster} />
       <Route path="/m/clock" component={MobileClock} />
       <Route path="/m/daily-close" component={MobileDailyClose} />
+      <Route path="/m/register" component={MobileDirectRegister} />
       
       <Route component={NotFound} />
     </Switch>
