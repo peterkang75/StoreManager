@@ -44,9 +44,9 @@ function calculatePaygTax(fortnightlyGross: number): number {
   const x = fortnightlyGross + 0.99;
 
   const brackets: [number, number, number][] = [
-    [915, 0.1500, 108.33],
-    [932, 0.4400, 373.71],
-    [1731, 0.2100, 159.42],
+    [915, 0.1500, 107.13],
+    [932, 0.4400, 372.46],
+    [1731, 0.2100, 158.52],
     [3462, 0.3200, 346.23],
     [5385, 0.3700, 519.33],
     [Infinity, 0.4500, 950.13],
