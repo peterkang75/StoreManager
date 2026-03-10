@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { Badge } from "@/components/ui/badge";
 import { DollarSign, Save, Upload, FileSpreadsheet } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { CashBalances } from "@/components/CashBalances";
@@ -76,6 +77,8 @@ const SUPER_RATE = 0.115;
 interface PayrollRow {
   employeeId: string;
   employeeName: string;
+  nickname: string;
+  status: string;
   payrollId: string | null;
   hours: number;
   rate: number;
@@ -201,6 +204,8 @@ export function AdminPayrolls() {
         return {
           employeeId: employee.id,
           employeeName: `${employee.firstName} ${employee.lastName}`,
+          nickname: employee.nickname || "",
+          status: employee.status || "ACTIVE",
           payrollId: payroll.id,
           hours: payroll.hours,
           rate: payroll.rate || empRate,
@@ -221,6 +226,8 @@ export function AdminPayrolls() {
       const base: PayrollRow = {
         employeeId: employee.id,
         employeeName: `${employee.firstName} ${employee.lastName}`,
+        nickname: employee.nickname || "",
+        status: employee.status || "ACTIVE",
         payrollId: null,
         hours: 0,
         rate: empRate,
@@ -345,6 +352,33 @@ export function AdminPayrolls() {
       });
     },
   });
+
+  const toggleStatus = useCallback(
+    async (idx: number) => {
+      const row = rows[idx];
+      const newStatus = row.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+      try {
+        await apiRequest("PUT", `/api/employees/${row.employeeId}`, {
+          status: newStatus,
+        });
+        setRows((prev) => {
+          const updated = [...prev];
+          updated[idx] = { ...updated[idx], status: newStatus };
+          return updated;
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      } catch {
+        toast({
+          title: "Error",
+          description: "상태 변경에 실패했습니다",
+          variant: "destructive",
+        });
+      }
+    },
+    [rows, toast]
+  );
+
+  const selectedStoreName = selectedStore?.name || "";
 
   const grandTotals = rows.reduce(
     (acc, r) => ({
@@ -495,14 +529,20 @@ export function AdminPayrolls() {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/50">
-                        <TableHead className="whitespace-nowrap min-w-[140px] sticky left-0 bg-muted/50 z-10">
-                          Employee
+                        <TableHead className="whitespace-nowrap min-w-[100px] sticky left-0 bg-muted/50 z-10">
+                          Nickname
+                        </TableHead>
+                        <TableHead className="whitespace-nowrap min-w-[80px]">
+                          Store
+                        </TableHead>
+                        <TableHead className="text-right whitespace-nowrap min-w-[70px]">
+                          Rate
+                        </TableHead>
+                        <TableHead className="whitespace-nowrap min-w-[80px] text-center">
+                          Status
                         </TableHead>
                         <TableHead className="text-right whitespace-nowrap min-w-[80px]">
                           Hours
-                        </TableHead>
-                        <TableHead className="text-right whitespace-nowrap min-w-[80px]">
-                          Rate
                         </TableHead>
                         <TableHead className="text-right whitespace-nowrap min-w-[80px]">
                           Fixed
@@ -545,8 +585,24 @@ export function AdminPayrolls() {
                           key={row.employeeId}
                           data-testid={`row-payroll-${row.employeeId}`}
                         >
-                          <TableCell className="font-medium whitespace-nowrap sticky left-0 bg-background z-10" data-testid={`text-employee-name-${row.employeeId}`}>
-                            {row.employeeName}
+                          <TableCell className="font-medium whitespace-nowrap sticky left-0 bg-background z-10" title={row.employeeName} data-testid={`text-employee-name-${row.employeeId}`}>
+                            {row.nickname || row.employeeName}
+                          </TableCell>
+                          <TableCell className="text-sm whitespace-nowrap text-muted-foreground" data-testid={`text-store-${row.employeeId}`}>
+                            {selectedStoreName}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-sm" data-testid={`text-rate-${row.employeeId}`}>
+                            {fmtMoney(row.rate)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Badge
+                              variant={row.status === "ACTIVE" ? "default" : "secondary"}
+                              className="cursor-pointer select-none text-xs"
+                              onClick={() => toggleStatus(idx)}
+                              data-testid={`badge-status-${row.employeeId}`}
+                            >
+                              {row.status === "ACTIVE" ? "Active" : "Inactive"}
+                            </Badge>
                           </TableCell>
                           <TableCell className="text-right">
                             <Input
@@ -564,9 +620,6 @@ export function AdminPayrolls() {
                               }
                               data-testid={`input-hours-${row.employeeId}`}
                             />
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-sm" data-testid={`text-rate-${row.employeeId}`}>
-                            {fmtMoney(row.rate)}
                           </TableCell>
                           <TableCell className="text-right font-mono text-sm" data-testid={`text-fixed-${row.employeeId}`}>
                             {row.fixedAmount > 0 ? fmtMoney(row.fixedAmount) : "-"}
@@ -685,10 +738,12 @@ export function AdminPayrolls() {
                         <TableCell className="sticky left-0 bg-muted/50 z-10">
                           TOTALS
                         </TableCell>
+                        <TableCell />
+                        <TableCell />
+                        <TableCell />
                         <TableCell className="text-right font-mono" data-testid="text-total-hours">
                           {grandTotals.hours.toFixed(1)}
                         </TableCell>
-                        <TableCell />
                         <TableCell />
                         <TableCell className="text-right font-mono" data-testid="text-total-calculated">
                           {fmtMoney(grandTotals.calculated)}
