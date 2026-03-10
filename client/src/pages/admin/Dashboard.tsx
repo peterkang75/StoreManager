@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Store, Users, UserCheck, ClipboardList, Smartphone, FileText, CalendarDays, Clock, Wallet, ExternalLink } from "lucide-react";
+import { Store, Users, UserCheck, ClipboardList, Smartphone, FileText, CalendarDays, Clock, Wallet, ExternalLink, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
 import type { Store as StoreType, Candidate, Employee } from "@shared/schema";
@@ -184,6 +184,16 @@ export function AdminDashboard() {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium">Daily Close</p>
                     <p className="text-sm text-muted-foreground">일일 마감 정산</p>
+                  </div>
+                  <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                </div>
+              </Link>
+              <Link href="/m/register">
+                <div className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer" data-testid="link-mobile-register">
+                  <UserPlus className="h-5 w-5 text-primary" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium">Direct Register</p>
+                    <p className="text-sm text-muted-foreground">신규 직원 직접 등록</p>
                   </div>
                   <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 </div>
