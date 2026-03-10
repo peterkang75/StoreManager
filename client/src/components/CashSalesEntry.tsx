@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Save, ChevronLeft, ChevronRight } from "lucide-react";
+import { Save, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Store, CashSalesDetail } from "@shared/schema";
@@ -229,6 +229,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
 
   const shiftPeriod = (direction: number) => {
     setPeriodStart((prev) => addDays(prev, direction * 14));
+    setDayJumpResult(null);
   };
 
   const formatShortDate = (dateStr: string) => {
@@ -237,6 +238,47 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
   };
 
   const TAB_COLS = ["envelopeAmount", ...DENOMINATIONS.map((d) => d.key)];
+
+  const [dayJumpInput, setDayJumpInput] = useState("");
+  const [dayJumpResult, setDayJumpResult] = useState<string | null>(null);
+
+  const resolveDayToDate = useCallback((dayNum: number): string | null => {
+    if (dayNum < 1 || dayNum > 31) return null;
+    for (let i = 0; i < 14; i++) {
+      const d = addDays(periodStart, i);
+      const dateStr = d.toISOString().split("T")[0];
+      const dayOfMonth = d.getDate();
+      if (dayOfMonth === dayNum) return dateStr;
+    }
+    return null;
+  }, [periodStart]);
+
+  const handleDayJump = useCallback((value: string) => {
+    const num = parseInt(value, 10);
+    if (isNaN(num)) {
+      setDayJumpResult(null);
+      return;
+    }
+    const resolved = resolveDayToDate(num);
+    if (resolved) {
+      setDayJumpResult(resolved);
+      const rowIdx = rows.findIndex((r) => r.date === resolved);
+      if (rowIdx >= 0) {
+        setTimeout(() => {
+          const input = gridRef.current?.querySelector(
+            `[data-row="${rowIdx}"][data-col="envelopeAmount"]`
+          ) as HTMLInputElement | null;
+          if (input) {
+            input.focus();
+            input.select();
+            input.scrollIntoView({ block: "center", behavior: "smooth" });
+          }
+        }, 50);
+      }
+    } else {
+      setDayJumpResult(null);
+    }
+  }, [resolveDayToDate, rows]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>, rowIdx: number, colKey: string) => {
@@ -320,6 +362,46 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Go to Day</Label>
+          <div className="flex items-center gap-1">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                type="text"
+                inputMode="numeric"
+                placeholder="Day #"
+                className="h-9 w-[80px] pl-7 text-center tabular-nums"
+                value={dayJumpInput}
+                onChange={(e) => {
+                  const v = e.target.value.replace(/[^0-9]/g, "");
+                  setDayJumpInput(v);
+                  if (v.length >= 1) handleDayJump(v);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleDayJump(dayJumpInput);
+                    setDayJumpInput("");
+                  }
+                }}
+                onBlur={() => {
+                  if (dayJumpInput) handleDayJump(dayJumpInput);
+                  setDayJumpInput("");
+                }}
+                data-testid="input-day-jump"
+              />
+            </div>
+            {dayJumpResult && (
+              <span className="text-xs text-green-600 dark:text-green-400 font-mono whitespace-nowrap" data-testid="text-day-resolved">
+                {(() => {
+                  const [y, m, d] = dayJumpResult.split("-");
+                  return `${parseInt(d)}/${parseInt(m)}/${y}`;
+                })()}
+              </span>
+            )}
           </div>
         </div>
 
