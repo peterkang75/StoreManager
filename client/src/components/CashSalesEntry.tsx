@@ -107,7 +107,6 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
   const { toast } = useToast();
   const [storeId, setStoreId] = useState("");
   const [periodStart, setPeriodStart] = useState<Date | null>(null);
-  const [periodEnd, setPeriodEnd] = useState<Date | null>(null);
   const [rows, setRows] = useState<RowData[]>([]);
   const [isDirty, setIsDirty] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -136,26 +135,11 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const yesterday = addDays(today, -1);
-
-    if (latestDateData?.latestDate) {
-      const parts = latestDateData.latestDate.split("-");
-      const lastDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-      const dayAfter = addDays(lastDate, 1);
-      if (dayAfter <= yesterday) {
-        setPeriodStart(dayAfter);
-        setPeriodEnd(yesterday);
-      } else {
-        setPeriodStart(yesterday);
-        setPeriodEnd(yesterday);
-      }
-    } else {
-      setPeriodStart(addDays(yesterday, -7));
-      setPeriodEnd(yesterday);
-    }
+    setPeriodStart(addDays(yesterday, -13));
   }, [latestDateData, storeId]);
 
   const startDate = periodStart ? formatDateStr(periodStart) : "";
-  const endDate = periodEnd ? formatDateStr(periodEnd) : "";
+  const endDate = periodStart ? formatDateStr(addDays(periodStart, 13)) : "";
 
   const { data: existingData, isLoading: loadingData } = useQuery<CashSalesDetail[]>({
     queryKey: ["/api/cash-sales", storeId, startDate, endDate],
@@ -172,16 +156,10 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     },
   });
 
-  const numDays = useMemo(() => {
-    if (!periodStart || !periodEnd) return 0;
-    const diffMs = periodEnd.getTime() - periodStart.getTime();
-    return Math.max(1, Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1);
-  }, [periodStart, periodEnd]);
-
   useEffect(() => {
-    if (!periodStart || !periodEnd || numDays === 0) return;
+    if (!periodStart) return;
     const newRows: RowData[] = [];
-    for (let i = 0; i < numDays; i++) {
+    for (let i = 0; i < 14; i++) {
       const date = formatDateStr(addDays(periodStart, i));
       const existing = existingData?.find((d) => d.date === date);
       if (existing) {
@@ -283,9 +261,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
   });
 
   const shiftPeriod = (direction: number) => {
-    const shift = direction * numDays;
-    setPeriodStart((prev) => prev ? addDays(prev, shift) : prev);
-    setPeriodEnd((prev) => prev ? addDays(prev, shift) : prev);
+    setPeriodStart((prev) => prev ? addDays(prev, direction * 14) : prev);
     setDateEditValues({});
     setExpandedMemoIdx(null);
     setConfirmedDates({});
@@ -315,7 +291,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     if (slashMatch) {
       const day = parseInt(slashMatch[1], 10);
       const month = parseInt(slashMatch[2], 10);
-      for (let i = 0; i < numDays; i++) {
+      for (let i = 0; i < 14; i++) {
         const d = addDays(periodStart, i);
         if (d.getDate() === day && d.getMonth() + 1 === month) {
           return formatDateStr(d);
@@ -326,14 +302,14 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
 
     const num = parseInt(trimmed, 10);
     if (isNaN(num) || num < 1 || num > 31) return null;
-    for (let i = 0; i < numDays; i++) {
+    for (let i = 0; i < 14; i++) {
       const d = addDays(periodStart, i);
       if (d.getDate() === num) {
         return formatDateStr(d);
       }
     }
     return null;
-  }, [periodStart, numDays]);
+  }, [periodStart]);
 
   const MONTH_SHORT = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
