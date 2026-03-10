@@ -316,6 +316,7 @@ export const cashSalesDetails = pgTable("cash_sales_details", {
   coin010Count: integer("coin_010_count").default(0).notNull(),
   coin005Count: integer("coin_005_count").default(0).notNull(),
   differenceAmount: real("difference_amount").default(0).notNull(),
+  memo: text("memo"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

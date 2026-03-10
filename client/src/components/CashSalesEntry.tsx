@@ -40,6 +40,7 @@ interface RowData {
   envelopeAmount: number;
   countedAmount: number;
   differenceAmount: number;
+  memo: string;
   [key: string]: number | string;
 }
 
@@ -88,6 +89,7 @@ function createEmptyRow(date: string): RowData {
     envelopeAmount: 0,
     countedAmount: 0,
     differenceAmount: 0,
+    memo: "",
   };
   for (const d of ALL_DENOMINATIONS) {
     row[d.key] = 0;
@@ -145,6 +147,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
           envelopeAmount: existing.envelopeAmount,
           countedAmount: existing.countedAmount,
           differenceAmount: existing.differenceAmount,
+          memo: (existing as any).memo ?? "",
         };
         for (const denom of ALL_DENOMINATIONS) {
           row[denom.key] = (existing as any)[denom.key] ?? 0;
@@ -211,6 +214,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
           coin010Count: r.coin010Count ?? 0,
           coin005Count: r.coin005Count ?? 0,
           differenceAmount: r.differenceAmount,
+          memo: r.memo || null,
         })),
       });
       return res.json();
@@ -441,18 +445,19 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
         </div>
       ) : (
         <div ref={gridRef} className="border rounded-md overflow-x-auto">
-          <table className="w-full text-sm border-collapse">
+          <table className="text-sm border-collapse">
             <thead>
               <tr className="bg-muted/50">
-                <th className="sticky left-0 bg-muted/50 z-10 px-2 py-1.5 text-left font-medium border-b border-r min-w-[90px]">Date</th>
-                <th className="px-2 py-1.5 text-right font-medium border-b border-r min-w-[90px]">Envelope</th>
-                <th className="px-2 py-1.5 text-right font-medium border-b border-r min-w-[90px] bg-muted/80">Counted</th>
+                <th className="sticky left-0 bg-muted/50 z-10 px-1 py-1 text-left font-medium border-b border-r w-[82px]">Date</th>
+                <th className="px-1 py-1 text-right font-medium border-b border-r w-[70px]">Envelope</th>
+                <th className="px-1 py-1 text-right font-medium border-b border-r w-[70px] bg-muted/80">Counted</th>
                 {DENOMINATIONS.map((d) => (
-                  <th key={d.key} className="px-1 py-1.5 text-center font-medium border-b border-r min-w-[52px]">
+                  <th key={d.key} className="px-0.5 py-1 text-center font-medium border-b border-r w-[44px]">
                     {d.label}
                   </th>
                 ))}
-                <th className="px-2 py-1.5 text-right font-medium border-b min-w-[80px]">Diff</th>
+                <th className="px-1 py-1 text-right font-medium border-b border-r w-[62px]">Diff</th>
+                <th className="px-1 py-1 text-left font-medium border-b w-[106px]">Memo</th>
               </tr>
             </thead>
             <tbody>
@@ -472,11 +477,11 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                     `}
                     data-testid={`row-cashsales-${idx}`}
                   >
-                    <td className="sticky left-0 bg-background z-10 px-0.5 py-0.5 border-b border-r min-w-[90px]">
+                    <td className="sticky left-0 bg-background z-10 px-0.5 py-0.5 border-b border-r">
                       <Input
                         type="text"
                         inputMode="numeric"
-                        className="h-7 text-xs px-1 tabular-nums font-mono text-center"
+                        className="h-6 text-xs px-1 tabular-nums font-mono text-center"
                         value={dateEditValues[idx] !== undefined ? dateEditValues[idx] : `${dayLabel} ${formatDateDisplay(row.date)}`}
                         onChange={(e) => {
                           setDateEditValues((prev) => ({ ...prev, [idx]: e.target.value }));
@@ -497,7 +502,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                         type="number"
                         step="0.01"
                         min="0"
-                        className={`h-7 text-right text-xs px-1 tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${
+                        className={`h-6 text-right text-xs px-1 tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${
                           (row.envelopeAmount as number) > 0 && Math.abs(diff) < 0.01
                             ? "border-green-500 bg-green-50 dark:bg-green-950/30"
                             : ""
@@ -511,7 +516,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                         data-testid={`input-envelope-${idx}`}
                       />
                     </td>
-                    <td className="px-2 py-0.5 border-b border-r text-right font-mono text-xs tabular-nums bg-muted/30 font-medium" data-testid={`text-counted-${idx}`}>
+                    <td className="px-1 py-0.5 border-b border-r text-right font-mono text-xs tabular-nums bg-muted/30 font-medium" data-testid={`text-counted-${idx}`}>
                       {(row.countedAmount as number) > 0 ? `$${(row.countedAmount as number).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
                     </td>
                     {DENOMINATIONS.map((denom) => (
@@ -520,7 +525,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                           type="number"
                           step="1"
                           min="0"
-                          className="h-7 text-center text-xs px-0.5 tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                          className="h-6 text-center text-xs px-0 tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                           value={(row[denom.key] as number) || ""}
                           onChange={(e) => updateRow(idx, denom.key, parseInt(e.target.value) || 0)}
                           onFocus={(e) => e.target.select()}
@@ -532,10 +537,27 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                       </td>
                     ))}
                     <td
-                      className={`px-2 py-0.5 border-b text-right font-mono text-xs tabular-nums ${hasDiff ? "text-red-600 dark:text-red-400 font-bold" : "text-muted-foreground"}`}
+                      className={`px-1 py-0.5 border-b border-r text-right font-mono text-xs tabular-nums ${hasDiff ? "text-red-600 dark:text-red-400 font-bold" : "text-muted-foreground"}`}
                       data-testid={`text-diff-${idx}`}
                     >
                       {hasDiff ? `$${diff.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
+                    </td>
+                    <td className="px-0.5 py-0.5 border-b">
+                      <Input
+                        type="text"
+                        className="h-6 text-xs px-1"
+                        value={row.memo || ""}
+                        onChange={(e) => {
+                          setRows((prev) => {
+                            const next = [...prev];
+                            next[idx] = { ...next[idx], memo: e.target.value };
+                            return next;
+                          });
+                          setIsDirty(true);
+                        }}
+                        placeholder=""
+                        data-testid={`input-memo-${idx}`}
+                      />
                     </td>
                   </tr>
                 );
@@ -543,29 +565,30 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
             </tbody>
             <tfoot>
               <tr className="bg-muted/60 font-medium">
-                <td className="sticky left-0 bg-muted/60 z-10 px-2 py-2 border-t-2 text-xs font-bold">TOTAL</td>
-                <td className="px-2 py-2 border-t-2 text-right font-mono text-xs tabular-nums" data-testid="text-total-envelope">
+                <td className="sticky left-0 bg-muted/60 z-10 px-1 py-1.5 border-t-2 text-xs font-bold">TOTAL</td>
+                <td className="px-1 py-1.5 border-t-2 text-right font-mono text-xs tabular-nums" data-testid="text-total-envelope">
                   ${totalEnvelope.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </td>
-                <td className="px-2 py-2 border-t-2 text-right font-mono text-xs tabular-nums font-bold bg-muted/80" data-testid="text-grand-total">
+                <td className="px-1 py-1.5 border-t-2 text-right font-mono text-xs tabular-nums font-bold bg-muted/80" data-testid="text-grand-total">
                   ${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </td>
                 {DENOMINATIONS.map((d) => {
                   const colTotal = rows.reduce((sum, r) => sum + (Number(r[d.key]) || 0), 0);
                   return (
-                    <td key={d.key} className="px-1 py-2 border-t-2 text-center font-mono text-xs tabular-nums font-bold" data-testid={`text-total-${d.key}`}>
+                    <td key={d.key} className="px-0.5 py-1.5 border-t-2 text-center font-mono text-xs tabular-nums font-bold" data-testid={`text-total-${d.key}`}>
                       {colTotal > 0 ? colTotal : ""}
                     </td>
                   );
                 })}
                 <td
-                  className={`px-2 py-2 border-t-2 text-right font-mono text-xs tabular-nums ${Math.abs(totalDifference) >= 0.01 ? "text-red-600 dark:text-red-400 font-bold" : "text-muted-foreground"}`}
+                  className={`px-1 py-1.5 border-t-2 text-right font-mono text-xs tabular-nums ${Math.abs(totalDifference) >= 0.01 ? "text-red-600 dark:text-red-400 font-bold" : "text-muted-foreground"}`}
                   data-testid="text-total-diff"
                 >
                   {Math.abs(totalDifference) >= 0.01
                     ? `$${totalDifference.toLocaleString(undefined, { minimumFractionDigits: 2 })}`
                     : "—"}
                 </td>
+                <td className="px-1 py-1.5 border-t-2"></td>
               </tr>
             </tfoot>
           </table>
