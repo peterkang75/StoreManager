@@ -24,13 +24,33 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowLeftRight, Send, PenLine, AlertTriangle, Trash2, Bell, CheckCircle2, Check, Upload, Banknote } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ArrowLeftRight, Send, PenLine, AlertTriangle, Trash2, Bell, CheckCircle2, Check, Upload, Banknote, Eye } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { CashBalances } from "@/components/CashBalances";
 import { ConvertForm } from "@/components/ConvertForm";
 import { CashSalesEntry } from "@/components/CashSalesEntry";
-import type { Store, FinancialTransaction } from "@shared/schema";
+import type { Store, FinancialTransaction, CashSalesDetail } from "@shared/schema";
+
+const DENOM_COLS = [
+  { key: "note100Count", label: "$100", value: 100 },
+  { key: "note50Count", label: "$50", value: 50 },
+  { key: "note20Count", label: "$20", value: 20 },
+  { key: "note10Count", label: "$10", value: 10 },
+  { key: "note5Count", label: "$5", value: 5 },
+  { key: "coin2Count", label: "$2", value: 2 },
+  { key: "coin1Count", label: "$1", value: 1 },
+  { key: "coin050Count", label: "50c", value: 0.5 },
+  { key: "coin020Count", label: "20c", value: 0.2 },
+  { key: "coin010Count", label: "10c", value: 0.1 },
+  { key: "coin005Count", label: "5c", value: 0.05 },
+] as const;
 
 function RemittanceForm({ stores }: { stores: Store[] }) {
   const [fromStoreId, setFromStoreId] = useState("");
@@ -329,6 +349,28 @@ export function AdminFinance() {
 
   const { toast } = useToast();
 
+  const [cashSalesModalOpen, setCashSalesModalOpen] = useState(false);
+  const [cashSalesModalDetails, setCashSalesModalDetails] = useState<CashSalesDetail[]>([]);
+  const [cashSalesModalLabel, setCashSalesModalLabel] = useState("");
+  const [cashSalesModalStore, setCashSalesModalStore] = useState("");
+
+  const handleViewCashSalesTx = async (tx: FinancialTransaction) => {
+    const match = tx.referenceNote?.match(/\((\d{4}-\d{2}-\d{2}) ~ (\d{4}-\d{2}-\d{2})\)/);
+    if (!match || !tx.toStoreId) return;
+    try {
+      const params = new URLSearchParams({ store_id: tx.toStoreId, start_date: match[1], end_date: match[2] });
+      const res = await fetch(`/api/cash-sales?${params}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCashSalesModalDetails(data);
+        setCashSalesModalLabel(tx.referenceNote || "");
+        const store = stores?.find((s) => s.id === tx.toStoreId);
+        setCashSalesModalStore(store?.name || "");
+        setCashSalesModalOpen(true);
+      }
+    } catch { /* ignore */ }
+  };
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       await apiRequest("DELETE", `/api/finance/transactions/${id}`);
@@ -548,15 +590,27 @@ export function AdminFinance() {
                           )}
                         </TableCell>
                         <TableCell>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => deleteMutation.mutate(tx.id)}
-                            disabled={deleteMutation.isPending}
-                            data-testid={`button-delete-tx-${tx.id}`}
-                          >
-                            <Trash2 className="h-4 w-4 text-muted-foreground" />
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            {tx.transactionType === "CASH_SALES" && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => handleViewCashSalesTx(tx)}
+                                data-testid={`button-view-cashsales-${tx.id}`}
+                              >
+                                <Eye className="h-4 w-4 text-muted-foreground" />
+                              </Button>
+                            )}
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => deleteMutation.mutate(tx.id)}
+                              disabled={deleteMutation.isPending}
+                              data-testid={`button-delete-tx-${tx.id}`}
+                            >
+                              <Trash2 className="h-4 w-4 text-muted-foreground" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -566,6 +620,92 @@ export function AdminFinance() {
             )}
           </CardContent>
         </Card>
+        <Dialog open={cashSalesModalOpen} onOpenChange={setCashSalesModalOpen}>
+          <DialogContent className="max-w-[95vw] max-h-[90vh] overflow-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 flex-wrap">
+                <Banknote className="h-4 w-4" />
+                Cash Sales Detail — {cashSalesModalStore}
+              </DialogTitle>
+              <p className="text-sm text-muted-foreground">{cashSalesModalLabel}</p>
+            </DialogHeader>
+            {cashSalesModalDetails.length > 0 ? (
+              <div className="border rounded-md overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-muted/50">
+                      <th className="px-2 py-1.5 text-left font-medium border-b border-r min-w-[85px]">Date</th>
+                      <th className="px-2 py-1.5 text-right font-medium border-b border-r min-w-[80px]">Envelope</th>
+                      {DENOM_COLS.map((d) => (
+                        <th key={d.key} className="px-1 py-1.5 text-center font-medium border-b border-r min-w-[46px] text-xs">{d.label}</th>
+                      ))}
+                      <th className="px-2 py-1.5 text-right font-medium border-b border-r min-w-[80px] bg-muted/80">Counted</th>
+                      <th className="px-2 py-1.5 text-right font-medium border-b min-w-[70px]">Diff</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...cashSalesModalDetails].sort((a, b) => a.date.localeCompare(b.date)).map((row) => {
+                      const d = new Date(row.date + "T00:00:00");
+                      const dow = d.getDay();
+                      const dayLabel = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][dow === 0 ? 6 : dow - 1];
+                      const diff = Math.round((row.envelopeAmount - row.countedAmount) * 100) / 100;
+                      const hasDiff = Math.abs(diff) >= 0.01;
+                      const shortDate = `${parseInt(row.date.split("-")[1])}/${parseInt(row.date.split("-")[2])}`;
+                      return (
+                        <tr key={row.date}>
+                          <td className="px-2 py-1 border-b border-r font-mono text-xs whitespace-nowrap">
+                            <span className="text-muted-foreground mr-1">{dayLabel}</span>{shortDate}
+                          </td>
+                          <td className="px-2 py-1 border-b border-r text-right font-mono text-xs tabular-nums">
+                            {row.envelopeAmount > 0 ? `$${row.envelopeAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
+                          </td>
+                          {DENOM_COLS.map((dc) => {
+                            const val = (row as any)[dc.key] || 0;
+                            return (
+                              <td key={dc.key} className="px-1 py-1 border-b border-r text-center font-mono text-xs tabular-nums text-muted-foreground">
+                                {val > 0 ? val : ""}
+                              </td>
+                            );
+                          })}
+                          <td className="px-2 py-1 border-b border-r text-right font-mono text-xs tabular-nums bg-muted/30 font-medium">
+                            {row.countedAmount > 0 ? `$${row.countedAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
+                          </td>
+                          <td className={`px-2 py-1 border-b text-right font-mono text-xs tabular-nums ${hasDiff ? "text-red-600 dark:text-red-400 font-bold" : "text-muted-foreground"}`}>
+                            {hasDiff ? `$${diff.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    {(() => {
+                      const sorted = [...cashSalesModalDetails].sort((a, b) => a.date.localeCompare(b.date));
+                      const tCounted = Math.round(sorted.reduce((s, r) => s + r.countedAmount, 0) * 100) / 100;
+                      const tEnv = Math.round(sorted.reduce((s, r) => s + r.envelopeAmount, 0) * 100) / 100;
+                      const tDiff = Math.round((tEnv - tCounted) * 100) / 100;
+                      return (
+                        <tr className="bg-muted/60 font-medium">
+                          <td className="px-2 py-2 border-t-2 text-xs font-bold">TOTAL</td>
+                          <td className="px-2 py-2 border-t-2 text-right font-mono text-xs tabular-nums">${tEnv.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                          {DENOM_COLS.map((dc) => {
+                            const colTotal = sorted.reduce((s, r) => s + ((r as any)[dc.key] || 0), 0);
+                            return <td key={dc.key} className="px-1 py-2 border-t-2 text-center font-mono text-xs tabular-nums text-muted-foreground">{colTotal > 0 ? colTotal : ""}</td>;
+                          })}
+                          <td className="px-2 py-2 border-t-2 text-right font-mono text-xs tabular-nums font-bold bg-muted/80">${tCounted.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                          <td className={`px-2 py-2 border-t-2 text-right font-mono text-xs tabular-nums ${Math.abs(tDiff) >= 0.01 ? "text-red-600 dark:text-red-400 font-bold" : "text-muted-foreground"}`}>
+                            {Math.abs(tDiff) >= 0.01 ? `$${tDiff.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })()}
+                  </tfoot>
+                </table>
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-sm text-center py-4">해당 기간에 저장된 기록이 없습니다</p>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </AdminLayout>
   );
