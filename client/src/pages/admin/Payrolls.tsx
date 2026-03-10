@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { DollarSign, Save, Upload, FileSpreadsheet, ChevronDown, ChevronUp, Search, User, RotateCcw } from "lucide-react";
+import { DollarSign, Save, FileSpreadsheet, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Search, User, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { CashBalances } from "@/components/CashBalances";
@@ -124,7 +124,6 @@ function formatPeriodLabel(start: string, end: string): string {
 
 export function AdminPayrolls() {
   const { toast } = useToast();
-  const fileRef = useRef<HTMLInputElement>(null);
   const fortnight = getLastFortnight();
   const [periodStart, setPeriodStart] = useState(fortnight.start);
   const [periodEnd, setPeriodEnd] = useState(fortnight.end);
@@ -141,9 +140,14 @@ export function AdminPayrolls() {
     queryKey: ["/api/stores"],
   });
 
-  const activeInternalStores = (stores || []).filter(
-    (s) => s.active && !s.isExternal
-  );
+  const storeOrder = ["sushi", "sandwich", "ho"];
+  const activeInternalStores = (stores || [])
+    .filter((s) => s.active && !s.isExternal && s.name.toLowerCase() !== "trading")
+    .sort((a, b) => {
+      const ai = storeOrder.indexOf(a.name.toLowerCase());
+      const bi = storeOrder.indexOf(b.name.toLowerCase());
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    });
 
   useEffect(() => {
     if (activeInternalStores.length > 0 && !selectedStoreId) {
@@ -310,36 +314,19 @@ export function AdminPayrolls() {
     },
   });
 
-  const importMutation = useMutation({
-    mutationFn: async (file: File) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/employees/import", {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) throw new Error("Import failed");
-      return res.json();
-    },
-    onSuccess: (data: { imported: number; skipped: number; errors: string[] }) => {
-      toast({
-        title: `Imported ${data.imported} employee(s)`,
-        description:
-          data.skipped > 0 ? `${data.skipped} skipped` : undefined,
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
-      queryClient.invalidateQueries({
-        queryKey: ["/api/payrolls/current"],
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Import failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
+  const shiftPeriod = (direction: number) => {
+    const days = 14 * direction;
+    const shift = (dateStr: string) => {
+      const d = new Date(dateStr);
+      d.setDate(d.getDate() + days);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    };
+    setPeriodStart(shift(periodStart));
+    setPeriodEnd(shift(periodEnd));
+  };
 
   const grandTotals = rows.reduce(
     (acc, r) => ({
@@ -413,44 +400,27 @@ export function AdminPayrolls() {
             </div>
             <div className="space-y-2">
               <Label>Period Start</Label>
-              <Input
-                type="date"
-                value={periodStart}
-                onChange={(e) => setPeriodStart(e.target.value)}
-                data-testid="input-period-start"
-              />
+              <div className="flex items-center gap-1">
+                <Button size="icon" variant="ghost" onClick={() => shiftPeriod(-1)} data-testid="button-period-prev-start">
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm min-w-[90px] text-center" data-testid="text-period-start">{periodStart}</span>
+                <Button size="icon" variant="ghost" onClick={() => shiftPeriod(1)} data-testid="button-period-next-start">
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
             <div className="space-y-2">
               <Label>Period End</Label>
-              <Input
-                type="date"
-                value={periodEnd}
-                onChange={(e) => setPeriodEnd(e.target.value)}
-                data-testid="input-period-end"
-              />
-            </div>
-            <div>
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".csv,.tsv,.txt"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) importMutation.mutate(file);
-                  e.target.value = "";
-                }}
-                data-testid="input-import-file"
-              />
-              <Button
-                variant="outline"
-                onClick={() => fileRef.current?.click()}
-                disabled={importMutation.isPending}
-                data-testid="button-import-employees"
-              >
-                <Upload className="h-4 w-4 mr-2" />
-                Import Employees
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button size="icon" variant="ghost" onClick={() => shiftPeriod(-1)} data-testid="button-period-prev-end">
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm min-w-[90px] text-center" data-testid="text-period-end">{periodEnd}</span>
+                <Button size="icon" variant="ghost" onClick={() => shiftPeriod(1)} data-testid="button-period-next-end">
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
             {periodStart && periodEnd && (
               <p className="text-sm text-muted-foreground self-center" data-testid="text-period-label">
