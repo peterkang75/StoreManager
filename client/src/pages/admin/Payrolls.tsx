@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { DollarSign, Save, Upload, FileSpreadsheet, ChevronDown, ChevronUp, Search, User } from "lucide-react";
+import { DollarSign, Save, Upload, FileSpreadsheet, ChevronDown, ChevronUp, Search, User, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { CashBalances } from "@/components/CashBalances";
@@ -40,24 +40,20 @@ function getLastFortnight(): { start: string; end: string } {
 }
 
 function calculatePaygTax(fortnightlyGross: number): number {
-  if (fortnightlyGross <= 0) return 0;
-  const w = fortnightlyGross / 2;
+  if (fortnightlyGross < 722) return 0;
+  const x = fortnightlyGross + 0.99;
 
   const brackets: [number, number, number][] = [
-    [434, 0, 0],
-    [467, 0.1600, 69.4615],
-    [584, 0.2600, 116.1465],
-    [865, 0.1800, 69.4615],
-    [1135, 0.3700, 233.8846],
-    [2596, 0.3200, 177.1538],
-    [3654, 0.3900, 358.8846],
-    [Infinity, 0.4700, 651.1923],
+    [932, 0.1900, 137.18],
+    [1731, 0.2100, 155.82],
+    [3462, 0.3200, 346.23],
+    [5385, 0.3700, 519.33],
+    [Infinity, 0.4500, 950.13],
   ];
 
   for (const [upper, a, b] of brackets) {
-    if (w < upper) {
-      const weeklyTax = Math.max(0, a * w - b);
-      return Math.round(weeklyTax * 2 * 100) / 100;
+    if (fortnightlyGross < upper) {
+      return Math.round(a * x - b);
     }
   }
   return 0;
@@ -83,6 +79,7 @@ interface PayrollRow {
   bankDepositAmount: number;
   persistentMemo: string;
   lastEditedField: "gross" | "cash" | null;
+  taxOverridden: boolean;
 }
 
 function recalcRow(row: PayrollRow, changedField?: string): PayrollRow {
@@ -108,7 +105,9 @@ function recalcRow(row: PayrollRow, changedField?: string): PayrollRow {
 
   r.superAmount = Math.round(r.grossAmount * SUPER_RATE * 100) / 100;
 
-  if (changedField !== "taxAmount") {
+  if (changedField === "taxAmount") {
+    r.taxOverridden = true;
+  } else if (!r.taxOverridden) {
     r.taxAmount = calculatePaygTax(r.grossAmount);
   }
 
@@ -212,6 +211,7 @@ export function AdminPayrolls() {
           bankDepositAmount: payroll.bankDepositAmount,
           persistentMemo: employee.persistentMemo || "",
           lastEditedField: null,
+          taxOverridden: false,
         };
       }
       const base: PayrollRow = {
@@ -232,6 +232,7 @@ export function AdminPayrolls() {
         bankDepositAmount: 0,
         persistentMemo: employee.persistentMemo || "",
         lastEditedField: null,
+        taxOverridden: false,
       };
       return recalcRow(base);
     });
@@ -674,16 +675,40 @@ export function AdminPayrolls() {
                                 />
                               </div>
                               <div className="space-y-1">
-                                <Label className="text-xs">Tax (PAYG)</Label>
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  className="text-sm"
-                                  value={selectedRow.taxAmount || ""}
-                                  onChange={(e) => updateRow(clampedIdx, "taxAmount", parseFloat(e.target.value) || 0)}
-                                  data-testid={`input-tax-${selectedRow.employeeId}`}
-                                />
+                                <Label className="text-xs flex items-center gap-1">
+                                  Tax (PAYG)
+                                  {selectedRow.taxOverridden && (
+                                    <Badge variant="outline" className="text-[10px] px-1 py-0 no-default-active-elevate">Manual</Badge>
+                                  )}
+                                </Label>
+                                <div className="flex items-center gap-1">
+                                  <Input
+                                    type="number"
+                                    step="1"
+                                    min="0"
+                                    className={`text-sm ${selectedRow.taxOverridden ? "border-orange-400 dark:border-orange-600" : ""}`}
+                                    value={selectedRow.taxAmount || ""}
+                                    onChange={(e) => updateRow(clampedIdx, "taxAmount", parseFloat(e.target.value) || 0)}
+                                    data-testid={`input-tax-${selectedRow.employeeId}`}
+                                  />
+                                  {selectedRow.taxOverridden && (
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      onClick={() => {
+                                        setRows(prev => {
+                                          const updated = [...prev];
+                                          const row = { ...updated[clampedIdx], taxOverridden: false };
+                                          updated[clampedIdx] = recalcRow(row);
+                                          return updated;
+                                        });
+                                      }}
+                                      data-testid={`button-reset-tax-${selectedRow.employeeId}`}
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5" />
+                                    </Button>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </div>
