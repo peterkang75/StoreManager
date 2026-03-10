@@ -21,6 +21,74 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { CashBalances } from "@/components/CashBalances";
 import { ConvertForm } from "@/components/ConvertForm";
 import type { Store, Employee, Payroll } from "@shared/schema";
+import { Calculator } from "lucide-react";
+
+const CASH_DENOMINATIONS = [100, 50, 20, 10, 5] as const;
+
+function CashCounter() {
+  const [open, setOpen] = useState(false);
+  const [counts, setCounts] = useState<Record<number, number>>({});
+
+  const total = CASH_DENOMINATIONS.reduce((sum, d) => sum + (counts[d] || 0) * d, 0);
+
+  const handleChange = (denom: number, val: string) => {
+    const n = parseInt(val) || 0;
+    setCounts((prev) => ({ ...prev, [denom]: n }));
+  };
+
+  const handleReset = () => setCounts({});
+
+  return (
+    <Card>
+      <div
+        className="flex items-center gap-2 px-3 py-1.5 cursor-pointer select-none"
+        onClick={() => setOpen((v) => !v)}
+        data-testid="button-toggle-cash-counter"
+      >
+        <Calculator className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-sm font-semibold">Cash Counter</span>
+        {total > 0 && (
+          <Badge variant="secondary" className="ml-1">
+            ${total.toLocaleString()}
+          </Badge>
+        )}
+        {open ? (
+          <ChevronUp className="h-3.5 w-3.5 ml-auto text-muted-foreground" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5 ml-auto text-muted-foreground" />
+        )}
+      </div>
+      {open && (
+        <CardContent className="pt-0 pb-3">
+          <div className="flex items-end gap-3 flex-wrap">
+            {CASH_DENOMINATIONS.map((d) => (
+              <div key={d} className="space-y-1">
+                <Label className="text-xs text-muted-foreground">${d}</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  className="w-20 text-center"
+                  value={counts[d] || ""}
+                  onChange={(e) => handleChange(d, e.target.value)}
+                  placeholder="0"
+                  data-testid={`input-cash-count-${d}`}
+                />
+              </div>
+            ))}
+            <div className="flex items-center gap-2 ml-2">
+              <span className="text-lg font-bold font-mono" data-testid="text-cash-counter-total">
+                ${total.toLocaleString("en-AU", { minimumFractionDigits: 2 })}
+              </span>
+              <Button size="icon" variant="ghost" onClick={handleReset} data-testid="button-reset-cash-counter">
+                <RotateCcw className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
 
 function getLastFortnight(): { start: string; end: string } {
   const today = new Date();
@@ -352,6 +420,8 @@ export function AdminPayrolls() {
       <div className="space-y-6">
         <div className="sticky top-0 z-30 bg-background pb-2 space-y-2 border-b">
           {!storesLoading && <CashBalances stores={stores || []} />}
+
+          <CashCounter />
 
           <Card>
             <div
