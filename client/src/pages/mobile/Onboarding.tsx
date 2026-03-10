@@ -470,7 +470,6 @@ export function MobileOnboarding() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Student">Student</SelectItem>
-                    <SelectItem value="PR/CTZ">PR/CTZ</SelectItem>
                     <SelectItem value="PR">PR</SelectItem>
                     <SelectItem value="CTZ">CTZ</SelectItem>
                     <SelectItem value="Other">Other</SelectItem>
