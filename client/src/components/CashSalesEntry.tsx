@@ -165,6 +165,13 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     }
     setRows(newRows);
     setIsDirty(false);
+    const confirmed: Record<number, boolean> = {};
+    newRows.forEach((r, i) => {
+      if ((r.envelopeAmount as number) > 0 || (r.countedAmount as number) > 0) {
+        confirmed[i] = true;
+      }
+    });
+    setConfirmedDates(confirmed);
   }, [existingData, periodStart]);
 
   const updateRow = useCallback(
@@ -241,6 +248,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     setPeriodStart((prev) => addDays(prev, direction * 14));
     setDateEditValues({});
     setExpandedMemoIdx(null);
+    setConfirmedDates({});
   };
 
   const formatShortDate = (dateStr: string) => {
@@ -252,6 +260,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
 
   const [dateEditValues, setDateEditValues] = useState<Record<number, string>>({});
   const [expandedMemoIdx, setExpandedMemoIdx] = useState<number | null>(null);
+  const [confirmedDates, setConfirmedDates] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     setExpandedMemoIdx(null);
@@ -324,6 +333,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
         next[rowIdx] = { ...next[rowIdx], date: resolved };
         return next;
       });
+      setConfirmedDates((prev) => ({ ...prev, [rowIdx]: true }));
       setIsDirty(true);
       if (moveFocus) {
         setTimeout(() => {
@@ -457,7 +467,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
         </div>
       ) : (
         <div ref={gridRef} className="border rounded-md overflow-x-auto">
-          <table className="w-3/4 text-sm border-collapse table-fixed">
+          <table className="w-full text-sm border-collapse table-fixed">
             <colgroup>
               <col className="w-[82px]" />
               <col className="w-[70px]" />
@@ -505,7 +515,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                         inputMode="numeric"
                         className="h-6 text-xs px-1 tabular-nums font-mono text-center"
                         placeholder=""
-                        value={dateEditValues[idx] !== undefined ? dateEditValues[idx] : ""}
+                        value={dateEditValues[idx] !== undefined ? dateEditValues[idx] : (confirmedDates[idx] ? `${dayLabel} ${formatDateDisplay(row.date)}` : "")}
                         onChange={(e) => {
                           setDateEditValues((prev) => ({ ...prev, [idx]: e.target.value }));
                         }}
