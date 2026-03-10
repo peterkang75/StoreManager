@@ -13,17 +13,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { DollarSign, Save, Upload, FileSpreadsheet, ChevronDown, ChevronUp } from "lucide-react";
+import { DollarSign, Save, Upload, FileSpreadsheet, ChevronDown, ChevronUp, Search, User } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { CashBalances } from "@/components/CashBalances";
 import { ConvertForm } from "@/components/ConvertForm";
@@ -142,6 +135,9 @@ export function AdminPayrolls() {
   const [selectedStoreId, setSelectedStoreId] = useState("");
   const [rows, setRows] = useState<PayrollRow[]>([]);
   const [convertOpen, setConvertOpen] = useState(false);
+  const [selectedIdx, setSelectedIdx] = useState<number>(0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const listRef = useRef<HTMLDivElement>(null);
   const [globalNote, setGlobalNote] = useState("");
   const [noteLoaded, setNoteLoaded] = useState(false);
 
@@ -466,289 +462,338 @@ export function AdminPayrolls() {
           </div>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Payroll Grid</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {selectedStore && (
-              <div className="space-y-2">
-                <Label className="text-sm">
-                  Global Payroll Note ({selectedStore.name})
-                </Label>
-                <Textarea
-                  value={globalNote}
-                  onChange={(e) => setGlobalNote(e.target.value)}
-                  placeholder="이 매장의 급여 관련 메모를 입력하세요 (삭제할 때까지 유지됩니다)"
-                  className="text-sm"
-                  data-testid="textarea-global-note"
-                />
-              </div>
-            )}
+        {selectedStore && (
+          <div className="space-y-2">
+            <Label className="text-sm">
+              Global Payroll Note ({selectedStore.name})
+            </Label>
+            <Textarea
+              value={globalNote}
+              onChange={(e) => setGlobalNote(e.target.value)}
+              placeholder="이 매장의 급여 관련 메모를 입력하세요 (삭제할 때까지 유지됩니다)"
+              className="text-sm"
+              data-testid="textarea-global-note"
+            />
+          </div>
+        )}
 
-            {dataLoading ? (
-              <div className="space-y-2">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <Skeleton key={i} className="h-12 w-full" />
-                ))}
-              </div>
-            ) : rows.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <FileSpreadsheet className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p data-testid="text-empty-payroll">
-                  {selectedStoreId
-                    ? "해당 매장에 등록된 직원이 없습니다"
-                    : "매장을 선택하세요"}
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="overflow-x-auto border rounded-md">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-muted/50">
-                        <TableHead className="whitespace-nowrap min-w-[140px] sticky left-0 bg-muted/50 z-10">
-                          Employee
-                        </TableHead>
-                        <TableHead className="text-right whitespace-nowrap min-w-[80px]">
-                          Hours
-                        </TableHead>
-                        <TableHead className="text-right whitespace-nowrap min-w-[80px]">
-                          Rate
-                        </TableHead>
-                        <TableHead className="text-right whitespace-nowrap min-w-[80px]">
-                          Fixed
-                        </TableHead>
-                        <TableHead className="text-right whitespace-nowrap min-w-[90px]">
-                          Calculated
-                        </TableHead>
-                        <TableHead className="text-right whitespace-nowrap min-w-[90px]">
-                          Adjustment
-                        </TableHead>
-                        <TableHead className="whitespace-nowrap min-w-[120px]">
-                          Adj Reason
-                        </TableHead>
-                        <TableHead className="text-right whitespace-nowrap min-w-[90px]">
-                          Total w/ Adj
-                        </TableHead>
-                        <TableHead className="text-right whitespace-nowrap min-w-[90px]">
-                          Gross
-                        </TableHead>
-                        <TableHead className="text-right whitespace-nowrap min-w-[90px]">
-                          Cash
-                        </TableHead>
-                        <TableHead className="text-right whitespace-nowrap min-w-[90px]">
-                          Tax (PAYG)
-                        </TableHead>
-                        <TableHead className="text-right whitespace-nowrap min-w-[90px]">
-                          Super
-                        </TableHead>
-                        <TableHead className="text-right whitespace-nowrap min-w-[90px]">
-                          Bank Dep.
-                        </TableHead>
-                        <TableHead className="whitespace-nowrap min-w-[160px]">
-                          Memo
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {rows.map((row, idx) => (
-                        <TableRow
-                          key={row.employeeId}
-                          data-testid={`row-payroll-${row.employeeId}`}
+        {dataLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full" />
+            ))}
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <FileSpreadsheet className="w-12 h-12 mx-auto mb-4 opacity-50" />
+            <p data-testid="text-empty-payroll">
+              {selectedStoreId
+                ? "해당 매장에 등록된 직원이 없습니다"
+                : "매장을 선택하세요"}
+            </p>
+          </div>
+        ) : (
+          <>
+            {(() => {
+              const filtered = rows.map((r, i) => ({ row: r, originalIdx: i })).filter(({ row }) =>
+                searchQuery === "" || row.employeeName.toLowerCase().includes(searchQuery.toLowerCase())
+              );
+              const clampedIdx = Math.min(selectedIdx, rows.length - 1);
+              const selectedRow = rows[clampedIdx];
+
+              const handleListKeyDown = (e: React.KeyboardEvent) => {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  const currentFilterPos = filtered.findIndex(f => f.originalIdx === clampedIdx);
+                  const nextPos = Math.min(currentFilterPos + 1, filtered.length - 1);
+                  if (filtered[nextPos]) setSelectedIdx(filtered[nextPos].originalIdx);
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  const currentFilterPos = filtered.findIndex(f => f.originalIdx === clampedIdx);
+                  const prevPos = Math.max(currentFilterPos - 1, 0);
+                  if (filtered[prevPos]) setSelectedIdx(filtered[prevPos].originalIdx);
+                }
+              };
+
+              return (
+                <div className="flex gap-4 min-h-[500px]">
+                  <div className="w-[38%] min-w-[280px] flex flex-col">
+                    <Card className="flex-1 flex flex-col overflow-hidden">
+                      <CardHeader className="pb-2 pt-3 px-3 space-y-2">
+                        <CardTitle className="text-sm">Employees ({rows.length})</CardTitle>
+                        <div className="relative">
+                          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                          <Input
+                            placeholder="Search employee..."
+                            value={searchQuery}
+                            onChange={(e) => { setSearchQuery(e.target.value); }}
+                            className="pl-8 text-sm"
+                            data-testid="input-search-employee"
+                          />
+                        </div>
+                      </CardHeader>
+                      <CardContent className="flex-1 overflow-y-auto p-0" ref={listRef}>
+                        <div
+                          className="divide-y"
+                          onKeyDown={handleListKeyDown}
+                          tabIndex={0}
+                          role="listbox"
+                          data-testid="list-employees"
                         >
-                          <TableCell className="font-medium whitespace-nowrap sticky left-0 bg-background z-10" data-testid={`text-employee-name-${row.employeeId}`}>
-                            {row.employeeName}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Input
-                              type="number"
-                              step="0.5"
-                              min="0"
-                              className="w-20 text-right text-sm"
-                              value={row.hours || ""}
-                              onChange={(e) =>
-                                updateRow(
-                                  idx,
-                                  "hours",
-                                  parseFloat(e.target.value) || 0
-                                )
-                              }
-                              data-testid={`input-hours-${row.employeeId}`}
-                            />
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-sm" data-testid={`text-rate-${row.employeeId}`}>
-                            {fmtMoney(row.rate)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-sm" data-testid={`text-fixed-${row.employeeId}`}>
-                            {row.fixedAmount > 0 ? fmtMoney(row.fixedAmount) : "-"}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-sm" data-testid={`text-calculated-${row.employeeId}`}>
-                            {fmtMoney(row.calculatedAmount)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              className="w-20 text-right text-sm"
-                              value={row.adjustment || ""}
-                              onChange={(e) =>
-                                updateRow(
-                                  idx,
-                                  "adjustment",
-                                  parseFloat(e.target.value) || 0
-                                )
-                              }
-                              data-testid={`input-adjustment-${row.employeeId}`}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              className="w-28 text-sm"
-                              placeholder="Reason"
-                              value={row.adjustmentReason}
-                              onChange={(e) =>
-                                updateRow(idx, "adjustmentReason", e.target.value)
-                              }
-                              data-testid={`input-adj-reason-${row.employeeId}`}
-                            />
-                          </TableCell>
-                          <TableCell
-                            className={`text-right font-mono text-sm font-medium ${
-                              row.totalWithAdjustment < 0
-                                ? "text-red-600 dark:text-red-400"
-                                : ""
-                            }`}
-                            data-testid={`text-total-${row.employeeId}`}
-                          >
-                            {fmtMoney(row.totalWithAdjustment)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              className="w-24 text-right text-sm"
-                              value={row.grossAmount || ""}
-                              onChange={(e) =>
-                                updateRow(
-                                  idx,
-                                  "grossAmount",
-                                  parseFloat(e.target.value) || 0
-                                )
-                              }
-                              data-testid={`input-gross-${row.employeeId}`}
-                            />
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              className="w-24 text-right text-sm"
-                              value={row.cashAmount || ""}
-                              onChange={(e) =>
-                                updateRow(
-                                  idx,
-                                  "cashAmount",
-                                  parseFloat(e.target.value) || 0
-                                )
-                              }
-                              data-testid={`input-cash-${row.employeeId}`}
-                            />
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              className="w-20 text-right text-sm"
-                              value={row.taxAmount || ""}
-                              onChange={(e) =>
-                                updateRow(
-                                  idx,
-                                  "taxAmount",
-                                  parseFloat(e.target.value) || 0
-                                )
-                              }
-                              data-testid={`input-tax-${row.employeeId}`}
-                            />
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-sm" data-testid={`text-super-${row.employeeId}`}>
-                            {fmtMoney(row.superAmount)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-sm" data-testid={`text-bank-${row.employeeId}`}>
-                            {fmtMoney(row.bankDepositAmount)}
-                          </TableCell>
-                          <TableCell>
-                            <Textarea
-                              className="min-w-[140px] text-sm min-h-[36px] resize-none"
-                              placeholder="Employee memo"
-                              value={row.persistentMemo}
-                              onChange={(e) =>
-                                updateRow(idx, "persistentMemo", e.target.value)
-                              }
-                              data-testid={`textarea-memo-${row.employeeId}`}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      <TableRow className="bg-muted/50 font-bold border-t-2">
-                        <TableCell className="sticky left-0 bg-muted/50 z-10">
-                          TOTALS
-                        </TableCell>
-                        <TableCell className="text-right font-mono" data-testid="text-total-hours">
-                          {grandTotals.hours.toFixed(1)}
-                        </TableCell>
-                        <TableCell />
-                        <TableCell />
-                        <TableCell className="text-right font-mono" data-testid="text-total-calculated">
-                          {fmtMoney(grandTotals.calculated)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono" data-testid="text-total-adjustment">
-                          {fmtMoney(grandTotals.adjustment)}
-                        </TableCell>
-                        <TableCell />
-                        <TableCell className="text-right font-mono" data-testid="text-total-with-adj">
-                          {fmtMoney(grandTotals.total)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono" data-testid="text-total-gross">
-                          {fmtMoney(grandTotals.gross)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono" data-testid="text-total-cash">
-                          {fmtMoney(grandTotals.cash)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono" data-testid="text-total-tax">
-                          {fmtMoney(grandTotals.tax)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono" data-testid="text-total-super">
-                          {fmtMoney(grandTotals.super)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono" data-testid="text-total-bank">
-                          {fmtMoney(grandTotals.bank)}
-                        </TableCell>
-                        <TableCell />
-                      </TableRow>
-                    </TableBody>
-                  </Table>
-                </div>
+                          {filtered.map(({ row, originalIdx }) => {
+                            const isSelected = originalIdx === clampedIdx;
+                            const hasData = row.hours > 0 || row.totalWithAdjustment > 0;
+                            return (
+                              <div
+                                key={row.employeeId}
+                                role="option"
+                                aria-selected={isSelected}
+                                className={`flex items-center justify-between px-3 py-2 cursor-pointer transition-colors ${
+                                  isSelected ? "bg-accent" : "hover-elevate"
+                                }`}
+                                onClick={() => setSelectedIdx(originalIdx)}
+                                data-testid={`list-item-employee-${row.employeeId}`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <User className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                                  <span className="text-sm font-medium truncate" data-testid={`text-employee-name-${row.employeeId}`}>
+                                    {row.employeeName}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                                  {hasData && (
+                                    <>
+                                      <span className="text-xs text-muted-foreground tabular-nums">{row.hours}h</span>
+                                      <span className="text-xs font-mono font-medium tabular-nums">{fmtMoney(row.totalWithAdjustment)}</span>
+                                    </>
+                                  )}
+                                  {!hasData && (
+                                    <span className="text-xs text-muted-foreground">—</span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
 
-                <div className="flex justify-end">
-                  <Button
-                    onClick={() => saveMutation.mutate()}
-                    disabled={saveMutation.isPending || rows.length === 0}
-                    data-testid="button-save-payroll"
-                  >
-                    <Save className="h-4 w-4 mr-2" />
-                    {saveMutation.isPending
-                      ? "Saving..."
-                      : "Save All Payroll"}
-                  </Button>
+                  <div className="w-[62%] flex flex-col">
+                    {selectedRow ? (
+                      <Card className="flex-1" data-testid={`card-detail-${selectedRow.employeeId}`}>
+                        <CardHeader className="pb-3 pt-3 px-4">
+                          <CardTitle className="text-base flex items-center gap-2 flex-wrap">
+                            <User className="h-4 w-4" />
+                            {selectedRow.employeeName}
+                            {selectedRow.fixedAmount > 0 && <Badge variant="secondary" className="text-xs">Fixed</Badge>}
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="px-4 pb-4 space-y-5">
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Basis</p>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <Label className="text-xs">Rate</Label>
+                                <div className="font-mono text-sm bg-muted/50 rounded-md px-3 py-2" data-testid={`text-rate-${selectedRow.employeeId}`}>
+                                  {fmtMoney(selectedRow.rate)}
+                                </div>
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Fixed Amount</Label>
+                                <div className="font-mono text-sm bg-muted/50 rounded-md px-3 py-2" data-testid={`text-fixed-${selectedRow.employeeId}`}>
+                                  {selectedRow.fixedAmount > 0 ? fmtMoney(selectedRow.fixedAmount) : "—"}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Inputs</p>
+                            <div className="grid grid-cols-3 gap-3">
+                              <div className="space-y-1">
+                                <Label className="text-xs">Hours</Label>
+                                <Input
+                                  type="number"
+                                  step="0.5"
+                                  min="0"
+                                  className="text-sm"
+                                  value={selectedRow.hours || ""}
+                                  onChange={(e) => updateRow(clampedIdx, "hours", parseFloat(e.target.value) || 0)}
+                                  data-testid={`input-hours-${selectedRow.employeeId}`}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Adjustment</Label>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  className="text-sm"
+                                  value={selectedRow.adjustment || ""}
+                                  onChange={(e) => updateRow(clampedIdx, "adjustment", parseFloat(e.target.value) || 0)}
+                                  data-testid={`input-adjustment-${selectedRow.employeeId}`}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Adj Reason</Label>
+                                <Input
+                                  className="text-sm"
+                                  placeholder="Reason"
+                                  value={selectedRow.adjustmentReason}
+                                  onChange={(e) => updateRow(clampedIdx, "adjustmentReason", e.target.value)}
+                                  data-testid={`input-adj-reason-${selectedRow.employeeId}`}
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Payment Split</p>
+                            <div className="grid grid-cols-3 gap-3">
+                              <div className="space-y-1">
+                                <Label className="text-xs">Gross</Label>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  className="text-sm"
+                                  value={selectedRow.grossAmount || ""}
+                                  onChange={(e) => updateRow(clampedIdx, "grossAmount", parseFloat(e.target.value) || 0)}
+                                  data-testid={`input-gross-${selectedRow.employeeId}`}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Cash</Label>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  className="text-sm"
+                                  value={selectedRow.cashAmount || ""}
+                                  onChange={(e) => updateRow(clampedIdx, "cashAmount", parseFloat(e.target.value) || 0)}
+                                  data-testid={`input-cash-${selectedRow.employeeId}`}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Tax (PAYG)</Label>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  className="text-sm"
+                                  value={selectedRow.taxAmount || ""}
+                                  onChange={(e) => updateRow(clampedIdx, "taxAmount", parseFloat(e.target.value) || 0)}
+                                  data-testid={`input-tax-${selectedRow.employeeId}`}
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Results</p>
+                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                              <div className="space-y-1">
+                                <Label className="text-xs">Calculated</Label>
+                                <div className="font-mono text-sm bg-muted/50 rounded-md px-3 py-2" data-testid={`text-calculated-${selectedRow.employeeId}`}>
+                                  {fmtMoney(selectedRow.calculatedAmount)}
+                                </div>
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Total w/ Adj</Label>
+                                <div className={`font-mono text-sm font-medium rounded-md px-3 py-2 ${
+                                  selectedRow.totalWithAdjustment < 0
+                                    ? "bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400"
+                                    : "bg-muted/50"
+                                }`} data-testid={`text-total-${selectedRow.employeeId}`}>
+                                  {fmtMoney(selectedRow.totalWithAdjustment)}
+                                </div>
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Super (11.5%)</Label>
+                                <div className="font-mono text-sm bg-muted/50 rounded-md px-3 py-2" data-testid={`text-super-${selectedRow.employeeId}`}>
+                                  {fmtMoney(selectedRow.superAmount)}
+                                </div>
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Bank Deposit</Label>
+                                <div className="font-mono text-sm bg-muted/50 rounded-md px-3 py-2 font-medium" data-testid={`text-bank-${selectedRow.employeeId}`}>
+                                  {fmtMoney(selectedRow.bankDepositAmount)}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Memo</p>
+                            <Textarea
+                              className="text-sm resize-none"
+                              placeholder="Employee memo (삭제할 때까지 유지됩니다)"
+                              value={selectedRow.persistentMemo}
+                              onChange={(e) => updateRow(clampedIdx, "persistentMemo", e.target.value)}
+                              rows={2}
+                              data-testid={`textarea-memo-${selectedRow.employeeId}`}
+                            />
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      <Card className="flex-1 flex items-center justify-center">
+                        <p className="text-muted-foreground text-sm">직원을 선택하세요</p>
+                      </Card>
+                    )}
+                  </div>
                 </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
+              );
+            })()}
+
+            <div className="flex justify-end">
+              <Button
+                onClick={() => saveMutation.mutate()}
+                disabled={saveMutation.isPending || rows.length === 0}
+                data-testid="button-save-payroll"
+              >
+                <Save className="h-4 w-4 mr-2" />
+                {saveMutation.isPending ? "Saving..." : "Save All Payroll"}
+              </Button>
+            </div>
+          </>
+        )}
+
+        {rows.length > 0 && (
+          <div className="sticky bottom-0 z-30 bg-card border-t border-b rounded-md shadow-sm px-4 py-3">
+            <div className="flex items-center gap-6 flex-wrap text-sm">
+              <span className="font-semibold text-muted-foreground uppercase text-xs tracking-wide">Store Totals</span>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Hours:</span>
+                <span className="font-mono font-medium" data-testid="text-total-hours">{grandTotals.hours.toFixed(1)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Total:</span>
+                <span className="font-mono font-medium" data-testid="text-total-with-adj">{fmtMoney(grandTotals.total)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Gross:</span>
+                <span className="font-mono font-medium" data-testid="text-total-gross">{fmtMoney(grandTotals.gross)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Cash:</span>
+                <span className="font-mono font-medium text-amber-700 dark:text-amber-400" data-testid="text-total-cash">{fmtMoney(grandTotals.cash)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Tax:</span>
+                <span className="font-mono font-medium" data-testid="text-total-tax">{fmtMoney(grandTotals.tax)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Super:</span>
+                <span className="font-mono font-medium" data-testid="text-total-super">{fmtMoney(grandTotals.super)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Bank:</span>
+                <span className="font-mono font-medium" data-testid="text-total-bank">{fmtMoney(grandTotals.bank)}</span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </AdminLayout>
   );
