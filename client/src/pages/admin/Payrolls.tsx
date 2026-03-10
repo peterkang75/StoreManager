@@ -44,17 +44,15 @@ function calculatePaygTax(fortnightlyGross: number): number {
   const x = fortnightlyGross + 0.99;
 
   const brackets: [number, number, number][] = [
-    [915, 0.1500, 107.13],
-    [932, 0.4400, 372.46],
-    [1730, 0.1600, 116.16],
-    [3462, 0.3000, 357.64],
+    [1730, 0.1600, 116.33],
+    [3462, 0.3000, 358.46],
     [5385, 0.3700, 519.33],
     [Infinity, 0.4500, 950.13],
   ];
 
   for (const [upper, a, b] of brackets) {
     if (fortnightlyGross < upper) {
-      return Math.round(a * x - b);
+      return Math.max(0, Math.round(a * x - b));
     }
   }
   return 0;
