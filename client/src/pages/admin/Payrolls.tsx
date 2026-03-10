@@ -360,7 +360,7 @@ export function AdminPayrolls() {
               data-testid="button-toggle-convert"
             >
               <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-sm font-semibold">Quick Convert</span>
+              <span className="text-sm font-semibold">Quick Convert / Remittance</span>
               {convertOpen ? (
                 <ChevronUp className="h-3.5 w-3.5 ml-auto text-muted-foreground" />
               ) : (
