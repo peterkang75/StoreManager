@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import type { Store } from "@shared/schema";
 
 const balanceDisplayOrder = ["Sushi", "Sandwich", "Trading", "HO"];
@@ -25,22 +25,19 @@ export function CashBalances({ stores }: { stores: Store[] }) {
   if (balances.length === 0) return null;
 
   return (
-    <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+    <div className="grid gap-2 grid-cols-2 md:grid-cols-4 lg:grid-cols-5">
       {balances.map((b) => (
-        <Card key={b.code}>
-          <CardHeader className="pb-1 pt-4 px-4">
-            <CardTitle className="text-sm font-medium text-muted-foreground" data-testid={`text-balance-name-${b.code}`}>
+        <Card key={b.code} className="py-0">
+          <CardContent className="px-3 py-2">
+            <span className="text-xs font-medium text-muted-foreground" data-testid={`text-balance-name-${b.code}`}>
               {b.name}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-4">
+            </span>
             <span
-              className={`text-xl font-bold font-mono ${b.cash < 0 ? "text-red-600 dark:text-red-400" : ""}`}
+              className={`block text-sm font-bold font-mono ${b.cash < 0 ? "text-red-600 dark:text-red-400" : ""}`}
               data-testid={`text-balance-cash-${b.code}`}
             >
               ${b.cash.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
-            <p className="text-xs text-muted-foreground mt-1">Cash Balance</p>
           </CardContent>
         </Card>
       ))}

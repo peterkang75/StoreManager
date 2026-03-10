@@ -341,25 +341,23 @@ export function AdminPayrolls() {
   return (
     <AdminLayout title="Timesheet & Payroll">
       <div className="space-y-6">
-        <div className="sticky top-0 z-30 bg-background pb-4 space-y-4 border-b">
+        <div className="sticky top-0 z-30 bg-background pb-2 space-y-2 border-b">
           {!storesLoading && <CashBalances stores={stores || []} />}
 
           <Card>
-            <CardHeader
-              className="cursor-pointer select-none"
+            <div
+              className="flex items-center gap-2 px-3 py-1.5 cursor-pointer select-none"
               onClick={() => setConvertOpen((v) => !v)}
               data-testid="button-toggle-convert"
             >
-              <CardTitle className="text-base flex items-center gap-2 flex-wrap">
-                <DollarSign className="h-4 w-4" />
-                Quick Convert
-                {convertOpen ? (
-                  <ChevronUp className="h-4 w-4 ml-auto text-muted-foreground" />
-                ) : (
-                  <ChevronDown className="h-4 w-4 ml-auto text-muted-foreground" />
-                )}
-              </CardTitle>
-            </CardHeader>
+              <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-sm font-semibold">Quick Convert</span>
+              {convertOpen ? (
+                <ChevronUp className="h-3.5 w-3.5 ml-auto text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5 ml-auto text-muted-foreground" />
+              )}
+            </div>
             {convertOpen && (
               <CardContent>
                 {storesLoading ? (
@@ -371,14 +369,14 @@ export function AdminPayrolls() {
             )}
           </Card>
 
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="space-y-2 min-w-[200px]">
-              <Label>Store</Label>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="space-y-1 min-w-[140px]">
+              <Label className="text-xs">Store</Label>
               <Select
                 value={selectedStoreId}
                 onValueChange={handleStoreChange}
               >
-                <SelectTrigger data-testid="select-payroll-store">
+                <SelectTrigger className="h-8 text-sm" data-testid="select-payroll-store">
                   <SelectValue placeholder="Select store" />
                 </SelectTrigger>
                 <SelectContent>
@@ -390,25 +388,26 @@ export function AdminPayrolls() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-end gap-1">
-              <Button size="icon" variant="ghost" onClick={() => shiftPeriod(-1)} data-testid="button-period-prev">
-                <ChevronLeft className="h-4 w-4" />
+            <div className="flex items-end gap-0.5">
+              <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => shiftPeriod(-1)} data-testid="button-period-prev">
+                <ChevronLeft className="h-3.5 w-3.5" />
               </Button>
-              <div className="space-y-2 text-center">
-                <Label>Period Start</Label>
-                <span className="block text-sm min-w-[90px]" data-testid="text-period-start">{periodStart}</span>
+              <div className="text-center">
+                <Label className="text-xs">Period Start</Label>
+                <span className="block text-xs min-w-[80px]" data-testid="text-period-start">{periodStart}</span>
               </div>
-              <span className="text-muted-foreground text-sm pb-0.5">~</span>
-              <div className="space-y-2 text-center">
-                <Label>Period End</Label>
-                <span className="block text-sm min-w-[90px]" data-testid="text-period-end">{periodEnd}</span>
+              <span className="text-muted-foreground text-xs pb-0.5">~</span>
+              <div className="text-center">
+                <Label className="text-xs">Period End</Label>
+                <span className="block text-xs min-w-[80px]" data-testid="text-period-end">{periodEnd}</span>
               </div>
-              <Button size="icon" variant="ghost" onClick={() => shiftPeriod(1)} data-testid="button-period-next">
-                <ChevronRight className="h-4 w-4" />
+              <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => shiftPeriod(1)} data-testid="button-period-next">
+                <ChevronRight className="h-3.5 w-3.5" />
               </Button>
             </div>
             <Button
               variant="outline"
+              size="sm"
               className="self-end"
               onClick={async () => {
                 if (!selectedStoreId) return;
