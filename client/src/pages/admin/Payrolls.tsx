@@ -259,6 +259,7 @@ export function AdminPayrolls() {
       const payloadRows = rows.map((r) => ({
         id: r.payrollId || undefined,
         employeeId: r.employeeId,
+        storeId: selectedStoreId || undefined,
         periodStart,
         periodEnd,
         hours: r.hours,

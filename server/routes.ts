@@ -759,22 +759,110 @@ export async function registerRoutes(
       if (!store_id || !period_start || !period_end) {
         return res.status(400).json({ error: "store_id, period_start, period_end are required" });
       }
-      const emps = await storage.getEmployees({ storeId: store_id, status: "ACTIVE" });
+
+      const assignedEmps = await storage.getEmployeesByStoreAssignment(store_id, "ACTIVE");
+      const directEmps = await storage.getEmployees({ storeId: store_id, status: "ACTIVE" });
+      const empMap = new Map<string, { employee: any; assignmentRate?: string; assignmentFixed?: string }>();
+      for (const { employee, assignment } of assignedEmps) {
+        empMap.set(employee.id, {
+          employee,
+          assignmentRate: assignment.rate || undefined,
+          assignmentFixed: assignment.fixedAmount || undefined,
+        });
+      }
+      for (const emp of directEmps) {
+        if (!empMap.has(emp.id)) {
+          empMap.set(emp.id, { employee: emp });
+        }
+      }
+
       const existingPayrolls = await storage.getPayrolls({ periodStart: period_start, periodEnd: period_end });
       const empPayrollMap = new Map<string, any>();
       for (const p of existingPayrolls) {
-        if (emps.find(e => e.id === p.employeeId)) {
+        if (!empMap.has(p.employeeId)) continue;
+        const existing = empPayrollMap.get(p.employeeId);
+        if (p.storeId === store_id) {
+          empPayrollMap.set(p.employeeId, p);
+        } else if (!p.storeId && !existing) {
           empPayrollMap.set(p.employeeId, p);
         }
       }
-      const rows = emps.map(emp => ({
-        employee: emp,
-        payroll: empPayrollMap.get(emp.id) || null,
+
+      const rows = Array.from(empMap.values()).map(({ employee, assignmentRate, assignmentFixed }) => ({
+        employee: {
+          ...employee,
+          rate: assignmentRate || employee.rate,
+          fixedAmount: assignmentFixed || employee.fixedAmount,
+        },
+        payroll: empPayrollMap.get(employee.id) || null,
       }));
       res.json(rows);
     } catch (error) {
       console.error("Error fetching current payroll:", error);
       res.status(500).json({ error: "Failed to fetch current payroll data" });
+    }
+  });
+
+  app.get("/api/payrolls/envelope-slips", async (req: Request, res: Response) => {
+    try {
+      const { period_start, period_end, store_id } = req.query as Record<string, string>;
+      if (!period_start || !period_end) {
+        return res.status(400).json({ error: "period_start and period_end are required" });
+      }
+      const allPayrolls = await storage.getPayrolls({ periodStart: period_start, periodEnd: period_end });
+      const allStores = await storage.getStores();
+      const storeMap = new Map(allStores.map(s => [s.id, s]));
+
+      const byEmployee = new Map<string, { employee: any; entries: any[] }>();
+      for (const p of allPayrolls) {
+        if (store_id && p.storeId !== store_id) continue;
+        if (!byEmployee.has(p.employeeId)) {
+          const emp = await storage.getEmployee(p.employeeId);
+          if (!emp) continue;
+          byEmployee.set(p.employeeId, { employee: emp, entries: [] });
+        }
+        byEmployee.get(p.employeeId)!.entries.push({
+          ...p,
+          storeName: p.storeId ? storeMap.get(p.storeId)?.name || "Unknown" : "N/A",
+        });
+      }
+
+      const slips = Array.from(byEmployee.values()).map(({ employee, entries }) => {
+        const grandTotals = {
+          hours: 0, grossAmount: 0, cashAmount: 0, taxAmount: 0,
+          superAmount: 0, bankDepositAmount: 0, totalWithAdjustment: 0,
+        };
+        for (const e of entries) {
+          grandTotals.hours += e.hours;
+          grandTotals.grossAmount += e.grossAmount;
+          grandTotals.cashAmount += e.cashAmount;
+          grandTotals.taxAmount += e.taxAmount;
+          grandTotals.superAmount += e.superAmount;
+          grandTotals.bankDepositAmount += e.bankDepositAmount;
+          grandTotals.totalWithAdjustment += e.totalWithAdjustment;
+        }
+        return {
+          employee: {
+            id: employee.id,
+            name: `${employee.firstName} ${employee.lastName}`,
+            nickname: employee.nickname,
+            bsb: employee.bsb,
+            accountNo: employee.accountNo,
+            superCompany: employee.superCompany,
+            superMembershipNo: employee.superMembershipNo,
+          },
+          entries,
+          grandTotals,
+          periodStart: period_start,
+          periodEnd: period_end,
+        };
+      });
+
+      slips.sort((a, b) => a.employee.name.localeCompare(b.employee.name));
+      res.json(slips);
+    } catch (error) {
+      console.error("Error generating envelope slips:", error);
+      res.status(500).json({ error: "Failed to generate envelope slips" });
     }
   });
 
@@ -835,6 +923,20 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/employee-store-assignments", async (req: Request, res: Response) => {
+    try {
+      const { employee_id, store_id } = req.query as Record<string, string>;
+      const filters: { employeeId?: string; storeId?: string } = {};
+      if (employee_id) filters.employeeId = employee_id;
+      if (store_id) filters.storeId = store_id;
+      const assignments = await storage.getEmployeeStoreAssignments(filters);
+      res.json(assignments);
+    } catch (error) {
+      console.error("Error fetching store assignments:", error);
+      res.status(500).json({ error: "Failed to fetch store assignments" });
+    }
+  });
+
   app.put("/api/stores/:id/payroll-note", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
@@ -863,65 +965,209 @@ export async function registerRoutes(
       }
       const delimiter = lines[0].includes("\t") ? "\t" : ",";
       const headers = lines[0].split(delimiter).map(h => h.trim().toLowerCase());
-      const nameIdx = headers.findIndex(h => h === "name" || h === "employee" || h === "employee name");
-      const firstNameIdx = headers.findIndex(h => h === "firstname" || h === "first_name" || h === "first name");
-      const lastNameIdx = headers.findIndex(h => h === "lastname" || h === "last_name" || h === "last name");
-      const rateIdx = headers.findIndex(h => h === "rate" || h === "hourly_rate" || h === "hourly rate");
-      const fixedIdx = headers.findIndex(h => h === "fixed" || h === "fixed_amount" || h === "fixedamount" || h === "fixed amount");
-      const storeIdx = headers.findIndex(h => h === "store" || h === "store_id" || h === "storeid");
+
+      const col = (name: string, ...aliases: string[]) => {
+        const all = [name, ...aliases];
+        return headers.findIndex(h => all.some(a => h === a || h.replace(/[\s_]/g, "") === a.replace(/[\s_]/g, "")));
+      };
+
+      const nickIdx = col("nick name", "nickname");
+      const firstNameIdx = col("first name", "firstname");
+      const lastNameIdx = col("last name", "lastname");
+      const nameIdx = col("name", "employee", "employee name", "full name");
+      const emailIdx = col("email");
+      const phoneIdx = col("phone number", "phone");
+      const streetIdx = col("street address");
+      const street2Idx = col("street address line 2");
+      const cityIdx = col("city", "suburb");
+      const stateIdx = col("state");
+      const zipIdx = col("zip code", "postcode", "post code");
+      const dobIdx = col("dob", "date of birth");
+      const genderIdx = col("gender");
+      const visaIdx = col("visa");
+      const maritalIdx = col("marital status");
+      const lineIdx = col("line id", "lineid");
+      const disableIdx = col("disable", "disabled");
+      const typeIdx = col("type of contact", "typeofcontact");
+      const rateIdx = col("rate", "hourly rate");
+      const contractIdx = col("contractposition", "contract position");
+      const fhcIdx = col("fhc");
+      const visaExpIdx = col("visa expire date", "visaexpiredate", "visa expiry");
+      const tfnIdx = col("tfn", "tax file number");
+      const bsbIdx = col("bsb");
+      const accountIdx = col("account no.", "account no", "accountno", "account number");
+      const superCompIdx = col("superannuation company name", "super company", "supercompany");
+      const superMemIdx = col("superannuation membership number", "super membership no", "supermembershipno");
+      const salaryIdx = col("salary");
+      const annualLeaveIdx = col("annual leave", "annualleave");
+      const storeColIdx = col("store", "store_id", "storeid");
+      const fixedSalaryIdx = col("fixed salary", "fixedsalary");
+      const fixedAmtIdx = col("fixed amount", "fixedamount");
+      const salDistIdx = col("salary distribute", "salarydistribute");
 
       const allStores = await storage.getStores();
+      const allEmployees = await storage.getEmployees({});
+
+      const storeNameMap: Record<string, string> = {};
+      const storeAliases: Record<string, string> = {
+        "eatem sandwiches": "sandwich",
+        "butcher shop": "meat",
+        "head office": "ho",
+        "sushime": "sushi",
+        "cafe": "trading",
+        "ck": "trading",
+      };
+      for (const s of allStores) {
+        storeNameMap[s.name.toLowerCase()] = s.id;
+        storeNameMap[s.code.toLowerCase()] = s.id;
+      }
+
+      const resolveStore = (val: string): string | undefined => {
+        if (!val) return undefined;
+        const lower = val.toLowerCase().trim();
+        if (storeNameMap[lower]) return storeNameMap[lower];
+        const alias = storeAliases[lower];
+        if (alias && storeNameMap[alias]) return storeNameMap[alias];
+        for (const s of allStores) {
+          if (s.name.toLowerCase().includes(lower) || lower.includes(s.name.toLowerCase())) return s.id;
+        }
+        return undefined;
+      };
+
+      const g = (cols: string[], idx: number) => (idx >= 0 ? (cols[idx] || "").trim() : "");
+
+      const employeeMap = new Map<string, { employee: any; storeAssignments: { storeId: string; rate: string; fixedAmount: string; isFixedSalary: boolean; salaryDistribute: string }[] }>();
+
       let imported = 0;
       let skipped = 0;
+      let assignmentsCreated = 0;
       const errors: string[] = [];
 
       for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(delimiter).map(c => c.trim());
-        let firstName = "";
-        let lastName = "";
-        if (nameIdx >= 0 && cols[nameIdx]) {
-          const parts = cols[nameIdx].split(/\s+/);
+        let firstName = g(cols, firstNameIdx);
+        let lastName = g(cols, lastNameIdx);
+        if (!firstName && nameIdx >= 0 && g(cols, nameIdx)) {
+          const parts = g(cols, nameIdx).split(/\s+/);
           firstName = parts[0] || "";
           lastName = parts.slice(1).join(" ") || "";
-        } else if (firstNameIdx >= 0 && cols[firstNameIdx]) {
-          firstName = cols[firstNameIdx];
-          lastName = lastNameIdx >= 0 ? (cols[lastNameIdx] || "") : "";
         }
         if (!firstName) {
-          errors.push(`Row ${i + 1}: Missing employee name`);
           skipped++;
           continue;
         }
-        const rate = rateIdx >= 0 ? cols[rateIdx] || "" : "";
-        const fixedAmount = fixedIdx >= 0 ? cols[fixedIdx] || "" : "";
-        let storeId: string | undefined;
-        if (storeIdx >= 0 && cols[storeIdx]) {
-          const storeVal = cols[storeIdx];
-          const found = allStores.find(s => s.name.toLowerCase() === storeVal.toLowerCase() || s.code === storeVal || s.id === storeVal);
-          storeId = found?.id;
+
+        const fullKey = `${firstName.toLowerCase()}|${lastName.toLowerCase()}`;
+        const disabled = g(cols, disableIdx).toUpperCase() === "TRUE";
+        const rate = g(cols, rateIdx);
+        const fixedAmount = g(cols, fixedAmtIdx);
+        const storeVal = g(cols, storeColIdx);
+        const storeId = resolveStore(storeVal);
+        const isFixedSalary = g(cols, fixedSalaryIdx).toUpperCase() === "TRUE";
+        const salaryDistribute = g(cols, salDistIdx);
+
+        if (!employeeMap.has(fullKey)) {
+          employeeMap.set(fullKey, {
+            employee: {
+              nickname: g(cols, nickIdx) || undefined,
+              firstName,
+              lastName: lastName || "",
+              email: g(cols, emailIdx) || undefined,
+              phone: g(cols, phoneIdx) || undefined,
+              streetAddress: g(cols, streetIdx) || undefined,
+              streetAddress2: g(cols, street2Idx) || undefined,
+              suburb: g(cols, cityIdx) || undefined,
+              state: g(cols, stateIdx) || undefined,
+              postCode: g(cols, zipIdx) || undefined,
+              dob: g(cols, dobIdx) || undefined,
+              gender: g(cols, genderIdx) || undefined,
+              maritalStatus: g(cols, maritalIdx) || undefined,
+              visaType: g(cols, visaIdx) || undefined,
+              visaExpiry: g(cols, visaExpIdx) || undefined,
+              lineId: g(cols, lineIdx) || undefined,
+              typeOfContact: g(cols, typeIdx) || undefined,
+              rate: rate || undefined,
+              contractPosition: g(cols, contractIdx) || undefined,
+              fhc: g(cols, fhcIdx) || undefined,
+              salaryType: g(cols, salaryIdx) || undefined,
+              annualLeave: g(cols, annualLeaveIdx) || undefined,
+              fixedAmount: fixedAmount || undefined,
+              tfn: g(cols, tfnIdx) || undefined,
+              bsb: g(cols, bsbIdx) || undefined,
+              accountNo: g(cols, accountIdx) || undefined,
+              superCompany: g(cols, superCompIdx) || undefined,
+              superMembershipNo: g(cols, superMemIdx) || undefined,
+              status: disabled ? "INACTIVE" : "ACTIVE",
+            },
+            storeAssignments: [],
+          });
         }
 
-        const existing = (await storage.getEmployees({})).find(
-          e => e.firstName.toLowerCase() === firstName.toLowerCase() && e.lastName.toLowerCase() === (lastName || "").toLowerCase()
+        const entry = employeeMap.get(fullKey)!;
+        if (!disabled) entry.employee.status = "ACTIVE";
+        if (storeId) {
+          const exists = entry.storeAssignments.some(a => a.storeId === storeId);
+          if (!exists) {
+            entry.storeAssignments.push({
+              storeId,
+              rate: rate || "",
+              fixedAmount: fixedAmount || "",
+              isFixedSalary,
+              salaryDistribute,
+            });
+          }
+        }
+      }
+
+      for (const [, { employee, storeAssignments }] of employeeMap) {
+        const existing = allEmployees.find(
+          e => e.firstName.toLowerCase() === employee.firstName.toLowerCase() &&
+               e.lastName.toLowerCase() === (employee.lastName || "").toLowerCase()
         );
+
+        let empId: string;
+        const primaryStoreId = storeAssignments.length > 0 ? storeAssignments[0].storeId : undefined;
+
         if (existing) {
-          await storage.updateEmployee(existing.id, {
-            rate: rate || existing.rate || undefined,
-            fixedAmount: fixedAmount || existing.fixedAmount || undefined,
-            storeId: storeId || existing.storeId || undefined,
-          });
+          const updateData: Record<string, any> = {};
+          for (const [key, val] of Object.entries(employee)) {
+            if (val !== undefined && val !== "" && key !== "status") {
+              updateData[key] = val;
+            }
+          }
+          if (employee.status === "ACTIVE") updateData.status = "ACTIVE";
+          if (primaryStoreId) updateData.storeId = primaryStoreId;
+          await storage.updateEmployee(existing.id, updateData);
+          empId = existing.id;
         } else {
-          await storage.createEmployee({
-            firstName,
-            lastName: lastName || "",
-            rate: rate || undefined,
-            fixedAmount: fixedAmount || undefined,
-            storeId: storeId || undefined,
+          const created = await storage.createEmployee({
+            ...employee,
+            storeId: primaryStoreId,
           });
+          empId = created.id;
+        }
+
+        if (storeAssignments.length > 0) {
+          const existingAssignments = await storage.getEmployeeStoreAssignments({ employeeId: empId });
+          for (const sa of storeAssignments) {
+            const existingForStore = existingAssignments.find(a => a.storeId === sa.storeId);
+            if (!existingForStore) {
+              await storage.createEmployeeStoreAssignment({
+                employeeId: empId,
+                storeId: sa.storeId,
+                rate: sa.rate || null,
+                fixedAmount: sa.fixedAmount || null,
+                isFixedSalary: sa.isFixedSalary,
+                salaryDistribute: sa.salaryDistribute || null,
+              });
+              assignmentsCreated++;
+            }
+          }
         }
         imported++;
       }
-      res.json({ imported, skipped, errors });
+
+      res.json({ imported, skipped, assignmentsCreated, errors });
     } catch (error) {
       console.error("Error importing employees:", error);
       res.status(500).json({ error: "Failed to import employees" });

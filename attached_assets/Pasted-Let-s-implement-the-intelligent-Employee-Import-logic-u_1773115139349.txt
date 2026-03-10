@@ -1,0 +1,31 @@
+Let's implement the intelligent Employee Import logic using the provided `Cash Manager - Users.tsv` file. This is not a simple data dump; it requires business logic to handle multi-store employees.
+
+### 1. Data Mapping & De-duplication Logic
+When processing the TSV file, use the "Full Name" as the unique identifier to handle employees working at multiple stores:
+- **If Name is New**: Create a new record in the `employees` table.
+- **If Name Exists**: Do NOT create a duplicate employee. Instead, associate the existing employee with the new `storeId` (Update the multi-store relationship).
+- **Store Matching**: Match the "Shop" column in the TSV to our `stores` table (case-insensitive).
+
+### 2. Backend API Update (`server/routes.ts`)
+Update `POST /api/employees/import` to:
+- Parse the TSV file.
+- Handle the de-duplication logic described above.
+- Map the following columns:
+  * Full Name -> `firstName` / `lastName` (split or use as nickname)
+  * Rate -> `rate`
+  * Fixed Amount -> `fixedAmount`
+  * BSB -> `bsb`
+  * Account Number -> `accountNo`
+  * Super Company -> `superCompany`
+  * Super Membership No -> `superMembershipNo`
+- Ensure the `employeeOnboardingTokens` or `employeeDocuments` logic isn't broken by this bulk import.
+
+### 3. Frontend Payroll Grid Adjustment (`client/src/pages/admin/Payrolls.tsx`)
+- Ensure that when a specific Store is selected, ALL employees associated with that store appear in the grid, even if they also work at other stores.
+- The `Hours` and `Adjustment` entered here must be specific to THIS store's payroll record for that period.
+
+### 4. Envelope Slip Consolidation Logic (Important!)
+- Update the Envelope Slip generation logic: When printing slips for a specific period, the system must **group all payroll records by Employee ID**. 
+- If Peter worked at both Sushi and Sandwich, his slip should list both store's breakdowns and show one GRAND TOTAL at the bottom for the single envelope.
+
+Please implement the import API and the consolidation logic for the slips. Let me know when the import is ready to test.

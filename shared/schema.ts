@@ -96,6 +96,25 @@ export const insertEmployeeSchema = createInsertSchema(employees).omit({
 export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
 export type Employee = typeof employees.$inferSelect;
 
+export const employeeStoreAssignments = pgTable("employee_store_assignments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  employeeId: varchar("employee_id").references(() => employees.id).notNull(),
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  rate: text("rate"),
+  fixedAmount: text("fixed_amount"),
+  isFixedSalary: boolean("is_fixed_salary").default(false).notNull(),
+  salaryDistribute: text("salary_distribute"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertEmployeeStoreAssignmentSchema = createInsertSchema(employeeStoreAssignments).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertEmployeeStoreAssignment = z.infer<typeof insertEmployeeStoreAssignmentSchema>;
+export type EmployeeStoreAssignment = typeof employeeStoreAssignments.$inferSelect;
+
 export const employeeOnboardingTokens = pgTable("employee_onboarding_tokens", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   candidateId: varchar("candidate_id").references(() => candidates.id).notNull(),
@@ -221,6 +240,7 @@ export type Timesheet = typeof timesheets.$inferSelect;
 export const payrolls = pgTable("payrolls", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   employeeId: varchar("employee_id").references(() => employees.id).notNull(),
+  storeId: varchar("store_id").references(() => stores.id),
   periodStart: text("period_start").notNull(),
   periodEnd: text("period_end").notNull(),
   hours: real("hours").default(0).notNull(),

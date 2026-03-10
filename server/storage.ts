@@ -2,6 +2,7 @@ import {
   type Store, type InsertStore,
   type Candidate, type InsertCandidate,
   type Employee, type InsertEmployee,
+  type EmployeeStoreAssignment, type InsertEmployeeStoreAssignment,
   type OnboardingToken, type InsertOnboardingToken,
   type EmployeeDocument, type InsertEmployeeDocument,
   type RosterPeriod, type InsertRosterPeriod,
@@ -15,7 +16,7 @@ import {
   type SupplierInvoice, type InsertSupplierInvoice,
   type SupplierPayment, type InsertSupplierPayment,
   type FinancialTransaction, type InsertFinancialTransaction,
-  stores, candidates, employees, employeeOnboardingTokens, employeeDocuments,
+  stores, candidates, employees, employeeStoreAssignments, employeeOnboardingTokens, employeeDocuments,
   rosterPeriods, shifts, timeLogs, timesheets, payrolls,
   dailyClosings, cashSalesDetails, suppliers, supplierInvoices, supplierPayments,
   financialTransactions,
@@ -39,6 +40,11 @@ export interface IStorage {
   getEmployee(id: string): Promise<Employee | undefined>;
   createEmployee(employee: InsertEmployee): Promise<Employee>;
   updateEmployee(id: string, employee: Partial<InsertEmployee>): Promise<Employee | undefined>;
+
+  getEmployeeStoreAssignments(filters?: { employeeId?: string; storeId?: string }): Promise<EmployeeStoreAssignment[]>;
+  createEmployeeStoreAssignment(assignment: InsertEmployeeStoreAssignment): Promise<EmployeeStoreAssignment>;
+  deleteEmployeeStoreAssignments(employeeId: string): Promise<void>;
+  getEmployeesByStoreAssignment(storeId: string, status?: string): Promise<{ employee: Employee; assignment: EmployeeStoreAssignment }[]>;
 
   createOnboardingToken(token: InsertOnboardingToken): Promise<OnboardingToken>;
   getOnboardingToken(token: string): Promise<OnboardingToken | undefined>;
@@ -121,12 +127,14 @@ export class MemStorage implements IStorage {
   private suppliers: Map<string, Supplier>;
   private supplierInvoices: Map<string, SupplierInvoice>;
   private supplierPayments: Map<string, SupplierPayment>;
+  private employeeStoreAssignments: Map<string, EmployeeStoreAssignment>;
   private financialTransactions: Map<string, FinancialTransaction>;
 
   constructor() {
     this.stores = new Map();
     this.candidates = new Map();
     this.employees = new Map();
+    this.employeeStoreAssignments = new Map();
     this.onboardingTokens = new Map();
     this.employeeDocuments = new Map();
     this.rosterPeriods = new Map();
@@ -311,6 +319,47 @@ export class MemStorage implements IStorage {
     };
     this.employees.set(id, updatedEmployee);
     return updatedEmployee;
+  }
+
+  async getEmployeeStoreAssignments(filters?: { employeeId?: string; storeId?: string }): Promise<EmployeeStoreAssignment[]> {
+    let results = Array.from(this.employeeStoreAssignments.values());
+    if (filters?.employeeId) results = results.filter(a => a.employeeId === filters.employeeId);
+    if (filters?.storeId) results = results.filter(a => a.storeId === filters.storeId);
+    return results;
+  }
+
+  async createEmployeeStoreAssignment(data: InsertEmployeeStoreAssignment): Promise<EmployeeStoreAssignment> {
+    const id = randomUUID();
+    const assignment: EmployeeStoreAssignment = {
+      id,
+      employeeId: data.employeeId,
+      storeId: data.storeId,
+      rate: data.rate ?? null,
+      fixedAmount: data.fixedAmount ?? null,
+      isFixedSalary: data.isFixedSalary ?? false,
+      salaryDistribute: data.salaryDistribute ?? null,
+      createdAt: new Date(),
+    };
+    this.employeeStoreAssignments.set(id, assignment);
+    return assignment;
+  }
+
+  async deleteEmployeeStoreAssignments(employeeId: string): Promise<void> {
+    for (const [key, val] of this.employeeStoreAssignments) {
+      if (val.employeeId === employeeId) this.employeeStoreAssignments.delete(key);
+    }
+  }
+
+  async getEmployeesByStoreAssignment(storeId: string, status?: string): Promise<{ employee: Employee; assignment: EmployeeStoreAssignment }[]> {
+    const assignments = Array.from(this.employeeStoreAssignments.values()).filter(a => a.storeId === storeId);
+    const results: { employee: Employee; assignment: EmployeeStoreAssignment }[] = [];
+    for (const a of assignments) {
+      const emp = this.employees.get(a.employeeId);
+      if (emp && (!status || emp.status === status)) {
+        results.push({ employee: emp, assignment: a });
+      }
+    }
+    return results;
   }
 
   async createOnboardingToken(insertToken: InsertOnboardingToken): Promise<OnboardingToken> {
@@ -907,6 +956,37 @@ export class DatabaseStorage implements IStorage {
   async updateEmployee(id: string, data: Partial<InsertEmployee>): Promise<Employee | undefined> {
     const [e] = await db.update(employees).set({ ...data, updatedAt: new Date() }).where(eq(employees.id, id)).returning();
     return e;
+  }
+
+  async getEmployeeStoreAssignments(filters?: { employeeId?: string; storeId?: string }): Promise<EmployeeStoreAssignment[]> {
+    const conditions = [];
+    if (filters?.employeeId) conditions.push(eq(employeeStoreAssignments.employeeId, filters.employeeId));
+    if (filters?.storeId) conditions.push(eq(employeeStoreAssignments.storeId, filters.storeId));
+    if (conditions.length > 0) {
+      return db.select().from(employeeStoreAssignments).where(and(...conditions));
+    }
+    return db.select().from(employeeStoreAssignments);
+  }
+
+  async createEmployeeStoreAssignment(data: InsertEmployeeStoreAssignment): Promise<EmployeeStoreAssignment> {
+    const [a] = await db.insert(employeeStoreAssignments).values(data).returning();
+    return a;
+  }
+
+  async deleteEmployeeStoreAssignments(employeeId: string): Promise<void> {
+    await db.delete(employeeStoreAssignments).where(eq(employeeStoreAssignments.employeeId, employeeId));
+  }
+
+  async getEmployeesByStoreAssignment(storeId: string, status?: string): Promise<{ employee: Employee; assignment: EmployeeStoreAssignment }[]> {
+    const assignments = await db.select().from(employeeStoreAssignments).where(eq(employeeStoreAssignments.storeId, storeId));
+    const results: { employee: Employee; assignment: EmployeeStoreAssignment }[] = [];
+    for (const a of assignments) {
+      const [emp] = await db.select().from(employees).where(eq(employees.id, a.employeeId));
+      if (emp && (!status || emp.status === status)) {
+        results.push({ employee: emp, assignment: a });
+      }
+    }
+    return results;
   }
 
   async createOnboardingToken(data: InsertOnboardingToken): Promise<OnboardingToken> {
