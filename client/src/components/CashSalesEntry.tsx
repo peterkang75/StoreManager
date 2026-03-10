@@ -278,43 +278,47 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     return `${day}/${MONTH_SHORT[month]}`;
   };
 
-  const handleDateBlur = useCallback((rowIdx: number) => {
+  const applyDateChange = useCallback((rowIdx: number, moveFocus: boolean) => {
     const val = dateEditValues[rowIdx];
-    if (val === undefined) return;
-    const resolved = resolveDateInput(val);
-    if (resolved) {
-      const targetIdx = rows.findIndex((r) => r.date === resolved);
-      if (targetIdx >= 0 && targetIdx !== rowIdx) {
-        setDateEditValues((prev) => {
-          const next = { ...prev };
-          delete next[rowIdx];
-          return next;
-        });
-        setTimeout(() => {
-          const input = gridRef.current?.querySelector(
-            `[data-row="${targetIdx}"][data-col="envelopeAmount"]`
-          ) as HTMLInputElement | null;
-          if (input) {
-            input.focus();
-            input.select();
-            input.scrollIntoView({ block: "center", behavior: "smooth" });
-          }
-        }, 50);
-      } else {
-        setDateEditValues((prev) => {
-          const next = { ...prev };
-          delete next[rowIdx];
-          return next;
-        });
-      }
-    } else {
+    if (val === undefined || !val.trim()) {
       setDateEditValues((prev) => {
         const next = { ...prev };
         delete next[rowIdx];
         return next;
       });
+      if (moveFocus) {
+        setTimeout(() => {
+          const input = gridRef.current?.querySelector(
+            `[data-row="${rowIdx}"][data-col="envelopeAmount"]`
+          ) as HTMLInputElement | null;
+          if (input) { input.focus(); input.select(); }
+        }, 50);
+      }
+      return;
     }
-  }, [dateEditValues, resolveDateInput, rows]);
+    const resolved = resolveDateInput(val);
+    setDateEditValues((prev) => {
+      const next = { ...prev };
+      delete next[rowIdx];
+      return next;
+    });
+    if (resolved) {
+      setRows((prev) => {
+        const next = [...prev];
+        next[rowIdx] = { ...next[rowIdx], date: resolved };
+        return next;
+      });
+      setIsDirty(true);
+      if (moveFocus) {
+        setTimeout(() => {
+          const input = gridRef.current?.querySelector(
+            `[data-row="${rowIdx}"][data-col="envelopeAmount"]`
+          ) as HTMLInputElement | null;
+          if (input) { input.focus(); input.select(); }
+        }, 50);
+      }
+    }
+  }, [dateEditValues, resolveDateInput]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>, rowIdx: number, colKey: string) => {
@@ -323,38 +327,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
 
       if (colKey === "dateInput" && (e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
         e.preventDefault();
-        const val = dateEditValues[rowIdx];
-        if (val !== undefined && val.trim()) {
-          const resolved = resolveDateInput(val);
-          setDateEditValues((prev) => {
-            const next = { ...prev };
-            delete next[rowIdx];
-            return next;
-          });
-          if (resolved) {
-            const targetIdx = rows.findIndex((r) => r.date === resolved);
-            if (targetIdx >= 0) {
-              setTimeout(() => {
-                const input = gridRef.current?.querySelector(
-                  `[data-row="${targetIdx}"][data-col="envelopeAmount"]`
-                ) as HTMLInputElement | null;
-                if (input) {
-                  input.focus();
-                  input.select();
-                  input.scrollIntoView({ block: "center", behavior: "smooth" });
-                }
-              }, 50);
-              return;
-            }
-          }
-        }
-        const nextInput = gridRef.current?.querySelector(
-          `[data-row="${rowIdx}"][data-col="envelopeAmount"]`
-        ) as HTMLInputElement | null;
-        if (nextInput) {
-          nextInput.focus();
-          nextInput.select();
-        }
+        applyDateChange(rowIdx, true);
         return;
       }
 
@@ -397,7 +370,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
         nextInput.select();
       }
     },
-    [dateEditValues, resolveDateInput, rows]
+    [applyDateChange]
   );
 
   return (
@@ -492,7 +465,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
 
                 return (
                   <tr
-                    key={row.date}
+                    key={idx}
                     className={`
                       ${isSunday ? "bg-red-50/40 dark:bg-red-950/20" : ""}
                       ${isWeekEnd ? "border-b-2 border-b-border" : ""}
@@ -512,7 +485,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                           setDateEditValues((prev) => ({ ...prev, [idx]: "" }));
                           e.target.select();
                         }}
-                        onBlur={() => handleDateBlur(idx)}
+                        onBlur={() => applyDateChange(idx, false)}
                         onKeyDown={(e) => handleKeyDown(e, idx, "dateInput")}
                         data-row={idx}
                         data-col="dateInput"
