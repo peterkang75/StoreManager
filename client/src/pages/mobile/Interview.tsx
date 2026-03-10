@@ -232,14 +232,21 @@ export function MobileInterview() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="visaType">Visa Type</Label>
-                <Input
-                  id="visaType"
+                <Select
                   value={formData.visaType ?? ""}
-                  onChange={(e) => handleChange("visaType", e.target.value)}
-                  placeholder="e.g., Work Visa"
-                  className="h-12 text-base"
-                  data-testid="input-visa-type"
-                />
+                  onValueChange={(val) => handleChange("visaType", val)}
+                >
+                  <SelectTrigger className="h-12 text-base" data-testid="select-visa-type">
+                    <SelectValue placeholder="Select" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Student">Student</SelectItem>
+                    <SelectItem value="PR/CTZ">PR/CTZ</SelectItem>
+                    <SelectItem value="PR">PR</SelectItem>
+                    <SelectItem value="CTZ">CTZ</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="visaExpiry">Expiry Date</Label>
