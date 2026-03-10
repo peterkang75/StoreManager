@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,7 +24,7 @@ import { UserCheck, Search } from "lucide-react";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Employee, Store } from "@shared/schema";
+import type { Employee, Store, EmployeeStoreAssignment } from "@shared/schema";
 
 export function AdminEmployees() {
   const [, setLocation] = useLocation();
@@ -41,26 +41,45 @@ export function AdminEmployees() {
     queryKey: ["/api/stores"],
   });
 
+  const { data: assignments } = useQuery<EmployeeStoreAssignment[]>({
+    queryKey: ["/api/employee-store-assignments"],
+  });
+
   const storeMap = new Map(stores?.map(s => [s.id, s]) ?? []);
 
+  const empStoreMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    if (!assignments) return map;
+    for (const a of assignments) {
+      const list = map.get(a.employeeId) || [];
+      list.push(a.storeId);
+      map.set(a.employeeId, list);
+    }
+    return map;
+  }, [assignments]);
+
+  const getStoreNames = (employeeId: string) => {
+    const storeIds = empStoreMap.get(employeeId);
+    if (!storeIds || storeIds.length === 0) return "—";
+    return storeIds
+      .map(sid => storeMap.get(sid)?.name ?? "Unknown")
+      .join(", ");
+  };
+
   const filteredEmployees = employees?.filter((e) => {
-    const matchesSearch = 
+    const matchesSearch =
       e.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       e.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       e.nickname?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       e.email?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStore = storeFilter === "all" || e.storeId === storeFilter;
+    const empStores = empStoreMap.get(e.id) || [];
+    const matchesStore = storeFilter === "all" || empStores.includes(storeFilter);
     const matchesStatus = statusFilter === "all" || e.status === statusFilter;
     return matchesSearch && matchesStore && matchesStatus;
   });
 
   const handleRowClick = (employee: Employee) => {
     setLocation(`/admin/employees/${employee.id}`);
-  };
-
-  const getStoreName = (storeId: string | null) => {
-    if (!storeId) return "—";
-    return storeMap.get(storeId)?.name ?? "Unknown";
   };
 
   const formatDate = (dateString: string | null) => {
@@ -159,7 +178,7 @@ export function AdminEmployees() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Nickname</TableHead>
-                    <TableHead>Store</TableHead>
+                    <TableHead>Stores</TableHead>
                     <TableHead>Rate</TableHead>
                     <TableHead className="text-center">Status</TableHead>
                     <TableHead>Visa Expiry</TableHead>
@@ -181,7 +200,7 @@ export function AdminEmployees() {
                         {employee.nickname || `${employee.firstName} ${employee.lastName}`}
                       </TableCell>
                       <TableCell data-testid={`text-store-${employee.id}`}>
-                        {getStoreName(employee.storeId)}
+                        {getStoreNames(employee.id)}
                       </TableCell>
                       <TableCell data-testid={`text-rate-${employee.id}`}>
                         {employee.rate || "—"}

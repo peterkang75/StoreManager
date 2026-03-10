@@ -736,12 +736,13 @@ export async function registerRoutes(
       if (!store_id) {
         return res.status(400).json({ error: "store_id is required" });
       }
-      const emps = await storage.getEmployees({ storeId: store_id, status: "ACTIVE" });
-      if (emps.length === 0) {
+      const assignedEmps = await storage.getEmployeesByStoreAssignment(store_id, "ACTIVE");
+      if (assignedEmps.length === 0) {
         return res.json({ periodStart: null, periodEnd: null });
       }
+      const empIds = new Set(assignedEmps.map(({ employee }) => employee.id));
       const allPayrolls = await storage.getPayrolls({});
-      const storePayrolls = allPayrolls.filter(p => emps.some(e => e.id === p.employeeId));
+      const storePayrolls = allPayrolls.filter(p => empIds.has(p.employeeId));
       if (storePayrolls.length === 0) {
         return res.json({ periodStart: null, periodEnd: null });
       }
@@ -761,7 +762,6 @@ export async function registerRoutes(
       }
 
       const assignedEmps = await storage.getEmployeesByStoreAssignment(store_id, "ACTIVE");
-      const directEmps = await storage.getEmployees({ storeId: store_id, status: "ACTIVE" });
       const empMap = new Map<string, { employee: any; assignmentRate?: string; assignmentFixed?: string }>();
       for (const { employee, assignment } of assignedEmps) {
         empMap.set(employee.id, {
@@ -769,11 +769,6 @@ export async function registerRoutes(
           assignmentRate: assignment.rate || undefined,
           assignmentFixed: assignment.fixedAmount || undefined,
         });
-      }
-      for (const emp of directEmps) {
-        if (!empMap.has(emp.id)) {
-          empMap.set(emp.id, { employee: emp });
-        }
       }
 
       const existingPayrolls = await storage.getPayrolls({ periodStart: period_start, periodEnd: period_end });
@@ -934,6 +929,33 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching store assignments:", error);
       res.status(500).json({ error: "Failed to fetch store assignments" });
+    }
+  });
+
+  app.put("/api/employees/:id/store-assignments", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { storeIds } = req.body as { storeIds: string[] };
+      if (!Array.isArray(storeIds)) {
+        return res.status(400).json({ error: "storeIds must be an array" });
+      }
+      const employee = await storage.getEmployee(id);
+      if (!employee) {
+        return res.status(404).json({ error: "Employee not found" });
+      }
+      await storage.deleteEmployeeStoreAssignments(id);
+      const created = [];
+      for (const storeId of storeIds) {
+        const assignment = await storage.createEmployeeStoreAssignment({
+          employeeId: id,
+          storeId,
+        });
+        created.push(assignment);
+      }
+      res.json(created);
+    } catch (error) {
+      console.error("Error updating store assignments:", error);
+      res.status(500).json({ error: "Failed to update store assignments" });
     }
   });
 
@@ -1126,7 +1148,6 @@ export async function registerRoutes(
         );
 
         let empId: string;
-        const primaryStoreId = storeAssignments.length > 0 ? storeAssignments[0].storeId : undefined;
 
         if (existing) {
           const updateData: Record<string, any> = {};
@@ -1136,14 +1157,10 @@ export async function registerRoutes(
             }
           }
           if (employee.status === "ACTIVE") updateData.status = "ACTIVE";
-          if (primaryStoreId) updateData.storeId = primaryStoreId;
           await storage.updateEmployee(existing.id, updateData);
           empId = existing.id;
         } else {
-          const created = await storage.createEmployee({
-            ...employee,
-            storeId: primaryStoreId,
-          });
+          const created = await storage.createEmployee(employee);
           empId = created.id;
         }
 

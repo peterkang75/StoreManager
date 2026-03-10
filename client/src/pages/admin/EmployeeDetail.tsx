@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute } from "wouter";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -20,7 +20,7 @@ import { ArrowLeft, Loader2, Save, User } from "lucide-react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Employee, Store, InsertEmployee } from "@shared/schema";
+import type { Employee, Store, InsertEmployee, EmployeeStoreAssignment } from "@shared/schema";
 
 function FormSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -39,6 +39,8 @@ export function AdminEmployeeDetail() {
   const employeeId = params?.id;
 
   const [formData, setFormData] = useState<Partial<InsertEmployee>>({});
+  const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
+  const [storesDirty, setStoresDirty] = useState(false);
 
   const { data: employee, isLoading: employeeLoading } = useQuery<Employee>({
     queryKey: ["/api/employees", employeeId],
@@ -49,11 +51,28 @@ export function AdminEmployeeDetail() {
     queryKey: ["/api/stores"],
   });
 
+  const { data: storeAssignments } = useQuery<EmployeeStoreAssignment[]>({
+    queryKey: ["/api/employee-store-assignments", employeeId],
+    queryFn: async () => {
+      const res = await fetch(`/api/employee-store-assignments?employee_id=${employeeId}`);
+      if (!res.ok) throw new Error("Failed to fetch assignments");
+      return res.json();
+    },
+    enabled: !!employeeId,
+  });
+
   useEffect(() => {
     if (employee) {
       setFormData({});
     }
   }, [employee]);
+
+  useEffect(() => {
+    if (storeAssignments) {
+      setSelectedStoreIds(storeAssignments.map(a => a.storeId));
+      setStoresDirty(false);
+    }
+  }, [storeAssignments]);
 
   const updateMutation = useMutation({
     mutationFn: async (data: Partial<InsertEmployee>) => {
@@ -63,7 +82,20 @@ export function AdminEmployeeDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees", employeeId] });
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
-      toast({ title: "Employee updated successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const storeAssignmentMutation = useMutation({
+    mutationFn: async (storeIds: string[]) => {
+      const res = await apiRequest("PUT", `/api/employees/${employeeId}/store-assignments`, { storeIds });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/employee-store-assignments", employeeId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/employee-store-assignments"] });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -74,9 +106,25 @@ export function AdminEmployeeDetail() {
     setFormData({ ...formData, [field]: value });
   };
 
-  const handleSave = () => {
+  const handleStoreToggle = useCallback((storeId: string, checked: boolean) => {
+    setSelectedStoreIds(prev => {
+      if (checked) return [...prev, storeId];
+      return prev.filter(id => id !== storeId);
+    });
+    setStoresDirty(true);
+  }, []);
+
+  const handleSave = async () => {
+    const promises: Promise<any>[] = [];
     if (Object.keys(formData).length > 0) {
-      updateMutation.mutate(formData);
+      promises.push(updateMutation.mutateAsync(formData));
+    }
+    if (storesDirty) {
+      promises.push(storeAssignmentMutation.mutateAsync(selectedStoreIds));
+    }
+    if (promises.length > 0) {
+      await Promise.all(promises);
+      toast({ title: "Employee updated successfully" });
     }
   };
 
@@ -117,7 +165,8 @@ export function AdminEmployeeDetail() {
   }
 
   const currentData = { ...employee, ...formData };
-  const hasChanges = Object.keys(formData).length > 0;
+  const hasChanges = Object.keys(formData).length > 0 || storesDirty;
+  const isSaving = updateMutation.isPending || storeAssignmentMutation.isPending;
 
   return (
     <AdminLayout title="Employee Details">
@@ -146,10 +195,10 @@ export function AdminEmployeeDetail() {
           </div>
           <Button
             onClick={handleSave}
-            disabled={!hasChanges || updateMutation.isPending}
+            disabled={!hasChanges || isSaving}
             data-testid="button-save"
           >
-            {updateMutation.isPending ? (
+            {isSaving ? (
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
             ) : (
               <Save className="w-4 h-4 mr-2" />
@@ -200,25 +249,25 @@ export function AdminEmployeeDetail() {
               <CardTitle className="text-base">Employment Details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="storeId">Store</Label>
-                  <Select
-                    value={currentData.storeId ?? ""}
-                    onValueChange={(value) => handleFieldChange("storeId", value || null)}
-                  >
-                    <SelectTrigger data-testid="select-store">
-                      <SelectValue placeholder="Select store" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {stores?.filter(s => s.active).map((store) => (
-                        <SelectItem key={store.id} value={store.id}>
-                          {store.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              <div className="space-y-2">
+                <Label>Stores</Label>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="checkbox-group-stores">
+                  {stores?.filter(s => s.active).map((store) => (
+                    <label
+                      key={store.id}
+                      className="flex items-center gap-2 cursor-pointer"
+                      data-testid={`checkbox-store-${store.id}`}
+                    >
+                      <Checkbox
+                        checked={selectedStoreIds.includes(store.id)}
+                        onCheckedChange={(checked) => handleStoreToggle(store.id, !!checked)}
+                      />
+                      <span className="text-sm">{store.name}</span>
+                    </label>
+                  ))}
                 </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="status">Status</Label>
                   <Select
@@ -244,8 +293,6 @@ export function AdminEmployeeDetail() {
                     data-testid="input-rate"
                   />
                 </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="fixedAmount">Fixed Amount</Label>
                   <Input
@@ -256,6 +303,8 @@ export function AdminEmployeeDetail() {
                     data-testid="input-fixed-amount"
                   />
                 </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="salaryType">Salary Type</Label>
                   <Select
