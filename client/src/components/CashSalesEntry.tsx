@@ -252,7 +252,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
       for (let i = 0; i < 14; i++) {
         const d = addDays(periodStart, i);
         if (d.getDate() === day && d.getMonth() + 1 === month) {
-          return d.toISOString().split("T")[0];
+          return formatDateStr(d);
         }
       }
       return null;
@@ -263,7 +263,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     for (let i = 0; i < 14; i++) {
       const d = addDays(periodStart, i);
       if (d.getDate() === num) {
-        return d.toISOString().split("T")[0];
+        return formatDateStr(d);
       }
     }
     return null;
