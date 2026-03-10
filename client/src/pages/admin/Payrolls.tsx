@@ -40,28 +40,27 @@ function getLastFortnight(): { start: string; end: string } {
 }
 
 function calculatePaygTax(fortnightlyGross: number): number {
-  const g = fortnightlyGross;
-  if (g <= 0) return 0;
+  if (fortnightlyGross <= 0) return 0;
+  const w = fortnightlyGross / 2;
 
-  const brackets: [number, number, number, number][] = [
-    [546, 0, 0, 0],
-    [700, 0.19, 0.19, 103.8462],
-    [1282, 0.2348, 0.2348, 103.8462],
-    [1730, 0.219, 0.219, 83.5769],
-    [3461, 0.3477, 0.3477, 306.2692],
-    [6924, 0.345, 0.345, 306.2692],
-    [Infinity, 0.47, 0.47, -398.1154],
+  const brackets: [number, number, number][] = [
+    [434, 0, 0],
+    [467, 0.1600, 69.4615],
+    [584, 0.2600, 116.1465],
+    [865, 0.1800, 69.4615],
+    [1135, 0.3700, 233.8846],
+    [2596, 0.3200, 177.1538],
+    [3654, 0.3900, 358.8846],
+    [Infinity, 0.4700, 651.1923],
   ];
 
-  for (const [upper, a, b, c] of brackets) {
-    if (g < upper) {
-      const weekly = Math.max(0, a * (g / 2) - c / 2);
-      return Math.round(weekly * 2 * 100) / 100;
+  for (const [upper, a, b] of brackets) {
+    if (w < upper) {
+      const weeklyTax = Math.max(0, a * w - b);
+      return Math.round(weeklyTax * 2 * 100) / 100;
     }
   }
-
-  const weekly = Math.max(0, 0.47 * (g / 2) + 398.1154 / 2);
-  return Math.round(weekly * 2 * 100) / 100;
+  return 0;
 }
 
 const SUPER_RATE = 0.115;
