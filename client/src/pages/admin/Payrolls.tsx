@@ -449,14 +449,6 @@ export function AdminPayrolls() {
                 <span className="font-mono font-medium text-amber-700 dark:text-amber-400" data-testid="text-total-cash">{fmtMoney(grandTotals.cash)}</span>
               </div>
               <div className="flex items-center gap-1">
-                <span className="text-muted-foreground">Tax:</span>
-                <span className="font-mono font-medium" data-testid="text-total-tax">{fmtMoney(grandTotals.tax)}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-muted-foreground">Super:</span>
-                <span className="font-mono font-medium" data-testid="text-total-super">{fmtMoney(grandTotals.super)}</span>
-              </div>
-              <div className="flex items-center gap-1">
                 <span className="text-muted-foreground">Bank:</span>
                 <span className="font-mono font-medium" data-testid="text-total-bank">{fmtMoney(grandTotals.bank)}</span>
               </div>
