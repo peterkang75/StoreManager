@@ -135,6 +135,10 @@ export function AdminPayrolls() {
     queryKey: ["/api/stores"],
   });
 
+  const { data: cashBalances } = useQuery<Record<string, number>>({
+    queryKey: ["/api/finance/balances"],
+  });
+
   const storeOrder = ["sushi", "sandwich", "ho"];
   const activeInternalStores = (stores || [])
     .filter((s) => s.active && !s.isExternal && s.name.toLowerCase() !== "trading")
@@ -424,18 +428,50 @@ export function AdminPayrolls() {
           </div>
         </div>
 
-        {selectedStore && (
-          <div className="space-y-2">
-            <Label className="text-sm">
-              Global Payroll Note ({selectedStore.name})
-            </Label>
-            <Textarea
-              value={globalNote}
-              onChange={(e) => setGlobalNote(e.target.value)}
-              placeholder="이 매장의 급여 관련 메모를 입력하세요 (삭제할 때까지 유지됩니다)"
-              className="text-sm"
-              data-testid="textarea-global-note"
-            />
+        {rows.length > 0 && selectedStore && (
+          <div className="bg-card border rounded-md px-4 py-3">
+            <div className="flex items-center gap-6 flex-wrap text-sm">
+              <span className="font-semibold text-muted-foreground uppercase text-xs tracking-wide">Store Totals</span>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Hours:</span>
+                <span className="font-mono font-medium" data-testid="text-total-hours">{grandTotals.hours.toFixed(1)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Total:</span>
+                <span className="font-mono font-medium" data-testid="text-total-with-adj">{fmtMoney(grandTotals.total)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Gross:</span>
+                <span className="font-mono font-medium" data-testid="text-total-gross">{fmtMoney(grandTotals.gross)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Cash:</span>
+                <span className="font-mono font-medium text-amber-700 dark:text-amber-400" data-testid="text-total-cash">{fmtMoney(grandTotals.cash)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Tax:</span>
+                <span className="font-mono font-medium" data-testid="text-total-tax">{fmtMoney(grandTotals.tax)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Super:</span>
+                <span className="font-mono font-medium" data-testid="text-total-super">{fmtMoney(grandTotals.super)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Bank:</span>
+                <span className="font-mono font-medium" data-testid="text-total-bank">{fmtMoney(grandTotals.bank)}</span>
+              </div>
+              {cashBalances && selectedStore.name && cashBalances[selectedStore.name] !== undefined && (
+                <div className="flex items-center gap-1 border-l pl-4 ml-2">
+                  <span className="text-muted-foreground">Cash Diff:</span>
+                  <span
+                    className={`font-mono font-bold ${(cashBalances[selectedStore.name] - grandTotals.cash) < 0 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}
+                    data-testid="text-cash-diff"
+                  >
+                    {fmtMoney(cashBalances[selectedStore.name] - grandTotals.cash)}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -761,39 +797,18 @@ export function AdminPayrolls() {
           </>
         )}
 
-        {rows.length > 0 && (
-          <div className="sticky bottom-0 z-30 bg-card border-t border-b rounded-md shadow-sm px-4 py-3">
-            <div className="flex items-center gap-6 flex-wrap text-sm">
-              <span className="font-semibold text-muted-foreground uppercase text-xs tracking-wide">Store Totals</span>
-              <div className="flex items-center gap-1">
-                <span className="text-muted-foreground">Hours:</span>
-                <span className="font-mono font-medium" data-testid="text-total-hours">{grandTotals.hours.toFixed(1)}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-muted-foreground">Total:</span>
-                <span className="font-mono font-medium" data-testid="text-total-with-adj">{fmtMoney(grandTotals.total)}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-muted-foreground">Gross:</span>
-                <span className="font-mono font-medium" data-testid="text-total-gross">{fmtMoney(grandTotals.gross)}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-muted-foreground">Cash:</span>
-                <span className="font-mono font-medium text-amber-700 dark:text-amber-400" data-testid="text-total-cash">{fmtMoney(grandTotals.cash)}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-muted-foreground">Tax:</span>
-                <span className="font-mono font-medium" data-testid="text-total-tax">{fmtMoney(grandTotals.tax)}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-muted-foreground">Super:</span>
-                <span className="font-mono font-medium" data-testid="text-total-super">{fmtMoney(grandTotals.super)}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-muted-foreground">Bank:</span>
-                <span className="font-mono font-medium" data-testid="text-total-bank">{fmtMoney(grandTotals.bank)}</span>
-              </div>
-            </div>
+        {selectedStore && (
+          <div className="space-y-2">
+            <Label className="text-sm">
+              Global Payroll Note ({selectedStore.name})
+            </Label>
+            <Textarea
+              value={globalNote}
+              onChange={(e) => setGlobalNote(e.target.value)}
+              placeholder="이 매장의 급여 관련 메모를 입력하세요 (삭제할 때까지 유지됩니다)"
+              className="text-sm"
+              data-testid="textarea-global-note"
+            />
           </div>
         )}
       </div>
