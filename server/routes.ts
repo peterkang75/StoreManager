@@ -774,11 +774,15 @@ export async function registerRoutes(
       const existingPayrolls = await storage.getPayrolls({ periodStart: period_start, periodEnd: period_end });
       const empPayrollMap = new Map<string, any>();
       for (const p of existingPayrolls) {
-        if (!empMap.has(p.employeeId)) continue;
-        const existing = empPayrollMap.get(p.employeeId);
         if (p.storeId === store_id) {
           empPayrollMap.set(p.employeeId, p);
-        } else if (!p.storeId && !existing) {
+          if (!empMap.has(p.employeeId)) {
+            const emp = await storage.getEmployee(p.employeeId);
+            if (emp) {
+              empMap.set(p.employeeId, { employee: emp });
+            }
+          }
+        } else if (!p.storeId && empMap.has(p.employeeId) && !empPayrollMap.has(p.employeeId)) {
           empPayrollMap.set(p.employeeId, p);
         }
       }
