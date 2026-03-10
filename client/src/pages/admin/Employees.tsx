@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/table";
 import { UserCheck, Search } from "lucide-react";
 import { useLocation } from "wouter";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Employee, Store } from "@shared/schema";
 
 export function AdminEmployees() {
@@ -29,6 +31,7 @@ export function AdminEmployees() {
   const [searchTerm, setSearchTerm] = useState("");
   const [storeFilter, setStoreFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const { toast } = useToast();
 
   const { data: employees, isLoading: employeesLoading } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
@@ -64,6 +67,26 @@ export function AdminEmployees() {
     if (!dateString) return "—";
     return new Date(dateString).toLocaleDateString();
   };
+
+  const toggleStatus = useCallback(
+    async (e: React.MouseEvent, employee: Employee) => {
+      e.stopPropagation();
+      const newStatus = employee.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+      try {
+        await apiRequest("PUT", `/api/employees/${employee.id}`, {
+          status: newStatus,
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      } catch {
+        toast({
+          title: "Error",
+          description: "상태 변경에 실패했습니다",
+          variant: "destructive",
+        });
+      }
+    },
+    [toast]
+  );
 
   return (
     <AdminLayout title="Employee Management">
@@ -135,11 +158,10 @@ export function AdminEmployees() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Name</TableHead>
                     <TableHead>Nickname</TableHead>
                     <TableHead>Store</TableHead>
-                    <TableHead>Status</TableHead>
                     <TableHead>Rate</TableHead>
+                    <TableHead className="text-center">Status</TableHead>
                     <TableHead>Visa Expiry</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -151,20 +173,30 @@ export function AdminEmployees() {
                       onClick={() => handleRowClick(employee)}
                       data-testid={`row-employee-${employee.id}`}
                     >
-                      <TableCell className="font-medium">
-                        {employee.firstName} {employee.lastName}
+                      <TableCell
+                        className="font-medium"
+                        title={`${employee.firstName} ${employee.lastName}`}
+                        data-testid={`text-employee-name-${employee.id}`}
+                      >
+                        {employee.nickname || `${employee.firstName} ${employee.lastName}`}
                       </TableCell>
-                      <TableCell>{employee.nickname || "—"}</TableCell>
-                      <TableCell>{getStoreName(employee.storeId)}</TableCell>
-                      <TableCell>
-                        <Badge 
+                      <TableCell data-testid={`text-store-${employee.id}`}>
+                        {getStoreName(employee.storeId)}
+                      </TableCell>
+                      <TableCell data-testid={`text-rate-${employee.id}`}>
+                        {employee.rate || "—"}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge
                           variant={employee.status === "ACTIVE" ? "default" : "secondary"}
+                          className="cursor-pointer select-none text-xs"
+                          onClick={(e) => toggleStatus(e, employee)}
+                          data-testid={`badge-status-${employee.id}`}
                         >
-                          {employee.status}
+                          {employee.status === "ACTIVE" ? "Active" : "Inactive"}
                         </Badge>
                       </TableCell>
-                      <TableCell>{employee.rate || "—"}</TableCell>
-                      <TableCell className="text-muted-foreground">
+                      <TableCell className="text-muted-foreground" data-testid={`text-visa-${employee.id}`}>
                         {formatDate(employee.visaExpiry)}
                       </TableCell>
                     </TableRow>
