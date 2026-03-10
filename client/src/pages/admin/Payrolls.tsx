@@ -101,8 +101,7 @@ function recalcRow(row: PayrollRow, changedField?: string): PayrollRow {
     r.grossAmount = Math.max(0, r.totalWithAdjustment - r.cashAmount);
   } else {
     if (r.grossAmount === 0 && r.cashAmount === 0) {
-      r.cashAmount = roundTo5(r.totalWithAdjustment);
-      r.grossAmount = 0;
+      r.grossAmount = r.totalWithAdjustment;
     }
   }
 
