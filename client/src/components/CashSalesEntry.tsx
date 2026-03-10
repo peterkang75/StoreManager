@@ -17,7 +17,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Store, CashSalesDetail } from "@shared/schema";
 
-const DENOMINATIONS = [
+const ALL_DENOMINATIONS = [
   { key: "note100Count", label: "$100", value: 100 },
   { key: "note50Count", label: "$50", value: 50 },
   { key: "note20Count", label: "$20", value: 20 },
@@ -31,7 +31,9 @@ const DENOMINATIONS = [
   { key: "coin005Count", label: "5c", value: 0.05 },
 ] as const;
 
-type DenomKey = typeof DENOMINATIONS[number]["key"];
+const DENOMINATIONS = ALL_DENOMINATIONS.filter(d => d.value >= 5);
+
+type DenomKey = typeof ALL_DENOMINATIONS[number]["key"];
 
 interface RowData {
   date: string;
@@ -73,7 +75,7 @@ function getDayLabel(dateStr: string): string {
 
 function calcCounted(row: RowData): number {
   let total = 0;
-  for (const denom of DENOMINATIONS) {
+  for (const denom of ALL_DENOMINATIONS) {
     const count = Number(row[denom.key]) || 0;
     total += count * denom.value;
   }
@@ -87,7 +89,7 @@ function createEmptyRow(date: string): RowData {
     countedAmount: 0,
     differenceAmount: 0,
   };
-  for (const d of DENOMINATIONS) {
+  for (const d of ALL_DENOMINATIONS) {
     row[d.key] = 0;
   }
   return row;
@@ -144,7 +146,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
           countedAmount: existing.countedAmount,
           differenceAmount: existing.differenceAmount,
         };
-        for (const denom of DENOMINATIONS) {
+        for (const denom of ALL_DENOMINATIONS) {
           row[denom.key] = (existing as any)[denom.key] ?? 0;
         }
         newRows.push(row);
@@ -234,10 +236,11 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     return `${parseInt(parts[1])}/${parseInt(parts[2])}`;
   };
 
+  const TAB_COLS = ["envelopeAmount", ...DENOMINATIONS.map((d) => d.key)];
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>, rowIdx: number, colKey: string) => {
-      const allCols = ["envelopeAmount", ...DENOMINATIONS.map((d) => d.key)];
-      const colIdx = allCols.indexOf(colKey);
+      const colIdx = TAB_COLS.indexOf(colKey);
       if (colIdx === -1) return;
 
       let nextRow = rowIdx;
@@ -250,7 +253,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
         e.preventDefault();
         nextRow = Math.max(rowIdx - 1, 0);
       } else if (e.key === "Tab" && !e.shiftKey) {
-        if (colIdx < allCols.length - 1) {
+        if (colIdx < TAB_COLS.length - 1) {
           e.preventDefault();
           nextCol = colIdx + 1;
         }
@@ -264,7 +267,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
       }
 
       const nextInput = gridRef.current?.querySelector(
-        `[data-row="${nextRow}"][data-col="${allCols[nextCol]}"]`
+        `[data-row="${nextRow}"][data-col="${TAB_COLS[nextCol]}"]`
       ) as HTMLInputElement | null;
       if (nextInput) {
         nextInput.focus();
@@ -347,12 +350,12 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
               <tr className="bg-muted/50">
                 <th className="sticky left-0 bg-muted/50 z-10 px-2 py-1.5 text-left font-medium border-b border-r min-w-[90px]">Date</th>
                 <th className="px-2 py-1.5 text-right font-medium border-b border-r min-w-[90px]">Envelope</th>
+                <th className="px-2 py-1.5 text-right font-medium border-b border-r min-w-[90px] bg-muted/80">Counted</th>
                 {DENOMINATIONS.map((d) => (
                   <th key={d.key} className="px-1 py-1.5 text-center font-medium border-b border-r min-w-[52px]">
                     {d.label}
                   </th>
                 ))}
-                <th className="px-2 py-1.5 text-right font-medium border-b border-r min-w-[90px] bg-muted/80">Counted</th>
                 <th className="px-2 py-1.5 text-right font-medium border-b min-w-[80px]">Diff</th>
               </tr>
             </thead>
@@ -382,7 +385,11 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                         type="number"
                         step="0.01"
                         min="0"
-                        className="h-7 text-right text-xs px-1 tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                        className={`h-7 text-right text-xs px-1 tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${
+                          (row.envelopeAmount as number) > 0 && Math.abs(diff) < 0.01
+                            ? "border-green-500 bg-green-50 dark:bg-green-950/30"
+                            : ""
+                        }`}
                         value={row.envelopeAmount || ""}
                         onChange={(e) => updateRow(idx, "envelopeAmount", parseFloat(e.target.value) || 0)}
                         onFocus={(e) => e.target.select()}
@@ -391,6 +398,9 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                         data-col="envelopeAmount"
                         data-testid={`input-envelope-${idx}`}
                       />
+                    </td>
+                    <td className="px-2 py-0.5 border-b border-r text-right font-mono text-xs tabular-nums bg-muted/30 font-medium" data-testid={`text-counted-${idx}`}>
+                      {(row.countedAmount as number) > 0 ? `$${(row.countedAmount as number).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
                     </td>
                     {DENOMINATIONS.map((denom) => (
                       <td key={denom.key} className="px-0.5 py-0.5 border-b border-r">
@@ -409,9 +419,6 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                         />
                       </td>
                     ))}
-                    <td className="px-2 py-0.5 border-b border-r text-right font-mono text-xs tabular-nums bg-muted/30 font-medium" data-testid={`text-counted-${idx}`}>
-                      {(row.countedAmount as number) > 0 ? `$${(row.countedAmount as number).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
-                    </td>
                     <td
                       className={`px-2 py-0.5 border-b text-right font-mono text-xs tabular-nums ${hasDiff ? "text-red-600 dark:text-red-400 font-bold" : "text-muted-foreground"}`}
                       data-testid={`text-diff-${idx}`}
@@ -428,17 +435,17 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                 <td className="px-2 py-2 border-t-2 text-right font-mono text-xs tabular-nums" data-testid="text-total-envelope">
                   ${totalEnvelope.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </td>
+                <td className="px-2 py-2 border-t-2 text-right font-mono text-xs tabular-nums font-bold bg-muted/80" data-testid="text-grand-total">
+                  ${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </td>
                 {DENOMINATIONS.map((d) => {
                   const colTotal = rows.reduce((sum, r) => sum + (Number(r[d.key]) || 0), 0);
                   return (
-                    <td key={d.key} className="px-1 py-2 border-t-2 text-center font-mono text-xs tabular-nums text-muted-foreground">
+                    <td key={d.key} className="px-1 py-2 border-t-2 text-center font-mono text-xs tabular-nums font-bold" data-testid={`text-total-${d.key}`}>
                       {colTotal > 0 ? colTotal : ""}
                     </td>
                   );
                 })}
-                <td className="px-2 py-2 border-t-2 text-right font-mono text-xs tabular-nums font-bold bg-muted/80" data-testid="text-grand-total">
-                  ${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </td>
                 <td
                   className={`px-2 py-2 border-t-2 text-right font-mono text-xs tabular-nums ${Math.abs(totalDifference) >= 0.01 ? "text-red-600 dark:text-red-400 font-bold" : "text-muted-foreground"}`}
                   data-testid="text-total-diff"
