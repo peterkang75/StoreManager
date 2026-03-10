@@ -260,6 +260,8 @@ function TransactionTypeBadge({ type }: { type: string }) {
       return <Badge variant="outline" className="border-red-500 text-red-700 dark:text-red-400" data-testid={`badge-type-${type}`}>Expense</Badge>;
     case "CASH_SALES":
       return <Badge variant="outline" className="border-emerald-500 text-emerald-700 dark:text-emerald-400" data-testid={`badge-type-${type}`}>Cash Sales</Badge>;
+    case "CASH_WAGE":
+      return <Badge variant="outline" className="border-orange-500 text-orange-700 dark:text-orange-400" data-testid={`badge-type-${type}`}>Cash Wage</Badge>;
     default:
       return <Badge variant="outline" data-testid={`badge-type-${type}`}>{type}</Badge>;
   }

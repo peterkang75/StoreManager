@@ -1164,6 +1164,33 @@ export async function registerRoutes(
           results.push(created);
         }
       }
+
+      if (rows.length > 0 && rows[0].storeId && rows[0].periodStart && rows[0].periodEnd) {
+        const storeId = rows[0].storeId;
+        const periodStart = rows[0].periodStart;
+        const periodEnd = rows[0].periodEnd;
+        const refNote = `CASH_WAGE:${storeId}:${periodStart}~${periodEnd}`;
+
+        const existingTx = await storage.getFinancialTransactionsByRef(refNote);
+        for (const tx of existingTx) {
+          await storage.deleteFinancialTransaction(tx.id);
+        }
+
+        const totalCash = rows.reduce((sum: number, r: any) => sum + (parseFloat(r.cashAmount) || 0), 0);
+        if (totalCash > 0) {
+          await storage.createFinancialTransaction({
+            transactionType: "CASH_WAGE",
+            fromStoreId: storeId,
+            toStoreId: null,
+            cashAmount: Math.round(totalCash * 100) / 100,
+            bankAmount: 0,
+            referenceNote: refNote,
+            executedBy: null,
+            isBankSettled: false,
+          });
+        }
+      }
+
       res.json(results);
     } catch (error) {
       console.error("Error bulk saving payrolls:", error);

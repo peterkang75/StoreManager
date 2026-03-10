@@ -303,6 +303,8 @@ export function AdminPayrolls() {
       });
       queryClient.invalidateQueries({ queryKey: ["/api/payrolls"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/balances"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/transactions"] });
     },
     onError: (error: Error) => {
       toast({
@@ -470,12 +472,12 @@ export function AdminPayrolls() {
               </div>
               {cashBalances && selectedStore.name && cashBalances[selectedStore.name] !== undefined && (
                 <div className="flex items-center gap-1 border-l pl-4 ml-2">
-                  <span className="text-muted-foreground">Cash Diff:</span>
+                  <span className="text-muted-foreground">Cash Balance:</span>
                   <span
-                    className={`font-mono font-bold ${(cashBalances[selectedStore.name] - grandTotals.cash) < 0 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}
+                    className={`font-mono font-bold ${cashBalances[selectedStore.name] < 0 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}
                     data-testid="text-cash-diff"
                   >
-                    {fmtMoney(cashBalances[selectedStore.name] - grandTotals.cash)}
+                    {fmtMoney(cashBalances[selectedStore.name])}
                   </span>
                 </div>
               )}
