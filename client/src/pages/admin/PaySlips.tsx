@@ -95,9 +95,9 @@ export function AdminPaySlips() {
       <style>{`
         @media print {
           body { margin: 0; padding: 0; }
-          .payslip-page { page-break-after: always; }
-          .payslip-page:last-child { page-break-after: avoid; }
           .no-print { display: none !important; }
+          .payslip-container { padding: 0; }
+          .payslip-page { page-break-inside: avoid; }
         }
         @media screen {
           .payslip-container { max-width: 800px; margin: 0 auto; padding: 20px; }
@@ -106,80 +106,82 @@ export function AdminPaySlips() {
           font-family: Arial, Helvetica, sans-serif;
           color: #000;
           background: #fff;
-          padding: 24px;
+          padding: 14px 20px;
+          border-bottom: 1px dashed #999;
+          margin-bottom: 4px;
         }
+        .payslip-page:last-child { border-bottom: none; margin-bottom: 0; }
         .payslip-header {
           display: flex;
           justify-content: space-between;
           align-items: flex-start;
-          margin-bottom: 20px;
-          padding-bottom: 12px;
-          border-bottom: 3px solid #000;
+          margin-bottom: 8px;
+          padding-bottom: 6px;
+          border-bottom: 1px solid #000;
         }
         .payslip-header h1 {
-          font-size: 24px;
+          font-size: 18px;
           font-weight: 700;
           margin: 0;
           line-height: 1.2;
         }
         .payslip-header .period {
-          font-size: 14px;
+          font-size: 11px;
           font-weight: 700;
           text-align: right;
-          line-height: 1.5;
+          line-height: 1.4;
         }
         .payslip-table {
           width: 100%;
           border-collapse: collapse;
-          margin-bottom: 20px;
-          font-size: 13px;
+          margin-bottom: 8px;
+          font-size: 11px;
         }
         .payslip-table th {
-          background: #000;
-          color: #fff;
-          padding: 8px 10px;
+          padding: 4px 6px;
           text-align: left;
-          font-weight: 600;
-          font-size: 12px;
+          font-weight: 700;
+          font-size: 10px;
           text-transform: uppercase;
-          letter-spacing: 0.5px;
+          letter-spacing: 0.3px;
+          border-bottom: 1px solid #000;
         }
         .payslip-table th.num { text-align: right; }
         .payslip-table td {
-          padding: 7px 10px;
+          padding: 3px 6px;
           border-bottom: 1px solid #ddd;
         }
         .payslip-table td.num {
           text-align: right;
           font-variant-numeric: tabular-nums;
         }
-        .payslip-table tr:last-child td { border-bottom: 2px solid #000; }
+        .payslip-table tr:last-child td { border-bottom: 1px solid #000; }
         .payslip-table tfoot td {
-          padding: 8px 10px;
+          padding: 4px 6px;
           font-weight: 700;
           border-bottom: none;
-          border-top: 2px solid #000;
+          border-top: 1px solid #000;
         }
         .payslip-summary {
-          border: 3px solid #000;
-          padding: 16px 20px;
+          border: 1px solid #000;
+          padding: 8px 12px;
           display: flex;
           justify-content: space-between;
-          gap: 40px;
+          gap: 20px;
         }
         .payslip-summary .summary-item {
           flex: 1;
         }
         .payslip-summary .summary-label {
-          font-size: 11px;
+          font-size: 9px;
           font-weight: 700;
           text-transform: uppercase;
-          letter-spacing: 0.5px;
-          margin-bottom: 4px;
+          letter-spacing: 0.3px;
+          margin-bottom: 2px;
           color: #333;
         }
         .payslip-summary .summary-value {
-          font-size: 22px;
+          font-size: 16px;
           font-weight: 700;
         }
       `}</style>
