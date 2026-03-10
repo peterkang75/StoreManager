@@ -34,7 +34,7 @@ The system is built as a Single Page Application (SPA) using React 18 with Vite 
 - **Mobile Pages (5)**: Interview, Onboarding, Roster, Clock, DailyClose.
 - **Employee Management**: Comprehensive employee records, including personal, address, visa, employment, and payroll details.
 - **Roster & Time Management**: Weekly roster creation, shift assignments, and accurate clock-in/out logging.
-- **Payroll**: Automated payroll calculation based on approved timesheets, with adjustments and split payments (cash/bank).
+- **Payroll**: Spreadsheet-like payroll grid with real-time calculations (Calculated Amount, Gross/Cash reciprocal, PAYG tax, Super 11.5%, Bank Deposit). Supports fortnightly period auto-detection (Mon-Sun two-week blocks), bulk save, CSV/TSV employee import, persistent employee memos, and global store payroll notes. CashBalances and ConvertForm are pinned at top for quick cash management during payroll processing.
 - **Financial Tracking**: Daily closing reports, detailed cash sales records, and supplier invoice/payment management.
 
 ## External Dependencies

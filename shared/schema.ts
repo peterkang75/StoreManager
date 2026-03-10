@@ -10,6 +10,7 @@ export const stores = pgTable("stores", {
   address: text("address"),
   active: boolean("active").default(true).notNull(),
   isExternal: boolean("is_external").default(false).notNull(),
+  globalPayrollNote: text("global_payroll_note"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -80,6 +81,7 @@ export const employees = pgTable("employees", {
   accountNo: text("account_no"),
   superCompany: text("super_company"),
   superMembershipNo: text("super_membership_no"),
+  persistentMemo: text("persistent_memo"),
   status: text("status").default("ACTIVE").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -231,6 +233,7 @@ export const payrolls = pgTable("payrolls", {
   cashAmount: real("cash_amount").default(0).notNull(),
   bankDepositAmount: real("bank_deposit_amount").default(0).notNull(),
   taxAmount: real("tax_amount").default(0).notNull(),
+  grossAmount: real("gross_amount").default(0).notNull(),
   superAmount: real("super_amount").default(0).notNull(),
   memo: text("memo"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

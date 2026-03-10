@@ -1,0 +1,33 @@
+Let's build the "Timesheet & Payroll" page. This is the most complex and critical part of the system. The owner wants a grid-like UI (similar to a comprehensive spreadsheet) where they can calculate fortnightly wages per store. 
+We also need to mount the "Store Cash Balances" and "Convert" form at the very top of this page so the owner can seamlessly move cash around if they notice a shortage during payroll.
+
+Please implement the following step-by-step:
+
+1. Database Schema Updates (`shared/schema.ts`):
+- Add `grossAmount` (real) to the `payrolls` table.
+- Add `persistentMemo` (text) to the `employees` table (This memo should persist across pay periods until manually deleted).
+- Add `globalPayrollNote` (text) to the `stores` table (A general note for the store's payroll that persists until manually deleted).
+
+2. Backend API Updates (`server/routes.ts`):
+- `POST /api/employees/import`: Create an endpoint to accept a CSV/TSV file upload (using multer) to bulk create/update the `employees` table (updating `rate`, `fixedAmount`, `name`, `storeId`).
+- `GET /api/payrolls/current`: Fetch the active payroll draft or employees for the selected store to populate the grid.
+
+3. Payroll Calculation Logic (Frontend Utility):
+- **Date Logic**: Write a function that automatically calculates the "Last Fortnight". E.g., If today is Tue March 10, 2026, the period should default to Mon Feb 23 to Sun March 8. It should always snap to the most recently completed Mon-Sun two-week block.
+- **Formulas**: 
+  - `Calculated Amount` = If `fixedAmount` > 0 ? `fixedAmount` : (`hours` * `rate`).
+  - `Total with Adjustment` = `Calculated Amount` + `adjustment` (can be negative).
+  - `Cash` = `Total with Adjustment` - `Gross`. (If Gross is typed, auto-calculate Cash. If Cash is typed, auto-calculate Gross).
+  - `Super` = `Gross` * 0.115 (11.5% for FY 2025/2026).
+  - `Tax (PAYG)`: Implement a basic ATO fortnightly withholding formula mock function based on the gross amount, BUT make the Tax field manually editable so the owner can override it.
+  - `Bank Deposit` = `Gross` - `Tax`.
+
+4. Frontend UI Construction (`client/src/pages/admin/Payrolls.tsx`):
+- **Top Section**: Refactor the Cash Balances Cards and the Convert Form from the Finance page into reusable components (`<CashBalances />` and `<ConvertForm />`), and render them pinned at the top of this Payrolls page.
+- **Controls**: Store Selector dropdown, Date Period picker (defaulting to the auto-calculated fortnight), and an "Import Employees" button triggering a file input.
+- **Global Memo**: A text area bound to the `store.globalPayrollNote`.
+- **The Data Grid**: Render a table where each row is an Employee.
+  Columns: Employee Name, Hours (input), Rate (read-only), Fixed Amount (read-only), Calculated Amount (read-only), Adjustment (input), Adj Reason (input), Total with Adj (read-only), Gross (input), Cash (input/auto), Tax (input/auto), Super (read-only), Bank Deposit (read-only), Employee Memo (textarea bound to `persistentMemo`).
+- **Footer**: Save Button to bulk-upsert all row data into the `payrolls` table.
+
+Please ensure the UI handles these real-time recalculations efficiently as the user types in the `Hours`, `Adjustment`, or `Gross` fields. Let me know when this is ready.

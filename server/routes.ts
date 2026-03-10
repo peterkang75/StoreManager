@@ -730,6 +730,31 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/payrolls/current", async (req: Request, res: Response) => {
+    try {
+      const { store_id, period_start, period_end } = req.query as Record<string, string>;
+      if (!store_id || !period_start || !period_end) {
+        return res.status(400).json({ error: "store_id, period_start, period_end are required" });
+      }
+      const emps = await storage.getEmployees({ storeId: store_id, status: "ACTIVE" });
+      const existingPayrolls = await storage.getPayrolls({ periodStart: period_start, periodEnd: period_end });
+      const empPayrollMap = new Map<string, any>();
+      for (const p of existingPayrolls) {
+        if (emps.find(e => e.id === p.employeeId)) {
+          empPayrollMap.set(p.employeeId, p);
+        }
+      }
+      const rows = emps.map(emp => ({
+        employee: emp,
+        payroll: empPayrollMap.get(emp.id) || null,
+      }));
+      res.json(rows);
+    } catch (error) {
+      console.error("Error fetching current payroll:", error);
+      res.status(500).json({ error: "Failed to fetch current payroll data" });
+    }
+  });
+
   app.get("/api/payrolls/:id", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
@@ -755,6 +780,128 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error updating payroll:", error);
       res.status(500).json({ error: "Failed to update payroll" });
+    }
+  });
+
+  app.post("/api/payrolls/bulk", async (req: Request, res: Response) => {
+    try {
+      const { rows } = req.body;
+      if (!Array.isArray(rows)) {
+        return res.status(400).json({ error: "rows array is required" });
+      }
+      const results = [];
+      for (const row of rows) {
+        if (row.id) {
+          const { id, ...updateData } = row;
+          const updated = await storage.updatePayroll(id, updateData);
+          if (updated) results.push(updated);
+        } else {
+          const parsed = insertPayrollSchema.safeParse(row);
+          if (!parsed.success) {
+            console.error("Payroll validation error:", parsed.error.message);
+            continue;
+          }
+          const created = await storage.createPayroll(parsed.data);
+          results.push(created);
+        }
+      }
+      res.json(results);
+    } catch (error) {
+      console.error("Error bulk saving payrolls:", error);
+      res.status(500).json({ error: "Failed to bulk save payrolls" });
+    }
+  });
+
+  app.put("/api/stores/:id/payroll-note", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { globalPayrollNote } = req.body;
+      const store = await storage.updateStore(id, { globalPayrollNote: globalPayrollNote ?? null });
+      if (!store) {
+        return res.status(404).json({ error: "Store not found" });
+      }
+      res.json(store);
+    } catch (error) {
+      console.error("Error updating payroll note:", error);
+      res.status(500).json({ error: "Failed to update payroll note" });
+    }
+  });
+
+  const csvUpload = multer({ storage: multer.memoryStorage() });
+  app.post("/api/employees/import", csvUpload.single("file"), async (req: Request, res: Response) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+      const content = req.file.buffer.toString("utf-8");
+      const lines = content.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) {
+        return res.status(400).json({ error: "File must have a header row and at least one data row" });
+      }
+      const delimiter = lines[0].includes("\t") ? "\t" : ",";
+      const headers = lines[0].split(delimiter).map(h => h.trim().toLowerCase());
+      const nameIdx = headers.findIndex(h => h === "name" || h === "employee" || h === "employee name");
+      const firstNameIdx = headers.findIndex(h => h === "firstname" || h === "first_name" || h === "first name");
+      const lastNameIdx = headers.findIndex(h => h === "lastname" || h === "last_name" || h === "last name");
+      const rateIdx = headers.findIndex(h => h === "rate" || h === "hourly_rate" || h === "hourly rate");
+      const fixedIdx = headers.findIndex(h => h === "fixed" || h === "fixed_amount" || h === "fixedamount" || h === "fixed amount");
+      const storeIdx = headers.findIndex(h => h === "store" || h === "store_id" || h === "storeid");
+
+      const allStores = await storage.getStores();
+      let imported = 0;
+      let skipped = 0;
+      const errors: string[] = [];
+
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(delimiter).map(c => c.trim());
+        let firstName = "";
+        let lastName = "";
+        if (nameIdx >= 0 && cols[nameIdx]) {
+          const parts = cols[nameIdx].split(/\s+/);
+          firstName = parts[0] || "";
+          lastName = parts.slice(1).join(" ") || "";
+        } else if (firstNameIdx >= 0 && cols[firstNameIdx]) {
+          firstName = cols[firstNameIdx];
+          lastName = lastNameIdx >= 0 ? (cols[lastNameIdx] || "") : "";
+        }
+        if (!firstName) {
+          errors.push(`Row ${i + 1}: Missing employee name`);
+          skipped++;
+          continue;
+        }
+        const rate = rateIdx >= 0 ? cols[rateIdx] || "" : "";
+        const fixedAmount = fixedIdx >= 0 ? cols[fixedIdx] || "" : "";
+        let storeId: string | undefined;
+        if (storeIdx >= 0 && cols[storeIdx]) {
+          const storeVal = cols[storeIdx];
+          const found = allStores.find(s => s.name.toLowerCase() === storeVal.toLowerCase() || s.code === storeVal || s.id === storeVal);
+          storeId = found?.id;
+        }
+
+        const existing = (await storage.getEmployees({})).find(
+          e => e.firstName.toLowerCase() === firstName.toLowerCase() && e.lastName.toLowerCase() === (lastName || "").toLowerCase()
+        );
+        if (existing) {
+          await storage.updateEmployee(existing.id, {
+            rate: rate || existing.rate || undefined,
+            fixedAmount: fixedAmount || existing.fixedAmount || undefined,
+            storeId: storeId || existing.storeId || undefined,
+          });
+        } else {
+          await storage.createEmployee({
+            firstName,
+            lastName: lastName || "",
+            rate: rate || undefined,
+            fixedAmount: fixedAmount || undefined,
+            storeId: storeId || undefined,
+          });
+        }
+        imported++;
+      }
+      res.json({ imported, skipped, errors });
+    } catch (error) {
+      console.error("Error importing employees:", error);
+      res.status(500).json({ error: "Failed to import employees" });
     }
   });
 
