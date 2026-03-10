@@ -11,7 +11,6 @@ import {
   Truck,
   FileText,
   ArrowLeftRight,
-  Banknote,
 } from "lucide-react";
 import {
   Sidebar,
@@ -73,11 +72,6 @@ const financeNavItems = [
     title: "Cash Flow",
     url: "/admin/finance",
     icon: ArrowLeftRight,
-  },
-  {
-    title: "Cash Sales",
-    url: "/admin/cash-sales",
-    icon: Banknote,
   },
   {
     title: "Cash & Close",

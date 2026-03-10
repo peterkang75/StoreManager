@@ -17,7 +17,6 @@ import { AdminCash } from "@/pages/admin/Cash";
 import { AdminSuppliers } from "@/pages/admin/Suppliers";
 import { AdminSupplierInvoices } from "@/pages/admin/SupplierInvoices";
 import { AdminFinance } from "@/pages/admin/Finance";
-import { AdminCashSales } from "@/pages/admin/CashSales";
 
 import { MobileInterview } from "@/pages/mobile/Interview";
 import { MobileOnboarding } from "@/pages/mobile/Onboarding";
@@ -43,7 +42,6 @@ function Router() {
       <Route path="/admin/cash" component={AdminCash} />
       <Route path="/admin/suppliers" component={AdminSuppliers} />
       <Route path="/admin/suppliers/invoices" component={AdminSupplierInvoices} />
-      <Route path="/admin/cash-sales" component={AdminCashSales} />
       <Route path="/admin/finance" component={AdminFinance} />
       
       <Route path="/m/interview" component={MobileInterview} />

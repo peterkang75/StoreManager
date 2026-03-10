@@ -438,8 +438,12 @@ export function AdminFinance() {
                 <Skeleton className="h-10 w-full" />
               </div>
             ) : (
-              <Tabs defaultValue="convert">
+              <Tabs defaultValue="cashsales">
                 <TabsList className="mb-4">
+                  <TabsTrigger value="cashsales" data-testid="tab-cashsales" className="gap-1">
+                    <Banknote className="h-3.5 w-3.5" />
+                    Cash Sales Entry
+                  </TabsTrigger>
                   <TabsTrigger value="convert" data-testid="tab-convert" className="gap-1">
                     <ArrowLeftRight className="h-3.5 w-3.5" />
                     Convert
@@ -452,11 +456,10 @@ export function AdminFinance() {
                     <PenLine className="h-3.5 w-3.5" />
                     Manual Entry
                   </TabsTrigger>
-                  <TabsTrigger value="cashsales" data-testid="tab-cashsales" className="gap-1">
-                    <Banknote className="h-3.5 w-3.5" />
-                    Cash Sales Entry
-                  </TabsTrigger>
                 </TabsList>
+                <TabsContent value="cashsales">
+                  <CashSalesEntry stores={stores || []} />
+                </TabsContent>
                 <TabsContent value="convert">
                   <ConvertForm stores={stores || []} />
                 </TabsContent>
@@ -465,9 +468,6 @@ export function AdminFinance() {
                 </TabsContent>
                 <TabsContent value="manual">
                   <ManualEntryForm stores={stores || []} />
-                </TabsContent>
-                <TabsContent value="cashsales">
-                  <CashSalesEntry stores={stores || []} />
                 </TabsContent>
               </Tabs>
             )}
