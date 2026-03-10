@@ -100,9 +100,6 @@ function recalcRow(row: PayrollRow, changedField?: string): PayrollRow {
   } else if (r.lastEditedField === "cash") {
     r.grossAmount = Math.max(0, r.totalWithAdjustment - r.cashAmount);
   } else {
-    if (r.grossAmount === 0 && r.cashAmount === 0) {
-      r.grossAmount = r.totalWithAdjustment;
-    }
   }
 
   r.superAmount = Math.round(r.grossAmount * SUPER_RATE * 100) / 100;
