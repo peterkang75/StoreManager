@@ -41,6 +41,7 @@ export function AdminEmployeeDetail() {
   const [formData, setFormData] = useState<Partial<InsertEmployee>>({});
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
   const [storesDirty, setStoresDirty] = useState(false);
+  const [assignmentOverrides, setAssignmentOverrides] = useState<Record<string, { rate?: string; fixedAmount?: string }>>({});
 
   const { data: employee, isLoading: employeeLoading } = useQuery<Employee>({
     queryKey: ["/api/employees", employeeId],
@@ -71,6 +72,11 @@ export function AdminEmployeeDetail() {
     if (storeAssignments) {
       setSelectedStoreIds(storeAssignments.map(a => a.storeId));
       setStoresDirty(false);
+      const overrides: Record<string, { rate?: string; fixedAmount?: string }> = {};
+      for (const a of storeAssignments) {
+        overrides[a.id] = { rate: a.rate || "", fixedAmount: a.fixedAmount || "" };
+      }
+      setAssignmentOverrides(overrides);
     }
   }, [storeAssignments]);
 
@@ -123,8 +129,23 @@ export function AdminEmployeeDetail() {
     if (storesDirty) {
       promises.push(storeAssignmentMutation.mutateAsync(selectedStoreIds));
     }
+    if (storeAssignments && storeAssignments.length > 1) {
+      for (const a of storeAssignments) {
+        const override = assignmentOverrides[a.id];
+        if (override && (override.rate !== (a.rate || "") || override.fixedAmount !== (a.fixedAmount || ""))) {
+          promises.push(
+            apiRequest("PATCH", `/api/employee-store-assignments/${a.id}`, {
+              rate: override.rate || null,
+              fixedAmount: override.fixedAmount || null,
+            })
+          );
+        }
+      }
+    }
     if (promises.length > 0) {
       await Promise.all(promises);
+      queryClient.invalidateQueries({ queryKey: ["/api/employee-store-assignments", employeeId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payrolls/current"] });
       toast({ title: "Employee updated successfully" });
     }
   };
@@ -267,6 +288,49 @@ export function AdminEmployeeDetail() {
                     </label>
                   ))}
                 </div>
+                {storeAssignments && storeAssignments.length > 1 && (
+                  <div className="mt-3 space-y-2">
+                    <Label className="text-xs text-muted-foreground">매장별 Rate / Fixed Amount 설정</Label>
+                    <div className="space-y-2">
+                      {storeAssignments.map((a) => {
+                        const store = stores?.find((s) => s.id === a.storeId);
+                        if (!store) return null;
+                        const override = assignmentOverrides[a.id] || { rate: "", fixedAmount: "" };
+                        return (
+                          <div key={a.id} className="flex items-center gap-3">
+                            <span className="text-sm font-medium w-24 shrink-0" data-testid={`text-assign-store-${store.name}`}>{store.name}</span>
+                            <div className="flex items-center gap-1">
+                              <Label className="text-xs text-muted-foreground shrink-0">Rate</Label>
+                              <Input
+                                className="w-24"
+                                placeholder="–"
+                                value={override.rate}
+                                onChange={(e) => setAssignmentOverrides((prev) => ({
+                                  ...prev,
+                                  [a.id]: { ...prev[a.id], rate: e.target.value },
+                                }))}
+                                data-testid={`input-assign-rate-${store.name.toLowerCase()}`}
+                              />
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Label className="text-xs text-muted-foreground shrink-0">Fixed</Label>
+                              <Input
+                                className="w-24"
+                                placeholder="–"
+                                value={override.fixedAmount}
+                                onChange={(e) => setAssignmentOverrides((prev) => ({
+                                  ...prev,
+                                  [a.id]: { ...prev[a.id], fixedAmount: e.target.value },
+                                }))}
+                                data-testid={`input-assign-fixed-${store.name.toLowerCase()}`}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">

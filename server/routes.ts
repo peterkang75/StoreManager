@@ -415,16 +415,17 @@ export async function registerRoutes(
       if (!employee) {
         return res.status(404).json({ error: "Employee not found" });
       }
-      if (req.body.rate !== undefined) {
-        const assignments = await storage.getEmployeeStoreAssignments({ employeeId: id });
-        for (const a of assignments) {
-          await storage.updateStoreAssignmentFields(a.id, { rate: req.body.rate });
+      const assignments = await storage.getEmployeeStoreAssignments({ employeeId: id });
+      if (assignments.length <= 1) {
+        if (req.body.rate !== undefined) {
+          for (const a of assignments) {
+            await storage.updateStoreAssignmentFields(a.id, { rate: req.body.rate });
+          }
         }
-      }
-      if (req.body.fixedAmount !== undefined) {
-        const assignments = await storage.getEmployeeStoreAssignments({ employeeId: id });
-        for (const a of assignments) {
-          await storage.updateStoreAssignmentFields(a.id, { fixedAmount: req.body.fixedAmount });
+        if (req.body.fixedAmount !== undefined) {
+          for (const a of assignments) {
+            await storage.updateStoreAssignmentFields(a.id, { fixedAmount: req.body.fixedAmount });
+          }
         }
       }
       res.json(employee);
@@ -1236,6 +1237,21 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error updating store assignments:", error);
       res.status(500).json({ error: "Failed to update store assignments" });
+    }
+  });
+
+  app.patch("/api/employee-store-assignments/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { rate, fixedAmount } = req.body;
+      const fields: { rate?: string; fixedAmount?: string } = {};
+      if (rate !== undefined) fields.rate = rate;
+      if (fixedAmount !== undefined) fields.fixedAmount = fixedAmount;
+      await storage.updateStoreAssignmentFields(id, fields);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating store assignment:", error);
+      res.status(500).json({ error: "Failed to update store assignment" });
     }
   });
 
