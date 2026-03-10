@@ -457,7 +457,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
         </div>
       ) : (
         <div ref={gridRef} className="border rounded-md overflow-x-auto">
-          <table className="w-full text-sm border-collapse table-fixed">
+          <table className="w-3/4 text-sm border-collapse table-fixed">
             <colgroup>
               <col className="w-[82px]" />
               <col className="w-[70px]" />
