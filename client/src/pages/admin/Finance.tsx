@@ -24,11 +24,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowLeftRight, Send, PenLine, AlertTriangle, Trash2, Bell, CheckCircle2, Check, Upload } from "lucide-react";
+import { ArrowLeftRight, Send, PenLine, AlertTriangle, Trash2, Bell, CheckCircle2, Check, Upload, Banknote } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { CashBalances } from "@/components/CashBalances";
 import { ConvertForm } from "@/components/ConvertForm";
+import { CashSalesEntry } from "@/components/CashSalesEntry";
 import type { Store, FinancialTransaction } from "@shared/schema";
 
 function RemittanceForm({ stores }: { stores: Store[] }) {
@@ -237,6 +238,8 @@ function TransactionTypeBadge({ type }: { type: string }) {
       return <Badge variant="outline" className="border-green-500 text-green-700 dark:text-green-400" data-testid={`badge-type-${type}`}>Income</Badge>;
     case "MANUAL_EXPENSE":
       return <Badge variant="outline" className="border-red-500 text-red-700 dark:text-red-400" data-testid={`badge-type-${type}`}>Expense</Badge>;
+    case "CASH_SALES":
+      return <Badge variant="outline" className="border-emerald-500 text-emerald-700 dark:text-emerald-400" data-testid={`badge-type-${type}`}>Cash Sales</Badge>;
     default:
       return <Badge variant="outline" data-testid={`badge-type-${type}`}>{type}</Badge>;
   }
@@ -407,6 +410,10 @@ export function AdminFinance() {
                     <PenLine className="h-3.5 w-3.5" />
                     Manual Entry
                   </TabsTrigger>
+                  <TabsTrigger value="cashsales" data-testid="tab-cashsales" className="gap-1">
+                    <Banknote className="h-3.5 w-3.5" />
+                    Cash Sales Entry
+                  </TabsTrigger>
                 </TabsList>
                 <TabsContent value="convert">
                   <ConvertForm stores={stores || []} />
@@ -416,6 +423,9 @@ export function AdminFinance() {
                 </TabsContent>
                 <TabsContent value="manual">
                   <ManualEntryForm stores={stores || []} />
+                </TabsContent>
+                <TabsContent value="cashsales">
+                  <CashSalesEntry stores={stores || []} />
                 </TabsContent>
               </Tabs>
             )}

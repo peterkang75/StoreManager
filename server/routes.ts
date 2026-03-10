@@ -1287,6 +1287,70 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/cash-sales/bulk", async (req: Request, res: Response) => {
+    try {
+      const { storeId, startDate, endDate, rows } = req.body;
+      if (!storeId || !startDate || !endDate || !Array.isArray(rows)) {
+        return res.status(400).json({ error: "storeId, startDate, endDate, and rows are required" });
+      }
+
+      await storage.deleteCashSalesDetailsByStoreAndDateRange(storeId, startDate, endDate);
+
+      const savedRows: any[] = [];
+      for (const row of rows) {
+        const detail = await storage.createCashSalesDetail({
+          storeId,
+          date: row.date,
+          envelopeAmount: row.envelopeAmount ?? 0,
+          countedAmount: row.countedAmount ?? 0,
+          note100Count: row.note100Count ?? 0,
+          note50Count: row.note50Count ?? 0,
+          note20Count: row.note20Count ?? 0,
+          note10Count: row.note10Count ?? 0,
+          note5Count: row.note5Count ?? 0,
+          coin2Count: row.coin2Count ?? 0,
+          coin1Count: row.coin1Count ?? 0,
+          coin050Count: row.coin050Count ?? 0,
+          coin020Count: row.coin020Count ?? 0,
+          coin010Count: row.coin010Count ?? 0,
+          coin005Count: row.coin005Count ?? 0,
+          differenceAmount: row.differenceAmount ?? 0,
+        });
+        savedRows.push(detail);
+      }
+
+      const totalCounted = savedRows.reduce((sum, r) => sum + (r.countedAmount || 0), 0);
+
+      const store = await storage.getStore(storeId);
+      const storeName = store?.name || storeId;
+      const refNote = `Cash Sales: ${storeName} (${startDate} ~ ${endDate})`;
+      const existingTx = await storage.getFinancialTransactionsByRef(refNote);
+      for (const tx of existingTx) {
+        if (tx.toStoreId === storeId && tx.transactionType === "CASH_SALES") {
+          await storage.deleteFinancialTransaction(tx.id);
+        }
+      }
+
+      if (totalCounted > 0) {
+        await storage.createFinancialTransaction({
+          transactionType: "CASH_SALES",
+          fromStoreId: null,
+          toStoreId: storeId,
+          cashAmount: Math.round(totalCounted * 100) / 100,
+          bankAmount: 0,
+          referenceNote: refNote,
+          executedBy: null,
+          isBankSettled: false,
+        });
+      }
+
+      res.json({ saved: savedRows.length, totalCounted: Math.round(totalCounted * 100) / 100 });
+    } catch (error) {
+      console.error("Error bulk saving cash sales:", error);
+      res.status(500).json({ error: "Failed to bulk save cash sales" });
+    }
+  });
+
   app.get("/api/suppliers", async (req: Request, res: Response) => {
     try {
       const suppliers = await storage.getSuppliers();

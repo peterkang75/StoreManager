@@ -109,6 +109,8 @@ export interface IStorage {
   deleteFinancialTransaction(id: string): Promise<boolean>;
   settleFinancialTransaction(id: string): Promise<boolean>;
   createFinancialTransactionWithDate(tx: InsertFinancialTransaction, executedAt: Date): Promise<FinancialTransaction>;
+  deleteCashSalesDetailsByStoreAndDateRange(storeId: string, startDate: string, endDate: string): Promise<number>;
+  getFinancialTransactionsByRef(refNote: string): Promise<FinancialTransaction[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -708,6 +710,12 @@ export class MemStorage implements IStorage {
       note20Count: insertDetail.note20Count ?? 0,
       note10Count: insertDetail.note10Count ?? 0,
       note5Count: insertDetail.note5Count ?? 0,
+      coin2Count: insertDetail.coin2Count ?? 0,
+      coin1Count: insertDetail.coin1Count ?? 0,
+      coin050Count: insertDetail.coin050Count ?? 0,
+      coin020Count: insertDetail.coin020Count ?? 0,
+      coin010Count: insertDetail.coin010Count ?? 0,
+      coin005Count: insertDetail.coin005Count ?? 0,
       differenceAmount: insertDetail.differenceAmount ?? 0,
       createdAt: now,
       updatedAt: now,
@@ -881,6 +889,21 @@ export class MemStorage implements IStorage {
     };
     this.financialTransactions.set(id, tx);
     return tx;
+  }
+
+  async deleteCashSalesDetailsByStoreAndDateRange(storeId: string, startDate: string, endDate: string): Promise<number> {
+    let count = 0;
+    for (const [id, d] of this.cashSalesDetails) {
+      if (d.storeId === storeId && d.date >= startDate && d.date <= endDate) {
+        this.cashSalesDetails.delete(id);
+        count++;
+      }
+    }
+    return count;
+  }
+
+  async getFinancialTransactionsByRef(refNote: string): Promise<FinancialTransaction[]> {
+    return Array.from(this.financialTransactions.values()).filter(tx => tx.referenceNote === refNote);
   }
 }
 
@@ -1317,6 +1340,22 @@ export class DatabaseStorage implements IStorage {
   async createFinancialTransactionWithDate(data: InsertFinancialTransaction, executedAt: Date): Promise<FinancialTransaction> {
     const [tx] = await db.insert(financialTransactions).values({ ...data, executedAt }).returning();
     return tx;
+  }
+
+  async deleteCashSalesDetailsByStoreAndDateRange(storeId: string, startDate: string, endDate: string): Promise<number> {
+    const result = await db.delete(cashSalesDetails)
+      .where(and(
+        eq(cashSalesDetails.storeId, storeId),
+        gte(cashSalesDetails.date, startDate),
+        lte(cashSalesDetails.date, endDate),
+      ))
+      .returning();
+    return result.length;
+  }
+
+  async getFinancialTransactionsByRef(refNote: string): Promise<FinancialTransaction[]> {
+    return db.select().from(financialTransactions)
+      .where(eq(financialTransactions.referenceNote, refNote));
   }
 }
 
