@@ -12,6 +12,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Save, ChevronLeft, ChevronRight } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -234,6 +240,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
   const shiftPeriod = (direction: number) => {
     setPeriodStart((prev) => addDays(prev, direction * 14));
     setDateEditValues({});
+    setExpandedMemoIdx(null);
   };
 
   const formatShortDate = (dateStr: string) => {
@@ -244,6 +251,11 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
   const TAB_COLS = ["dateInput", "envelopeAmount", ...DENOMINATIONS.map((d) => d.key)];
 
   const [dateEditValues, setDateEditValues] = useState<Record<number, string>>({});
+  const [expandedMemoIdx, setExpandedMemoIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    setExpandedMemoIdx(null);
+  }, [storeId]);
 
   const resolveDateInput = useCallback((input: string): string | null => {
     const trimmed = input.trim();
@@ -445,19 +457,29 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
         </div>
       ) : (
         <div ref={gridRef} className="border rounded-md overflow-x-auto">
-          <table className="text-sm border-collapse">
+          <table className="w-full text-sm border-collapse table-fixed">
+            <colgroup>
+              <col className="w-[82px]" />
+              <col className="w-[70px]" />
+              <col className="w-[70px]" />
+              {DENOMINATIONS.map((d) => (
+                <col key={d.key} className="w-[44px]" />
+              ))}
+              <col className="w-[62px]" />
+              <col />
+            </colgroup>
             <thead>
               <tr className="bg-muted/50">
-                <th className="sticky left-0 bg-muted/50 z-10 px-1 py-1 text-left font-medium border-b border-r w-[82px]">Date</th>
-                <th className="px-1 py-1 text-right font-medium border-b border-r w-[70px]">Envelope</th>
-                <th className="px-1 py-1 text-right font-medium border-b border-r w-[70px] bg-muted/80">Counted</th>
+                <th className="sticky left-0 bg-muted/50 z-10 px-1 py-1 text-left font-medium border-b border-r">Date</th>
+                <th className="px-1 py-1 text-right font-medium border-b border-r">Envelope</th>
+                <th className="px-1 py-1 text-right font-medium border-b border-r bg-muted/80">Counted</th>
                 {DENOMINATIONS.map((d) => (
-                  <th key={d.key} className="px-0.5 py-1 text-center font-medium border-b border-r w-[44px]">
+                  <th key={d.key} className="px-0.5 py-1 text-center font-medium border-b border-r">
                     {d.label}
                   </th>
                 ))}
-                <th className="px-1 py-1 text-right font-medium border-b border-r w-[62px]">Diff</th>
-                <th className="px-1 py-1 text-left font-medium border-b w-[106px]">Memo</th>
+                <th className="px-1 py-1 text-right font-medium border-b border-r">Diff</th>
+                <th className="px-1 py-1 text-left font-medium border-b">Memo</th>
               </tr>
             </thead>
             <tbody>
@@ -542,22 +564,50 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                     >
                       {hasDiff ? `$${diff.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
                     </td>
-                    <td className="px-0.5 py-0.5 border-b">
-                      <Input
-                        type="text"
-                        className="h-6 text-xs px-1"
-                        value={row.memo || ""}
-                        onChange={(e) => {
-                          setRows((prev) => {
-                            const next = [...prev];
-                            next[idx] = { ...next[idx], memo: e.target.value };
-                            return next;
-                          });
-                          setIsDirty(true);
-                        }}
-                        placeholder=""
-                        data-testid={`input-memo-${idx}`}
-                      />
+                    <td className="px-0.5 py-0.5 border-b relative">
+                      {expandedMemoIdx === idx ? (
+                        <div className="absolute top-0 left-0 right-0 z-20" style={{ minWidth: "100%" }}>
+                          <Textarea
+                            className="text-xs px-1 py-1 min-h-[60px] resize-none shadow-lg border bg-background"
+                            value={row.memo || ""}
+                            autoFocus
+                            onChange={(e) => {
+                              setRows((prev) => {
+                                const next = [...prev];
+                                next[idx] = { ...next[idx], memo: e.target.value };
+                                return next;
+                              });
+                              setIsDirty(true);
+                            }}
+                            onBlur={() => setExpandedMemoIdx(null)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") {
+                                setExpandedMemoIdx(null);
+                              }
+                            }}
+                            data-testid={`textarea-memo-${idx}`}
+                          />
+                        </div>
+                      ) : (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div
+                              className="h-6 text-xs px-1 flex items-center cursor-text truncate rounded-md border border-input bg-background"
+                              onClick={() => setExpandedMemoIdx(idx)}
+                              onFocus={() => setExpandedMemoIdx(idx)}
+                              tabIndex={0}
+                              data-testid={`input-memo-${idx}`}
+                            >
+                              <span className="truncate text-muted-foreground">{row.memo || ""}</span>
+                            </div>
+                          </TooltipTrigger>
+                          {row.memo ? (
+                            <TooltipContent side="top" className="max-w-[300px] whitespace-pre-wrap text-xs">
+                              {row.memo}
+                            </TooltipContent>
+                          ) : null}
+                        </Tooltip>
+                      )}
                     </td>
                   </tr>
                 );
