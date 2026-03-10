@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Save, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { Save, ChevronLeft, ChevronRight } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Store, CashSalesDetail } from "@shared/schema";
@@ -229,7 +229,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
 
   const shiftPeriod = (direction: number) => {
     setPeriodStart((prev) => addDays(prev, direction * 14));
-    setDayJumpResult(null);
+    setDateEditValues({});
   };
 
   const formatShortDate = (dateStr: string) => {
@@ -237,36 +237,62 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     return `${parseInt(parts[1])}/${parseInt(parts[2])}`;
   };
 
-  const TAB_COLS = ["envelopeAmount", ...DENOMINATIONS.map((d) => d.key)];
+  const TAB_COLS = ["dateInput", "envelopeAmount", ...DENOMINATIONS.map((d) => d.key)];
 
-  const [dayJumpInput, setDayJumpInput] = useState("");
-  const [dayJumpResult, setDayJumpResult] = useState<string | null>(null);
+  const [dateEditValues, setDateEditValues] = useState<Record<number, string>>({});
 
-  const resolveDayToDate = useCallback((dayNum: number): string | null => {
-    if (dayNum < 1 || dayNum > 31) return null;
+  const resolveDateInput = useCallback((input: string): string | null => {
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+
+    const slashMatch = trimmed.match(/^(\d{1,2})\s*\/\s*(\d{1,2})$/);
+    if (slashMatch) {
+      const day = parseInt(slashMatch[1], 10);
+      const month = parseInt(slashMatch[2], 10);
+      for (let i = 0; i < 14; i++) {
+        const d = addDays(periodStart, i);
+        if (d.getDate() === day && d.getMonth() + 1 === month) {
+          return d.toISOString().split("T")[0];
+        }
+      }
+      return null;
+    }
+
+    const num = parseInt(trimmed, 10);
+    if (isNaN(num) || num < 1 || num > 31) return null;
     for (let i = 0; i < 14; i++) {
       const d = addDays(periodStart, i);
-      const dateStr = d.toISOString().split("T")[0];
-      const dayOfMonth = d.getDate();
-      if (dayOfMonth === dayNum) return dateStr;
+      if (d.getDate() === num) {
+        return d.toISOString().split("T")[0];
+      }
     }
     return null;
   }, [periodStart]);
 
-  const handleDayJump = useCallback((value: string) => {
-    const num = parseInt(value, 10);
-    if (isNaN(num)) {
-      setDayJumpResult(null);
-      return;
-    }
-    const resolved = resolveDayToDate(num);
+  const MONTH_SHORT = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  const formatDateDisplay = (dateStr: string) => {
+    const parts = dateStr.split("-");
+    const day = parseInt(parts[2], 10);
+    const month = parseInt(parts[1], 10);
+    return `${day}/${MONTH_SHORT[month]}`;
+  };
+
+  const handleDateBlur = useCallback((rowIdx: number) => {
+    const val = dateEditValues[rowIdx];
+    if (val === undefined) return;
+    const resolved = resolveDateInput(val);
     if (resolved) {
-      setDayJumpResult(resolved);
-      const rowIdx = rows.findIndex((r) => r.date === resolved);
-      if (rowIdx >= 0) {
+      const targetIdx = rows.findIndex((r) => r.date === resolved);
+      if (targetIdx >= 0 && targetIdx !== rowIdx) {
+        setDateEditValues((prev) => {
+          const next = { ...prev };
+          delete next[rowIdx];
+          return next;
+        });
         setTimeout(() => {
           const input = gridRef.current?.querySelector(
-            `[data-row="${rowIdx}"][data-col="envelopeAmount"]`
+            `[data-row="${targetIdx}"][data-col="envelopeAmount"]`
           ) as HTMLInputElement | null;
           if (input) {
             input.focus();
@@ -274,16 +300,63 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
             input.scrollIntoView({ block: "center", behavior: "smooth" });
           }
         }, 50);
+      } else {
+        setDateEditValues((prev) => {
+          const next = { ...prev };
+          delete next[rowIdx];
+          return next;
+        });
       }
     } else {
-      setDayJumpResult(null);
+      setDateEditValues((prev) => {
+        const next = { ...prev };
+        delete next[rowIdx];
+        return next;
+      });
     }
-  }, [resolveDayToDate, rows]);
+  }, [dateEditValues, resolveDateInput, rows]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>, rowIdx: number, colKey: string) => {
       const colIdx = TAB_COLS.indexOf(colKey);
       if (colIdx === -1) return;
+
+      if (colKey === "dateInput" && (e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
+        e.preventDefault();
+        const val = dateEditValues[rowIdx];
+        if (val !== undefined && val.trim()) {
+          const resolved = resolveDateInput(val);
+          setDateEditValues((prev) => {
+            const next = { ...prev };
+            delete next[rowIdx];
+            return next;
+          });
+          if (resolved) {
+            const targetIdx = rows.findIndex((r) => r.date === resolved);
+            if (targetIdx >= 0) {
+              setTimeout(() => {
+                const input = gridRef.current?.querySelector(
+                  `[data-row="${targetIdx}"][data-col="envelopeAmount"]`
+                ) as HTMLInputElement | null;
+                if (input) {
+                  input.focus();
+                  input.select();
+                  input.scrollIntoView({ block: "center", behavior: "smooth" });
+                }
+              }, 50);
+              return;
+            }
+          }
+        }
+        const nextInput = gridRef.current?.querySelector(
+          `[data-row="${rowIdx}"][data-col="envelopeAmount"]`
+        ) as HTMLInputElement | null;
+        if (nextInput) {
+          nextInput.focus();
+          nextInput.select();
+        }
+        return;
+      }
 
       let nextRow = rowIdx;
       let nextCol = colIdx;
@@ -298,11 +371,19 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
         if (colIdx < TAB_COLS.length - 1) {
           e.preventDefault();
           nextCol = colIdx + 1;
+        } else {
+          e.preventDefault();
+          nextRow = Math.min(rowIdx + 1, 13);
+          nextCol = 0;
         }
       } else if (e.key === "Tab" && e.shiftKey) {
         if (colIdx > 0) {
           e.preventDefault();
           nextCol = colIdx - 1;
+        } else if (rowIdx > 0) {
+          e.preventDefault();
+          nextRow = rowIdx - 1;
+          nextCol = TAB_COLS.length - 1;
         }
       } else {
         return;
@@ -316,7 +397,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
         nextInput.select();
       }
     },
-    []
+    [dateEditValues, resolveDateInput, rows]
   );
 
   return (
@@ -362,46 +443,6 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label>Go to Day</Label>
-          <div className="flex items-center gap-1">
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                type="text"
-                inputMode="numeric"
-                placeholder="Day #"
-                className="h-9 w-[80px] pl-7 text-center tabular-nums"
-                value={dayJumpInput}
-                onChange={(e) => {
-                  const v = e.target.value.replace(/[^0-9]/g, "");
-                  setDayJumpInput(v);
-                  if (v.length >= 1) handleDayJump(v);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    handleDayJump(dayJumpInput);
-                    setDayJumpInput("");
-                  }
-                }}
-                onBlur={() => {
-                  if (dayJumpInput) handleDayJump(dayJumpInput);
-                  setDayJumpInput("");
-                }}
-                data-testid="input-day-jump"
-              />
-            </div>
-            {dayJumpResult && (
-              <span className="text-xs text-green-600 dark:text-green-400 font-mono whitespace-nowrap" data-testid="text-day-resolved">
-                {(() => {
-                  const [y, m, d] = dayJumpResult.split("-");
-                  return `${parseInt(d)}/${parseInt(m)}/${y}`;
-                })()}
-              </span>
-            )}
           </div>
         </div>
 
@@ -458,9 +499,25 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                     `}
                     data-testid={`row-cashsales-${idx}`}
                   >
-                    <td className="sticky left-0 bg-background z-10 px-2 py-0.5 border-b border-r font-mono text-xs whitespace-nowrap">
-                      <span className="text-muted-foreground mr-1">{dayLabel}</span>
-                      {formatShortDate(row.date)}
+                    <td className="sticky left-0 bg-background z-10 px-0.5 py-0.5 border-b border-r min-w-[90px]">
+                      <Input
+                        type="text"
+                        inputMode="numeric"
+                        className="h-7 text-xs px-1 tabular-nums font-mono text-center"
+                        value={dateEditValues[idx] !== undefined ? dateEditValues[idx] : `${dayLabel} ${formatDateDisplay(row.date)}`}
+                        onChange={(e) => {
+                          setDateEditValues((prev) => ({ ...prev, [idx]: e.target.value }));
+                        }}
+                        onFocus={(e) => {
+                          setDateEditValues((prev) => ({ ...prev, [idx]: "" }));
+                          e.target.select();
+                        }}
+                        onBlur={() => handleDateBlur(idx)}
+                        onKeyDown={(e) => handleKeyDown(e, idx, "dateInput")}
+                        data-row={idx}
+                        data-col="dateInput"
+                        data-testid={`input-date-${idx}`}
+                      />
                     </td>
                     <td className="px-0.5 py-0.5 border-b border-r">
                       <Input
