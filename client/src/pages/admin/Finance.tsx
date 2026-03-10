@@ -30,7 +30,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ArrowLeftRight, Send, PenLine, AlertTriangle, Trash2, Bell, CheckCircle2, Check, Upload, Banknote, Eye } from "lucide-react";
+import { ArrowLeftRight, Send, PenLine, AlertTriangle, Trash2, Bell, CheckCircle2, Check, Banknote, Eye } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { CashBalances } from "@/components/CashBalances";
@@ -265,79 +265,6 @@ function TransactionTypeBadge({ type }: { type: string }) {
   }
 }
 
-function LegacyImport() {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [result, setResult] = useState<{ imported: number; skipped: number; errors: string[] } | null>(null);
-  const { toast } = useToast();
-
-  const mutation = useMutation({
-    mutationFn: async (file: File) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/finance/import-legacy-converts", {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Import failed");
-      }
-      return res.json();
-    },
-    onSuccess: (data) => {
-      setResult(data);
-      toast({ title: `Import complete: ${data.imported} transactions imported` });
-      queryClient.invalidateQueries({ queryKey: ["/api/finance/transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/finance/balances"] });
-      if (fileRef.current) fileRef.current.value = "";
-    },
-    onError: (error: Error) => {
-      toast({ title: "Import failed", description: error.message, variant: "destructive" });
-    },
-  });
-
-  return (
-    <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">
-        Upload a legacy TSV file (Cash Manager - Transaction.tsv) to import past convert transactions.
-      </p>
-      <div className="flex items-center gap-3 flex-wrap">
-        <Input
-          ref={fileRef}
-          type="file"
-          accept=".tsv,.txt,.csv"
-          className="max-w-xs"
-          data-testid="input-legacy-file"
-        />
-        <Button
-          onClick={() => {
-            const file = fileRef.current?.files?.[0];
-            if (file) mutation.mutate(file);
-          }}
-          disabled={mutation.isPending}
-          data-testid="button-import-legacy"
-        >
-          {mutation.isPending ? "Importing..." : "Import"}
-        </Button>
-      </div>
-      {result && (
-        <div className="text-sm space-y-1 p-3 rounded-md bg-muted">
-          <p data-testid="text-import-result">
-            Imported: <strong>{result.imported}</strong> | Skipped: <strong>{result.skipped}</strong>
-          </p>
-          {result.errors.length > 0 && (
-            <div className="text-destructive">
-              {result.errors.map((e, i) => (
-                <p key={i}>{e}</p>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function AdminFinance() {
   const { data: stores, isLoading: storesLoading } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
@@ -471,18 +398,6 @@ export function AdminFinance() {
                 </TabsContent>
               </Tabs>
             )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2 flex-wrap">
-              <Upload className="h-4 w-4" />
-              Legacy Data Import (TSV)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <LegacyImport />
           </CardContent>
         </Card>
 
