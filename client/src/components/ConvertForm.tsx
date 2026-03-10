@@ -193,6 +193,9 @@ export function ConvertForm({ stores }: { stores: Store[] }) {
             </div>
             <div className="space-y-2">
               <Label>To</Label>
+              <div className="invisible h-8">
+                <span>spacer</span>
+              </div>
               <div className="flex items-center h-9 px-3 rounded-md border bg-muted text-muted-foreground">
                 HO
               </div>
