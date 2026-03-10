@@ -398,29 +398,22 @@ export function AdminPayrolls() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Period Start</Label>
-              <div className="flex items-center gap-1">
-                <Button size="icon" variant="ghost" onClick={() => shiftPeriod(-1)} data-testid="button-period-prev-start">
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="text-sm min-w-[90px] text-center" data-testid="text-period-start">{periodStart}</span>
-                <Button size="icon" variant="ghost" onClick={() => shiftPeriod(1)} data-testid="button-period-next-start">
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
+            <div className="flex items-end gap-1">
+              <Button size="icon" variant="ghost" onClick={() => shiftPeriod(-1)} data-testid="button-period-prev">
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <div className="space-y-2 text-center">
+                <Label>Period Start</Label>
+                <span className="block text-sm min-w-[90px]" data-testid="text-period-start">{periodStart}</span>
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Period End</Label>
-              <div className="flex items-center gap-1">
-                <Button size="icon" variant="ghost" onClick={() => shiftPeriod(-1)} data-testid="button-period-prev-end">
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="text-sm min-w-[90px] text-center" data-testid="text-period-end">{periodEnd}</span>
-                <Button size="icon" variant="ghost" onClick={() => shiftPeriod(1)} data-testid="button-period-next-end">
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
+              <span className="text-muted-foreground text-sm pb-0.5">~</span>
+              <div className="space-y-2 text-center">
+                <Label>Period End</Label>
+                <span className="block text-sm min-w-[90px]" data-testid="text-period-end">{periodEnd}</span>
               </div>
+              <Button size="icon" variant="ghost" onClick={() => shiftPeriod(1)} data-testid="button-period-next">
+                <ChevronRight className="h-4 w-4" />
+              </Button>
             </div>
             {periodStart && periodEnd && (
               <p className="text-sm text-muted-foreground self-center" data-testid="text-period-label">
