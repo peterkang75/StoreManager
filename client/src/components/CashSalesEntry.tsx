@@ -106,11 +106,7 @@ function createEmptyRow(date: string): RowData {
 export function CashSalesEntry({ stores }: { stores: Store[] }) {
   const { toast } = useToast();
   const [storeId, setStoreId] = useState("");
-  const [periodStart, setPeriodStart] = useState<Date>(() => {
-    const now = new Date();
-    const mon = getMonday(now);
-    return addDays(mon, -14);
-  });
+  const [periodStart, setPeriodStart] = useState<Date | null>(null);
   const [rows, setRows] = useState<RowData[]>([]);
   const [isDirty, setIsDirty] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -124,12 +120,42 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
       return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
     });
 
-  const startDate = formatDateStr(periodStart);
-  const endDate = formatDateStr(addDays(periodStart, 13));
+  const { data: latestDateData } = useQuery<{ latestDate: string | null }>({
+    queryKey: ["/api/cash-sales/latest-date", storeId],
+    enabled: !!storeId,
+    queryFn: async () => {
+      const res = await fetch(`/api/cash-sales/latest-date?store_id=${storeId}`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+
+  useEffect(() => {
+    if (!storeId) return;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = addDays(today, -1);
+
+    if (latestDateData?.latestDate) {
+      const parts = latestDateData.latestDate.split("-");
+      const lastDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+      const dayAfter = addDays(lastDate, 1);
+      if (dayAfter <= yesterday) {
+        setPeriodStart(dayAfter);
+      } else {
+        setPeriodStart(addDays(yesterday, -13));
+      }
+    } else {
+      setPeriodStart(addDays(yesterday, -13));
+    }
+  }, [latestDateData, storeId]);
+
+  const startDate = periodStart ? formatDateStr(periodStart) : "";
+  const endDate = periodStart ? formatDateStr(addDays(periodStart, 13)) : "";
 
   const { data: existingData, isLoading: loadingData } = useQuery<CashSalesDetail[]>({
     queryKey: ["/api/cash-sales", storeId, startDate, endDate],
-    enabled: !!storeId,
+    enabled: !!storeId && !!periodStart,
     queryFn: async () => {
       const params = new URLSearchParams({
         store_id: storeId,
@@ -143,6 +169,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
   });
 
   useEffect(() => {
+    if (!periodStart) return;
     const newRows: RowData[] = [];
     for (let i = 0; i < 14; i++) {
       const date = formatDateStr(addDays(periodStart, i));
@@ -236,6 +263,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
       toast({ title: "Cash sales saved", description: `${data.saved}일 저장 완료. 총 $${data.totalCounted.toLocaleString()}` });
       setIsDirty(false);
       queryClient.invalidateQueries({ queryKey: ["/api/cash-sales"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cash-sales/latest-date"] });
       queryClient.invalidateQueries({ queryKey: ["/api/finance/transactions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/finance/balances"] });
     },
@@ -245,7 +273,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
   });
 
   const shiftPeriod = (direction: number) => {
-    setPeriodStart((prev) => addDays(prev, direction * 14));
+    setPeriodStart((prev) => prev ? addDays(prev, direction * 14) : prev);
     setDateEditValues({});
     setExpandedMemoIdx(null);
     setConfirmedDates({});
@@ -267,6 +295,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
   }, [storeId]);
 
   const resolveDateInput = useCallback((input: string): string | null => {
+    if (!periodStart) return null;
     const trimmed = input.trim();
     if (!trimmed) return null;
 

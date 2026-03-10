@@ -1395,6 +1395,20 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/cash-sales/latest-date", async (req: Request, res: Response) => {
+    try {
+      const storeId = req.query.store_id as string;
+      if (!storeId) return res.status(400).json({ error: "store_id required" });
+      const details = await storage.getCashSalesDetails({ storeId });
+      if (!details.length) return res.json({ latestDate: null });
+      const sorted = details.sort((a, b) => (a.date > b.date ? -1 : 1));
+      res.json({ latestDate: sorted[0].date });
+    } catch (error) {
+      console.error("Error fetching latest cash sales date:", error);
+      res.status(500).json({ error: "Failed to fetch latest date" });
+    }
+  });
+
   app.get("/api/cash-sales", async (req: Request, res: Response) => {
     try {
       const filters: { storeId?: string; startDate?: string; endDate?: string } = {};
