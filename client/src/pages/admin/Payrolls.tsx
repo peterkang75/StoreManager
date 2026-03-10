@@ -197,7 +197,7 @@ export function AdminPayrolls() {
       if (payroll) {
         return {
           employeeId: employee.id,
-          employeeName: `${employee.firstName} ${employee.lastName}`,
+          employeeName: employee.nickname || `${employee.firstName} ${employee.lastName}`,
           payrollId: payroll.id,
           hours: payroll.hours,
           rate: payroll.rate || empRate,
@@ -217,7 +217,7 @@ export function AdminPayrolls() {
       }
       const base: PayrollRow = {
         employeeId: employee.id,
-        employeeName: `${employee.firstName} ${employee.lastName}`,
+        employeeName: employee.nickname || `${employee.firstName} ${employee.lastName}`,
         payrollId: null,
         hours: 0,
         rate: empRate,
