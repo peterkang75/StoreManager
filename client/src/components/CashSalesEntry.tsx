@@ -469,14 +469,14 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
         <div ref={gridRef} className="border rounded-md overflow-x-auto">
           <table className="w-full text-sm border-collapse table-fixed">
             <colgroup>
-              <col className="w-[82px]" />
-              <col className="w-[70px]" />
-              <col className="w-[70px]" />
+              <col style={{ width: "9%" }} />
+              <col style={{ width: "9%" }} />
+              <col style={{ width: "9%" }} />
               {DENOMINATIONS.map((d) => (
-                <col key={d.key} className="w-[44px]" />
+                <col key={d.key} style={{ width: "7%" }} />
               ))}
-              <col className="w-[62px]" />
-              <col />
+              <col style={{ width: "8%" }} />
+              <col style={{ width: "20%" }} />
             </colgroup>
             <thead>
               <tr className="bg-muted/50">
