@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { DollarSign, Save, FileSpreadsheet, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Search, User, RotateCcw } from "lucide-react";
+import { DollarSign, Save, Printer, FileSpreadsheet, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Search, User, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { CashBalances } from "@/components/CashBalances";
@@ -750,7 +750,23 @@ export function AdminPayrolls() {
               );
             })()}
 
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const qs = new URLSearchParams({
+                    period_start: periodStart,
+                    period_end: periodEnd,
+                  });
+                  if (selectedStoreId) qs.set("store_id", selectedStoreId);
+                  window.open(`/admin/payslips?${qs}`, "_blank");
+                }}
+                disabled={rows.length === 0}
+                data-testid="button-print-payslips"
+              >
+                <Printer className="h-4 w-4 mr-2" />
+                Print Pay Slips
+              </Button>
               <Button
                 onClick={() => saveMutation.mutate()}
                 disabled={saveMutation.isPending || rows.length === 0}
