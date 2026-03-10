@@ -114,14 +114,6 @@ function recalcRow(row: PayrollRow, changedField?: string): PayrollRow {
   return r;
 }
 
-function formatPeriodLabel(start: string, end: string): string {
-  const s = new Date(start + "T00:00:00");
-  const e = new Date(end + "T00:00:00");
-  const fmt = (d: Date) =>
-    d.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
-  return `${fmt(s)} - ${fmt(e)}`;
-}
-
 export function AdminPayrolls() {
   const { toast } = useToast();
   const fortnight = getLastFortnight();
@@ -415,11 +407,38 @@ export function AdminPayrolls() {
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
-            {periodStart && periodEnd && (
-              <p className="text-sm text-muted-foreground self-center" data-testid="text-period-label">
-                {formatPeriodLabel(periodStart, periodEnd)}
-              </p>
-            )}
+            <Button
+              variant="outline"
+              className="self-end"
+              onClick={async () => {
+                if (!selectedStoreId) return;
+                try {
+                  const res = await fetch(`/api/payrolls/latest-period?store_id=${selectedStoreId}`);
+                  const data = await res.json();
+                  if (data.periodEnd) {
+                    const endDate = new Date(data.periodEnd);
+                    const nextStart = new Date(endDate);
+                    nextStart.setDate(endDate.getDate() + 1);
+                    const nextEnd = new Date(nextStart);
+                    nextEnd.setDate(nextStart.getDate() + 13);
+                    const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                    setPeriodStart(fmt(nextStart));
+                    setPeriodEnd(fmt(nextEnd));
+                  } else {
+                    const f = getLastFortnight();
+                    setPeriodStart(f.start);
+                    setPeriodEnd(f.end);
+                  }
+                } catch {
+                  const f = getLastFortnight();
+                  setPeriodStart(f.start);
+                  setPeriodEnd(f.end);
+                }
+              }}
+              data-testid="button-this-week"
+            >
+              This Week
+            </Button>
           </div>
         </div>
 
