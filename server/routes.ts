@@ -330,6 +330,18 @@ export async function registerRoutes(
       if (!employee) {
         return res.status(404).json({ error: "Employee not found" });
       }
+      if (req.body.rate !== undefined) {
+        const assignments = await storage.getEmployeeStoreAssignments({ employeeId: id });
+        for (const a of assignments) {
+          await storage.updateStoreAssignmentFields(a.id, { rate: req.body.rate });
+        }
+      }
+      if (req.body.fixedAmount !== undefined) {
+        const assignments = await storage.getEmployeeStoreAssignments({ employeeId: id });
+        for (const a of assignments) {
+          await storage.updateStoreAssignmentFields(a.id, { fixedAmount: req.body.fixedAmount });
+        }
+      }
       res.json(employee);
     } catch (error) {
       console.error("Error updating employee:", error);

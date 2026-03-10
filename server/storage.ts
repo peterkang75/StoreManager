@@ -44,6 +44,7 @@ export interface IStorage {
   getEmployeeStoreAssignments(filters?: { employeeId?: string; storeId?: string }): Promise<EmployeeStoreAssignment[]>;
   createEmployeeStoreAssignment(assignment: InsertEmployeeStoreAssignment): Promise<EmployeeStoreAssignment>;
   deleteEmployeeStoreAssignments(employeeId: string): Promise<void>;
+  updateStoreAssignmentFields(id: string, fields: { rate?: string; fixedAmount?: string }): Promise<void>;
   getEmployeesByStoreAssignment(storeId: string, status?: string): Promise<{ employee: Employee; assignment: EmployeeStoreAssignment }[]>;
 
   createOnboardingToken(token: InsertOnboardingToken): Promise<OnboardingToken>;
@@ -349,6 +350,14 @@ export class MemStorage implements IStorage {
   async deleteEmployeeStoreAssignments(employeeId: string): Promise<void> {
     for (const [key, val] of this.employeeStoreAssignments) {
       if (val.employeeId === employeeId) this.employeeStoreAssignments.delete(key);
+    }
+  }
+
+  async updateStoreAssignmentFields(id: string, fields: { rate?: string; fixedAmount?: string }): Promise<void> {
+    const a = this.employeeStoreAssignments.get(id);
+    if (a) {
+      if (fields.rate !== undefined) (a as any).rate = fields.rate;
+      if (fields.fixedAmount !== undefined) (a as any).fixedAmount = fields.fixedAmount;
     }
   }
 
@@ -998,6 +1007,15 @@ export class DatabaseStorage implements IStorage {
 
   async deleteEmployeeStoreAssignments(employeeId: string): Promise<void> {
     await db.delete(employeeStoreAssignments).where(eq(employeeStoreAssignments.employeeId, employeeId));
+  }
+
+  async updateStoreAssignmentFields(id: string, fields: { rate?: string; fixedAmount?: string }): Promise<void> {
+    const updates: Record<string, any> = {};
+    if (fields.rate !== undefined) updates.rate = fields.rate;
+    if (fields.fixedAmount !== undefined) updates.fixedAmount = fields.fixedAmount;
+    if (Object.keys(updates).length > 0) {
+      await db.update(employeeStoreAssignments).set(updates).where(eq(employeeStoreAssignments.id, id));
+    }
   }
 
   async getEmployeesByStoreAssignment(storeId: string, status?: string): Promise<{ employee: Employee; assignment: EmployeeStoreAssignment }[]> {
