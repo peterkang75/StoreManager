@@ -760,6 +760,21 @@ export function AdminPayrolls() {
               );
             })()}
 
+            {selectedStore && (
+              <div className="space-y-2">
+                <Label className="text-sm">
+                  Global Payroll Note ({selectedStore.name})
+                </Label>
+                <Textarea
+                  value={globalNote}
+                  onChange={(e) => setGlobalNote(e.target.value)}
+                  placeholder="이 매장의 급여 관련 메모를 입력하세요 (삭제할 때까지 유지됩니다)"
+                  className="text-sm"
+                  data-testid="textarea-global-note"
+                />
+              </div>
+            )}
+
             <div className="flex justify-end gap-2">
               <Button
                 variant="outline"
@@ -787,21 +802,6 @@ export function AdminPayrolls() {
               </Button>
             </div>
           </>
-        )}
-
-        {selectedStore && (
-          <div className="space-y-2">
-            <Label className="text-sm">
-              Global Payroll Note ({selectedStore.name})
-            </Label>
-            <Textarea
-              value={globalNote}
-              onChange={(e) => setGlobalNote(e.target.value)}
-              placeholder="이 매장의 급여 관련 메모를 입력하세요 (삭제할 때까지 유지됩니다)"
-              className="text-sm"
-              data-testid="textarea-global-note"
-            />
-          </div>
         )}
       </div>
     </AdminLayout>
