@@ -105,7 +105,14 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
   const [isDirty, setIsDirty] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
 
-  const activeStores = stores.filter((s) => s.active && !s.isExternal);
+  const cashSalesStoreOrder = ["sushi", "sandwich", "trading"];
+  const activeStores = stores
+    .filter((s) => s.active && !s.isExternal && s.name.toUpperCase() !== "HO")
+    .sort((a, b) => {
+      const ai = cashSalesStoreOrder.indexOf(a.name.toLowerCase());
+      const bi = cashSalesStoreOrder.indexOf(b.name.toLowerCase());
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    });
 
   const startDate = formatDateStr(periodStart);
   const endDate = formatDateStr(addDays(periodStart, 13));
