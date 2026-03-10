@@ -425,6 +425,22 @@ export function AdminPayrolls() {
             >
               This Week
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="self-end"
+              onClick={() => {
+                const qs = new URLSearchParams({
+                  period_start: periodStart,
+                  period_end: periodEnd,
+                });
+                window.open(`/admin/payslips?${qs}`, "_blank");
+              }}
+              data-testid="button-print-payslips"
+            >
+              <Printer className="h-4 w-4 mr-1.5" />
+              Print Pay Slips
+            </Button>
           </div>
         </div>
 
@@ -776,22 +792,6 @@ export function AdminPayrolls() {
             )}
 
             <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  const qs = new URLSearchParams({
-                    period_start: periodStart,
-                    period_end: periodEnd,
-                  });
-                  if (selectedStoreId) qs.set("store_id", selectedStoreId);
-                  window.open(`/admin/payslips?${qs}`, "_blank");
-                }}
-                disabled={rows.length === 0}
-                data-testid="button-print-payslips"
-              >
-                <Printer className="h-4 w-4 mr-2" />
-                Print Pay Slips
-              </Button>
               <Button
                 onClick={() => saveMutation.mutate()}
                 disabled={saveMutation.isPending || rows.length === 0}
