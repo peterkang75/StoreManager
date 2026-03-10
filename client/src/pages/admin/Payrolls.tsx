@@ -80,24 +80,29 @@ interface PayrollRow {
   taxOverridden: boolean;
 }
 
+function roundTo5(v: number): number {
+  return Math.round(v / 5) * 5;
+}
+
 function recalcRow(row: PayrollRow, changedField?: string): PayrollRow {
   const r = { ...row };
   r.calculatedAmount = r.fixedAmount > 0 ? r.fixedAmount : r.hours * r.rate;
   r.totalWithAdjustment = r.calculatedAmount + r.adjustment;
 
   if (changedField === "grossAmount") {
-    r.cashAmount = Math.max(0, r.totalWithAdjustment - r.grossAmount);
+    r.cashAmount = roundTo5(Math.max(0, r.totalWithAdjustment - r.grossAmount));
     r.lastEditedField = "gross";
   } else if (changedField === "cashAmount") {
     r.grossAmount = Math.max(0, r.totalWithAdjustment - r.cashAmount);
     r.lastEditedField = "cash";
   } else if (r.lastEditedField === "gross") {
-    r.cashAmount = Math.max(0, r.totalWithAdjustment - r.grossAmount);
+    r.cashAmount = roundTo5(Math.max(0, r.totalWithAdjustment - r.grossAmount));
   } else if (r.lastEditedField === "cash") {
     r.grossAmount = Math.max(0, r.totalWithAdjustment - r.cashAmount);
   } else {
     if (r.grossAmount === 0 && r.cashAmount === 0) {
-      r.grossAmount = r.totalWithAdjustment;
+      r.cashAmount = roundTo5(r.totalWithAdjustment);
+      r.grossAmount = 0;
     }
   }
 
