@@ -256,6 +256,8 @@ export const payrolls = pgTable("payrolls", {
   grossAmount: real("gross_amount").default(0).notNull(),
   superAmount: real("super_amount").default(0).notNull(),
   memo: text("memo"),
+  isBankTransferDone: boolean("is_bank_transfer_done").default(false).notNull(),
+  bankTransferDate: text("bank_transfer_date"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

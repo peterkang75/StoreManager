@@ -963,6 +963,41 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/payrolls/bank-deposits", async (req: Request, res: Response) => {
+    try {
+      const { period_start, period_end } = req.query as Record<string, string>;
+      if (!period_start || !period_end) {
+        return res.status(400).json({ error: "period_start and period_end are required" });
+      }
+      const allPayrolls = await storage.getPayrolls({ periodStart: period_start, periodEnd: period_end });
+      const allStores = await storage.getStores();
+      const storeMap = new Map(allStores.map(s => [s.id, s]));
+
+      const result = [];
+      for (const p of allPayrolls) {
+        if (!p.bankDepositAmount || p.bankDepositAmount <= 0) continue;
+        const emp = await storage.getEmployee(p.employeeId);
+        if (!emp) continue;
+        result.push({
+          payrollId: p.id,
+          employeeName: emp.nickname || `${emp.firstName} ${emp.lastName}`,
+          bsb: emp.bsb || "",
+          accountNo: emp.accountNo || "",
+          storeName: p.storeId ? (storeMap.get(p.storeId)?.name || "Unknown") : "N/A",
+          storeId: p.storeId || null,
+          bankDepositAmount: p.bankDepositAmount,
+          isBankTransferDone: (p as any).isBankTransferDone ?? false,
+          bankTransferDate: (p as any).bankTransferDate ?? null,
+        });
+      }
+      result.sort((a, b) => a.storeName.localeCompare(b.storeName) || a.employeeName.localeCompare(b.employeeName));
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching bank deposits:", error);
+      res.status(500).json({ error: "Failed to fetch bank deposits" });
+    }
+  });
+
   app.post("/api/payrolls/import-archive", upload.single("file"), async (req: Request, res: Response) => {
     try {
       if (!req.file) {
@@ -1112,6 +1147,25 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error importing payroll archive:", error);
       res.status(500).json({ error: "Failed to import payroll archive" });
+    }
+  });
+
+  app.patch("/api/payrolls/:id/bank-transfer-status", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { isBankTransferDone } = req.body;
+      if (typeof isBankTransferDone !== "boolean") {
+        return res.status(400).json({ error: "isBankTransferDone (boolean) is required" });
+      }
+      const bankTransferDate = isBankTransferDone
+        ? (req.body.bankTransferDate || new Date().toISOString().slice(0, 10))
+        : null;
+      const updated = await storage.updatePayroll(id, { isBankTransferDone, bankTransferDate } as any);
+      if (!updated) return res.status(404).json({ error: "Payroll not found" });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating bank transfer status:", error);
+      res.status(500).json({ error: "Failed to update bank transfer status" });
     }
   });
 

@@ -13,9 +13,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { DollarSign, Save, Printer, FileSpreadsheet, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Search, User, RotateCcw } from "lucide-react";
+import { DollarSign, Save, Printer, FileSpreadsheet, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Search, User, RotateCcw, Landmark, CheckCircle2, Circle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { CashBalances } from "@/components/CashBalances";
@@ -198,6 +205,7 @@ export function AdminPayrolls() {
   const listRef = useRef<HTMLDivElement>(null);
   const [globalNote, setGlobalNote] = useState("");
   const [noteLoaded, setNoteLoaded] = useState(false);
+  const [bankTrackerOpen, setBankTrackerOpen] = useState(false);
 
   const { data: stores, isLoading: storesLoading } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
@@ -383,6 +391,42 @@ export function AdminPayrolls() {
     },
   });
 
+  interface BankDepositEntry {
+    payrollId: string;
+    employeeName: string;
+    bsb: string;
+    accountNo: string;
+    storeName: string;
+    storeId: string | null;
+    bankDepositAmount: number;
+    isBankTransferDone: boolean;
+    bankTransferDate: string | null;
+  }
+
+  const { data: bankDeposits, isLoading: bankDepositsLoading, refetch: refetchBankDeposits } = useQuery<BankDepositEntry[]>({
+    queryKey: ["/api/payrolls/bank-deposits", periodStart, periodEnd],
+    queryFn: async () => {
+      const qs = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
+      const res = await fetch(`/api/payrolls/bank-deposits?${qs}`);
+      if (!res.ok) throw new Error("Failed to fetch bank deposits");
+      return res.json();
+    },
+    enabled: bankTrackerOpen,
+  });
+
+  const bankTransferMutation = useMutation({
+    mutationFn: async ({ payrollId, isBankTransferDone }: { payrollId: string; isBankTransferDone: boolean }) => {
+      return apiRequest("PATCH", `/api/payrolls/${payrollId}/bank-transfer-status`, { isBankTransferDone });
+    },
+    onSuccess: () => {
+      refetchBankDeposits();
+      queryClient.invalidateQueries({ queryKey: ["/api/payrolls/bank-deposits", periodStart, periodEnd] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   const shiftPeriod = (direction: number) => {
     const days = 14 * direction;
     const shift = (dateStr: string) => {
@@ -512,6 +556,16 @@ export function AdminPayrolls() {
             >
               <Printer className="h-4 w-4 mr-1.5" />
               Print Pay Slips
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="self-end"
+              onClick={() => setBankTrackerOpen(true)}
+              data-testid="button-bank-transfer-tracker"
+            >
+              <Landmark className="h-4 w-4 mr-1.5" />
+              Bank Transfer
             </Button>
           </div>
         </div>
@@ -876,6 +930,102 @@ export function AdminPayrolls() {
           </>
         )}
       </div>
+
+      <Dialog open={bankTrackerOpen} onOpenChange={setBankTrackerOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Landmark className="h-4 w-4" />
+              Bank Transfer Tracker
+              <span className="text-sm font-normal text-muted-foreground ml-1">
+                {periodStart} ~ {periodEnd}
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto">
+            {bankDepositsLoading ? (
+              <div className="space-y-2 py-4">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Skeleton key={i} className="h-10 w-full" />
+                ))}
+              </div>
+            ) : !bankDeposits || bankDeposits.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <Landmark className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                <p>이 기간에 은행 이체 대상 직원이 없습니다</p>
+              </div>
+            ) : (
+              <div className="space-y-0 border rounded-md overflow-hidden">
+                <div className="grid grid-cols-[1fr_1fr_110px_52px] gap-0 bg-muted/50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground border-b">
+                  <span>Store</span>
+                  <span>Employee</span>
+                  <span className="text-right">Bank Deposit</span>
+                  <span className="text-center">Done</span>
+                </div>
+                {bankDeposits.map((entry) => {
+                  const isPending = bankTransferMutation.isPending;
+                  return (
+                    <div
+                      key={entry.payrollId}
+                      className={`grid grid-cols-[1fr_1fr_110px_52px] gap-0 px-4 py-2.5 text-sm border-b last:border-b-0 items-center transition-colors ${
+                        entry.isBankTransferDone ? "bg-muted/30" : ""
+                      }`}
+                      data-testid={`row-bank-transfer-${entry.payrollId}`}
+                    >
+                      <span className={`font-medium truncate ${entry.isBankTransferDone ? "text-muted-foreground line-through" : ""}`} data-testid={`text-bank-store-${entry.payrollId}`}>
+                        {entry.storeName}
+                      </span>
+                      <div className="min-w-0">
+                        <span className={`truncate block ${entry.isBankTransferDone ? "text-muted-foreground line-through" : ""}`} data-testid={`text-bank-employee-${entry.payrollId}`}>
+                          {entry.employeeName}
+                        </span>
+                        {entry.bsb && entry.accountNo && (
+                          <span className="text-xs text-muted-foreground block truncate">
+                            {entry.bsb} / {entry.accountNo}
+                          </span>
+                        )}
+                      </div>
+                      <span className={`font-mono text-right font-medium ${entry.isBankTransferDone ? "text-muted-foreground line-through" : ""}`} data-testid={`text-bank-amount-${entry.payrollId}`}>
+                        {`$${entry.bankDepositAmount.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                      </span>
+                      <div className="flex flex-col items-center gap-0.5">
+                        <Checkbox
+                          checked={entry.isBankTransferDone}
+                          disabled={isPending}
+                          onCheckedChange={(checked) => {
+                            bankTransferMutation.mutate({
+                              payrollId: entry.payrollId,
+                              isBankTransferDone: !!checked,
+                            });
+                          }}
+                          data-testid={`checkbox-bank-done-${entry.payrollId}`}
+                        />
+                        {entry.isBankTransferDone && entry.bankTransferDate && (
+                          <span className="text-[10px] text-muted-foreground">{entry.bankTransferDate}</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                <div className="grid grid-cols-[1fr_1fr_110px_52px] gap-0 px-4 py-2.5 bg-muted/50 items-center border-t">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground col-span-2">Total</span>
+                  <span className="font-mono text-right font-semibold text-sm" data-testid="text-bank-total">
+                    {`$${(bankDeposits || []).reduce((s, e) => s + e.bankDepositAmount, 0).toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                  </span>
+                  <div className="flex items-center justify-center">
+                    {(bankDeposits || []).every((e) => e.isBankTransferDone) ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                    ) : (
+                      <Circle className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </AdminLayout>
   );
 }
