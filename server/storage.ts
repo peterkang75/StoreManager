@@ -112,6 +112,7 @@ export interface IStorage {
   createFinancialTransactionWithDate(tx: InsertFinancialTransaction, executedAt: Date): Promise<FinancialTransaction>;
   deleteCashSalesDetailsByStoreAndDateRange(storeId: string, startDate: string, endDate: string): Promise<number>;
   getFinancialTransactionsByRef(refNote: string): Promise<FinancialTransaction[]>;
+  upsertFinancialTransactionByRef(refNote: string, data: InsertFinancialTransaction): Promise<FinancialTransaction>;
 }
 
 export class MemStorage implements IStorage {
@@ -914,6 +915,18 @@ export class MemStorage implements IStorage {
   async getFinancialTransactionsByRef(refNote: string): Promise<FinancialTransaction[]> {
     return Array.from(this.financialTransactions.values()).filter(tx => tx.referenceNote === refNote);
   }
+
+  async upsertFinancialTransactionByRef(refNote: string, data: InsertFinancialTransaction): Promise<FinancialTransaction> {
+    const existing = Array.from(this.financialTransactions.values()).find(tx => tx.referenceNote === refNote);
+    if (existing) {
+      existing.cashAmount = data.cashAmount ?? existing.cashAmount;
+      existing.bankAmount = data.bankAmount ?? existing.bankAmount;
+      existing.fromStoreId = data.fromStoreId ?? existing.fromStoreId;
+      existing.toStoreId = data.toStoreId ?? existing.toStoreId;
+      return existing;
+    }
+    return this.createFinancialTransaction(data);
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1374,6 +1387,28 @@ export class DatabaseStorage implements IStorage {
   async getFinancialTransactionsByRef(refNote: string): Promise<FinancialTransaction[]> {
     return db.select().from(financialTransactions)
       .where(eq(financialTransactions.referenceNote, refNote));
+  }
+
+  async upsertFinancialTransactionByRef(refNote: string, data: InsertFinancialTransaction): Promise<FinancialTransaction> {
+    const [existing] = await db.select().from(financialTransactions)
+      .where(eq(financialTransactions.referenceNote, refNote))
+      .limit(1);
+
+    if (existing) {
+      const [updated] = await db.update(financialTransactions)
+        .set({
+          cashAmount: data.cashAmount ?? existing.cashAmount,
+          bankAmount: data.bankAmount ?? existing.bankAmount,
+          fromStoreId: data.fromStoreId ?? existing.fromStoreId,
+          toStoreId: data.toStoreId ?? existing.toStoreId,
+        })
+        .where(eq(financialTransactions.id, existing.id))
+        .returning();
+      return updated;
+    }
+
+    const [created] = await db.insert(financialTransactions).values(data).returning();
+    return created;
   }
 }
 

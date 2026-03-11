@@ -1172,23 +1172,33 @@ export async function registerRoutes(
         const periodEnd = rows[0].periodEnd;
         const refNote = `CASH_WAGE:${storeId}:${periodStart}~${periodEnd}`;
 
+        const totalCash = Math.round(
+          rows.reduce((sum: number, r: any) => sum + (parseFloat(r.cashAmount) || 0), 0) * 100
+        ) / 100;
+
+        // Clean up any duplicate orphaned transactions (safety measure)
         const existingTx = await storage.getFinancialTransactionsByRef(refNote);
-        for (const tx of existingTx) {
-          await storage.deleteFinancialTransaction(tx.id);
+        if (existingTx.length > 1) {
+          for (const tx of existingTx.slice(1)) {
+            await storage.deleteFinancialTransaction(tx.id);
+          }
         }
 
-        const totalCash = rows.reduce((sum: number, r: any) => sum + (parseFloat(r.cashAmount) || 0), 0);
         if (totalCash > 0) {
-          await storage.createFinancialTransaction({
+          // UPSERT: update existing or create new — never double-count
+          await storage.upsertFinancialTransactionByRef(refNote, {
             transactionType: "CASH_WAGE",
             fromStoreId: storeId,
             toStoreId: null,
-            cashAmount: Math.round(totalCash * 100) / 100,
+            cashAmount: totalCash,
             bankAmount: 0,
             referenceNote: refNote,
             executedBy: null,
             isBankSettled: false,
           });
+        } else if (existingTx.length > 0) {
+          // Cash total became 0 — remove the ledger entry entirely
+          await storage.deleteFinancialTransaction(existingTx[0].id);
         }
       }
 
