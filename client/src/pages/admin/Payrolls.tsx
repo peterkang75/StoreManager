@@ -957,7 +957,7 @@ export function AdminPayrolls() {
               </div>
             ) : (
               <div className="space-y-0 border rounded-md overflow-hidden">
-                <div className="grid grid-cols-[1fr_1fr_110px_52px] gap-0 bg-muted/50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground border-b">
+                <div className="grid grid-cols-[1fr_1fr_110px_64px] gap-0 bg-muted/50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground border-b">
                   <span>Store</span>
                   <span>Employee</span>
                   <span className="text-right">Bank Deposit</span>
@@ -968,7 +968,7 @@ export function AdminPayrolls() {
                   return (
                     <div
                       key={entry.payrollId}
-                      className={`grid grid-cols-[1fr_1fr_110px_52px] gap-0 px-4 py-2.5 text-sm border-b last:border-b-0 items-center transition-colors ${
+                      className={`grid grid-cols-[1fr_1fr_110px_64px] gap-0 px-4 py-2.5 text-sm border-b last:border-b-0 items-center transition-colors ${
                         entry.isBankTransferDone ? "bg-muted/30" : ""
                       }`}
                       data-testid={`row-bank-transfer-${entry.payrollId}`}
@@ -1002,13 +1002,13 @@ export function AdminPayrolls() {
                           data-testid={`checkbox-bank-done-${entry.payrollId}`}
                         />
                         {entry.isBankTransferDone && entry.bankTransferDate && (
-                          <span className="text-[10px] text-muted-foreground">{entry.bankTransferDate}</span>
+                          <span className="text-[10px] text-muted-foreground whitespace-nowrap">{entry.bankTransferDate}</span>
                         )}
                       </div>
                     </div>
                   );
                 })}
-                <div className="grid grid-cols-[1fr_1fr_110px_52px] gap-0 px-4 py-2.5 bg-muted/50 items-center border-t">
+                <div className="grid grid-cols-[1fr_1fr_110px_64px] gap-0 px-4 py-2.5 bg-muted/50 items-center border-t">
                   <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground col-span-2">Total</span>
                   <span className="font-mono text-right font-semibold text-sm" data-testid="text-bank-total">
                     {`$${(bankDeposits || []).reduce((s, e) => s + e.bankDepositAmount, 0).toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
