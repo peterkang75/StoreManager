@@ -17,10 +17,14 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Users,
+  TrendingUp,
+  ArrowLeft,
   CheckCircle2,
+  Calendar,
 } from "lucide-react";
 
-// ── Week Helpers (local-time safe, AEDT) ──────────────────────────────────────
+// ── Week Helpers (AEDT) ───────────────────────────────────────────────────────
 
 function getAEDTToday(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
@@ -51,6 +55,19 @@ function fmtWeekDate(dateStr: string): string {
   return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", {
     day: "2-digit", month: "short", year: "numeric",
   });
+}
+
+function fmtDate(dateStr: string): string {
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", {
+    weekday: "short", day: "numeric", month: "short",
+  });
+}
+
+function fmtTime(t: string | null): string {
+  if (!t) return "—";
+  const [h, m] = t.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${period}`;
 }
 
 function fmtHours(h: number): string {
@@ -104,17 +121,6 @@ interface WeeklyPayrollResponse {
   };
 }
 
-interface EmployeeSummary {
-  employeeId: string;
-  employeeName: string;
-  employeeNickname: string | null;
-  storeNames: string[];
-  shiftCount: number;
-  totalHours: number;
-  rate: number;
-  grossPay: number;
-}
-
 const STORE_COLORS: Record<string, string> = {
   Sushi: "#16a34a",
   Sandwich: "#dc2626",
@@ -158,11 +164,23 @@ function WeekNavigator({
   );
 }
 
+// ── Store Color Dot ────────────────────────────────────────────────────────────
+
+function StoreDot({ name }: { name: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: storeColor(name) }} />
+      <span className="text-sm font-medium">{name}</span>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export function AdminWeeklyPayroll() {
   const [, navigate] = useLocation();
 
+  // Read weekStart from URL — default to current AEDT Monday
   const thisWeekMonday = getMondayOf(getAEDTToday());
   const urlWeekStart = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
@@ -186,35 +204,27 @@ export function AdminWeeklyPayroll() {
     staleTime: 0,
   });
 
-  // Group timesheets by employee — one summary row per person
-  const employees = useMemo((): EmployeeSummary[] => {
-    if (!data?.timesheets) return [];
-    const map = new Map<string, EmployeeSummary>();
-    for (const ts of data.timesheets) {
-      if (!map.has(ts.employeeId)) {
-        map.set(ts.employeeId, {
-          employeeId: ts.employeeId,
-          employeeName: ts.employeeName,
-          employeeNickname: ts.employeeNickname,
-          storeNames: [],
-          shiftCount: 0,
-          totalHours: 0,
-          rate: ts.rate,
-          grossPay: 0,
-        });
-      }
-      const emp = map.get(ts.employeeId)!;
-      emp.shiftCount += 1;
-      emp.totalHours = Math.round((emp.totalHours + ts.hours) * 100) / 100;
-      emp.grossPay = Math.round((emp.grossPay + ts.grossPay) * 100) / 100;
-      if (!emp.storeNames.includes(ts.storeName)) emp.storeNames.push(ts.storeName);
-    }
-    return Array.from(map.values()).sort((a, b) =>
-      (a.employeeNickname || a.employeeName).localeCompare(b.employeeNickname || b.employeeName)
-    );
+  // Derive unique stores from the full week data for the filter dropdown
+  const stores = useMemo(() => {
+    if (!data) return [];
+    return data.storeSubtotals.map(s => ({ id: s.storeId, name: s.storeName }));
   }, [data]);
 
-  const stores = useMemo(() => data?.storeSubtotals.map(s => ({ id: s.storeId, name: s.storeName })) ?? [], [data]);
+  // Group rows by store for display
+  const groupedByStore = useMemo(() => {
+    if (!data) return [];
+    const groups = new Map<string, WeeklyTimesheetRow[]>();
+    for (const ts of data.timesheets) {
+      if (!groups.has(ts.storeId)) groups.set(ts.storeId, []);
+      groups.get(ts.storeId)!.push(ts);
+    }
+    return Array.from(groups.entries()).map(([storeId, rows]) => ({
+      storeId,
+      storeName: rows[0].storeName,
+      storeCode: rows[0].storeCode,
+      rows,
+    }));
+  }, [data]);
 
   const navigateTo = (ws: string) => {
     setWeekStart(ws);
@@ -222,27 +232,42 @@ export function AdminWeeklyPayroll() {
   };
 
   return (
-    <AdminLayout title="Payroll">
+    <AdminLayout title="Weekly Payroll">
       <div className="space-y-4">
 
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
+            <div className="flex items-center gap-2 mb-0.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2 -ml-2 text-muted-foreground"
+                onClick={() => navigate(`/admin/approvals?weekStart=${weekStart}`)}
+                data-testid="button-back-to-approvals"
+              >
+                <ArrowLeft className="h-4 w-4 mr-1" /> Approvals
+              </Button>
+            </div>
             <h2 className="text-xl md:text-2xl font-bold tracking-tight flex items-center gap-2">
               <DollarSign className="h-5 w-5 text-primary" />
               Weekly Payroll
             </h2>
             <p className="text-muted-foreground text-xs mt-0.5">주간 급여 요약 — 승인된 타임시트 기준</p>
           </div>
-          <Select value={storeFilter} onValueChange={setStoreFilter}>
-            <SelectTrigger className="h-9 w-40" data-testid="select-store-filter">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All Stores</SelectItem>
-              {stores.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
+
+          {/* Store filter */}
+          <div className="shrink-0">
+            <Select value={storeFilter} onValueChange={setStoreFilter}>
+              <SelectTrigger className="h-9 w-40" data-testid="select-store-filter">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Stores</SelectItem>
+                {stores.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {/* ── Week Navigator ────────────────────────────────────────────────── */}
@@ -267,7 +292,7 @@ export function AdminWeeklyPayroll() {
               {
                 label: "Total Shifts",
                 value: data.summary.totalShifts,
-                sub: "approved this week",
+                sub: "approved",
                 icon: <CheckCircle2 className="h-5 w-5 text-green-600" />,
                 color: "border-green-500/40 bg-green-500/5",
                 text: "text-green-700 dark:text-green-400",
@@ -305,17 +330,38 @@ export function AdminWeeklyPayroll() {
           </div>
         )}
 
-        {/* ── Table / Empty ─────────────────────────────────────────────────── */}
-        {isLoading ? (
-          <div className="space-y-2">
-            {[1, 2, 3].map(i => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}
+        {/* ── Per-store subtotals (only when multiple stores visible) ─────── */}
+        {!isLoading && data && data.storeSubtotals.length > 1 && storeFilter === "ALL" && (
+          <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1 md:flex-wrap md:overflow-visible">
+            {data.storeSubtotals.map(s => (
+              <div
+                key={s.storeId}
+                className="shrink-0 w-44 md:w-auto rounded-lg border border-border/30 bg-card px-4 py-2.5"
+                data-testid={`store-subtotal-${s.storeId}`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="h-2 w-2 rounded-full" style={{ backgroundColor: storeColor(s.storeName) }} />
+                  <span className="text-xs font-semibold">{s.storeName}</span>
+                  <span className="text-[10px] text-muted-foreground ml-auto">{s.shiftCount} shifts</span>
+                </div>
+                <p className="text-base font-bold text-foreground">{fmtAUD(s.totalGrossPay)}</p>
+                <p className="text-[11px] text-muted-foreground">{fmtHours(s.totalHours)}</p>
+              </div>
+            ))}
           </div>
-        ) : !data || employees.length === 0 ? (
+        )}
+
+        {/* ── Content ──────────────────────────────────────────────────────── */}
+        {isLoading ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map(i => <Skeleton key={i} className="h-36 w-full rounded-xl" />)}
+          </div>
+        ) : !data || data.timesheets.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center" data-testid="empty-state">
             <DollarSign className="h-12 w-12 text-muted-foreground/30 mb-4" />
             <p className="font-semibold text-muted-foreground">No approved timesheets</p>
             <p className="text-sm text-muted-foreground mt-1">
-              No approved shift timesheets found for this week. Approve timesheets on the Pending Approvals page first.
+              No approved shift timesheets were found for this week. Approve timesheets on the Pending Approvals page first.
             </p>
             <Button
               variant="outline"
@@ -330,128 +376,173 @@ export function AdminWeeklyPayroll() {
           </div>
         ) : (
           <>
-            {/* ── Desktop table ─────────────────────────────────────────────── */}
-            <Card className="hidden md:block" data-testid="payroll-table">
-              <CardContent className="p-0">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="border-b border-border/20 bg-muted/20">
-                      <th className="py-2.5 pl-4 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Employee</th>
-                      <th className="py-2.5 px-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Store(s)</th>
-                      <th className="py-2.5 px-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide text-center">Shifts</th>
-                      <th className="py-2.5 px-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Total Hours</th>
-                      <th className="py-2.5 px-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Hourly Rate</th>
-                      <th className="py-2.5 pr-4 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide text-right">Gross Pay</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {employees.map(emp => (
-                      <tr
-                        key={emp.employeeId}
-                        className="border-b border-border/20 last:border-0 hover:bg-muted/10"
-                        data-testid={`row-employee-${emp.employeeId}`}
-                      >
-                        <td className="py-2.5 pl-4">
-                          <div className="text-sm font-semibold">{emp.employeeNickname || emp.employeeName.split(" ")[0]}</div>
-                          <div className="text-[11px] text-muted-foreground">{emp.employeeName}</div>
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <div className="flex flex-wrap gap-2">
-                            {emp.storeNames.map(sn => (
-                              <span key={sn} className="flex items-center gap-1 text-xs text-muted-foreground">
-                                <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: storeColor(sn) }} />
-                                {sn}
-                              </span>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="py-2.5 px-3 text-center">
-                          <span className="text-sm">{emp.shiftCount}</span>
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span className="text-sm font-semibold">{fmtHours(emp.totalHours)}</span>
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span className="text-sm text-muted-foreground">
-                            {emp.rate > 0
-                              ? `$${emp.rate.toFixed(2)}/hr`
-                              : <span className="italic text-destructive/70 text-xs">No rate set</span>}
-                          </span>
-                        </td>
-                        <td className="py-2.5 pr-4 text-right">
-                          <span className={`text-sm font-bold ${emp.grossPay > 0 ? "text-primary" : "text-muted-foreground"}`}>
-                            {emp.grossPay > 0 ? fmtAUD(emp.grossPay) : "—"}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  {/* ── Summary Totals row ────────────────────────────────── */}
-                  <tfoot>
-                    <tr className="border-t-2 border-border/30 bg-muted/20">
-                      <td className="py-2.5 pl-4 text-xs font-semibold text-muted-foreground" colSpan={2}>
-                        Weekly Summary Totals
-                      </td>
-                      <td className="py-2.5 px-3 text-center text-xs font-semibold">{data.summary.totalShifts}</td>
-                      <td className="py-2.5 px-3">
-                        <span className="text-sm font-bold">{fmtHours(data.summary.totalHours)}</span>
-                      </td>
-                      <td className="py-2.5 px-3 text-xs text-muted-foreground">Total Weekly Hours</td>
-                      <td className="py-2.5 pr-4 text-right">
-                        <span className="text-base font-black text-primary">{fmtAUD(data.summary.totalGrossPay)}</span>
-                        <div className="text-[10px] text-muted-foreground">Total Weekly Payroll Cost</div>
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </CardContent>
-            </Card>
-
-            {/* ── Mobile card list ──────────────────────────────────────────── */}
-            <div className="md:hidden space-y-2" data-testid="payroll-cards">
-              {employees.map(emp => (
-                <div
-                  key={emp.employeeId}
-                  className="rounded-lg border border-border/40 bg-card px-4 py-3 flex items-center justify-between gap-3"
-                  data-testid={`card-employee-${emp.employeeId}`}
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold truncate">
-                      {emp.employeeNickname || emp.employeeName.split(" ")[0]}
-                    </p>
-                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      {emp.storeNames.map(sn => (
-                        <span key={sn} className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                          <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: storeColor(sn) }} />
-                          {sn}
-                        </span>
-                      ))}
-                      <span className="text-[11px] text-muted-foreground">{emp.shiftCount} shifts · {fmtHours(emp.totalHours)}</span>
-                    </div>
+            {/* ── Mobile Card List ── */}
+            <div className="md:hidden space-y-6" data-testid="weekly-payroll-cards">
+              {groupedByStore.map(group => (
+                <div key={group.storeId}>
+                  {/* Store header */}
+                  <div className="flex items-center gap-2 mb-2 px-1">
+                    <div className="h-3 w-3 rounded-full" style={{ backgroundColor: storeColor(group.storeName) }} />
+                    <span className="font-bold text-sm">{group.storeName}</span>
+                    <span className="text-xs text-muted-foreground ml-auto">
+                      {fmtHours(group.rows.reduce((s, r) => s + r.hours, 0))} · {fmtAUD(group.rows.reduce((s, r) => s + r.grossPay, 0))}
+                    </span>
                   </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-base font-black text-primary">{fmtAUD(emp.grossPay)}</p>
-                    <p className="text-[10px] text-muted-foreground">${emp.rate}/hr</p>
+                  <div className="space-y-2.5">
+                    {group.rows.map(ts => (
+                      <div
+                        key={ts.id}
+                        className="bg-card rounded-xl border border-border/40 border-l-4 px-4 py-3 shadow-sm"
+                        style={{ borderLeftColor: storeColor(ts.storeName) }}
+                        data-testid={`card-payroll-${ts.id}`}
+                      >
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <div>
+                            <p className="font-bold text-sm">{ts.employeeNickname || ts.employeeName.split(" ")[0]}</p>
+                            <p className="text-[11px] text-muted-foreground">{fmtDate(ts.date)}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-black text-lg text-primary leading-none">{fmtAUD(ts.grossPay)}</p>
+                            <p className="text-[10px] text-muted-foreground">{fmtHours(ts.hours)} × ${ts.rate}/hr</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                          <Clock className="h-3 w-3 shrink-0" />
+                          <span>{fmtTime(ts.actualStartTime)} – {fmtTime(ts.actualEndTime)}</span>
+                          {ts.isUnscheduled && (
+                            <span className="ml-auto text-purple-600 dark:text-purple-400 font-medium italic">Unscheduled</span>
+                          )}
+                        </div>
+                        {ts.adjustmentReason && (
+                          <p className="text-[11px] text-muted-foreground mt-1.5 bg-muted/30 rounded px-2 py-1 leading-snug">
+                            {ts.adjustmentReason}
+                          </p>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
               ))}
-              {/* Mobile totals */}
-              <div className="rounded-lg border border-border/30 bg-muted/20 px-4 py-2.5 flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-semibold text-muted-foreground">Total Weekly Hours</p>
-                  <p className="text-sm font-bold">{fmtHours(data.summary.totalHours)}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[10px] text-muted-foreground">Total Weekly Payroll Cost</p>
-                  <p className="text-base font-black text-primary">{fmtAUD(data.summary.totalGrossPay)}</p>
-                </div>
-              </div>
             </div>
 
-            <p className="text-[11px] text-muted-foreground text-center pt-1">
-              Gross pay = Approved hours × Hourly rate. Tax, super &amp; deductions calculated separately.
-            </p>
+            {/* ── Desktop Table ── */}
+            <div className="hidden md:block space-y-4" data-testid="weekly-payroll-table">
+              {groupedByStore.map(group => {
+                const groupHours = group.rows.reduce((s, r) => s + r.hours, 0);
+                const groupPay = group.rows.reduce((s, r) => s + r.grossPay, 0);
+                return (
+                  <Card key={group.storeId}>
+                    {/* Store section header */}
+                    <div
+                      className="flex items-center gap-3 px-4 py-2.5 border-b border-border/40 rounded-t-lg"
+                      style={{ borderLeftColor: storeColor(group.storeName), borderLeftWidth: 3 }}
+                    >
+                      <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: storeColor(group.storeName) }} />
+                      <span className="font-bold text-sm">{group.storeName}</span>
+                      <span className="text-xs text-muted-foreground">{group.rows.length} shifts</span>
+                      <div className="ml-auto flex items-center gap-6 text-sm">
+                        <div className="flex items-center gap-1.5 text-muted-foreground">
+                          <Clock className="h-3.5 w-3.5" />
+                          <span className="font-semibold">{fmtHours(groupHours)}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 font-black text-primary">
+                          <DollarSign className="h-3.5 w-3.5" />
+                          <span>{fmtAUD(groupPay)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <CardContent className="p-0">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="border-b border-border/20 bg-muted/20">
+                            <th className="py-2 px-4 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Date</th>
+                            <th className="py-2 px-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Employee</th>
+                            <th className="py-2 px-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Time In / Out</th>
+                            <th className="py-2 px-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Hours</th>
+                            <th className="py-2 px-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Rate</th>
+                            <th className="py-2 px-4 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide text-right">Gross Pay</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.rows.map(ts => (
+                            <tr
+                              key={ts.id}
+                              className="border-b border-border/20 last:border-0 hover:bg-muted/10"
+                              data-testid={`row-payroll-${ts.id}`}
+                            >
+                              <td className="py-2.5 px-4 whitespace-nowrap">
+                                <div className="text-sm">{fmtDate(ts.date)}</div>
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <div className="text-sm font-semibold">{ts.employeeNickname || ts.employeeName.split(" ")[0]}</div>
+                                <div className="text-[11px] text-muted-foreground truncate max-w-[120px]">{ts.employeeName}</div>
+                              </td>
+                              <td className="py-2.5 px-3 whitespace-nowrap font-mono text-sm text-muted-foreground">
+                                {fmtTime(ts.actualStartTime)} – {fmtTime(ts.actualEndTime)}
+                                {ts.isUnscheduled && (
+                                  <span className="ml-2 text-[10px] text-purple-600 dark:text-purple-400 font-sans font-medium">Unscheduled</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 whitespace-nowrap">
+                                <span className="text-sm font-semibold">{fmtHours(ts.hours)}</span>
+                              </td>
+                              <td className="py-2.5 px-3 whitespace-nowrap">
+                                <span className="text-sm text-muted-foreground">
+                                  {ts.rate > 0 ? `$${ts.rate.toFixed(2)}/hr` : <span className="italic text-destructive/70">No rate</span>}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-4 whitespace-nowrap text-right">
+                                <span className={`text-sm font-bold ${ts.grossPay > 0 ? "text-primary" : "text-muted-foreground italic"}`}>
+                                  {ts.grossPay > 0 ? fmtAUD(ts.grossPay) : "—"}
+                                </span>
+                                {ts.adjustmentReason && (
+                                  <div className="text-[10px] text-muted-foreground mt-0.5 max-w-[180px] text-right truncate" title={ts.adjustmentReason}>
+                                    {ts.adjustmentReason}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        {/* Store total row */}
+                        <tfoot>
+                          <tr className="bg-muted/30 border-t border-border/40">
+                            <td colSpan={3} className="py-2 px-4 text-xs font-semibold text-muted-foreground">{group.storeName} Subtotal</td>
+                            <td className="py-2 px-3 text-sm font-bold">{fmtHours(groupHours)}</td>
+                            <td className="py-2 px-3" />
+                            <td className="py-2 px-4 text-right text-sm font-black text-primary">{fmtAUD(groupPay)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+
+              {/* Grand Total Row */}
+              {data.storeSubtotals.length > 1 && (
+                <div className="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-5 py-3 mt-1">
+                  <div className="flex items-center gap-2">
+                    <Users className="h-4 w-4 text-primary" />
+                    <span className="font-bold text-sm">Total — All Stores</span>
+                    <span className="text-xs text-muted-foreground">{data.summary.totalShifts} shifts</span>
+                  </div>
+                  <div className="flex items-center gap-6">
+                    <div className="text-sm font-semibold text-muted-foreground">{fmtHours(data.summary.totalHours)}</div>
+                    <div className="text-lg font-black text-primary">{fmtAUD(data.summary.totalGrossPay)}</div>
+                  </div>
+                </div>
+              )}
+            </div>
           </>
+        )}
+
+        {/* ── Disclaimer ────────────────────────────────────────────────────── */}
+        {!isLoading && data && data.timesheets.length > 0 && (
+          <p className="text-[11px] text-muted-foreground text-center pt-2">
+            Gross pay = Approved hours × Employee hourly rate. Tax, super, and deductions are calculated separately on the Payroll page.
+          </p>
         )}
       </div>
     </AdminLayout>
