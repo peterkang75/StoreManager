@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,7 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { UserCheck, Search, Link2, Check } from "lucide-react";
+import { UserCheck, Search, Link2, Check, Upload, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
@@ -33,7 +33,33 @@ export function AdminEmployees() {
   const [searchTerm, setSearchTerm] = useState("");
   const [storeFilter, setStoreFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [importing, setImporting] = useState(false);
+  const importRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  const handleImportCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/employees/import", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Import failed");
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/employee-store-assignments"] });
+      toast({
+        title: "Import complete",
+        description: `${data.imported} imported, ${data.skipped} skipped${data.errors?.length ? `, ${data.errors.length} errors` : ""}`,
+      });
+    } catch (err: any) {
+      toast({ title: "Import failed", description: err.message, variant: "destructive" });
+    } finally {
+      setImporting(false);
+      if (importRef.current) importRef.current.value = "";
+    }
+  };
 
   const { data: employees, isLoading: employeesLoading } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
@@ -119,21 +145,41 @@ export function AdminEmployees() {
               직원 정보를 확인하고 관리합니다
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            data-testid="button-copy-register-link"
-            onClick={() => {
-              const url = `${window.location.origin}/m/register`;
-              navigator.clipboard.writeText(url);
-              setLinkCopied(true);
-              toast({ title: "Link Copied", description: "신규 직원 등록 링크가 복사되었습니다" });
-              setTimeout(() => setLinkCopied(false), 2000);
-            }}
-          >
-            {linkCopied ? <Check className="h-4 w-4 mr-1.5" /> : <Link2 className="h-4 w-4 mr-1.5" />}
-            {linkCopied ? "Copied!" : "Copy Registration Link"}
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              ref={importRef}
+              type="file"
+              accept=".csv,.tsv,.txt"
+              className="hidden"
+              onChange={handleImportCsv}
+              data-testid="input-import-csv"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid="button-import-csv"
+              onClick={() => importRef.current?.click()}
+              disabled={importing}
+            >
+              {importing ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Upload className="h-4 w-4 mr-1.5" />}
+              {importing ? "Importing..." : "Import CSV"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid="button-copy-register-link"
+              onClick={() => {
+                const url = `${window.location.origin}/m/register`;
+                navigator.clipboard.writeText(url);
+                setLinkCopied(true);
+                toast({ title: "Link Copied", description: "신규 직원 등록 링크가 복사되었습니다" });
+                setTimeout(() => setLinkCopied(false), 2000);
+              }}
+            >
+              {linkCopied ? <Check className="h-4 w-4 mr-1.5" /> : <Link2 className="h-4 w-4 mr-1.5" />}
+              {linkCopied ? "Copied!" : "Copy Registration Link"}
+            </Button>
+          </div>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-4">

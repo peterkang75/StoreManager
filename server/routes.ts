@@ -1553,6 +1553,8 @@ export async function registerRoutes(
       const rateIdx = col("rate", "hourly rate");
       const contractIdx = col("contractposition", "contract position");
       const fhcIdx = col("fhc");
+      const selfieUrlIdx = col("selfie url", "selfieurl", "selfie", "profile photo", "profile image", "photo url", "photourl");
+      const passportUrlIdx = col("passport url", "passporturl", "passport photo", "passport image", "passport");
       const visaExpIdx = col("visa expire date", "visaexpiredate", "visa expiry");
       const tfnIdx = col("tfn", "tax file number");
       const bsbIdx = col("bsb");
@@ -1650,6 +1652,8 @@ export async function registerRoutes(
               rate: rate || undefined,
               contractPosition: g(cols, contractIdx) || undefined,
               fhc: g(cols, fhcIdx) || undefined,
+              selfieUrl: g(cols, selfieUrlIdx) || undefined,
+              passportUrl: g(cols, passportUrlIdx) || undefined,
               salaryType: g(cols, salaryIdx) || undefined,
               annualLeave: g(cols, annualLeaveIdx) || undefined,
               fixedAmount: fixedAmount || undefined,
