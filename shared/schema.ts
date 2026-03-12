@@ -500,6 +500,7 @@ export const shiftTimesheets = pgTable("shift_timesheets", {
   actualEndTime: text("actual_end_time").notNull(),
   status: text("status").default("PENDING").notNull(), // PENDING | APPROVED | REJECTED
   adjustmentReason: text("adjustment_reason"),
+  isUnscheduled: boolean("is_unscheduled").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

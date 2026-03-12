@@ -34,6 +34,8 @@ import {
   ChevronRight,
   ChevronLeft,
   User,
+  Plus,
+  AlertTriangle,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -47,7 +49,7 @@ interface ShiftInfo {
 }
 interface TimesheetInfo {
   id: string; actualStartTime: string; actualEndTime: string;
-  status: string; adjustmentReason: string | null;
+  status: string; adjustmentReason: string | null; isUnscheduled?: boolean;
 }
 interface TodayShiftItem {
   shift: ShiftInfo;
@@ -55,7 +57,17 @@ interface TodayShiftItem {
   storeColor: string;
   timesheet: TimesheetInfo | null;
 }
-interface TodayData { date: string; shifts: TodayShiftItem[] }
+interface UnscheduledTimesheetItem {
+  timesheet: TimesheetInfo;
+  storeName: string;
+  storeColor: string;
+}
+interface TodayData {
+  date: string;
+  shifts: TodayShiftItem[];
+  unscheduledTimesheets: UnscheduledTimesheetItem[];
+}
+interface StoreOption { id: string; name: string; }
 
 interface DayData { date: string; shift: ShiftInfo | null; timesheet: TimesheetInfo | null }
 interface WeekData { days: DayData[]; published: boolean; weekStart: string; weekEnd: string }
@@ -412,11 +424,217 @@ function TodayShiftCard({
   );
 }
 
+// ── Unscheduled Shift Drawer ──────────────────────────────────────────────────
+
+function UnscheduledShiftDrawer({
+  open, employeeId, today, onClose, onSubmitted,
+}: {
+  open: boolean;
+  employeeId: string;
+  today: string;
+  onClose: () => void;
+  onSubmitted: (ts: UnscheduledTimesheetItem) => void;
+}) {
+  const { toast } = useToast();
+  const [storeId, setStoreId] = useState("");
+  const [startTime, setStartTime] = useState("09:00");
+  const [endTime, setEndTime] = useState("17:00");
+  const [reason, setReason] = useState("");
+
+  const { data: stores = [] } = useQuery<StoreOption[]>({
+    queryKey: ["/api/portal/stores"],
+    queryFn: async () => {
+      const res = await fetch("/api/portal/stores", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch stores");
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    if (open) {
+      setStoreId(stores.length > 0 ? stores[0].id : "");
+      setStartTime("09:00");
+      setEndTime("17:00");
+      setReason("");
+    }
+  }, [open, stores]);
+
+  useEffect(() => {
+    if (open && stores.length > 0 && !storeId) setStoreId(stores[0].id);
+  }, [stores, open, storeId]);
+
+  const hours = calcHours(startTime, endTime);
+  const canSubmit = !!storeId && hours > 0 && reason.trim().length > 0;
+
+  const submitMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/portal/unscheduled-timesheet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ storeId, employeeId, date: today, actualStartTime: startTime, actualEndTime: endTime, adjustmentReason: reason }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? "Failed"); }
+      return res.json();
+    },
+    onSuccess: (ts) => {
+      const store = stores.find(s => s.id === ts.storeId);
+      toast({ title: "Logged", description: "Unscheduled shift recorded — pending manager approval." });
+      onSubmitted({
+        timesheet: ts,
+        storeName: store?.name ?? "Unknown",
+        storeColor: store?.name === "Sushi" ? "#16a34a" : store?.name === "Sandwich" ? "#dc2626" : "#888",
+      });
+      onClose();
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <Drawer open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DrawerContent>
+        <DrawerHeader>
+          <DrawerTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            Log Unscheduled Shift
+          </DrawerTitle>
+          <p className="text-sm text-muted-foreground text-left">{today} · Hours will be pending manager approval</p>
+        </DrawerHeader>
+
+        <div className="flex flex-col gap-4 px-4 pb-2">
+          {/* Store */}
+          <div className="flex flex-col gap-1.5">
+            <Label>Store worked at</Label>
+            <Select value={storeId} onValueChange={setStoreId}>
+              <SelectTrigger data-testid="select-unscheduled-store">
+                <SelectValue placeholder="Select store…" />
+              </SelectTrigger>
+              <SelectContent>
+                {stores.map(s => (
+                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Start / End time */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label>Start Time</Label>
+              <Select value={startTime} onValueChange={setStartTime}>
+                <SelectTrigger data-testid="select-unscheduled-start">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="max-h-52">
+                  {TIME_SLOTS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>End Time</Label>
+              <Select value={endTime} onValueChange={setEndTime}>
+                <SelectTrigger data-testid="select-unscheduled-end">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="max-h-52">
+                  {TIME_SLOTS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {hours > 0 && (
+            <p className="text-xs text-muted-foreground tabular-nums">
+              Total: <span className="font-semibold text-foreground">{hours.toFixed(1)} hrs</span>
+            </p>
+          )}
+          {hours <= 0 && startTime && endTime && (
+            <p className="text-xs text-destructive">End time must be after start time</p>
+          )}
+
+          {/* Reason — required */}
+          <div className="flex flex-col gap-1.5">
+            <Label>
+              Reason <span className="text-destructive">*</span>
+            </Label>
+            <Textarea
+              data-testid="textarea-unscheduled-reason"
+              placeholder="e.g. Covering for sick staff, called in by manager…"
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              className="resize-none text-sm"
+              rows={3}
+            />
+            <p className="text-xs text-muted-foreground">Required — explain why you worked without a scheduled shift</p>
+          </div>
+        </div>
+
+        <DrawerFooter className="pt-2">
+          <Button
+            data-testid="button-submit-unscheduled"
+            onClick={() => submitMutation.mutate()}
+            disabled={!canSubmit || submitMutation.isPending}
+            className="w-full"
+          >
+            {submitMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            Submit for Approval
+          </Button>
+          <Button variant="ghost" onClick={onClose} disabled={submitMutation.isPending}>Cancel</Button>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
+  );
+}
+
+// ── Unscheduled Timesheet Card ────────────────────────────────────────────────
+
+function UnscheduledTimesheetCard({ item }: { item: UnscheduledTimesheetItem }) {
+  const { timesheet, storeName, storeColor } = item;
+  const st = STATUS_STYLE[timesheet.status] ?? STATUS_STYLE.PENDING;
+  const hours = calcHours(timesheet.actualStartTime, timesheet.actualEndTime);
+
+  return (
+    <Card data-testid={`card-unscheduled-${timesheet.id}`}>
+      <CardContent className="p-4">
+        <div className="flex items-start gap-3">
+          <div
+            className="h-1.5 w-1.5 rounded-full mt-2 shrink-0"
+            style={{ backgroundColor: storeColor }}
+          />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <span className="font-semibold text-sm">{storeName}</span>
+              <span className="flex items-center gap-1 text-[10px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-950 rounded px-1.5 py-0.5">
+                <AlertTriangle className="h-2.5 w-2.5" />
+                Unscheduled
+              </span>
+            </div>
+            <p className="text-sm tabular-nums text-muted-foreground">
+              {timesheet.actualStartTime} – {timesheet.actualEndTime}
+              <span className="ml-2 text-xs">({hours.toFixed(1)}h)</span>
+            </p>
+            {timesheet.adjustmentReason && (
+              <p className="text-xs text-muted-foreground mt-1 italic">"{timesheet.adjustmentReason}"</p>
+            )}
+          </div>
+          <div className={`flex items-center gap-1 rounded-md px-2 py-1 shrink-0 ${st.bg}`}>
+            <CheckCircle2 className={`h-3 w-3 ${st.text}`} />
+            <span className={`text-xs font-medium ${st.text}`}>Pending</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Tab: Home ─────────────────────────────────────────────────────────────────
 
 function HomeTab({ session }: { session: Session }) {
   const today = getTodayStr();
   const [localTimesheets, setLocalTimesheets] = useState<Record<string, TimesheetInfo>>({});
+  const [localUnscheduled, setLocalUnscheduled] = useState<UnscheduledTimesheetItem[]>([]);
+  const [unscheduledDrawerOpen, setUnscheduledDrawerOpen] = useState(false);
   const qc = useQueryClient();
   const displayName = session.nickname || session.firstName;
 
@@ -435,6 +653,14 @@ function HomeTab({ session }: { session: Session }) {
     ...item,
     timesheet: localTimesheets[item.shift.storeId] ?? item.timesheet,
   }));
+
+  // Merge server-returned unscheduled timesheets with any locally added ones (dedup by id)
+  const serverUnscheduled = todayData?.unscheduledTimesheets ?? [];
+  const serverIds = new Set(serverUnscheduled.map(u => u.timesheet.id));
+  const allUnscheduled = [
+    ...serverUnscheduled,
+    ...localUnscheduled.filter(u => !serverIds.has(u.timesheet.id)),
+  ];
 
   return (
     <div className="flex flex-col gap-5 px-4 py-5">
@@ -459,16 +685,32 @@ function HomeTab({ session }: { session: Session }) {
           </div>
         )}
 
+        {/* No scheduled shift: prominent button */}
         {!todayLoading && todayShifts.length === 0 && (
-          <Card>
-            <CardContent className="py-8 text-center">
-              <Clock className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-              <p className="font-medium">No shifts today</p>
-              <p className="text-sm text-muted-foreground mt-1">You have no published shifts scheduled.</p>
-            </CardContent>
-          </Card>
+          <div className="flex flex-col gap-3">
+            <Card>
+              <CardContent className="py-6 text-center">
+                <Clock className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+                <p className="font-medium">No shifts today</p>
+                <p className="text-sm text-muted-foreground mt-1">You have no published shifts scheduled.</p>
+                <Button
+                  data-testid="button-log-unscheduled-primary"
+                  className="mt-4 gap-2"
+                  onClick={() => setUnscheduledDrawerOpen(true)}
+                >
+                  <Plus className="h-4 w-4" />
+                  Log Unscheduled Shift
+                </Button>
+              </CardContent>
+            </Card>
+            {/* Unscheduled timesheet cards (already logged today) */}
+            {allUnscheduled.map(u => (
+              <UnscheduledTimesheetCard key={u.timesheet.id} item={u} />
+            ))}
+          </div>
         )}
 
+        {/* Has scheduled shifts: show cards + secondary link */}
         {!todayLoading && todayShifts.length > 0 && (
           <div className="flex flex-col gap-3">
             {todayShifts.map(item => (
@@ -482,6 +724,20 @@ function HomeTab({ session }: { session: Session }) {
                 }}
               />
             ))}
+            {/* Unscheduled timesheets already logged today */}
+            {allUnscheduled.map(u => (
+              <UnscheduledTimesheetCard key={u.timesheet.id} item={u} />
+            ))}
+            {/* Secondary link to add an extra unscheduled shift */}
+            <button
+              type="button"
+              data-testid="button-log-unscheduled-secondary"
+              className="flex items-center justify-center gap-1.5 text-sm text-muted-foreground hover-elevate active-elevate-2 rounded-md py-2 w-full"
+              onClick={() => setUnscheduledDrawerOpen(true)}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add an extra / unscheduled shift
+            </button>
           </div>
         )}
       </div>
@@ -511,6 +767,17 @@ function HomeTab({ session }: { session: Session }) {
           </CardContent>
         </Card>
       </div>
+
+      <UnscheduledShiftDrawer
+        open={unscheduledDrawerOpen}
+        employeeId={session.id}
+        today={today}
+        onClose={() => setUnscheduledDrawerOpen(false)}
+        onSubmitted={(item) => {
+          setLocalUnscheduled(prev => [item, ...prev]);
+          qc.invalidateQueries({ queryKey: todayQK });
+        }}
+      />
     </div>
   );
 }

@@ -1660,12 +1660,13 @@ export class DatabaseStorage implements IStorage {
     return ts;
   }
 
-  async getShiftTimesheets(filters?: { storeId?: string; employeeId?: string; date?: string; status?: string }): Promise<ShiftTimesheet[]> {
+  async getShiftTimesheets(filters?: { storeId?: string; employeeId?: string; date?: string; status?: string; isUnscheduled?: boolean }): Promise<ShiftTimesheet[]> {
     const conditions = [];
     if (filters?.storeId) conditions.push(eq(shiftTimesheets.storeId, filters.storeId));
     if (filters?.employeeId) conditions.push(eq(shiftTimesheets.employeeId, filters.employeeId));
     if (filters?.date) conditions.push(eq(shiftTimesheets.date, filters.date));
     if (filters?.status) conditions.push(eq(shiftTimesheets.status, filters.status));
+    if (filters?.isUnscheduled !== undefined) conditions.push(eq(shiftTimesheets.isUnscheduled, filters.isUnscheduled));
     return db.select().from(shiftTimesheets)
       .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(desc(shiftTimesheets.createdAt));

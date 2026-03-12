@@ -2472,7 +2472,7 @@ export async function registerRoutes(
         const published = await storage.isRosterWeekPublished(shift.storeId, weekStart);
         if (!published) return null;
         const store = allStores.find(s => s.id === shift.storeId);
-        const allTimesheets = await storage.getShiftTimesheets({ employeeId: employeeId as string, date: dateStr, storeId: shift.storeId });
+        const allTimesheets = await storage.getShiftTimesheets({ employeeId: employeeId as string, date: dateStr, storeId: shift.storeId, isUnscheduled: false });
         return {
           shift,
           storeName: store?.name ?? "Unknown",
@@ -2481,8 +2481,19 @@ export async function registerRoutes(
         };
       }));
 
+      // Also fetch unscheduled timesheets logged today for this employee
+      const unscheduledTimesheets = await storage.getShiftTimesheets({ employeeId: employeeId as string, date: dateStr, isUnscheduled: true });
+      const unscheduledWithMeta = unscheduledTimesheets.map(ts => {
+        const store = allStores.find(s => s.id === ts.storeId);
+        return {
+          timesheet: ts,
+          storeName: store?.name ?? "Unknown",
+          storeColor: store?.name === "Sushi" ? "#16a34a" : store?.name === "Sandwich" ? "#dc2626" : "#888",
+        };
+      });
+
       const result = shiftsWithMeta.filter(Boolean);
-      res.json({ date: dateStr, shifts: result });
+      res.json({ date: dateStr, shifts: result, unscheduledTimesheets: unscheduledWithMeta });
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch today's shifts" });
     }
@@ -2589,6 +2600,29 @@ export async function registerRoutes(
       res.status(201).json(ts);
     } catch (err) {
       res.status(500).json({ error: "Failed to submit timesheet" });
+    }
+  });
+
+  // POST /api/portal/unscheduled-timesheet — log hours when no roster shift exists
+  app.post("/api/portal/unscheduled-timesheet", async (req: Request, res: Response) => {
+    try {
+      const { storeId, employeeId, date, actualStartTime, actualEndTime, adjustmentReason } = req.body;
+      if (!storeId || !employeeId || !date || !actualStartTime || !actualEndTime || !adjustmentReason?.trim()) {
+        return res.status(400).json({ error: "storeId, employeeId, date, actualStartTime, actualEndTime, and adjustmentReason are all required" });
+      }
+      const ts = await storage.createShiftTimesheet({
+        storeId,
+        employeeId,
+        date,
+        actualStartTime,
+        actualEndTime,
+        adjustmentReason: adjustmentReason.trim(),
+        status: "PENDING",
+        isUnscheduled: true,
+      });
+      res.status(201).json(ts);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to log unscheduled shift" });
     }
   });
 
