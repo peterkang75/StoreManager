@@ -678,6 +678,32 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to delete roster" });
     }
   });
+
+  // GET published status for a store+week
+  app.get("/api/rosters/published", async (req: Request, res: Response) => {
+    try {
+      const { storeId, weekStart } = req.query as { storeId?: string; weekStart?: string };
+      if (!storeId || !weekStart) return res.status(400).json({ error: "storeId and weekStart are required" });
+      const published = await storage.isRosterWeekPublished(storeId, weekStart);
+      res.json({ published });
+    } catch (error) {
+      console.error("Error checking roster publish status:", error);
+      res.status(500).json({ error: "Failed to check publish status" });
+    }
+  });
+
+  // Toggle publish/unpublish for a store+week
+  app.post("/api/rosters/publish", async (req: Request, res: Response) => {
+    try {
+      const { storeId, weekStart } = req.body;
+      if (!storeId || !weekStart) return res.status(400).json({ error: "storeId and weekStart are required" });
+      const published = await storage.toggleRosterWeekPublished(storeId, weekStart);
+      res.json({ published });
+    } catch (error) {
+      console.error("Error toggling roster publish status:", error);
+      res.status(500).json({ error: "Failed to toggle publish status" });
+    }
+  });
   // ===== END ROSTER BUILDER ROUTES =====
 
   app.post("/api/time-logs/clock-in", async (req: Request, res: Response) => {

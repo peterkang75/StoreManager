@@ -26,6 +26,8 @@ import {
   Trash2,
   Calendar,
   Plus,
+  Rocket,
+  CheckCircle2,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Store, Employee, Roster } from "@shared/schema";
@@ -385,6 +387,44 @@ export function AdminRosters() {
     },
   });
 
+  // ── Publish status ─────────────────────────────────────────────────────────
+  const publishQueryKey = ["/api/rosters/published", selectedStore, weekStart];
+  const { data: publishData } = useQuery<{ published: boolean }>({
+    queryKey: publishQueryKey,
+    enabled: !!selectedStore,
+    queryFn: async () => {
+      const res = await fetch(`/api/rosters/published?storeId=${selectedStore}&weekStart=${weekStart}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch publish status");
+      return res.json();
+    },
+  });
+  const isPublished = publishData?.published ?? false;
+
+  const publishMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/rosters/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ storeId: selectedStore, weekStart }),
+      });
+      if (!res.ok) throw new Error("Failed to toggle publish");
+      return res.json();
+    },
+    onSuccess: (data: { published: boolean }) => {
+      queryClient.setQueryData(publishQueryKey, data);
+      toast({
+        title: data.published ? "Schedule Published" : "Schedule Unpublished",
+        description: data.published
+          ? "Employees can now view this week's roster."
+          : "The roster is now hidden from employees.",
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   // ── Summary calculations ───────────────────────────────────────────────────
   const empHours = (empId: string) =>
     weekDates.reduce((sum, d) => {
@@ -480,6 +520,30 @@ export function AdminRosters() {
             <Copy className="h-4 w-4 mr-1.5" />
             Copy Prev Week
           </Button>
+
+          {/* Publish / Unpublish toggle */}
+          {selectedStore && (
+            <Button
+              size="sm"
+              variant={isPublished ? "outline" : "default"}
+              onClick={() => publishMutation.mutate()}
+              disabled={publishMutation.isPending}
+              className={isPublished ? "border-green-500 text-green-700 dark:text-green-400" : ""}
+              data-testid="button-publish-roster"
+            >
+              {isPublished ? (
+                <>
+                  <CheckCircle2 className="h-4 w-4 mr-1.5 text-green-600 dark:text-green-400" />
+                  Published — Click to Unpublish
+                </>
+              ) : (
+                <>
+                  <Rocket className="h-4 w-4 mr-1.5" />
+                  Publish Schedule
+                </>
+              )}
+            </Button>
+          )}
         </div>
 
         {/* ── Store hours info ───────────────────────────────────────── */}

@@ -18,8 +18,9 @@ import {
   type SupplierPayment, type InsertSupplierPayment,
   type FinancialTransaction, type InsertFinancialTransaction,
   type Roster, type InsertRoster,
+  type RosterPublication,
   stores, candidates, employees, employeeStoreAssignments, employeeOnboardingTokens, employeeDocuments,
-  rosterPeriods, shifts, rosters, timeLogs, timesheets, payrolls,
+  rosterPeriods, shifts, rosters, rosterPublications, timeLogs, timesheets, payrolls,
   dailyClosings, cashSalesDetails, dailyCloseForms, suppliers, supplierInvoices, supplierPayments,
   financialTransactions,
 } from "@shared/schema";
@@ -126,6 +127,8 @@ export interface IStorage {
   deleteRoster(id: string): Promise<boolean>;
   deleteRostersByStoreAndDateRange(storeId: string, startDate: string, endDate: string): Promise<number>;
   getRostersByEmployeeAndDateRange(employeeId: string, startDate: string, endDate: string): Promise<Roster[]>;
+  isRosterWeekPublished(storeId: string, weekStart: string): Promise<boolean>;
+  toggleRosterWeekPublished(storeId: string, weekStart: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -999,6 +1002,24 @@ export class MemStorage implements IStorage {
   async getRostersByEmployeeAndDateRange(employeeId: string, startDate: string, endDate: string): Promise<Roster[]> {
     return Array.from(this.rostersMap.values()).filter(r => r.employeeId === employeeId && r.date >= startDate && r.date <= endDate);
   }
+
+  private rosterPublicationsMap: Map<string, RosterPublication> = new Map();
+
+  async isRosterWeekPublished(storeId: string, weekStart: string): Promise<boolean> {
+    const key = `${storeId}|${weekStart}`;
+    return Array.from(this.rosterPublicationsMap.values()).some(p => p.storeId === storeId && p.weekStart === weekStart);
+  }
+
+  async toggleRosterWeekPublished(storeId: string, weekStart: string): Promise<boolean> {
+    const existing = Array.from(this.rosterPublicationsMap.values()).find(p => p.storeId === storeId && p.weekStart === weekStart);
+    if (existing) {
+      this.rosterPublicationsMap.delete(existing.id);
+      return false;
+    }
+    const id = randomUUID();
+    this.rosterPublicationsMap.set(id, { id, storeId, weekStart, publishedAt: new Date() });
+    return true;
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1558,6 +1579,25 @@ export class DatabaseStorage implements IStorage {
   async getRostersByEmployeeAndDateRange(employeeId: string, startDate: string, endDate: string): Promise<Roster[]> {
     return db.select().from(rosters)
       .where(and(eq(rosters.employeeId, employeeId), gte(rosters.date, startDate), lte(rosters.date, endDate)));
+  }
+
+  async isRosterWeekPublished(storeId: string, weekStart: string): Promise<boolean> {
+    const [row] = await db.select().from(rosterPublications)
+      .where(and(eq(rosterPublications.storeId, storeId), eq(rosterPublications.weekStart, weekStart)))
+      .limit(1);
+    return !!row;
+  }
+
+  async toggleRosterWeekPublished(storeId: string, weekStart: string): Promise<boolean> {
+    const [existing] = await db.select().from(rosterPublications)
+      .where(and(eq(rosterPublications.storeId, storeId), eq(rosterPublications.weekStart, weekStart)))
+      .limit(1);
+    if (existing) {
+      await db.delete(rosterPublications).where(eq(rosterPublications.id, existing.id));
+      return false;
+    }
+    await db.insert(rosterPublications).values({ storeId, weekStart });
+    return true;
   }
 }
 

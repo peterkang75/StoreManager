@@ -220,6 +220,16 @@ export const insertRosterSchema = createInsertSchema(rosters).omit({
 export type InsertRoster = z.infer<typeof insertRosterSchema>;
 export type Roster = typeof rosters.$inferSelect;
 
+// Tracks which store+week combinations have been published to employees
+export const rosterPublications = pgTable("roster_publications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  weekStart: text("week_start").notNull(),
+  publishedAt: timestamp("published_at").defaultNow().notNull(),
+});
+
+export type RosterPublication = typeof rosterPublications.$inferSelect;
+
 export const timeLogs = pgTable("time_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   employeeId: varchar("employee_id").references(() => employees.id).notNull(),
