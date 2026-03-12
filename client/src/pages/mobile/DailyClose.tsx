@@ -308,6 +308,8 @@ export function MobileDailyClose() {
   }
 
   const assignedIds = session?.storeIds ?? [];
+  const assignedStores = stores?.filter(s => assignedIds.includes(s.id)) ?? [];
+  const availableStores = assignedStores.length > 0 ? assignedStores : (stores?.filter(s => s.active && !s.isExternal) ?? []);
   const lockedStore = storeId && stores ? stores.find(s => s.id === storeId) : null;
   const isStoreLocked = assignedIds.length === 1;
 
@@ -341,7 +343,7 @@ export function MobileDailyClose() {
                     <SelectValue placeholder="Select store" />
                   </SelectTrigger>
                   <SelectContent>
-                    {stores?.filter(s => s.active && !s.isExternal).map(store => (
+                    {availableStores.map(store => (
                       <SelectItem key={store.id} value={store.id}>
                         {store.name}
                       </SelectItem>
