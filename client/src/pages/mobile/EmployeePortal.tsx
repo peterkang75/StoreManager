@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -651,6 +652,7 @@ function UnscheduledTimesheetCard({ item }: { item: UnscheduledTimesheetItem }) 
 
 function HomeTab({ session }: { session: Session }) {
   const today = getTodayStr();
+  const [, navigate] = useLocation();
   const [localTimesheets, setLocalTimesheets] = useState<Record<string, TimesheetInfo>>({});
   const [localUnscheduled, setLocalUnscheduled] = useState<UnscheduledTimesheetItem[]>([]);
   const [unscheduledDrawerOpen, setUnscheduledDrawerOpen] = useState(false);
@@ -772,7 +774,7 @@ function HomeTab({ session }: { session: Session }) {
               type="button"
               data-testid="button-daily-close-report"
               className="w-full flex items-center gap-4 px-4 py-4 hover-elevate active-elevate-2 rounded-md text-left"
-              onClick={() => {}}
+              onClick={() => navigate("/m/daily-close")}
             >
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 shrink-0">
                 <FileText className="h-5 w-5 text-primary" />
