@@ -617,8 +617,8 @@ function UnscheduledTimesheetCard({ item }: { item: UnscheduledTimesheetItem }) 
         {/* Row 1: store name + badges */}
         <div className="flex items-start justify-between gap-2 mb-4">
           <span className="font-semibold text-sm text-muted-foreground">{storeName} Store</span>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className="flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-950 rounded-md px-2 py-1">
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <span className="flex items-center gap-1 text-[11px] font-semibold text-white bg-amber-500 rounded-md px-2 py-1">
               <AlertTriangle className="h-2.5 w-2.5" />
               Unscheduled
             </span>
