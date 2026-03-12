@@ -11,6 +11,7 @@ import {
   Truck,
   FileText,
   ArrowLeftRight,
+  ClipboardCheck,
 } from "lucide-react";
 import {
   Sidebar,
@@ -54,6 +55,11 @@ const operationsNavItems = [
     title: "Rosters",
     url: "/admin/rosters",
     icon: Calendar,
+  },
+  {
+    title: "Approvals",
+    url: "/admin/approvals",
+    icon: ClipboardCheck,
   },
   {
     title: "Timesheets",

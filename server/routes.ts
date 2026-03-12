@@ -2806,5 +2806,89 @@ export async function registerRoutes(
 
   // ===== END EMPLOYEE PORTAL ROUTES =====
 
+  // ===== TIMESHEET APPROVAL ROUTES =====
+
+  // GET /api/admin/approvals — enriched shift timesheets with employee, store, scheduled shift
+  app.get("/api/admin/approvals", async (req: Request, res: Response) => {
+    try {
+      const statusFilter = (req.query.status as string) || "PENDING";
+      const timesheets = await storage.getShiftTimesheets(statusFilter !== "ALL" ? { status: statusFilter } : {});
+      const [allEmployees, allStores, allShifts] = await Promise.all([
+        storage.getEmployees(),
+        storage.getStores(),
+        storage.getShifts(),
+      ]);
+      const enriched = timesheets.map(ts => {
+        const employee = allEmployees.find(e => e.id === ts.employeeId);
+        const store = allStores.find(s => s.id === ts.storeId);
+        const scheduledShift = allShifts.find(s =>
+          s.employeeId === ts.employeeId &&
+          s.storeId === ts.storeId &&
+          s.date === ts.date
+        ) ?? null;
+        return {
+          ...ts,
+          employeeName: employee ? `${employee.firstName} ${employee.lastName}` : "Unknown",
+          employeeNickname: employee?.nickname ?? null,
+          storeName: store?.name ?? "Unknown",
+          storeCode: store?.code ?? "",
+          scheduledStartTime: scheduledShift?.startTime ?? null,
+          scheduledEndTime: scheduledShift?.endTime ?? null,
+        };
+      });
+      res.json(enriched);
+    } catch (err) {
+      console.error("Error fetching approvals:", err);
+      res.status(500).json({ error: "Failed to fetch approvals" });
+    }
+  });
+
+  // PUT /api/admin/approvals/:id/approve — approve as-is
+  app.put("/api/admin/approvals/:id/approve", async (req: Request, res: Response) => {
+    try {
+      const ts = await storage.updateShiftTimesheet(req.params.id, { status: "APPROVED" });
+      if (!ts) return res.status(404).json({ error: "Timesheet not found" });
+      res.json(ts);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to approve timesheet" });
+    }
+  });
+
+  // PUT /api/admin/approvals/:id/edit-approve — edit times then approve
+  app.put("/api/admin/approvals/:id/edit-approve", async (req: Request, res: Response) => {
+    try {
+      const { actualStartTime, actualEndTime, adjustmentReason } = req.body;
+      if (!actualStartTime || !actualEndTime || !adjustmentReason?.trim()) {
+        return res.status(400).json({ error: "actualStartTime, actualEndTime, and adjustmentReason are required" });
+      }
+      const ts = await storage.updateShiftTimesheet(req.params.id, {
+        actualStartTime,
+        actualEndTime,
+        adjustmentReason: adjustmentReason.trim(),
+        status: "APPROVED",
+      });
+      if (!ts) return res.status(404).json({ error: "Timesheet not found" });
+      res.json(ts);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to edit and approve timesheet" });
+    }
+  });
+
+  // POST /api/admin/approvals/bulk-approve — bulk approve by IDs
+  app.post("/api/admin/approvals/bulk-approve", async (req: Request, res: Response) => {
+    try {
+      const { ids } = req.body;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: "ids array is required" });
+      }
+      const results = await Promise.all(ids.map(id => storage.updateShiftTimesheet(id, { status: "APPROVED" })));
+      res.json({ approved: results.filter(Boolean).length });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to bulk approve timesheets" });
+    }
+  });
+
+  // ===== END TIMESHEET APPROVAL ROUTES =====
+
   return httpServer;
 }
