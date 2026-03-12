@@ -447,103 +447,107 @@ export function AdminRosters() {
     <AdminLayout>
       <div className="flex flex-col h-full">
         {/* ── Header bar ───────────────────────────────────────────────── */}
-        <div className="flex items-center gap-3 p-4 border-b flex-wrap">
-          <Calendar className="h-5 w-5 text-muted-foreground" />
-          <h1 className="text-lg font-semibold">Roster Builder</h1>
-
-          <div className="flex-1" />
-
-          {/* Store selector */}
-          <Select value={selectedStore} onValueChange={setSelectedStore} data-testid="select-store">
-            <SelectTrigger className="w-44" data-testid="trigger-store-select">
-              <SelectValue placeholder="Select store…" />
-            </SelectTrigger>
-            <SelectContent>
-              {activeStores.map((s) => (
-                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {/* Week navigator */}
-          <div className="flex items-center gap-1 border rounded-md">
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => {
-                const newStart = addDays(weekStart, -7);
-                setWeekStart(newStart);
-                setSelectedDay(newStart);
-              }}
-              data-testid="button-prev-week"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="text-sm font-medium px-2 whitespace-nowrap" data-testid="text-week-range">
-              {fmtDate(weekStart)} – {fmtDate(weekEnd)}
-            </span>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => {
-                const newStart = addDays(weekStart, 7);
-                setWeekStart(newStart);
-                setSelectedDay(newStart);
-              }}
-              data-testid="button-next-week"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+        <div className="border-b">
+          {/* Row 1: Title + Publish button */}
+          <div className="flex items-center gap-3 px-4 pt-4 pb-2">
+            <Calendar className="h-5 w-5 text-muted-foreground shrink-0" />
+            <h1 className="text-lg font-semibold">Roster Builder</h1>
+            <div className="flex-1" />
+            {/* Publish / Unpublish toggle */}
+            {selectedStore && (
+              <Button
+                size="sm"
+                variant={isPublished ? "outline" : "default"}
+                onClick={() => publishMutation.mutate()}
+                disabled={publishMutation.isPending}
+                className={isPublished ? "border-green-500 text-green-700 dark:text-green-400" : ""}
+                data-testid="button-publish-roster"
+              >
+                {isPublished ? (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 mr-1.5 text-green-600 dark:text-green-400" />
+                    Published — Click to Unpublish
+                  </>
+                ) : (
+                  <>
+                    <Rocket className="h-4 w-4 mr-1.5" />
+                    Publish Schedule
+                  </>
+                )}
+              </Button>
+            )}
           </div>
 
-          {/* Today button */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setWeekStart(getMonday(new Date()));
-              setSelectedDay(new Date().toISOString().split("T")[0]);
-            }}
-            data-testid="button-today"
-          >
-            Today
-          </Button>
+          {/* Row 2: Store selector + week navigator + Today + Copy */}
+          <div className="flex items-center gap-2 px-4 pb-3 flex-wrap">
+            {/* Store selector */}
+            <Select value={selectedStore} onValueChange={setSelectedStore} data-testid="select-store">
+              <SelectTrigger className="w-44" data-testid="trigger-store-select">
+                <SelectValue placeholder="Select store…" />
+              </SelectTrigger>
+              <SelectContent>
+                {activeStores.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-          {/* Copy previous week */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => copyWeekMutation.mutate()}
-            disabled={!selectedStore || copyWeekMutation.isPending}
-            data-testid="button-copy-week"
-          >
-            <Copy className="h-4 w-4 mr-1.5" />
-            Copy Prev Week
-          </Button>
+            {/* Week navigator */}
+            <div className="flex items-center gap-1 border rounded-md">
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => {
+                  const newStart = addDays(weekStart, -7);
+                  setWeekStart(newStart);
+                  setSelectedDay(newStart);
+                }}
+                data-testid="button-prev-week"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm font-medium px-2 whitespace-nowrap" data-testid="text-week-range">
+                {fmtDate(weekStart)} – {fmtDate(weekEnd)}
+              </span>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => {
+                  const newStart = addDays(weekStart, 7);
+                  setWeekStart(newStart);
+                  setSelectedDay(newStart);
+                }}
+                data-testid="button-next-week"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
 
-          {/* Publish / Unpublish toggle */}
-          {selectedStore && (
+            {/* Today button */}
             <Button
+              variant="outline"
               size="sm"
-              variant={isPublished ? "outline" : "default"}
-              onClick={() => publishMutation.mutate()}
-              disabled={publishMutation.isPending}
-              className={isPublished ? "border-green-500 text-green-700 dark:text-green-400" : ""}
-              data-testid="button-publish-roster"
+              onClick={() => {
+                setWeekStart(getMonday(new Date()));
+                setSelectedDay(new Date().toISOString().split("T")[0]);
+              }}
+              data-testid="button-today"
             >
-              {isPublished ? (
-                <>
-                  <CheckCircle2 className="h-4 w-4 mr-1.5 text-green-600 dark:text-green-400" />
-                  Published — Click to Unpublish
-                </>
-              ) : (
-                <>
-                  <Rocket className="h-4 w-4 mr-1.5" />
-                  Publish Schedule
-                </>
-              )}
+              Today
             </Button>
-          )}
+
+            {/* Copy previous week */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => copyWeekMutation.mutate()}
+              disabled={!selectedStore || copyWeekMutation.isPending}
+              data-testid="button-copy-week"
+            >
+              <Copy className="h-4 w-4 mr-1.5" />
+              Copy Prev Week
+            </Button>
+          </div>
         </div>
 
         {/* ── Store hours info ───────────────────────────────────────── */}
