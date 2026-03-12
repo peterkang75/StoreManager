@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute } from "wouter";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
@@ -16,11 +16,100 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Loader2, Save, User, ExternalLink, Camera, FileImage } from "lucide-react";
+import { ArrowLeft, Loader2, Save, User, ExternalLink, Camera, FileImage, Upload, X } from "lucide-react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Employee, Store, InsertEmployee, EmployeeStoreAssignment } from "@shared/schema";
+
+function FhcUploadSection({ value, onChange }: { value: string | null; onChange: (url: string | null) => void }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const { toast } = useToast();
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      onChange(data.url);
+    } catch {
+      toast({ title: "Upload failed", description: "Could not upload the file.", variant: "destructive" });
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const isImage = value && /\.(jpg|jpeg|png|gif|webp)$/i.test(value);
+  const isPdf = value && /\.pdf$/i.test(value);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <FileImage className="h-4 w-4 text-muted-foreground" />
+        <Label className="font-medium">FHC (Food Handler Certificate)</Label>
+      </div>
+      <div className="flex items-start gap-4">
+        {/* Preview */}
+        {isImage ? (
+          <img
+            src={value!}
+            alt="FHC"
+            className="h-24 w-auto max-w-[160px] rounded-xl object-cover border border-border/40 shrink-0"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+          />
+        ) : (
+          <div className="flex h-24 w-24 items-center justify-center rounded-xl bg-muted border border-border/40 shrink-0">
+            <FileImage className={`h-8 w-8 ${value ? "text-primary" : "text-muted-foreground"}`} />
+          </div>
+        )}
+        <div className="flex-1 space-y-2">
+          {value && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <a
+                href={value}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+              >
+                <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                {isPdf ? "Open PDF" : "Open file"}
+              </a>
+              <button
+                type="button"
+                onClick={() => onChange(null)}
+                className="inline-flex items-center gap-1 text-xs text-destructive hover:underline"
+              >
+                <X className="h-3 w-3" />
+                Remove
+              </button>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground font-mono break-all truncate max-w-xs">{value || "No file uploaded"}</p>
+          <input ref={fileRef} type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" className="hidden" onChange={handleFile} />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            data-testid="button-upload-fhc"
+          >
+            {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Upload className="h-3.5 w-3.5 mr-1.5" />}
+            {uploading ? "Uploading..." : value ? "Replace file" : "Upload file"}
+          </Button>
+          <p className="text-xs text-muted-foreground">JPEG, PNG, WebP or PDF · max 10 MB</p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function FormSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -275,6 +364,63 @@ export function AdminEmployeeDetail() {
                   <Input value={employee.dob ?? ""} disabled className="bg-muted" />
                 </div>
               </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label>Gender</Label>
+                  <Input value={employee.gender ?? ""} disabled className="bg-muted" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Marital Status</Label>
+                  <Input value={employee.maritalStatus ?? ""} disabled className="bg-muted" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Line ID</Label>
+                  <Input
+                    value={currentData.lineId ?? ""}
+                    onChange={(e) => handleFieldChange("lineId", e.target.value || null)}
+                    placeholder="Line ID"
+                    data-testid="input-line-id"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label>Visa Type</Label>
+                  <Input value={employee.visaType ?? ""} disabled className="bg-muted" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Visa Expiry</Label>
+                  <Input value={employee.visaExpiry ?? ""} disabled className="bg-muted" />
+                </div>
+              </div>
+              {/* Address */}
+              <div className="pt-1 border-t border-border/40">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">Address</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Street Address</Label>
+                    <Input value={employee.streetAddress ?? ""} disabled className="bg-muted" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Street Address 2</Label>
+                    <Input value={employee.streetAddress2 ?? ""} disabled className="bg-muted" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                  <div className="space-y-2">
+                    <Label>Suburb</Label>
+                    <Input value={employee.suburb ?? ""} disabled className="bg-muted" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>State</Label>
+                    <Input value={employee.state ?? ""} disabled className="bg-muted" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Post Code</Label>
+                    <Input value={employee.postCode ?? ""} disabled className="bg-muted" />
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
@@ -349,40 +495,10 @@ export function AdminEmployeeDetail() {
               </div>
 
               {/* FHC Document */}
-              {currentData.fhc && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <ExternalLink className="h-4 w-4 text-muted-foreground" />
-                    <Label className="font-medium">FHC Document</Label>
-                  </div>
-                  <div className="flex items-start gap-4">
-                    {/\.(jpg|jpeg|png|gif|webp)$/i.test(currentData.fhc) ? (
-                      <img
-                        src={currentData.fhc}
-                        alt="FHC"
-                        className="h-24 w-auto max-w-[160px] rounded-xl object-cover border border-border/40 shrink-0"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                      />
-                    ) : (
-                      <div className="flex h-24 w-24 items-center justify-center rounded-xl bg-muted border border-border/40 shrink-0">
-                        <FileImage className="h-8 w-8 text-muted-foreground" />
-                      </div>
-                    )}
-                    <div className="flex-1 space-y-1.5">
-                      <a
-                        href={currentData.fhc}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline break-all"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                        Open document
-                      </a>
-                      <p className="text-xs text-muted-foreground font-mono break-all">{currentData.fhc}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
+              <FhcUploadSection
+                value={currentData.fhc ?? null}
+                onChange={(url) => handleFieldChange("fhc", url)}
+              />
             </CardContent>
           </Card>
 

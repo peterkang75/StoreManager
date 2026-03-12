@@ -1,3 +1,4 @@
+import express from "express";
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage, generateSecureToken } from "./storage";
@@ -54,7 +55,24 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  
+
+  app.use("/uploads", (_req, res, next) => {
+    res.setHeader("Cache-Control", "public, max-age=31536000");
+    next();
+  }, express.static(uploadDir));
+
+  app.post("/api/upload", upload.single("file"), async (req: Request, res: Response) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+      const protocol = req.protocol;
+      const host = req.get("host");
+      const url = `${protocol}://${host}/uploads/${req.file.filename}`;
+      res.json({ url, filename: req.file.filename, originalName: req.file.originalname, size: req.file.size });
+    } catch (error) {
+      res.status(500).json({ error: "Upload failed" });
+    }
+  });
+
   app.get("/api/stores", async (req: Request, res: Response) => {
     try {
       const stores = await storage.getStores();
