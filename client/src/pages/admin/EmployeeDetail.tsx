@@ -402,6 +402,48 @@ export function AdminEmployeeDetail() {
 
           <Card>
             <CardHeader>
+              <CardTitle className="text-base">Portal Access</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="role">Role</Label>
+                  <Select
+                    value={currentData.role ?? "EMPLOYEE"}
+                    onValueChange={(value) => handleFieldChange("role", value)}
+                  >
+                    <SelectTrigger data-testid="select-role">
+                      <SelectValue placeholder="Select role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="OWNER">Owner</SelectItem>
+                      <SelectItem value="MANAGER">Manager</SelectItem>
+                      <SelectItem value="EMPLOYEE">Employee</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="pin">4-Digit PIN</Label>
+                  <Input
+                    id="pin"
+                    value={currentData.pin ?? ""}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, "").slice(0, 4);
+                      handleFieldChange("pin", val || null);
+                    }}
+                    placeholder="e.g., 1234"
+                    maxLength={4}
+                    inputMode="numeric"
+                    data-testid="input-pin"
+                  />
+                  <p className="text-xs text-muted-foreground">모바일 앱 접속용 4자리 숫자 PIN</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle className="text-base">Banking Information</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">

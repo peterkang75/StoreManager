@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { MobileLayout } from "@/components/layouts/MobileLayout";
 import { Button } from "@/components/ui/button";
@@ -15,53 +15,154 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Wallet, CheckCircle2, Loader2, AlertTriangle } from "lucide-react";
+import { useMobileSession } from "@/hooks/use-mobile-session";
+import {
+  Wallet,
+  CheckCircle2,
+  Loader2,
+  AlertTriangle,
+  KeyRound,
+  LogOut,
+} from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Store } from "@shared/schema";
 
-const ALL_DENOMS = [
+const NOTE_DENOMS = [
   { key: "note100Count", label: "$100", value: 100 },
   { key: "note50Count",  label: "$50",  value: 50 },
   { key: "note20Count",  label: "$20",  value: 20 },
   { key: "note10Count",  label: "$10",  value: 10 },
   { key: "note5Count",   label: "$5",   value: 5 },
-  { key: "coin2Count",   label: "$2",   value: 2 },
-  { key: "coin1Count",   label: "$1",   value: 1 },
-  { key: "coin050Count", label: "50c",  value: 0.5 },
-  { key: "coin020Count", label: "20c",  value: 0.2 },
-  { key: "coin010Count", label: "10c",  value: 0.1 },
-  { key: "coin005Count", label: "5c",   value: 0.05 },
 ] as const;
 
-type DenomCounts = Record<typeof ALL_DENOMS[number]["key"], number>;
+type NoteDenomKey = typeof NOTE_DENOMS[number]["key"];
+type NoteCounts = Record<NoteDenomKey, number>;
 
-function emptyDenoms(): DenomCounts {
-  const d = {} as DenomCounts;
-  for (const denom of ALL_DENOMS) d[denom.key] = 0;
-  return d;
+function emptyNotes(): NoteCounts {
+  return {
+    note100Count: 0,
+    note50Count: 0,
+    note20Count: 0,
+    note10Count: 0,
+    note5Count: 0,
+  };
+}
+
+function PinEntry({ onSuccess }: { onSuccess: () => void }) {
+  const { toast } = useToast();
+  const { setSession } = useMobileSession();
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const handleDigit = (d: string) => {
+    if (pin.length >= 4) return;
+    const next = pin + d;
+    setPin(next);
+    setError("");
+    if (next.length === 4) submit(next);
+  };
+
+  const submit = async (p: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/mobile/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: p }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPin("");
+        setError(data.error || "PIN이 올바르지 않습니다");
+        setLoading(false);
+        return;
+      }
+      setSession(data);
+      onSuccess();
+    } catch {
+      setPin("");
+      setError("네트워크 오류가 발생했습니다");
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 gap-8">
+      <div className="text-center">
+        <KeyRound className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+        <h1 className="text-2xl font-bold">Daily Close</h1>
+        <p className="text-muted-foreground mt-1">PIN을 입력하세요</p>
+      </div>
+
+      <div className="flex gap-3">
+        {[0, 1, 2, 3].map(i => (
+          <div
+            key={i}
+            className={`w-14 h-14 rounded-md border-2 flex items-center justify-center text-2xl font-bold transition-colors ${
+              pin.length > i ? "border-primary bg-primary/10" : "border-border"
+            }`}
+          >
+            {pin.length > i ? "•" : ""}
+          </div>
+        ))}
+      </div>
+
+      {error && (
+        <p className="text-destructive text-sm font-medium -mt-4">{error}</p>
+      )}
+
+      <div className="grid grid-cols-3 gap-3 w-full max-w-xs">
+        {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((d, i) => (
+          <Button
+            key={i}
+            variant={d === "" ? "ghost" : "outline"}
+            className="h-16 text-xl font-semibold"
+            disabled={loading || d === ""}
+            onClick={() => {
+              if (d === "⌫") { setPin(p => p.slice(0, -1)); setError(""); }
+              else if (d) handleDigit(d);
+            }}
+            data-testid={d === "⌫" ? "button-backspace" : d ? `button-digit-${d}` : undefined}
+          >
+            {loading && d === "0" ? <Loader2 className="w-5 h-5 animate-spin" /> : d}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function MobileDailyClose() {
   const { toast } = useToast();
-  const [storeId, setStoreId] = useState<string>("");
+  const { session, clearSession } = useMobileSession();
+  const [pinDone, setPinDone] = useState(!!session);
+
+  const [storeId, setStoreId] = useState<string>(() => session?.storeId ?? "");
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [submitted, setSubmitted] = useState(false);
-  const [submitterName, setSubmitterName] = useState("");
 
-  const [closingForm, setClosingForm] = useState({
+  const [form, setForm] = useState({
     staffNames: "",
     previousFloat: 0,
     salesTotal: 0,
     cashSales: 0,
-    cashOut: 0,
+    cashOutTotal: 0,
+    numberOfReceipts: 0,
     nextFloat: 0,
     ubereatsAmount: 0,
     doordashAmount: 0,
     notes: "",
   });
 
-  const [denoms, setDenoms] = useState<DenomCounts>(emptyDenoms);
-  const [envelopeAmount, setEnvelopeAmount] = useState(0);
+  const [notes, setNotes] = useState<NoteCounts>(emptyNotes);
+
+  useEffect(() => {
+    if (session?.storeId) setStoreId(session.storeId);
+  }, [session]);
 
   const { data: stores, isLoading: storesLoading } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
@@ -69,21 +170,21 @@ export function MobileDailyClose() {
 
   const totalCounted = useMemo(() => {
     let sum = 0;
-    for (const d of ALL_DENOMS) sum += (denoms[d.key] || 0) * d.value;
+    for (const d of NOTE_DENOMS) sum += (notes[d.key] || 0) * d.value;
     return Math.round(sum * 100) / 100;
-  }, [denoms]);
+  }, [notes]);
 
-  const expectedCash = closingForm.previousFloat + closingForm.cashSales - closingForm.cashOut;
-  const differenceAmount = expectedCash - totalCounted;
-  const creditAmount = totalCounted - closingForm.nextFloat;
-  const envelopeDiff = totalCounted - envelopeAmount;
+  // expectedCredit = Prev Float + Cash Sales - Cash Out Total - Next Float
+  const expectedCredit = form.previousFloat + form.cashSales - form.cashOutTotal - form.nextFloat;
+  // difference = Expected Credit - Counted Total (shortage is positive)
+  const differenceAmount = expectedCredit - totalCounted;
 
-  const updateDenom = (key: typeof ALL_DENOMS[number]["key"], val: string) => {
-    setDenoms(prev => ({ ...prev, [key]: parseInt(val) || 0 }));
+  const updateNote = (key: NoteDenomKey, val: string) => {
+    setNotes(prev => ({ ...prev, [key]: parseInt(val) || 0 }));
   };
 
-  const updateClosing = (field: string, value: string) => {
-    setClosingForm(prev => ({ ...prev, [field]: parseFloat(value) || 0 }));
+  const updateForm = (field: string, value: string) => {
+    setForm(prev => ({ ...prev, [field]: parseFloat(value) || 0 }));
   };
 
   const submitMutation = useMutation({
@@ -91,28 +192,37 @@ export function MobileDailyClose() {
       const closingData = {
         storeId,
         date,
-        staffNames: closingForm.staffNames || null,
-        previousFloat: closingForm.previousFloat,
-        salesTotal: closingForm.salesTotal,
-        cashSales: closingForm.cashSales,
-        cashOut: closingForm.cashOut,
-        nextFloat: closingForm.nextFloat,
+        staffNames: form.staffNames || null,
+        previousFloat: form.previousFloat,
+        salesTotal: form.salesTotal,
+        cashSales: form.cashSales,
+        cashOut: form.cashOutTotal,
+        nextFloat: form.nextFloat,
         actualCashCounted: totalCounted,
         differenceAmount,
-        creditAmount,
-        ubereatsAmount: closingForm.ubereatsAmount,
-        doordashAmount: closingForm.doordashAmount,
-        notes: closingForm.notes || null,
+        creditAmount: expectedCredit,
+        ubereatsAmount: form.ubereatsAmount,
+        doordashAmount: form.doordashAmount,
+        notes: form.notes || null,
       };
 
+      // envelopeAmount = expectedCredit (for CashSalesEntry auto-fill mapping)
       const closeFormData = {
         storeId,
         date,
-        submitterName: submitterName || null,
-        envelopeAmount,
+        submitterName: session?.name || null,
+        envelopeAmount: expectedCredit,
         totalCalculated: totalCounted,
-        notes: closingForm.notes || null,
-        ...denoms,
+        numberOfReceipts: form.numberOfReceipts,
+        notes: form.notes || null,
+        ...notes,
+        // coin fields default to 0 (still in DB schema, just not entered)
+        coin2Count: 0,
+        coin1Count: 0,
+        coin050Count: 0,
+        coin020Count: 0,
+        coin010Count: 0,
+        coin005Count: 0,
       };
 
       await apiRequest("POST", "/api/daily-closings", closingData);
@@ -133,21 +243,24 @@ export function MobileDailyClose() {
 
   const resetForm = () => {
     setSubmitted(false);
-    setSubmitterName("");
-    setClosingForm({
+    setForm({
       staffNames: "",
       previousFloat: 0,
       salesTotal: 0,
       cashSales: 0,
-      cashOut: 0,
+      cashOutTotal: 0,
+      numberOfReceipts: 0,
       nextFloat: 0,
       ubereatsAmount: 0,
       doordashAmount: 0,
       notes: "",
     });
-    setDenoms(emptyDenoms());
-    setEnvelopeAmount(0);
+    setNotes(emptyNotes());
   };
+
+  if (!pinDone) {
+    return <PinEntry onSuccess={() => setPinDone(true)} />;
+  }
 
   if (storesLoading) {
     return (
@@ -168,38 +281,64 @@ export function MobileDailyClose() {
             <CheckCircle2 className="w-16 h-16 mx-auto mb-4 text-green-600" />
             <h2 className="text-2xl font-bold mb-2" data-testid="text-success-title">Submitted!</h2>
             <p className="text-muted-foreground mb-6">일일 마감이 성공적으로 기록되었습니다.</p>
-            <Button onClick={resetForm} className="w-full h-12" data-testid="button-new-close">
-              Submit Another
-            </Button>
+            <div className="space-y-3">
+              <Button onClick={resetForm} className="w-full h-12" data-testid="button-new-close">
+                Submit Another
+              </Button>
+              <Button variant="outline" className="w-full h-12" onClick={() => {
+                clearSession();
+                setPinDone(false);
+              }} data-testid="button-logout">
+                <LogOut className="w-4 h-4 mr-2" />
+                Sign Out
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </MobileLayout>
     );
   }
 
-  const NOTE_DENOMS = ALL_DENOMS.filter(d => d.value >= 5);
-  const COIN_DENOMS = ALL_DENOMS.filter(d => d.value < 5);
+  const sessionStore = session?.storeId ? stores?.find(s => s.id === session.storeId) : null;
 
   return (
     <MobileLayout title="Daily Close">
       <div className="space-y-4 pb-24">
-        {/* Basic Info */}
+        {/* Session Info Banner */}
+        <div className="flex items-center justify-between px-1">
+          <div>
+            <p className="text-sm font-semibold">{session?.name ?? "Unknown"}</p>
+            <p className="text-xs text-muted-foreground capitalize">{(session?.role ?? "").toLowerCase()}</p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => { clearSession(); setPinDone(false); }} data-testid="button-signout">
+            <LogOut className="w-4 h-4 mr-1" />
+            Sign Out
+          </Button>
+        </div>
+
+        {/* Store & Date */}
         <Card>
           <CardContent className="p-4 space-y-4">
             <div className="space-y-2">
               <Label>Store</Label>
-              <Select value={storeId} onValueChange={setStoreId}>
-                <SelectTrigger className="h-12 text-base" data-testid="select-store">
-                  <SelectValue placeholder="Select store" />
-                </SelectTrigger>
-                <SelectContent>
-                  {stores?.filter(s => s.active && !s.isExternal).map(store => (
-                    <SelectItem key={store.id} value={store.id}>
-                      {store.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {sessionStore ? (
+                <div className="h-12 flex items-center px-3 rounded-md border bg-muted text-base font-medium" data-testid="text-store-locked">
+                  {sessionStore.name}
+                </div>
+              ) : (
+                <Select value={storeId} onValueChange={setStoreId}>
+                  <SelectTrigger className="h-12 text-base" data-testid="select-store">
+                    <SelectValue placeholder="Select store" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {stores?.filter(s => s.active && !s.isExternal).map(store => (
+                      <SelectItem key={store.id} value={store.id}>
+                        {store.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -215,23 +354,18 @@ export function MobileDailyClose() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="submitter">Submitted By</Label>
-              <Input
-                id="submitter"
-                value={submitterName}
-                onChange={(e) => setSubmitterName(e.target.value)}
-                placeholder="Your name"
-                className="h-12 text-base"
-                data-testid="input-submitter"
-              />
+              <Label>Submitted By</Label>
+              <div className="h-12 flex items-center px-3 rounded-md border bg-muted text-base" data-testid="text-submitter-locked">
+                {session?.name ?? "—"}
+              </div>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="staff">Staff on Duty</Label>
               <Textarea
                 id="staff"
-                value={closingForm.staffNames}
-                onChange={(e) => setClosingForm({...closingForm, staffNames: e.target.value})}
+                value={form.staffNames}
+                onChange={(e) => setForm({ ...form, staffNames: e.target.value })}
                 placeholder="Enter staff names"
                 className="text-base"
                 data-testid="input-staff"
@@ -250,10 +384,9 @@ export function MobileDailyClose() {
             <div className="grid grid-cols-2 gap-4">
               {[
                 { id: "previousFloat", label: "Previous Float" },
-                { id: "salesTotal", label: "Sales Total" },
-                { id: "cashSales", label: "Cash Sales" },
-                { id: "cashOut", label: "Cash Out" },
-                { id: "nextFloat", label: "Next Float" },
+                { id: "salesTotal",    label: "Sales Total" },
+                { id: "cashSales",     label: "Cash Sales" },
+                { id: "nextFloat",     label: "Next Float" },
               ].map(({ id, label }) => (
                 <div key={id} className="space-y-2">
                   <Label htmlFor={id}>{label}</Label>
@@ -261,8 +394,8 @@ export function MobileDailyClose() {
                     id={id}
                     type="number"
                     step="0.01"
-                    value={(closingForm as any)[id] || ""}
-                    onChange={(e) => updateClosing(id, e.target.value)}
+                    value={(form as any)[id] || ""}
+                    onChange={(e) => updateForm(id, e.target.value)}
                     className="h-12 text-base"
                     data-testid={`input-${id}`}
                   />
@@ -272,13 +405,41 @@ export function MobileDailyClose() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
+                <Label htmlFor="cashOutTotal">Cash Out Total</Label>
+                <Input
+                  id="cashOutTotal"
+                  type="number"
+                  step="0.01"
+                  value={form.cashOutTotal || ""}
+                  onChange={(e) => updateForm("cashOutTotal", e.target.value)}
+                  className="h-12 text-base"
+                  data-testid="input-cashOutTotal"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="numberOfReceipts">No. of Receipts</Label>
+                <Input
+                  id="numberOfReceipts"
+                  type="number"
+                  step="1"
+                  min="0"
+                  value={form.numberOfReceipts || ""}
+                  onChange={(e) => setForm(prev => ({ ...prev, numberOfReceipts: parseInt(e.target.value) || 0 }))}
+                  className="h-12 text-base"
+                  data-testid="input-numberOfReceipts"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
                 <Label htmlFor="ubereats">UberEats</Label>
                 <Input
                   id="ubereats"
                   type="number"
                   step="0.01"
-                  value={closingForm.ubereatsAmount || ""}
-                  onChange={(e) => updateClosing("ubereatsAmount", e.target.value)}
+                  value={form.ubereatsAmount || ""}
+                  onChange={(e) => updateForm("ubereatsAmount", e.target.value)}
                   className="h-12 text-base"
                   data-testid="input-ubereats"
                 />
@@ -289,8 +450,8 @@ export function MobileDailyClose() {
                   id="doordash"
                   type="number"
                   step="0.01"
-                  value={closingForm.doordashAmount || ""}
-                  onChange={(e) => updateClosing("doordashAmount", e.target.value)}
+                  value={form.doordashAmount || ""}
+                  onChange={(e) => updateForm("doordashAmount", e.target.value)}
                   className="h-12 text-base"
                   data-testid="input-doordash"
                 />
@@ -299,84 +460,40 @@ export function MobileDailyClose() {
           </CardContent>
         </Card>
 
-        {/* Cash Count */}
+        {/* Notes Count */}
         <Card>
           <CardContent className="p-4 space-y-4">
             <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
-              Cash Count
+              Note Count
             </h3>
 
-            <div className="space-y-2">
-              <Label htmlFor="envelope">Envelope Amount (POS Total)</Label>
-              <Input
-                id="envelope"
-                type="number"
-                step="0.01"
-                value={envelopeAmount || ""}
-                onChange={(e) => setEnvelopeAmount(parseFloat(e.target.value) || 0)}
-                className="h-12 text-base"
-                data-testid="input-envelope"
-              />
+            <div className="grid grid-cols-5 gap-2">
+              {NOTE_DENOMS.map(d => (
+                <div key={d.key} className="space-y-1 text-center">
+                  <Label className="text-xs font-semibold">{d.label}</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={notes[d.key] || ""}
+                    onChange={(e) => updateNote(d.key, e.target.value)}
+                    className="h-14 text-center text-lg font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                    data-testid={`input-${d.key}`}
+                  />
+                  {notes[d.key] > 0 && (
+                    <p className="text-[10px] text-muted-foreground tabular-nums">
+                      ${(notes[d.key] * d.value).toFixed(0)}
+                    </p>
+                  )}
+                </div>
+              ))}
             </div>
 
-            <div>
-              <p className="text-xs text-muted-foreground mb-2 font-medium">Notes</p>
-              <div className="grid grid-cols-5 gap-2">
-                {NOTE_DENOMS.map(d => (
-                  <div key={d.key} className="space-y-1 text-center">
-                    <Label className="text-xs font-semibold">{d.label}</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={denoms[d.key] || ""}
-                      onChange={(e) => updateDenom(d.key, e.target.value)}
-                      className="h-12 text-center text-base [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
-                      data-testid={`input-${d.key}`}
-                    />
-                    {denoms[d.key] > 0 && (
-                      <p className="text-[10px] text-muted-foreground tabular-nums">
-                        ${(denoms[d.key] * d.value).toFixed(0)}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <p className="text-xs text-muted-foreground mb-2 font-medium">Coins</p>
-              <div className="grid grid-cols-4 gap-2">
-                {COIN_DENOMS.map(d => (
-                  <div key={d.key} className="space-y-1 text-center">
-                    <Label className="text-xs font-semibold">{d.label}</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={denoms[d.key] || ""}
-                      onChange={(e) => updateDenom(d.key, e.target.value)}
-                      className="h-12 text-center text-base [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
-                      data-testid={`input-${d.key}`}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="p-3 bg-muted rounded-md space-y-2">
+            <div className="p-3 bg-muted rounded-md">
               <div className="flex justify-between gap-1">
                 <span className="text-muted-foreground text-sm">Counted Total:</span>
-                <span className="font-bold text-lg" data-testid="text-counted-total">${totalCounted.toFixed(2)}</span>
+                <span className="font-bold text-xl" data-testid="text-counted-total">${totalCounted.toFixed(2)}</span>
               </div>
-              {envelopeAmount > 0 && (
-                <div className="flex justify-between gap-1">
-                  <span className="text-muted-foreground text-sm">Envelope Diff:</span>
-                  <span className={`font-semibold ${envelopeDiff !== 0 ? (envelopeDiff > 0 ? "text-green-600" : "text-red-600") : ""}`} data-testid="text-envelope-diff">
-                    {envelopeDiff > 0 ? "+" : ""}${envelopeDiff.toFixed(2)}
-                  </span>
-                </div>
-              )}
             </div>
           </CardContent>
         </Card>
@@ -385,42 +502,42 @@ export function MobileDailyClose() {
         <Card>
           <CardContent className="p-4 space-y-3">
             <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
-              Reconciliation Summary
+              Reconciliation
             </h3>
 
             <div className="p-4 bg-muted rounded-md space-y-3">
-              <div className="flex justify-between gap-1">
-                <span className="font-semibold">Expected Cash:</span>
-                <span className="font-bold text-lg" data-testid="text-expected-cash">${expectedCash.toFixed(2)}</span>
+              <div className="space-y-1">
+                <div className="flex justify-between gap-1">
+                  <span className="font-semibold">Expected Credit:</span>
+                  <span className="font-bold text-xl" data-testid="text-expected-credit">${expectedCredit.toFixed(2)}</span>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Prev Float + Cash Sales − Cash Out − Next Float
+                </div>
+                <div className="text-xs text-muted-foreground font-mono">
+                  ${form.previousFloat.toFixed(2)} + ${form.cashSales.toFixed(2)} − ${form.cashOutTotal.toFixed(2)} − ${form.nextFloat.toFixed(2)}
+                </div>
               </div>
-              <div className="text-xs text-muted-foreground -mt-2">Prev Float + Cash Sales − Cash Out</div>
 
               <div className="border-t pt-3">
                 <div className="flex justify-between gap-1 items-center">
                   <span className="font-semibold">Difference:</span>
                   <span
-                    className={`font-bold text-lg ${differenceAmount > 0 ? "text-red-600" : differenceAmount < 0 ? "text-green-600" : ""}`}
+                    className={`font-bold text-xl ${differenceAmount > 0.005 ? "text-red-600" : differenceAmount < -0.005 ? "text-green-600" : ""}`}
                     data-testid="text-difference"
                   >
-                    ${differenceAmount.toFixed(2)}
-                    {differenceAmount > 0 && <span className="text-xs ml-1">(Shortage)</span>}
-                    {differenceAmount < 0 && <span className="text-xs ml-1">(Overage)</span>}
+                    {differenceAmount > 0.005 && "+"}${differenceAmount.toFixed(2)}
+                    {differenceAmount > 0.005 && <span className="text-xs ml-1">(Shortage)</span>}
+                    {differenceAmount < -0.005 && <span className="text-xs ml-1">(Overage)</span>}
                   </span>
                 </div>
-                {differenceAmount > 0 && (
-                  <div className="flex items-center gap-1 mt-1 text-red-600 text-xs">
-                    <AlertTriangle className="w-3 h-3" />
+                <div className="text-xs text-muted-foreground">Expected Credit − Counted Total</div>
+                {differenceAmount > 0.005 && (
+                  <div className="flex items-center gap-1 mt-2 text-red-600 text-sm">
+                    <AlertTriangle className="w-4 h-4" />
                     <span>현금 부족이 감지되었습니다</span>
                   </div>
                 )}
-              </div>
-
-              <div className="border-t pt-3">
-                <div className="flex justify-between gap-1">
-                  <span className="font-semibold">Credit Amount:</span>
-                  <span className="font-bold text-lg" data-testid="text-credit">${creditAmount.toFixed(2)}</span>
-                </div>
-                <div className="text-xs text-muted-foreground">Actual Cash − Next Float</div>
               </div>
             </div>
           </CardContent>
@@ -433,8 +550,8 @@ export function MobileDailyClose() {
               <Label htmlFor="notes">Notes</Label>
               <Textarea
                 id="notes"
-                value={closingForm.notes}
-                onChange={(e) => setClosingForm({...closingForm, notes: e.target.value})}
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
                 placeholder="Any additional notes..."
                 className="text-base"
                 data-testid="input-notes"

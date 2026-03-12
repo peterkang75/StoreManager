@@ -194,11 +194,18 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
       } else {
         const closeForm = closeFormsData?.find((f) => f.date === date);
         if (closeForm) {
+          // envelopeAmount in dailyCloseForms = expectedCredit (Prev Float + Cash Sales - Cash Out - Next Float)
+          const expectedCredit = typeof closeForm.envelopeAmount === "string"
+            ? parseFloat(closeForm.envelopeAmount) || 0
+            : (closeForm.envelopeAmount ?? 0);
+          const countedTotal = typeof closeForm.totalCalculated === "string"
+            ? parseFloat(closeForm.totalCalculated) || 0
+            : (closeForm.totalCalculated ?? 0);
           const row: RowData = {
             date,
-            envelopeAmount: parseFloat(closeForm.envelopeAmount ?? "0") || 0,
-            countedAmount: parseFloat(closeForm.totalCalculated ?? "0") || 0,
-            differenceAmount: (parseFloat(closeForm.totalCalculated ?? "0") || 0) - (parseFloat(closeForm.envelopeAmount ?? "0") || 0),
+            envelopeAmount: expectedCredit,
+            countedAmount: countedTotal,
+            differenceAmount: Math.round((expectedCredit - countedTotal) * 100) / 100,
             memo: closeForm.notes ?? "",
           };
           for (const denom of ALL_DENOMINATIONS) {
@@ -556,14 +563,14 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                   <tr
                     key={idx}
                     className={`
-                      ${isSunday ? "bg-red-50/40 dark:bg-red-950/20" : ""}
+                      ${isSunday && !isAutoFilled ? "bg-red-50/40 dark:bg-red-950/20" : ""}
                       ${isWeekEnd ? "border-b-2 border-b-border" : ""}
-                      ${isAutoFilled ? "bg-blue-50/40 dark:bg-blue-950/20" : ""}
+                      ${isAutoFilled ? "bg-blue-100/70 dark:bg-blue-900/30" : ""}
                     `}
                     data-testid={`row-cashsales-${idx}`}
                     title={isAutoFilled ? "Auto-filled from daily close form" : undefined}
                   >
-                    <td className="sticky left-0 bg-background z-10 px-0.5 py-0.5 border-b border-r">
+                    <td className={`sticky left-0 z-10 px-0.5 py-0.5 border-b border-r ${isAutoFilled ? "bg-blue-100/70 dark:bg-blue-900/30" : "bg-background"}`}>
                       <Input
                         type="text"
                         inputMode="numeric"

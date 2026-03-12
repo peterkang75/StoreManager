@@ -373,6 +373,29 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/mobile/auth", async (req: Request, res: Response) => {
+    try {
+      const { pin } = req.body;
+      if (!pin || typeof pin !== "string" || !/^\d{4}$/.test(pin)) {
+        return res.status(400).json({ error: "Valid 4-digit PIN required" });
+      }
+      const employees = await storage.getEmployees({ status: "ACTIVE" });
+      const match = employees.find((e: any) => e.pin === pin);
+      if (!match) {
+        return res.status(401).json({ error: "PIN not recognised" });
+      }
+      res.json({
+        id: match.id,
+        name: match.nickname || `${match.firstName} ${match.lastName}`,
+        role: match.role ?? "EMPLOYEE",
+        storeId: match.storeId ?? null,
+      });
+    } catch (error) {
+      console.error("Error in mobile auth:", error);
+      res.status(500).json({ error: "Authentication failed" });
+    }
+  });
+
   app.get("/api/employees", async (req: Request, res: Response) => {
     try {
       const filters: { storeId?: string; status?: string; keyword?: string } = {};

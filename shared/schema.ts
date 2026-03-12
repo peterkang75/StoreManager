@@ -354,6 +354,7 @@ export const dailyCloseForms = pgTable("daily_close_forms", {
   coin020Count: integer("coin_020_count").default(0).notNull(),
   coin010Count: integer("coin_010_count").default(0).notNull(),
   coin005Count: integer("coin_005_count").default(0).notNull(),
+  numberOfReceipts: integer("number_of_receipts").default(0).notNull(),
   totalCalculated: real("total_calculated").default(0).notNull(),
   envelopeAmount: real("envelope_amount").default(0).notNull(),
   notes: text("notes"),
