@@ -756,7 +756,7 @@ export function AdminTimesheetApprovals() {
           <Button
             variant="outline"
             className="h-9 gap-2 text-sm shrink-0"
-            onClick={() => navigate("/admin/payrolls")}
+            onClick={() => navigate(`/admin/weekly-payroll?weekStart=${weekStart}`)}
             data-testid="button-goto-payroll"
           >
             <DollarSign className="h-4 w-4 text-primary" />

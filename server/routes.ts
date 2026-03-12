@@ -2890,5 +2890,109 @@ export async function registerRoutes(
 
   // ===== END TIMESHEET APPROVAL ROUTES =====
 
+  // ── Weekly Payroll Summary ──────────────────────────────────────────────────
+  // GET /api/admin/weekly-payroll?weekStart=YYYY-MM-DD[&storeId=]
+  // Returns approved shiftTimesheets for the Mon-Sun week, enriched with
+  // employee hourly rate and calculated gross pay.
+  app.get("/api/admin/weekly-payroll", async (req: Request, res: Response) => {
+    try {
+      const { weekStart, storeId } = req.query as { weekStart?: string; storeId?: string };
+
+      if (!weekStart || !/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) {
+        return res.status(400).json({ error: "weekStart (YYYY-MM-DD) is required" });
+      }
+
+      // Calculate weekEnd = weekStart + 6 days (Sunday, inclusive through 23:59:59)
+      const startD = new Date(weekStart + "T00:00:00");
+      const endD = new Date(startD);
+      endD.setDate(startD.getDate() + 6);
+      const weekEnd = endD.toISOString().slice(0, 10);
+
+      // Fetch all approved shiftTimesheets, optionally filtered by store
+      const filters: { status: string; storeId?: string } = { status: "APPROVED" };
+      if (storeId && storeId !== "ALL") filters.storeId = storeId;
+      const allApproved = await storage.getShiftTimesheets(filters);
+
+      // Filter to week range (date strings sort lexicographically as ISO dates)
+      const weekTimesheets = allApproved.filter(ts => ts.date >= weekStart && ts.date <= weekEnd);
+
+      const [allEmployees, allStores] = await Promise.all([
+        storage.getEmployees(),
+        storage.getStores(),
+      ]);
+
+      const calcHoursFromTimes = (start: string, end: string): number => {
+        const [sh, sm] = start.split(":").map(Number);
+        const [eh, em] = end.split(":").map(Number);
+        const diff = (eh * 60 + em) - (sh * 60 + sm);
+        return diff < 0 ? (diff + 1440) / 60 : diff / 60;
+      };
+
+      const enriched = weekTimesheets.map(ts => {
+        const employee = allEmployees.find(e => e.id === ts.employeeId);
+        const store = allStores.find(s => s.id === ts.storeId);
+        const rate = parseFloat(employee?.rate || "0");
+        const hours = Math.round(calcHoursFromTimes(ts.actualStartTime, ts.actualEndTime) * 100) / 100;
+        const grossPay = Math.round(hours * rate * 100) / 100;
+
+        return {
+          id: ts.id,
+          date: ts.date,
+          storeId: ts.storeId,
+          storeName: store?.name ?? "Unknown",
+          storeCode: store?.code ?? "",
+          employeeId: ts.employeeId,
+          employeeName: employee ? `${employee.firstName} ${employee.lastName}` : "Unknown",
+          employeeNickname: employee?.nickname ?? null,
+          actualStartTime: ts.actualStartTime,
+          actualEndTime: ts.actualEndTime,
+          adjustmentReason: ts.adjustmentReason,
+          isUnscheduled: ts.isUnscheduled,
+          hours,
+          rate,
+          grossPay,
+        };
+      });
+
+      // Sort by store then date then employee
+      enriched.sort((a, b) => {
+        if (a.storeName !== b.storeName) return a.storeName.localeCompare(b.storeName);
+        if (a.date !== b.date) return a.date.localeCompare(b.date);
+        return a.employeeName.localeCompare(b.employeeName);
+      });
+
+      const totalHours = Math.round(enriched.reduce((s, t) => s + t.hours, 0) * 100) / 100;
+      const totalGrossPay = Math.round(enriched.reduce((s, t) => s + t.grossPay, 0) * 100) / 100;
+
+      // Per-store subtotals
+      const storeMap = new Map<string, { storeId: string; storeName: string; storeCode: string; totalHours: number; totalGrossPay: number; shiftCount: number }>();
+      for (const t of enriched) {
+        const key = t.storeId;
+        if (!storeMap.has(key)) {
+          storeMap.set(key, { storeId: t.storeId, storeName: t.storeName, storeCode: t.storeCode, totalHours: 0, totalGrossPay: 0, shiftCount: 0 });
+        }
+        const s = storeMap.get(key)!;
+        s.totalHours = Math.round((s.totalHours + t.hours) * 100) / 100;
+        s.totalGrossPay = Math.round((s.totalGrossPay + t.grossPay) * 100) / 100;
+        s.shiftCount += 1;
+      }
+
+      res.json({
+        weekStart,
+        weekEnd,
+        timesheets: enriched,
+        storeSubtotals: Array.from(storeMap.values()),
+        summary: {
+          totalShifts: enriched.length,
+          totalHours,
+          totalGrossPay,
+        },
+      });
+    } catch (err) {
+      console.error("Error fetching weekly payroll:", err);
+      res.status(500).json({ error: "Failed to fetch weekly payroll" });
+    }
+  });
+
   return httpServer;
 }
