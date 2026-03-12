@@ -268,7 +268,7 @@ const TIMELINE_COLORS = [
   "#84cc16", "#ec4899",
 ];
 
-// ─── Daily Timeline (Gantt) component ────────────────────────────────────────
+// ─── Daily Timeline — Vertical Calendar (Google Calendar "Day View") ─────────
 interface DailyTimelineProps {
   employees: { employee: Employee; assignment: { storeId: string; rate?: string | null } }[];
   rosterMap: Map<string, Roster>;
@@ -279,38 +279,54 @@ interface DailyTimelineProps {
   closeTime: string;
 }
 
+const HOUR_PX = 56; // pixels per hour in the vertical calendar
+const TIME_COL_W = 52; // px — left time axis width
+
 function DailyTimeline({ employees, rosterMap, weekDates, selectedDay, onDayChange, openTime, closeTime }: DailyTimelineProps) {
   const openMins = toMins(openTime);
   const closeMins = toMins(closeTime);
   const totalMins = Math.max(closeMins - openMins, 1);
+  const totalHours = totalMins / 60;
+  const GRID_HEIGHT = totalHours * HOUR_PX;
 
-  // Hour tick marks
+  // Hour tick marks along the Y-axis
   const hourTicks: { mins: number; label: string }[] = [];
   for (let m = openMins; m <= closeMins; m += 60) {
     const h = Math.floor(m / 60).toString().padStart(2, "0");
     hourTicks.push({ mins: m, label: `${h}:00` });
   }
 
-  // Half-hour tick marks (lighter)
+  // Half-hour ticks (lighter lines)
   const halfTicks: number[] = [];
   for (let m = openMins + 30; m < closeMins; m += 60) {
     halfTicks.push(m);
   }
 
-  const leftPct = (t: string) =>
-    Math.max(0, ((toMins(t) - openMins) / totalMins) * 100);
-  const widthPct = (s: string, e: string) =>
-    Math.max(0.5, ((Math.min(toMins(e), closeMins) - Math.max(toMins(s), openMins)) / totalMins) * 100);
+  // Only employees with a shift on this day
+  const workingEmployees = employees
+    .map(({ employee: emp }, originalIdx) => ({
+      emp,
+      roster: rosterMap.get(`${emp.id}|${selectedDay}`),
+      colorIdx: originalIdx,
+    }))
+    .filter((x) => x.roster != null) as {
+      emp: Employee;
+      roster: Roster;
+      colorIdx: number;
+    }[];
 
-  const LABEL_W = 136;
+  // Coverage stats (all employees, not just working)
+  const totalDayHours = workingEmployees.reduce(
+    (sum, { roster }) => sum + calcHours(roster.startTime, roster.endTime),
+    0,
+  );
+  const staffedCount = workingEmployees.length;
 
-  // Total hours scheduled for the selected day (coverage stat)
-  const totalDayHours = employees.reduce((sum, { employee: emp }) => {
-    const r = rosterMap.get(`${emp.id}|${selectedDay}`);
-    return r ? sum + calcHours(r.startTime, r.endTime) : sum;
-  }, 0);
-
-  const staffedCount = employees.filter(({ employee: emp }) => rosterMap.get(`${emp.id}|${selectedDay}`)).length;
+  // Position helpers — pixel-based for precision
+  const topPx = (t: string) =>
+    Math.max(0, ((toMins(t) - openMins) / 60) * HOUR_PX);
+  const heightPx = (s: string, e: string) =>
+    Math.max(8, ((Math.min(toMins(e), closeMins) - Math.max(toMins(s), openMins)) / 60) * HOUR_PX);
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -326,14 +342,21 @@ function DailyTimeline({ employees, rosterMap, weekDates, selectedDay, onDayChan
                 key={d}
                 type="button"
                 onClick={() => onDayChange(d)}
-                className={`flex-1 flex flex-col items-center py-1.5 rounded-md text-xs transition-colors relative min-w-0
-                  ${isActive ? "bg-background shadow-sm text-foreground font-semibold" : "text-muted-foreground hover:text-foreground"}`}
+                className={`flex-1 flex flex-col items-center py-1.5 rounded-md text-xs transition-colors min-w-0
+                  ${isActive
+                    ? "bg-background shadow-sm text-foreground font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                  }`}
                 data-testid={`timeline-day-tab-${i}`}
               >
                 <span className="text-[10px] font-medium">{DAY_NAMES[i]}</span>
                 <span className="text-sm font-bold">{dayNum}</span>
                 {hasShift && (
-                  <span className={`mt-0.5 h-1 w-1 rounded-full ${isActive ? "bg-primary" : "bg-muted-foreground/50"}`} />
+                  <span
+                    className={`mt-0.5 h-1 w-1 rounded-full ${
+                      isActive ? "bg-primary" : "bg-muted-foreground/50"
+                    }`}
+                  />
                 )}
               </button>
             );
@@ -341,140 +364,159 @@ function DailyTimeline({ employees, rosterMap, weekDates, selectedDay, onDayChan
         </div>
       </div>
 
-      {/* Coverage stats */}
+      {/* Coverage stats bar */}
       <div className="px-4 py-2 border-b bg-muted/20 flex items-center gap-4 text-xs text-muted-foreground">
         <div className="flex items-center gap-1.5">
-          <span className="font-medium text-foreground">{staffedCount}</span> of {employees.length} staff scheduled
+          <span className="font-medium text-foreground">{staffedCount}</span>
+          {" "}of {employees.length} staff on shift
         </div>
-        <div className="flex items-center gap-1.5">
-          <Clock className="h-3 w-3" />
-          <span className="font-medium text-foreground">{totalDayHours.toFixed(1)}</span> total hrs
-        </div>
+        {totalDayHours > 0 && (
+          <div className="flex items-center gap-1.5">
+            <Clock className="h-3 w-3" />
+            <span className="font-medium text-foreground">{totalDayHours.toFixed(1)}</span> total hrs
+          </div>
+        )}
       </div>
 
-      {/* Gantt chart — scrollable */}
-      <div className="flex-1 overflow-auto p-4">
-        <div style={{ minWidth: "640px" }}>
-          {/* Time axis header */}
-          <div className="flex items-end pb-1.5 mb-1 border-b border-muted/60">
-            {/* Sticky header corner */}
-            <div
-              className="shrink-0 sticky left-0 z-20 bg-background"
-              style={{ width: `${LABEL_W}px` }}
-            />
-            <div className="relative flex-1 h-5">
-              {hourTicks.map(({ mins, label }) => (
-                <span
-                  key={mins}
-                  className="absolute text-[10px] text-muted-foreground -translate-x-1/2 select-none"
-                  style={{ left: `${((mins - openMins) / totalMins) * 100}%` }}
-                >
-                  {label}
-                </span>
-              ))}
+      {/* ── Main calendar grid — vertical scroll ──────────────────────── */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden">
+
+        {/* Sticky employee name header row */}
+        <div
+          className="flex sticky top-0 z-20 bg-background border-b shadow-sm"
+        >
+          {/* Corner spacer aligned with time axis */}
+          <div
+            className="shrink-0 border-r border-muted/40"
+            style={{ width: `${TIME_COL_W}px` }}
+          />
+          {workingEmployees.length === 0 ? (
+            <div className="flex-1 py-2 px-3 text-sm text-muted-foreground">
+              No shifts scheduled
             </div>
-          </div>
-
-          {/* Employee rows */}
-          {employees.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">No active employees assigned to this store.</p>
           ) : (
-            employees.map(({ employee: emp }, empIdx) => {
-              const roster = rosterMap.get(`${emp.id}|${selectedDay}`);
-              const barColor = TIMELINE_COLORS[empIdx % TIMELINE_COLORS.length];
+            workingEmployees.map(({ emp, roster, colorIdx }) => {
+              const hrs = calcHours(roster.startTime, roster.endTime);
+              const color = TIMELINE_COLORS[colorIdx % TIMELINE_COLORS.length];
               return (
-                <div key={emp.id} className="flex items-center border-b border-muted/30 last:border-0" style={{ height: "44px" }} data-testid={`timeline-row-${emp.id}`}>
-                  {/* Employee name — sticky left */}
-                  <div
-                    className="shrink-0 sticky left-0 z-10 flex flex-col justify-center pr-3 bg-background"
-                    style={{ width: `${LABEL_W}px` }}
-                  >
-                    <p className="text-sm font-medium truncate leading-tight">
-                      {emp.nickname || emp.firstName}
-                    </p>
-                    {roster && (
-                      <p className="text-[10px] text-muted-foreground leading-tight">
-                        {calcHours(roster.startTime, roster.endTime).toFixed(1)}h
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Bar area */}
-                  <div className="relative flex-1 h-full">
-                    {/* Grid lines — hours */}
-                    {hourTicks.map(({ mins }) => (
-                      <div
-                        key={mins}
-                        className="absolute top-0 bottom-0 border-l border-muted/40"
-                        style={{ left: `${((mins - openMins) / totalMins) * 100}%` }}
-                      />
-                    ))}
-                    {/* Grid lines — half-hours */}
-                    {halfTicks.map((mins) => (
-                      <div
-                        key={mins}
-                        className="absolute top-0 bottom-0 border-l border-muted/20 border-dashed"
-                        style={{ left: `${((mins - openMins) / totalMins) * 100}%` }}
-                      />
-                    ))}
-
-                    {/* Shift bar */}
-                    {roster && (() => {
-                      const lp = leftPct(roster.startTime);
-                      const wp = widthPct(roster.startTime, roster.endTime);
-                      const shiftHours = calcHours(roster.startTime, roster.endTime);
-                      return (
-                        <div
-                          className="absolute top-1/2 -translate-y-1/2 rounded-md flex items-center px-2 shadow-sm overflow-hidden group"
-                          style={{
-                            left: `${lp}%`,
-                            width: `${wp}%`,
-                            height: "28px",
-                            backgroundColor: barColor,
-                            minWidth: "4px",
-                          }}
-                          title={`${emp.nickname || emp.firstName}: ${roster.startTime}–${roster.endTime} (${shiftHours.toFixed(1)}h)`}
-                        >
-                          {wp > 8 && (
-                            <span className="text-[10px] font-semibold text-white truncate whitespace-nowrap select-none">
-                              {roster.startTime}–{roster.endTime}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })()}
-
-                    {/* No shift placeholder */}
-                    {!roster && (
-                      <div className="absolute inset-y-0 flex items-center pl-1">
-                        <span className="text-[10px] text-muted-foreground/50 select-none">—</span>
-                      </div>
-                    )}
-                  </div>
+                <div
+                  key={emp.id}
+                  className="flex-1 min-w-0 flex flex-col items-center justify-center py-2 px-1 border-r border-muted/30 last:border-r-0"
+                  data-testid={`timeline-col-header-${emp.id}`}
+                >
+                  {/* Colour swatch dot */}
+                  <span
+                    className="h-2 w-2 rounded-full mb-1 shrink-0"
+                    style={{ backgroundColor: color }}
+                  />
+                  <span className="text-xs font-semibold truncate w-full text-center leading-tight">
+                    {emp.nickname || emp.firstName}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground leading-tight">
+                    {hrs.toFixed(1)}h
+                  </span>
                 </div>
               );
             })
           )}
+        </div>
 
-          {/* Bottom time axis */}
-          <div className="flex items-start pt-1.5 mt-0.5 border-t border-muted/60">
+        {/* No shifts at all */}
+        {workingEmployees.length === 0 && (
+          <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
+            No shifts scheduled for this day.
+          </div>
+        )}
+
+        {/* Grid body */}
+        {workingEmployees.length > 0 && (
+          <div className="flex" style={{ height: `${GRID_HEIGHT}px` }}>
+
+            {/* Left time axis */}
             <div
-              className="shrink-0 sticky left-0 z-20 bg-background"
-              style={{ width: `${LABEL_W}px` }}
-            />
-            <div className="relative flex-1 h-4">
+              className="shrink-0 relative border-r border-muted/40"
+              style={{ width: `${TIME_COL_W}px` }}
+            >
               {hourTicks.map(({ mins, label }) => (
-                <span
+                <div
                   key={mins}
-                  className="absolute text-[10px] text-muted-foreground/60 -translate-x-1/2 select-none"
-                  style={{ left: `${((mins - openMins) / totalMins) * 100}%` }}
+                  className="absolute right-0 flex items-center"
+                  style={{ top: `${((mins - openMins) / 60) * HOUR_PX}px` }}
                 >
-                  {label}
-                </span>
+                  <span className="text-[10px] text-muted-foreground pr-1.5 select-none leading-none -translate-y-1/2">
+                    {label}
+                  </span>
+                </div>
               ))}
             </div>
+
+            {/* Employee columns */}
+            {workingEmployees.map(({ emp, roster, colorIdx }) => {
+              const color = TIMELINE_COLORS[colorIdx % TIMELINE_COLORS.length];
+              const tp = topPx(roster.startTime);
+              const hp = heightPx(roster.startTime, roster.endTime);
+              const shiftHours = calcHours(roster.startTime, roster.endTime);
+
+              return (
+                <div
+                  key={emp.id}
+                  className="flex-1 relative border-r border-muted/20 last:border-r-0"
+                  data-testid={`timeline-row-${emp.id}`}
+                >
+                  {/* Hour grid lines */}
+                  {hourTicks.map(({ mins }) => (
+                    <div
+                      key={mins}
+                      className="absolute left-0 right-0 border-t border-muted/30"
+                      style={{ top: `${((mins - openMins) / 60) * HOUR_PX}px` }}
+                    />
+                  ))}
+                  {/* Half-hour grid lines */}
+                  {halfTicks.map((mins) => (
+                    <div
+                      key={mins}
+                      className="absolute left-0 right-0 border-t border-muted/15"
+                      style={{
+                        top: `${((mins - openMins) / 60) * HOUR_PX}px`,
+                        borderStyle: "dashed",
+                      }}
+                    />
+                  ))}
+
+                  {/* Shift block */}
+                  <div
+                    className="absolute inset-x-1.5 rounded-md overflow-hidden shadow-sm flex flex-col"
+                    style={{
+                      top: `${tp}px`,
+                      height: `${hp}px`,
+                      backgroundColor: color,
+                    }}
+                    title={`${emp.nickname || emp.firstName}: ${roster.startTime}–${roster.endTime} (${shiftHours.toFixed(1)}h)`}
+                  >
+                    {/* Top accent stripe */}
+                    <div
+                      className="h-1 w-full shrink-0 opacity-60"
+                      style={{ backgroundColor: "rgba(0,0,0,0.2)" }}
+                    />
+                    <div className="flex flex-col gap-0.5 p-1.5 flex-1 min-h-0 overflow-hidden">
+                      <span className="text-[11px] font-bold text-white leading-tight whitespace-nowrap">
+                        {roster.startTime}
+                      </span>
+                      <span className="text-[10px] text-white/80 leading-tight whitespace-nowrap">
+                        – {roster.endTime}
+                      </span>
+                      {hp >= 60 && (
+                        <span className="text-[10px] text-white/70 leading-tight mt-auto whitespace-nowrap">
+                          {shiftHours.toFixed(1)}h
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
