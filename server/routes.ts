@@ -1746,23 +1746,33 @@ export async function registerRoutes(
       const delimiter = firstLine.includes("\t") ? "\t" : ",";
       const headers = firstLine.split(delimiter).map(h => h.trim().toLowerCase().replace(/^"|"$/g, ""));
 
-      const ci = (names: string[]) => {
-        for (const n of names) {
-          const idx = headers.indexOf(n);
-          if (idx >= 0) return idx;
-        }
-        return -1;
+      // Normalize: strip spaces, underscores, hyphens for flexible matching
+      const norm = (s: string) => s.replace(/[\s_\-]/g, "");
+      const col = (name: string, ...aliases: string[]) => {
+        const all = [name, ...aliases];
+        return headers.findIndex(h => all.some(a => h === a || norm(h) === norm(a)));
       };
 
-      const nickIdx      = ci(["nickname", "nick", "preferred name"]);
-      const firstNameIdx = ci(["first name", "firstname", "given name"]);
-      const lastNameIdx  = ci(["last name", "lastname", "surname", "family name"]);
-      const nameIdx      = ci(["name", "full name", "fullname"]);
-      const selfieIdx    = ci(["selfie url", "selfieurl", "selfie", "profile photo", "profile image", "photo url", "photourl"]);
-      const passportIdx  = ci(["passport url", "passporturl", "passport photo", "passport image", "passport"]);
+      const nickIdx      = col("nick name", "nickname", "nick", "preferred name");
+      const firstNameIdx = col("first name", "firstname", "given name");
+      const lastNameIdx  = col("last name", "lastname", "surname", "family name");
+      const nameIdx      = col("name", "full name", "fullname", "employee", "employee name");
+      const selfieIdx    = col("selfie url", "selfieurl", "selfie", "profile photo", "profile image",
+                               "photo url", "photourl", "photo", "image", "avatar", "pic", "picture",
+                               "profile pic", "profile picture", "headshot");
+      const passportIdx  = col("passport url", "passporturl", "passport photo", "passport image",
+                               "passport", "visa photo", "id photo", "document", "visa image");
+
+      console.log("[import-photos] detected columns:", {
+        headers,
+        nickIdx, firstNameIdx, lastNameIdx, nameIdx, selfieIdx, passportIdx
+      });
 
       if (selfieIdx < 0 && passportIdx < 0) {
-        return res.status(400).json({ error: "No selfie or passport URL columns found in file" });
+        return res.status(400).json({
+          error: "No selfie or passport URL columns found in file",
+          detectedHeaders: headers,
+        });
       }
 
       const allEmployees = await storage.getEmployees({});
@@ -1771,6 +1781,7 @@ export async function registerRoutes(
       let updated = 0;
       let skipped = 0;
       const errors: string[] = [];
+      const matched: string[] = [];
 
       for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(delimiter);
@@ -1787,17 +1798,25 @@ export async function registerRoutes(
         const passportUrl = g(cols, passportIdx);
         if (!selfieUrl && !passportUrl) { skipped++; continue; }
 
+        const nameLower = nickname.toLowerCase();
+        const firstLower = firstName.toLowerCase();
+        const lastLower  = (lastName || "").toLowerCase();
+
         const existing = allEmployees.find(e => {
-          if (nickname && e.nickname?.toLowerCase() === nickname.toLowerCase()) return true;
-          if (firstName) {
-            return e.firstName.toLowerCase() === firstName.toLowerCase() &&
-                   e.lastName.toLowerCase() === (lastName || "").toLowerCase();
+          if (nameLower && e.nickname?.toLowerCase() === nameLower) return true;
+          if (firstLower) {
+            if (e.firstName.toLowerCase() === firstLower &&
+                e.lastName.toLowerCase() === lastLower) return true;
+            // also try matching nickname to first name (some CSVs use nickname as name column)
+            if (e.nickname?.toLowerCase() === firstLower) return true;
           }
           return false;
         });
 
         if (!existing) {
-          errors.push(`Row ${i + 1}: no match for "${nickname || firstName} ${lastName}"`);
+          const label = nickname || `${firstName} ${lastName}`;
+          console.log(`[import-photos] row ${i + 1}: no match for "${label}"`);
+          errors.push(`Row ${i + 1}: no match for "${label.trim()}"`);
           skipped++;
           continue;
         }
@@ -1806,10 +1825,12 @@ export async function registerRoutes(
         if (selfieUrl)   patch.selfieUrl   = selfieUrl;
         if (passportUrl) patch.passportUrl = passportUrl;
         await storage.updateEmployee(existing.id, patch);
+        matched.push(existing.nickname || existing.firstName);
         updated++;
       }
 
-      res.json({ updated, skipped, errors });
+      console.log("[import-photos] done. updated:", updated, "skipped:", skipped, "matched:", matched);
+      res.json({ updated, skipped, errors, matched });
     } catch (error) {
       console.error("Error importing employee photos:", error);
       res.status(500).json({ error: "Failed to import photos" });
