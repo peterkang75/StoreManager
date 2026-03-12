@@ -83,6 +83,11 @@ export const employees = pgTable("employees", {
   superMembershipNo: text("super_membership_no"),
   persistentMemo: text("persistent_memo"),
   status: text("status").default("ACTIVE").notNull(),
+  pin: text("pin"),
+  role: text("role").default("EMPLOYEE").notNull(),
+  canSubmitCloseForm: boolean("can_submit_close_form").default(false).notNull(),
+  canManageSchedule: boolean("can_manage_schedule").default(false).notNull(),
+  canApproveTimesheet: boolean("can_approve_timesheet").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -331,6 +336,39 @@ export const insertCashSalesDetailSchema = createInsertSchema(cashSalesDetails).
 
 export type InsertCashSalesDetail = z.infer<typeof insertCashSalesDetailSchema>;
 export type CashSalesDetail = typeof cashSalesDetails.$inferSelect;
+
+export const dailyCloseForms = pgTable("daily_close_forms", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  date: text("date").notNull(),
+  submittedBy: varchar("submitted_by").references(() => employees.id),
+  submitterName: text("submitter_name"),
+  note100Count: integer("note_100_count").default(0).notNull(),
+  note50Count: integer("note_50_count").default(0).notNull(),
+  note20Count: integer("note_20_count").default(0).notNull(),
+  note10Count: integer("note_10_count").default(0).notNull(),
+  note5Count: integer("note_5_count").default(0).notNull(),
+  coin2Count: integer("coin_2_count").default(0).notNull(),
+  coin1Count: integer("coin_1_count").default(0).notNull(),
+  coin050Count: integer("coin_050_count").default(0).notNull(),
+  coin020Count: integer("coin_020_count").default(0).notNull(),
+  coin010Count: integer("coin_010_count").default(0).notNull(),
+  coin005Count: integer("coin_005_count").default(0).notNull(),
+  totalCalculated: real("total_calculated").default(0).notNull(),
+  envelopeAmount: real("envelope_amount").default(0).notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertDailyCloseFormSchema = createInsertSchema(dailyCloseForms).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertDailyCloseForm = z.infer<typeof insertDailyCloseFormSchema>;
+export type DailyCloseForm = typeof dailyCloseForms.$inferSelect;
 
 export const suppliers = pgTable("suppliers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

@@ -12,13 +12,14 @@ import {
   type Payroll, type InsertPayroll,
   type DailyClosing, type InsertDailyClosing,
   type CashSalesDetail, type InsertCashSalesDetail,
+  type DailyCloseForm, type InsertDailyCloseForm,
   type Supplier, type InsertSupplier,
   type SupplierInvoice, type InsertSupplierInvoice,
   type SupplierPayment, type InsertSupplierPayment,
   type FinancialTransaction, type InsertFinancialTransaction,
   stores, candidates, employees, employeeStoreAssignments, employeeOnboardingTokens, employeeDocuments,
   rosterPeriods, shifts, timeLogs, timesheets, payrolls,
-  dailyClosings, cashSalesDetails, suppliers, supplierInvoices, supplierPayments,
+  dailyClosings, cashSalesDetails, dailyCloseForms, suppliers, supplierInvoices, supplierPayments,
   financialTransactions,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
@@ -113,6 +114,9 @@ export interface IStorage {
   deleteCashSalesDetailsByStoreAndDateRange(storeId: string, startDate: string, endDate: string): Promise<number>;
   getFinancialTransactionsByRef(refNote: string): Promise<FinancialTransaction[]>;
   upsertFinancialTransactionByRef(refNote: string, data: InsertFinancialTransaction): Promise<FinancialTransaction>;
+
+  getDailyCloseForms(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<DailyCloseForm[]>;
+  upsertDailyCloseForm(storeId: string, date: string, data: InsertDailyCloseForm): Promise<DailyCloseForm>;
 }
 
 export class MemStorage implements IStorage {
@@ -927,6 +931,14 @@ export class MemStorage implements IStorage {
     }
     return this.createFinancialTransaction(data);
   }
+
+  async getDailyCloseForms(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<DailyCloseForm[]> {
+    return [];
+  }
+
+  async upsertDailyCloseForm(storeId: string, date: string, data: InsertDailyCloseForm): Promise<DailyCloseForm> {
+    throw new Error("Not implemented in MemStorage");
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1408,6 +1420,30 @@ export class DatabaseStorage implements IStorage {
     }
 
     const [created] = await db.insert(financialTransactions).values(data).returning();
+    return created;
+  }
+
+  async getDailyCloseForms(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<DailyCloseForm[]> {
+    const conditions = [];
+    if (filters?.storeId) conditions.push(eq(dailyCloseForms.storeId, filters.storeId));
+    if (filters?.startDate) conditions.push(gte(dailyCloseForms.date, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(dailyCloseForms.date, filters.endDate));
+    const query = db.select().from(dailyCloseForms).orderBy(asc(dailyCloseForms.date));
+    if (conditions.length > 0) return query.where(and(...conditions));
+    return query;
+  }
+
+  async upsertDailyCloseForm(storeId: string, date: string, data: InsertDailyCloseForm): Promise<DailyCloseForm> {
+    const [existing] = await db.select().from(dailyCloseForms)
+      .where(and(eq(dailyCloseForms.storeId, storeId), eq(dailyCloseForms.date, date)));
+    if (existing) {
+      const [updated] = await db.update(dailyCloseForms)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(dailyCloseForms.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(dailyCloseForms).values(data).returning();
     return created;
   }
 }

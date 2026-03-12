@@ -18,10 +18,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Save, ChevronLeft, ChevronRight } from "lucide-react";
+import { Save, ChevronLeft, ChevronRight, ClipboardCheck } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Store, CashSalesDetail } from "@shared/schema";
+import type { Store, CashSalesDetail, DailyCloseForm } from "@shared/schema";
 
 const ALL_DENOMINATIONS = [
   { key: "note100Count", label: "$100", value: 100 },
@@ -109,6 +109,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
   const [periodStart, setPeriodStart] = useState<Date | null>(null);
   const [rows, setRows] = useState<RowData[]>([]);
   const [isDirty, setIsDirty] = useState(false);
+  const [autoFilledDates, setAutoFilledDates] = useState<Set<string>>(new Set());
   const gridRef = useRef<HTMLDivElement>(null);
 
   const cashSalesStoreOrder = ["sushi", "sandwich", "trading"];
@@ -156,9 +157,25 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     },
   });
 
+  const { data: closeFormsData } = useQuery<DailyCloseForm[]>({
+    queryKey: ["/api/daily-close-forms", storeId, startDate, endDate],
+    enabled: !!storeId && !!periodStart,
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        store_id: storeId,
+        start_date: startDate,
+        end_date: endDate,
+      });
+      const res = await fetch(`/api/daily-close-forms?${params}`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+
   useEffect(() => {
     if (!periodStart) return;
     const newRows: RowData[] = [];
+    const newAutoFilled = new Set<string>();
     for (let i = 0; i < 14; i++) {
       const date = formatDateStr(addDays(periodStart, i));
       const existing = existingData?.find((d) => d.date === date);
@@ -175,10 +192,27 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
         }
         newRows.push(row);
       } else {
-        newRows.push(createEmptyRow(date));
+        const closeForm = closeFormsData?.find((f) => f.date === date);
+        if (closeForm) {
+          const row: RowData = {
+            date,
+            envelopeAmount: parseFloat(closeForm.envelopeAmount ?? "0") || 0,
+            countedAmount: parseFloat(closeForm.totalCalculated ?? "0") || 0,
+            differenceAmount: (parseFloat(closeForm.totalCalculated ?? "0") || 0) - (parseFloat(closeForm.envelopeAmount ?? "0") || 0),
+            memo: closeForm.notes ?? "",
+          };
+          for (const denom of ALL_DENOMINATIONS) {
+            row[denom.key] = (closeForm as any)[denom.key] ?? 0;
+          }
+          newRows.push(row);
+          newAutoFilled.add(date);
+        } else {
+          newRows.push(createEmptyRow(date));
+        }
       }
     }
     setRows(newRows);
+    setAutoFilledDates(newAutoFilled);
     setIsDirty(false);
     const confirmed: Record<number, boolean> = {};
     newRows.forEach((r, i) => {
@@ -187,7 +221,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
       }
     });
     setConfirmedDates(confirmed);
-  }, [existingData, periodStart]);
+  }, [existingData, closeFormsData, periodStart]);
 
   const updateRow = useCallback(
     (index: number, field: string, value: number) => {
@@ -516,6 +550,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                 const isWeekEnd = idx === 6 || idx === 13;
                 const diff = row.differenceAmount as number;
                 const hasDiff = Math.abs(diff) >= 0.01;
+                const isAutoFilled = autoFilledDates.has(row.date);
 
                 return (
                   <tr
@@ -523,8 +558,10 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                     className={`
                       ${isSunday ? "bg-red-50/40 dark:bg-red-950/20" : ""}
                       ${isWeekEnd ? "border-b-2 border-b-border" : ""}
+                      ${isAutoFilled ? "bg-blue-50/40 dark:bg-blue-950/20" : ""}
                     `}
                     data-testid={`row-cashsales-${idx}`}
+                    title={isAutoFilled ? "Auto-filled from daily close form" : undefined}
                   >
                     <td className="sticky left-0 bg-background z-10 px-0.5 py-0.5 border-b border-r">
                       <Input

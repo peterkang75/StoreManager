@@ -12,6 +12,7 @@ import {
   insertPayrollSchema,
   insertDailyClosingSchema,
   insertCashSalesDetailSchema,
+  insertDailyCloseFormSchema,
   insertSupplierSchema,
   insertSupplierInvoiceSchema,
   insertSupplierPaymentSchema,
@@ -1596,6 +1597,34 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error updating daily closing:", error);
       res.status(500).json({ error: "Failed to update daily closing" });
+    }
+  });
+
+  app.get("/api/daily-close-forms", async (req: Request, res: Response) => {
+    try {
+      const filters: { storeId?: string; startDate?: string; endDate?: string } = {};
+      if (req.query.store_id && typeof req.query.store_id === "string") filters.storeId = req.query.store_id;
+      if (req.query.start_date && typeof req.query.start_date === "string") filters.startDate = req.query.start_date;
+      if (req.query.end_date && typeof req.query.end_date === "string") filters.endDate = req.query.end_date;
+      const forms = await storage.getDailyCloseForms(filters);
+      res.json(forms);
+    } catch (error) {
+      console.error("Error fetching daily close forms:", error);
+      res.status(500).json({ error: "Failed to fetch daily close forms" });
+    }
+  });
+
+  app.post("/api/daily-close-forms", async (req: Request, res: Response) => {
+    try {
+      const parsed = insertDailyCloseFormSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.message });
+      }
+      const form = await storage.upsertDailyCloseForm(parsed.data.storeId, parsed.data.date, parsed.data);
+      res.status(201).json(form);
+    } catch (error) {
+      console.error("Error creating daily close form:", error);
+      res.status(500).json({ error: "Failed to create daily close form" });
     }
   });
 
