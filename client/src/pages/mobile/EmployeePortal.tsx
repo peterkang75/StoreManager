@@ -430,8 +430,6 @@ function DayRow({ day, today, onSubmit }: { day: DayData; today: string; onSubmi
             <PenLine className="h-3.5 w-3.5 mr-1" />
             Submit
           </Button>
-        ) : day.shift && !isPast && !isToday ? (
-          <span className="text-xs text-muted-foreground/40 pr-1">Upcoming</span>
         ) : null}
       </div>
     </div>
