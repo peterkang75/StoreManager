@@ -1,0 +1,31 @@
+CRITICAL INSTRUCTION: DO NOT MODIFY ANY UI COMPONENTS, HTML, OR TAILWIND CLASSES. DO NOT REWRITE THE LAYOUT. THIS IS A "DATA-BINDING ONLY" TASK.
+
+The user has manually rolled back the `/admin/payroll` page to the correct, complex layout (with Cash Counter, Store Totals, Employee List on the left, and Detail Panel on the right). You must keep this EXACT UI.
+
+Your task is ONLY to connect the backend data to this existing UI state.
+
+### 1. Fetching Data (Backend logic)
+- When the `Period Start` and `Period End` (Monday-Sunday) and `Store` are selected, fetch all timesheets that match:
+  - `status === 'APPROVED'`
+  - Fall within the selected date range.
+  - Match the selected store.
+
+### 2. Aggregating Data for the Employee List (Left Sidebar)
+- Group the fetched approved timesheets by `employeeId`.
+- Calculate the `Total Approved Hours` for each employee.
+- Fetch the employee's `hourlyRate` from the database.
+- Calculate `Gross Pay` = Total Hours * Hourly Rate.
+- **Data Binding:** Inject these aggregated numbers into the existing left sidebar list (e.g., "Anjali | 33h | $825.00"). DO NOT change the list's HTML design.
+
+### 3. Populating the Detail Panel (Right Side)
+- When an employee is clicked from the left list, populate the existing input fields in the right panel:
+  - **Rate:** Bind to the employee's hourly rate.
+  - **Inputs > Hours:** Auto-fill with the `Total Approved Hours` from step 2.
+  - **Payment Split > Gross:** Auto-fill with the calculated Gross Pay.
+  - **Results > Calculated:** Auto-fill with the Gross Pay.
+  - **Results > Super (11.5%):** Auto-calculate 11.5% of the calculated gross (if your existing state logic allows, otherwise just bind the raw data).
+
+### 4. Safety Constraints
+- Only update the React `useState` or `useEffect` hooks responsible for holding the data.
+- DO NOT delete any existing fields like "Adjustment", "Tax (PAYG)", or "Bank Deposit". Leave them as functioning inputs.
+- I repeat: DO NOT change the UI structure. Just feed the 'APPROVED' timesheet data into the existing state variables.

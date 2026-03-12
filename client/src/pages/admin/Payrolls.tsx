@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Button } from "@/components/ui/button";
@@ -155,6 +155,15 @@ interface PayrollRow {
   taxOverridden: boolean;
 }
 
+interface ApprovedShift {
+  employeeId: string;
+  storeId: string;
+  date: string;
+  actualStartTime: string;
+  actualEndTime: string;
+  status: string;
+}
+
 function roundTo5(v: number): number {
   return Math.round(v / 5) * 5;
 }
@@ -264,6 +273,27 @@ export function AdminPayrolls() {
     enabled: !!selectedStoreId && !!periodStart && !!periodEnd,
   });
 
+  const { data: approvedShifts = [] } = useQuery<ApprovedShift[]>({
+    queryKey: ["/api/admin/approvals", "ALL"],
+    queryFn: () => fetch("/api/admin/approvals?status=ALL").then((r) => r.json()),
+    staleTime: 30000,
+  });
+
+  const approvedHoursMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const ts of approvedShifts) {
+      if (ts.status !== "APPROVED") continue;
+      if (ts.storeId !== selectedStoreId) continue;
+      if (ts.date < periodStart || ts.date > periodEnd) continue;
+      const [sh, sm] = ts.actualStartTime.split(":").map(Number);
+      const [eh, em] = ts.actualEndTime.split(":").map(Number);
+      const diffMins = eh * 60 + em - (sh * 60 + sm);
+      const hrs = (diffMins < 0 ? diffMins + 1440 : diffMins) / 60;
+      map[ts.employeeId] = Math.round(((map[ts.employeeId] || 0) + hrs) * 100) / 100;
+    }
+    return map;
+  }, [approvedShifts, selectedStoreId, periodStart, periodEnd]);
+
   useEffect(() => {
     if (!currentData) return;
     const newRows: PayrollRow[] = currentData.map(({ employee, payroll }) => {
@@ -295,7 +325,7 @@ export function AdminPayrolls() {
         employeeId: employee.id,
         employeeName: employee.nickname || `${employee.firstName} ${employee.lastName}`,
         payrollId: null,
-        hours: 0,
+        hours: approvedHoursMap[employee.id] ?? 0,
         rate: empRate,
         fixedAmount: empFixed,
         calculatedAmount: 0,
@@ -314,7 +344,7 @@ export function AdminPayrolls() {
       return recalcRow(base);
     });
     setRows(newRows);
-  }, [currentData]);
+  }, [currentData, approvedHoursMap]);
 
   const updateRow = useCallback(
     (index: number, field: keyof PayrollRow, value: number | string) => {
