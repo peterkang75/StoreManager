@@ -76,7 +76,7 @@ function PinEntry({ onSuccess, setSession }: { onSuccess: () => void; setSession
       const data = await res.json();
       if (!res.ok) {
         setPin("");
-        setError(data.error || "PIN이 올바르지 않습니다");
+        setError(data.error || "Invalid PIN");
         setLoading(false);
         return;
       }
@@ -84,7 +84,7 @@ function PinEntry({ onSuccess, setSession }: { onSuccess: () => void; setSession
       onSuccess();
     } catch {
       setPin("");
-      setError("네트워크 오류가 발생했습니다");
+      setError("Network error. Please try again.");
       setLoading(false);
     }
   };
@@ -94,7 +94,7 @@ function PinEntry({ onSuccess, setSession }: { onSuccess: () => void; setSession
       <div className="text-center">
         <KeyRound className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
         <h1 className="text-2xl font-bold">Daily Close</h1>
-        <p className="text-muted-foreground mt-1">PIN을 입력하세요</p>
+        <p className="text-muted-foreground mt-1">Enter your PIN</p>
       </div>
 
       <div className="flex gap-3">
@@ -247,10 +247,10 @@ export function MobileDailyClose() {
       queryClient.invalidateQueries({ queryKey: ["/api/daily-closings"] });
       queryClient.invalidateQueries({ queryKey: ["/api/daily-close-forms"] });
       setSubmitted(true);
-      toast({ title: "일일 마감이 성공적으로 제출되었습니다!" });
+      toast({ title: "Daily close submitted successfully!" });
     },
     onError: () => {
-      toast({ title: "일일 마감 제출에 실패했습니다", variant: "destructive" });
+      toast({ title: "Failed to submit daily close", variant: "destructive" });
     },
   });
 
@@ -292,7 +292,7 @@ export function MobileDailyClose() {
           <CardContent className="p-8 text-center">
             <CheckCircle2 className="w-16 h-16 mx-auto mb-4 text-green-600" />
             <h2 className="text-2xl font-bold mb-2" data-testid="text-success-title">Submitted!</h2>
-            <p className="text-muted-foreground mb-6">일일 마감이 성공적으로 기록되었습니다.</p>
+            <p className="text-muted-foreground mb-6">Daily close has been successfully recorded.</p>
             <div className="space-y-3">
               <Button onClick={resetForm} className="w-full h-12" data-testid="button-new-close">
                 Submit Another
@@ -575,7 +575,7 @@ export function MobileDailyClose() {
                 {differenceAmount > 0.005 && (
                   <div className="flex items-center gap-1 mt-2 text-red-600 text-sm">
                     <AlertTriangle className="w-4 h-4" />
-                    <span>현금 부족이 감지되었습니다</span>
+                    <span>Cash shortage detected</span>
                   </div>
                 )}
               </div>

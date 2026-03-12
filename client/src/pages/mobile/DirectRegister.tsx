@@ -163,10 +163,10 @@ export function MobileDirectRegister() {
             Registration Complete
           </h2>
           <p className="text-muted-foreground mb-8 max-w-sm">
-            등록이 완료되었습니다. 정보가 성공적으로 제출되었습니다.
+            Your registration has been completed successfully.
           </p>
           <p className="text-sm text-muted-foreground">
-            이제 이 페이지를 닫으셔도 됩니다.
+            You may now close this page.
           </p>
         </div>
       </MobileLayout>
