@@ -274,7 +274,7 @@ export function MobileDailyClose() {
     setNotes(emptyNotes());
   };
 
-  if (!pinDone) {
+  if (!pinDone || !isValidSession) {
     return <PinEntry onSuccess={() => setPinDone(true)} />;
   }
 
