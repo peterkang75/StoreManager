@@ -19,10 +19,11 @@ import {
   type FinancialTransaction, type InsertFinancialTransaction,
   type Roster, type InsertRoster,
   type RosterPublication,
+  type ShiftTimesheet, type InsertShiftTimesheet,
   stores, candidates, employees, employeeStoreAssignments, employeeOnboardingTokens, employeeDocuments,
   rosterPeriods, shifts, rosters, rosterPublications, timeLogs, timesheets, payrolls,
   dailyClosings, cashSalesDetails, dailyCloseForms, suppliers, supplierInvoices, supplierPayments,
-  financialTransactions,
+  financialTransactions, shiftTimesheets,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import { db } from "./db";
@@ -129,6 +130,11 @@ export interface IStorage {
   getRostersByEmployeeAndDateRange(employeeId: string, startDate: string, endDate: string): Promise<Roster[]>;
   isRosterWeekPublished(storeId: string, weekStart: string): Promise<boolean>;
   toggleRosterWeekPublished(storeId: string, weekStart: string): Promise<boolean>;
+
+  getShiftTimesheet(employeeId: string, date: string): Promise<ShiftTimesheet | undefined>;
+  createShiftTimesheet(data: InsertShiftTimesheet): Promise<ShiftTimesheet>;
+  getShiftTimesheets(filters?: { storeId?: string; employeeId?: string; date?: string; status?: string }): Promise<ShiftTimesheet[]>;
+  updateShiftTimesheet(id: string, data: Partial<InsertShiftTimesheet>): Promise<ShiftTimesheet | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -1020,6 +1026,38 @@ export class MemStorage implements IStorage {
     this.rosterPublicationsMap.set(id, { id, storeId, weekStart, publishedAt: new Date() });
     return true;
   }
+
+  private shiftTimesheetsMap: Map<string, ShiftTimesheet> = new Map();
+
+  async getShiftTimesheet(employeeId: string, date: string): Promise<ShiftTimesheet | undefined> {
+    return Array.from(this.shiftTimesheetsMap.values()).find(ts => ts.employeeId === employeeId && ts.date === date);
+  }
+
+  async createShiftTimesheet(data: InsertShiftTimesheet): Promise<ShiftTimesheet> {
+    const id = randomUUID();
+    const now = new Date();
+    const ts: ShiftTimesheet = { id, ...data, adjustmentReason: data.adjustmentReason ?? null, status: data.status ?? "PENDING", createdAt: now, updatedAt: now };
+    this.shiftTimesheetsMap.set(id, ts);
+    return ts;
+  }
+
+  async getShiftTimesheets(filters?: { storeId?: string; employeeId?: string; date?: string; status?: string }): Promise<ShiftTimesheet[]> {
+    return Array.from(this.shiftTimesheetsMap.values()).filter(ts => {
+      if (filters?.storeId && ts.storeId !== filters.storeId) return false;
+      if (filters?.employeeId && ts.employeeId !== filters.employeeId) return false;
+      if (filters?.date && ts.date !== filters.date) return false;
+      if (filters?.status && ts.status !== filters.status) return false;
+      return true;
+    });
+  }
+
+  async updateShiftTimesheet(id: string, data: Partial<InsertShiftTimesheet>): Promise<ShiftTimesheet | undefined> {
+    const existing = this.shiftTimesheetsMap.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...data, updatedAt: new Date() };
+    this.shiftTimesheetsMap.set(id, updated);
+    return updated;
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1598,6 +1636,37 @@ export class DatabaseStorage implements IStorage {
     }
     await db.insert(rosterPublications).values({ storeId, weekStart });
     return true;
+  }
+
+  async getShiftTimesheet(employeeId: string, date: string): Promise<ShiftTimesheet | undefined> {
+    const [ts] = await db.select().from(shiftTimesheets)
+      .where(and(eq(shiftTimesheets.employeeId, employeeId), eq(shiftTimesheets.date, date)))
+      .limit(1);
+    return ts;
+  }
+
+  async createShiftTimesheet(data: InsertShiftTimesheet): Promise<ShiftTimesheet> {
+    const [ts] = await db.insert(shiftTimesheets).values(data).returning();
+    return ts;
+  }
+
+  async getShiftTimesheets(filters?: { storeId?: string; employeeId?: string; date?: string; status?: string }): Promise<ShiftTimesheet[]> {
+    const conditions = [];
+    if (filters?.storeId) conditions.push(eq(shiftTimesheets.storeId, filters.storeId));
+    if (filters?.employeeId) conditions.push(eq(shiftTimesheets.employeeId, filters.employeeId));
+    if (filters?.date) conditions.push(eq(shiftTimesheets.date, filters.date));
+    if (filters?.status) conditions.push(eq(shiftTimesheets.status, filters.status));
+    return db.select().from(shiftTimesheets)
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(desc(shiftTimesheets.createdAt));
+  }
+
+  async updateShiftTimesheet(id: string, data: Partial<InsertShiftTimesheet>): Promise<ShiftTimesheet | undefined> {
+    const [updated] = await db.update(shiftTimesheets)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(shiftTimesheets.id, id))
+      .returning();
+    return updated;
   }
 }
 

@@ -2389,5 +2389,109 @@ export async function registerRoutes(
     }
   });
 
+  // ===== EMPLOYEE PORTAL ROUTES =====
+
+  function getMondayStr(dateStr: string): string {
+    const d = new Date(dateStr + "T00:00:00");
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff);
+    return d.toISOString().split("T")[0];
+  }
+
+  // GET /api/portal/stores — only Sushi + Sandwich roster stores
+  app.get("/api/portal/stores", async (_req: Request, res: Response) => {
+    try {
+      const all = await storage.getStores();
+      const rosterStores = all.filter(s => s.active && !s.isExternal && (s.name === "Sushi" || s.name === "Sandwich"));
+      res.json(rosterStores);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch stores" });
+    }
+  });
+
+  // GET /api/portal/employees?storeId=X — active employees with a PIN set
+  app.get("/api/portal/employees", async (req: Request, res: Response) => {
+    try {
+      const { storeId } = req.query;
+      if (!storeId) return res.status(400).json({ error: "storeId required" });
+      const assignments = await storage.getEmployeesByStoreAssignment(storeId as string, "ACTIVE");
+      const withPin = assignments
+        .filter(({ employee: e }) => !!e.pin)
+        .map(({ employee: e }) => ({ id: e.id, nickname: e.nickname, firstName: e.firstName, lastName: e.lastName }));
+      res.json(withPin);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch employees" });
+    }
+  });
+
+  // POST /api/portal/login — verify PIN
+  app.post("/api/portal/login", async (req: Request, res: Response) => {
+    try {
+      const { employeeId, pin } = req.body;
+      if (!employeeId || !pin) return res.status(400).json({ error: "employeeId and pin required" });
+      const emp = await storage.getEmployee(employeeId);
+      if (!emp) return res.status(404).json({ error: "Employee not found" });
+      if (emp.pin !== String(pin)) return res.status(401).json({ error: "Invalid PIN" });
+      res.json({ id: emp.id, nickname: emp.nickname, firstName: emp.firstName, storeId: emp.storeId });
+    } catch (err) {
+      res.status(500).json({ error: "Login failed" });
+    }
+  });
+
+  // GET /api/portal/shift?employeeId=X&storeId=Y&date=YYYY-MM-DD
+  app.get("/api/portal/shift", async (req: Request, res: Response) => {
+    try {
+      const { employeeId, storeId, date } = req.query;
+      if (!employeeId || !storeId || !date) return res.status(400).json({ error: "employeeId, storeId, date required" });
+      const weekStart = getMondayStr(date as string);
+      const published = await storage.isRosterWeekPublished(storeId as string, weekStart);
+      if (!published) return res.json({ shift: null, published: false });
+      const rosters = await storage.getRosters({ storeId: storeId as string, startDate: date as string, endDate: date as string, employeeId: employeeId as string });
+      const shift = rosters.length > 0 ? rosters[0] : null;
+      res.json({ shift, published: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch shift" });
+    }
+  });
+
+  // GET /api/portal/timesheet?employeeId=X&date=YYYY-MM-DD
+  app.get("/api/portal/timesheet", async (req: Request, res: Response) => {
+    try {
+      const { employeeId, date } = req.query;
+      if (!employeeId || !date) return res.status(400).json({ error: "employeeId and date required" });
+      const ts = await storage.getShiftTimesheet(employeeId as string, date as string);
+      res.json({ timesheet: ts ?? null });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch timesheet" });
+    }
+  });
+
+  // POST /api/portal/timesheet — submit timesheet
+  app.post("/api/portal/timesheet", async (req: Request, res: Response) => {
+    try {
+      const { storeId, employeeId, date, actualStartTime, actualEndTime, adjustmentReason } = req.body;
+      if (!storeId || !employeeId || !date || !actualStartTime || !actualEndTime) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+      const existing = await storage.getShiftTimesheet(employeeId, date);
+      if (existing) return res.status(409).json({ error: "Timesheet already submitted for today" });
+      const ts = await storage.createShiftTimesheet({
+        storeId,
+        employeeId,
+        date,
+        actualStartTime,
+        actualEndTime,
+        adjustmentReason: adjustmentReason ?? null,
+        status: "PENDING",
+      });
+      res.status(201).json(ts);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to submit timesheet" });
+    }
+  });
+
+  // ===== END EMPLOYEE PORTAL ROUTES =====
+
   return httpServer;
 }

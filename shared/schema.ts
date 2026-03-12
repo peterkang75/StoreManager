@@ -490,6 +490,29 @@ export const insertFinancialTransactionSchema = createInsertSchema(financialTran
 export type InsertFinancialTransaction = z.infer<typeof insertFinancialTransactionSchema>;
 export type FinancialTransaction = typeof financialTransactions.$inferSelect;
 
+// Per-day shift timesheet submitted by employee via portal
+export const shiftTimesheets = pgTable("shift_timesheets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  employeeId: varchar("employee_id").references(() => employees.id).notNull(),
+  date: text("date").notNull(),
+  actualStartTime: text("actual_start_time").notNull(),
+  actualEndTime: text("actual_end_time").notNull(),
+  status: text("status").default("PENDING").notNull(), // PENDING | APPROVED | REJECTED
+  adjustmentReason: text("adjustment_reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertShiftTimesheetSchema = createInsertSchema(shiftTimesheets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertShiftTimesheet = z.infer<typeof insertShiftTimesheetSchema>;
+export type ShiftTimesheet = typeof shiftTimesheets.$inferSelect;
+
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),

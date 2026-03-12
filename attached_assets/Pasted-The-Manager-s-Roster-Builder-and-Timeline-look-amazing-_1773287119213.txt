@@ -1,0 +1,28 @@
+The Manager's Roster Builder and Timeline look amazing! Now, let's build the core of Phase 4: The Employee Mobile Portal. This is a separate, mobile-first interface for staff to view their shifts and submit "Exception-Based Timesheets".
+
+### 1. New Route & Auth Structure
+- Create a new route: `/employee-portal` (NO sidebar, NO admin menus).
+- **Simple PIN Login Screen:**
+  - Step 1: Dropdown to select `Store`.
+  - Step 2: Dropdown to select `Employee` (fetch active employees for that store).
+  - Step 3: Input for `4-digit PIN`.
+  - On submit, verify against the `employees` table. If successful, set a simple session/state for the logged-in employee.
+
+### 2. Employee Dashboard (Today's View)
+- Once logged in, show a clean, friendly mobile dashboard.
+- **Fetch Logic (CRITICAL):** Fetch the `rosters` record for this employee for **Today**. ONLY display it if the `publishedSchedules` for that week/store is `true`.
+- If no shift or not published: Show a friendly message "You have no scheduled shifts for today."
+- If scheduled: Show a prominent card: "Today's Shift: [startTime] to [endTime]".
+
+### 3. The "1-Click Timesheet" Action
+- Check the `timesheets` table. If a timesheet for today already exists, hide the action buttons and show a green badge: "✅ Timesheet Submitted (Pending Approval)".
+- If NO timesheet exists, show two buttons:
+  - **Button A: "Confirm Scheduled Hours" (Primary/Green).** Clicking this immediately creates a `timesheets` record using the exact rostered `startTime` and `endTime`, sets `status: 'PENDING'`, and leaves `adjustmentReason` blank.
+  - **Button B: "Modify Hours" (Secondary).** Clicking this opens a simple drawer/modal.
+    - Inside: Time pickers to adjust `actualStartTime` and `actualEndTime` (15-min increments), and a required text area for `adjustmentReason`.
+    - Submit creates the `timesheets` record with the modified times and `status: 'PENDING'`.
+
+### 4. Database Schema Reminder
+- Ensure the `timesheets` table exists with: `id`, `storeId`, `employeeId`, `date`, `actualStartTime`, `actualEndTime`, `status` (Enum: 'PENDING', 'APPROVED', 'REJECTED'), and `adjustmentReason`.
+
+Please implement this mobile-first Employee Portal and the timesheet submission logic.
