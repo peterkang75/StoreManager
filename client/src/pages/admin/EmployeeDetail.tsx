@@ -135,6 +135,7 @@ export function AdminEmployeeDetail() {
   const [vevoUploading, setVevoUploading] = useState(false);
   const [vevoVerifiedByInput, setVevoVerifiedByInput] = useState("");
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [showVevoModal, setShowVevoModal] = useState(false);
   const vevoFileRef = useRef<HTMLInputElement>(null);
 
   const { data: employee, isLoading: employeeLoading } = useQuery<Employee>({
@@ -245,16 +246,15 @@ export function AdminEmployeeDetail() {
     }
   };
 
-  const getVisaStatus = (visaExpiry: string | null | undefined): "expired" | "expiring_soon" | "valid" | "no_data" => {
+  const getVisaStatus = (visaExpiry: string | null | undefined): "urgent" | "expiring_soon" | "valid" | "no_data" => {
     if (!visaExpiry) return "no_data";
     const expiry = new Date(visaExpiry);
     if (isNaN(expiry.getTime())) return "no_data";
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    if (expiry < today) return "expired";
-    const in30 = new Date(today);
-    in30.setDate(in30.getDate() + 30);
-    if (expiry <= in30) return "expiring_soon";
+    const daysLeft = Math.ceil((expiry.getTime() - today.getTime()) / 86400000);
+    if (daysLeft <= 14) return "urgent";   // expired or within 14 days → RED
+    if (daysLeft <= 60) return "expiring_soon"; // within 60 days → AMBER
     return "valid";
   };
 
@@ -395,80 +395,43 @@ export function AdminEmployeeDetail() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label>First Name</Label>
-                  <Input value={employee.firstName} disabled className="bg-muted" />
+                  <Input value={currentData.firstName ?? ""} onChange={(e) => handleFieldChange("firstName", e.target.value)} data-testid="input-first-name" />
                 </div>
                 <div className="space-y-2">
                   <Label>Last Name</Label>
-                  <Input value={employee.lastName} disabled className="bg-muted" />
+                  <Input value={currentData.lastName ?? ""} onChange={(e) => handleFieldChange("lastName", e.target.value)} data-testid="input-last-name" />
                 </div>
                 <div className="space-y-2">
                   <Label>Nickname</Label>
-                  <Input value={employee.nickname ?? ""} disabled className="bg-muted" />
+                  <Input value={currentData.nickname ?? ""} onChange={(e) => handleFieldChange("nickname", e.target.value || null)} placeholder="Nickname" data-testid="input-nickname" />
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label>Email</Label>
-                  <Input value={employee.email ?? ""} disabled className="bg-muted" />
+                  <Input value={currentData.email ?? ""} onChange={(e) => handleFieldChange("email", e.target.value || null)} placeholder="Email" data-testid="input-email" />
                 </div>
                 <div className="space-y-2">
                   <Label>Phone</Label>
-                  <Input value={employee.phone ?? ""} disabled className="bg-muted" />
+                  <Input value={currentData.phone ?? ""} onChange={(e) => handleFieldChange("phone", e.target.value || null)} placeholder="Phone" data-testid="input-phone" />
                 </div>
                 <div className="space-y-2">
                   <Label>Date of Birth</Label>
-                  <Input value={employee.dob ?? ""} disabled className="bg-muted" />
+                  <Input value={currentData.dob ?? ""} onChange={(e) => handleFieldChange("dob", e.target.value || null)} placeholder="DD-MM-YYYY" data-testid="input-dob" />
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label>Gender</Label>
-                  <Input value={employee.gender ?? ""} disabled className="bg-muted" />
+                  <Input value={currentData.gender ?? ""} onChange={(e) => handleFieldChange("gender", e.target.value || null)} placeholder="Gender" data-testid="input-gender" />
                 </div>
                 <div className="space-y-2">
                   <Label>Marital Status</Label>
-                  <Input value={employee.maritalStatus ?? ""} disabled className="bg-muted" />
+                  <Input value={currentData.maritalStatus ?? ""} onChange={(e) => handleFieldChange("maritalStatus", e.target.value || null)} placeholder="Marital Status" data-testid="input-marital-status" />
                 </div>
                 <div className="space-y-2">
                   <Label>Line ID</Label>
-                  <Input
-                    value={currentData.lineId ?? ""}
-                    onChange={(e) => handleFieldChange("lineId", e.target.value || null)}
-                    placeholder="Line ID"
-                    data-testid="input-line-id"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label>Visa Type</Label>
-                  <Input value={employee.visaType ?? ""} disabled className="bg-muted" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Visa Expiry</Label>
-                  <Input value={employee.visaExpiry ?? ""} disabled className="bg-muted" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="passportNo">Passport No</Label>
-                  <Input
-                    id="passportNo"
-                    value={currentData.passportNo ?? ""}
-                    onChange={(e) => handleFieldChange("passportNo", e.target.value || null)}
-                    placeholder="Passport number"
-                    data-testid="input-passport-no"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="nationality">Country of Passport</Label>
-                  <Input
-                    id="nationality"
-                    value={currentData.nationality ?? ""}
-                    onChange={(e) => handleFieldChange("nationality", e.target.value || null)}
-                    placeholder="e.g. Nepal, India, Philippines"
-                    data-testid="input-nationality"
-                  />
+                  <Input value={currentData.lineId ?? ""} onChange={(e) => handleFieldChange("lineId", e.target.value || null)} placeholder="Line ID" data-testid="input-line-id" />
                 </div>
               </div>
               {/* Address */}
@@ -477,120 +440,148 @@ export function AdminEmployeeDetail() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Street Address</Label>
-                    <Input value={employee.streetAddress ?? ""} disabled className="bg-muted" />
+                    <Input value={currentData.streetAddress ?? ""} onChange={(e) => handleFieldChange("streetAddress", e.target.value || null)} placeholder="Street Address" data-testid="input-street-address" />
                   </div>
                   <div className="space-y-2">
                     <Label>Street Address 2</Label>
-                    <Input value={employee.streetAddress2 ?? ""} disabled className="bg-muted" />
+                    <Input value={currentData.streetAddress2 ?? ""} onChange={(e) => handleFieldChange("streetAddress2", e.target.value || null)} placeholder="Apt, unit, etc." data-testid="input-street-address-2" />
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                   <div className="space-y-2">
                     <Label>Suburb</Label>
-                    <Input value={employee.suburb ?? ""} disabled className="bg-muted" />
+                    <Input value={currentData.suburb ?? ""} onChange={(e) => handleFieldChange("suburb", e.target.value || null)} placeholder="Suburb" data-testid="input-suburb" />
                   </div>
                   <div className="space-y-2">
                     <Label>State</Label>
-                    <Input value={employee.state ?? ""} disabled className="bg-muted" />
+                    <Input value={currentData.state ?? ""} onChange={(e) => handleFieldChange("state", e.target.value || null)} placeholder="NSW" data-testid="input-state" />
                   </div>
                   <div className="space-y-2">
                     <Label>Post Code</Label>
-                    <Input value={employee.postCode ?? ""} disabled className="bg-muted" />
+                    <Input value={currentData.postCode ?? ""} onChange={(e) => handleFieldChange("postCode", e.target.value || null)} placeholder="2000" data-testid="input-post-code" />
                   </div>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* VEVO Work Rights */}
+          {/* Visa & Compliance */}
           {(() => {
             const visaStatus = getVisaStatus(currentData.visaExpiry);
-            const daysUntilExpiry = currentData.visaExpiry ? Math.ceil((new Date(currentData.visaExpiry).getTime() - Date.now()) / 86400000) : null;
+            const daysLeft = currentData.visaExpiry ? Math.ceil((new Date(currentData.visaExpiry).getTime() - Date.now()) / 86400000) : null;
             return (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
                     <ShieldCheck className="h-4 w-4" />
-                    VEVO Work Rights Check
+                    Visa &amp; Compliance
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-5">
+
                   {/* Visa Status Alerts */}
-                  {visaStatus === "expired" && (
-                    <div className="flex items-center gap-3 rounded-md border border-destructive/50 bg-destructive/10 p-3" data-testid="alert-visa-expired">
-                      <AlertTriangle className="h-5 w-5 text-destructive shrink-0" />
+                  {visaStatus === "urgent" && (
+                    <div className="flex items-start gap-3 rounded-md border border-destructive/60 bg-destructive/10 p-3" data-testid="alert-visa-urgent">
+                      <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
                       <div>
-                        <p className="text-sm font-semibold text-destructive">WORK PROHIBITED — Visa Expired</p>
-                        <p className="text-xs text-destructive/80">Visa expired on {currentData.visaExpiry}. This employee cannot legally work.</p>
+                        <p className="text-sm font-bold text-destructive">
+                          {daysLeft !== null && daysLeft <= 0
+                            ? "⚠️ URGENT: VISA EXPIRED — WORK PROHIBITED"
+                            : `⚠️ URGENT: VISA EXPIRES IN ${daysLeft} DAY${daysLeft === 1 ? "" : "S"} — ACTION REQUIRED`}
+                        </p>
+                        <p className="text-xs text-destructive/80 mt-0.5">
+                          {daysLeft !== null && daysLeft <= 0
+                            ? `Expired on ${currentData.visaExpiry}. This employee cannot legally work in Australia.`
+                            : `Expiry: ${currentData.visaExpiry}. Verify work rights immediately.`}
+                        </p>
                       </div>
                     </div>
                   )}
                   {visaStatus === "expiring_soon" && (
-                    <div className="flex items-center gap-3 rounded-md border border-orange-500/50 bg-orange-500/10 p-3" data-testid="alert-visa-expiring">
-                      <AlertTriangle className="h-5 w-5 text-orange-500 shrink-0" />
+                    <div className="flex items-start gap-3 rounded-md border border-orange-400/60 bg-orange-400/10 p-3" data-testid="alert-visa-expiring">
+                      <AlertTriangle className="h-5 w-5 text-orange-500 shrink-0 mt-0.5" />
                       <div>
-                        <p className="text-sm font-semibold text-orange-600 dark:text-orange-400">Visa Expiring Soon — {daysUntilExpiry} day{daysUntilExpiry === 1 ? "" : "s"} remaining</p>
-                        <p className="text-xs text-orange-500/80">Expires {currentData.visaExpiry}. Renew or re-verify work rights immediately.</p>
+                        <p className="text-sm font-semibold text-orange-600 dark:text-orange-400">Visa Expiring Soon — {daysLeft} day{daysLeft === 1 ? "" : "s"} remaining</p>
+                        <p className="text-xs text-orange-500/80 mt-0.5">Expires {currentData.visaExpiry}. Schedule a VEVO check and renewal.</p>
                       </div>
                     </div>
                   )}
                   {visaStatus === "valid" && currentData.visaExpiry && (
                     <div className="flex items-center gap-3 rounded-md border border-green-500/30 bg-green-500/8 p-3" data-testid="alert-visa-valid">
                       <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
-                      <p className="text-sm text-green-700 dark:text-green-400">Visa valid — expires {currentData.visaExpiry} ({daysUntilExpiry} days remaining)</p>
+                      <p className="text-sm text-green-700 dark:text-green-400">Work rights valid — visa expires {currentData.visaExpiry} ({daysLeft} days remaining)</p>
                     </div>
                   )}
 
-                  {/* VEVO Quick Check Panel */}
+                  {/* Visa Fields */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label>Visa Type</Label>
+                      <Input value={currentData.visaType ?? ""} onChange={(e) => handleFieldChange("visaType", e.target.value || null)} placeholder="e.g. Student, WHM, PR" data-testid="input-visa-type" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Visa Subclass</Label>
+                      <Input value={currentData.visaSubclass ?? ""} onChange={(e) => handleFieldChange("visaSubclass", e.target.value || null)} placeholder="e.g. 500, 417, 485" data-testid="input-visa-subclass" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Visa Expiry Date</Label>
+                      <Input type="date" value={currentData.visaExpiry ?? ""} onChange={(e) => handleFieldChange("visaExpiry", e.target.value || null)} data-testid="input-visa-expiry" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label>Work Entitlements</Label>
+                      <Select value={currentData.workEntitlements ?? ""} onValueChange={(v) => handleFieldChange("workEntitlements", v || null)}>
+                        <SelectTrigger data-testid="select-work-entitlements">
+                          <SelectValue placeholder="Select..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Full Work Rights">Full Work Rights</SelectItem>
+                          <SelectItem value="Restricted">Restricted</SelectItem>
+                          <SelectItem value="No Work Rights">No Work Rights</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Passport No</Label>
+                      <Input value={currentData.passportNo ?? ""} onChange={(e) => handleFieldChange("passportNo", e.target.value || null)} placeholder="Passport number" data-testid="input-passport-no" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Country of Passport</Label>
+                      <Input value={currentData.nationality ?? ""} onChange={(e) => handleFieldChange("nationality", e.target.value || null)} placeholder="e.g. Nepal, India" data-testid="input-nationality" />
+                    </div>
+                  </div>
+
+                  {/* VEVO Helper */}
                   <div className="rounded-md border border-border/40 bg-muted/30 p-4 space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-medium">VEVO Quick Check — Copy details then open site</p>
-                      <Button
-                        size="sm"
-                        onClick={() => window.open("https://immi.homeaffairs.gov.au/visas/already-have-a-visa/check-visa-details-and-conditions/vevo", "_blank")}
-                        data-testid="button-open-vevo"
-                      >
+                      <div>
+                        <p className="text-sm font-medium">VEVO Organisation Login</p>
+                        <p className="text-xs text-muted-foreground">Copy employee details, then open the government portal</p>
+                      </div>
+                      <Button size="sm" onClick={() => setShowVevoModal(true)} data-testid="button-open-vevo-modal">
                         <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-                        Open VEVO Check Site
+                        Open VEVO Organisation Login
                       </Button>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      {[
-                        { label: "Passport No", value: currentData.passportNo, field: "passport" },
-                        { label: "Date of Birth", value: currentData.dob, field: "dob" },
-                        { label: "Country of Passport", value: currentData.nationality, field: "nationality" },
-                      ].map(({ label, value, field }) => (
-                        <div key={field} className="space-y-1">
-                          <p className="text-xs text-muted-foreground">{label}</p>
-                          <button
-                            type="button"
-                            onClick={() => copyToClipboard(value ?? "", field)}
-                            disabled={!value}
-                            className="w-full flex items-center justify-between gap-2 rounded-md border border-border/40 bg-background px-3 py-2 text-left text-sm hover-elevate active-elevate-2 disabled:opacity-40 disabled:cursor-not-allowed"
-                            data-testid={`button-copy-${field}`}
-                          >
-                            <span className="truncate font-mono">{value || "—"}</span>
-                            {copiedField === field ? (
-                              <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                            ) : (
-                              <ClipboardCopy className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                            )}
-                          </button>
-                        </div>
-                      ))}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <Label>Last VEVO Check Date</Label>
+                        <Input type="date" value={currentData.lastVevoCheckDate ?? ""} onChange={(e) => handleFieldChange("lastVevoCheckDate", e.target.value || null)} data-testid="input-last-vevo-check" />
+                      </div>
                     </div>
                   </div>
 
                   {/* VEVO Document Upload */}
                   <div className="space-y-2">
-                    <Label className="font-medium">Latest VEVO Result (PDF / Image)</Label>
+                    <Label className="font-medium">VEVO Result Document (PDF / Image)</Label>
                     <div className="flex items-center gap-3">
                       <input ref={vevoFileRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleVevoUpload} data-testid="input-vevo-file" />
                       {currentData.vevoUrl ? (
                         <div className="flex flex-1 items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-2">
                           <Shield className="h-4 w-4 text-muted-foreground shrink-0" />
                           <a href={currentData.vevoUrl} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-sm text-blue-600 dark:text-blue-400 hover:underline">
-                            {currentData.vevoUrl.split("/").pop()}
+                            {currentData.vevoUrl.split("/").pop() || "VEVO Document"}
                           </a>
                           <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => handleFieldChange("vevoUrl", null)} data-testid="button-remove-vevo">
                             <X className="h-3.5 w-3.5" />
@@ -963,6 +954,66 @@ export function AdminEmployeeDetail() {
           </Card>
         </div>
       </div>
+
+      {/* VEVO Modal */}
+      {showVevoModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={() => setShowVevoModal(false)}
+          data-testid="vevo-modal-overlay"
+        >
+          <div className="relative w-full max-w-md mx-4 rounded-xl bg-card border border-border/40 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-border/40 px-5 py-4">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-primary" />
+                <h2 className="font-semibold">VEVO — Copy Details &amp; Login</h2>
+              </div>
+              <Button size="icon" variant="ghost" onClick={() => setShowVevoModal(false)} data-testid="button-vevo-modal-close">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-muted-foreground">Copy each field below, then open the VEVO portal and paste into the search form.</p>
+              <div className="space-y-3">
+                {[
+                  { label: "Passport No", value: currentData.passportNo, field: "modal-passport" },
+                  { label: "Date of Birth", value: currentData.dob, field: "modal-dob" },
+                  { label: "Country of Passport", value: currentData.nationality, field: "modal-nationality" },
+                ].map(({ label, value, field }) => (
+                  <div key={field} className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(value ?? "", field)}
+                      disabled={!value}
+                      className="w-full flex items-center justify-between gap-3 rounded-md border border-border/40 bg-muted/30 px-3 py-2.5 text-left hover-elevate active-elevate-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                      data-testid={`button-copy-${field}`}
+                    >
+                      <span className="font-mono text-sm">{value || <span className="text-muted-foreground italic">Not set</span>}</span>
+                      {copiedField === field ? (
+                        <span className="flex items-center gap-1 text-xs text-green-600 shrink-0 font-medium"><CheckCircle2 className="h-3.5 w-3.5" />Copied!</span>
+                      ) : (
+                        <ClipboardCopy className="h-4 w-4 text-muted-foreground shrink-0" />
+                      )}
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="border-t border-border/40 pt-4">
+                <Button
+                  className="w-full"
+                  onClick={() => { window.open("https://online.immi.gov.au/lusc/login", "_blank"); setShowVevoModal(false); }}
+                  data-testid="button-open-vevo-login"
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Open VEVO Organisation Login
+                </Button>
+                <p className="text-xs text-muted-foreground text-center mt-2">Opens: online.immi.gov.au/lusc/login</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Lightbox */}
       {lightboxUrl && (
