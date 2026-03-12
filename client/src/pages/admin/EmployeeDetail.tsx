@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Loader2, Save, User, ExternalLink, Camera, FileImage, Upload, X } from "lucide-react";
+import { ArrowLeft, Loader2, Save, User, ExternalLink, Camera, FileImage, Upload, X, ShieldCheck, AlertTriangle, ClipboardCopy, CheckCircle2, Shield } from "lucide-react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -132,6 +132,10 @@ export function AdminEmployeeDetail() {
   const [storesDirty, setStoresDirty] = useState(false);
   const [assignmentOverrides, setAssignmentOverrides] = useState<Record<string, { rate?: string; fixedAmount?: string }>>({}); 
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [vevoUploading, setVevoUploading] = useState(false);
+  const [vevoVerifiedByInput, setVevoVerifiedByInput] = useState("");
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const vevoFileRef = useRef<HTMLInputElement>(null);
 
   const { data: employee, isLoading: employeeLoading } = useQuery<Employee>({
     queryKey: ["/api/employees", employeeId],
@@ -239,6 +243,55 @@ export function AdminEmployeeDetail() {
       queryClient.invalidateQueries({ queryKey: ["/api/payrolls/current"] });
       toast({ title: "Employee updated successfully" });
     }
+  };
+
+  const getVisaStatus = (visaExpiry: string | null | undefined): "expired" | "expiring_soon" | "valid" | "no_data" => {
+    if (!visaExpiry) return "no_data";
+    const expiry = new Date(visaExpiry);
+    if (isNaN(expiry.getTime())) return "no_data";
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (expiry < today) return "expired";
+    const in30 = new Date(today);
+    in30.setDate(in30.getDate() + 30);
+    if (expiry <= in30) return "expiring_soon";
+    return "valid";
+  };
+
+  const copyToClipboard = async (text: string, field: string) => {
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+
+  const handleVevoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setVevoUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      handleFieldChange("vevoUrl", data.url);
+      toast({ title: "VEVO document uploaded" });
+    } catch {
+      toast({ title: "Upload failed", variant: "destructive" });
+    } finally {
+      setVevoUploading(false);
+      if (vevoFileRef.current) vevoFileRef.current.value = "";
+    }
+  };
+
+  const handleMarkVerified = async () => {
+    const name = vevoVerifiedByInput.trim();
+    if (!name) { toast({ title: "Enter your name first", variant: "destructive" }); return; }
+    const now = new Date().toISOString();
+    await updateMutation.mutateAsync({ vevoVerifiedAt: now, vevoVerifiedBy: name });
+    setVevoVerifiedByInput("");
+    toast({ title: "Verification recorded", description: `Logged by ${name}` });
   };
 
   if (employeeLoading) {
@@ -406,6 +459,18 @@ export function AdminEmployeeDetail() {
                   />
                 </div>
               </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="nationality">Country of Passport</Label>
+                  <Input
+                    id="nationality"
+                    value={currentData.nationality ?? ""}
+                    onChange={(e) => handleFieldChange("nationality", e.target.value || null)}
+                    placeholder="e.g. Nepal, India, Philippines"
+                    data-testid="input-nationality"
+                  />
+                </div>
+              </div>
               {/* Address */}
               <div className="pt-1 border-t border-border/40">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">Address</p>
@@ -436,6 +501,140 @@ export function AdminEmployeeDetail() {
               </div>
             </CardContent>
           </Card>
+
+          {/* VEVO Work Rights */}
+          {(() => {
+            const visaStatus = getVisaStatus(currentData.visaExpiry);
+            const daysUntilExpiry = currentData.visaExpiry ? Math.ceil((new Date(currentData.visaExpiry).getTime() - Date.now()) / 86400000) : null;
+            return (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4" />
+                    VEVO Work Rights Check
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  {/* Visa Status Alerts */}
+                  {visaStatus === "expired" && (
+                    <div className="flex items-center gap-3 rounded-md border border-destructive/50 bg-destructive/10 p-3" data-testid="alert-visa-expired">
+                      <AlertTriangle className="h-5 w-5 text-destructive shrink-0" />
+                      <div>
+                        <p className="text-sm font-semibold text-destructive">WORK PROHIBITED — Visa Expired</p>
+                        <p className="text-xs text-destructive/80">Visa expired on {currentData.visaExpiry}. This employee cannot legally work.</p>
+                      </div>
+                    </div>
+                  )}
+                  {visaStatus === "expiring_soon" && (
+                    <div className="flex items-center gap-3 rounded-md border border-orange-500/50 bg-orange-500/10 p-3" data-testid="alert-visa-expiring">
+                      <AlertTriangle className="h-5 w-5 text-orange-500 shrink-0" />
+                      <div>
+                        <p className="text-sm font-semibold text-orange-600 dark:text-orange-400">Visa Expiring Soon — {daysUntilExpiry} day{daysUntilExpiry === 1 ? "" : "s"} remaining</p>
+                        <p className="text-xs text-orange-500/80">Expires {currentData.visaExpiry}. Renew or re-verify work rights immediately.</p>
+                      </div>
+                    </div>
+                  )}
+                  {visaStatus === "valid" && currentData.visaExpiry && (
+                    <div className="flex items-center gap-3 rounded-md border border-green-500/30 bg-green-500/8 p-3" data-testid="alert-visa-valid">
+                      <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
+                      <p className="text-sm text-green-700 dark:text-green-400">Visa valid — expires {currentData.visaExpiry} ({daysUntilExpiry} days remaining)</p>
+                    </div>
+                  )}
+
+                  {/* VEVO Quick Check Panel */}
+                  <div className="rounded-md border border-border/40 bg-muted/30 p-4 space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-medium">VEVO Quick Check — Copy details then open site</p>
+                      <Button
+                        size="sm"
+                        onClick={() => window.open("https://immi.homeaffairs.gov.au/visas/already-have-a-visa/check-visa-details-and-conditions/vevo", "_blank")}
+                        data-testid="button-open-vevo"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                        Open VEVO Check Site
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {[
+                        { label: "Passport No", value: currentData.passportNo, field: "passport" },
+                        { label: "Date of Birth", value: currentData.dob, field: "dob" },
+                        { label: "Country of Passport", value: currentData.nationality, field: "nationality" },
+                      ].map(({ label, value, field }) => (
+                        <div key={field} className="space-y-1">
+                          <p className="text-xs text-muted-foreground">{label}</p>
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(value ?? "", field)}
+                            disabled={!value}
+                            className="w-full flex items-center justify-between gap-2 rounded-md border border-border/40 bg-background px-3 py-2 text-left text-sm hover-elevate active-elevate-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                            data-testid={`button-copy-${field}`}
+                          >
+                            <span className="truncate font-mono">{value || "—"}</span>
+                            {copiedField === field ? (
+                              <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                            ) : (
+                              <ClipboardCopy className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                            )}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* VEVO Document Upload */}
+                  <div className="space-y-2">
+                    <Label className="font-medium">Latest VEVO Result (PDF / Image)</Label>
+                    <div className="flex items-center gap-3">
+                      <input ref={vevoFileRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleVevoUpload} data-testid="input-vevo-file" />
+                      {currentData.vevoUrl ? (
+                        <div className="flex flex-1 items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-2">
+                          <Shield className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <a href={currentData.vevoUrl} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-sm text-blue-600 dark:text-blue-400 hover:underline">
+                            {currentData.vevoUrl.split("/").pop()}
+                          </a>
+                          <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => handleFieldChange("vevoUrl", null)} data-testid="button-remove-vevo">
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button size="sm" variant="outline" onClick={() => vevoFileRef.current?.click()} disabled={vevoUploading} data-testid="button-upload-vevo">
+                          {vevoUploading ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1.5" />}
+                          {vevoUploading ? "Uploading..." : "Upload VEVO Result"}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Verification Log */}
+                  <div className="space-y-3 border-t border-border/40 pt-4">
+                    <p className="text-sm font-medium">Verification Audit Log</p>
+                    {currentData.vevoVerifiedAt && (
+                      <div className="flex items-center gap-2 rounded-md border border-green-500/30 bg-green-500/8 px-3 py-2" data-testid="vevo-last-verified">
+                        <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                        <p className="text-sm">
+                          Last verified on <span className="font-medium">{new Date(currentData.vevoVerifiedAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}</span>
+                          {" "}by <span className="font-medium">{currentData.vevoVerifiedBy}</span>
+                        </p>
+                      </div>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Input
+                        value={vevoVerifiedByInput}
+                        onChange={(e) => setVevoVerifiedByInput(e.target.value)}
+                        placeholder="Your name (manager)"
+                        className="max-w-xs"
+                        data-testid="input-vevo-verified-by"
+                      />
+                      <Button size="sm" variant="outline" onClick={handleMarkVerified} disabled={updateMutation.isPending || !vevoVerifiedByInput.trim()} data-testid="button-mark-verified">
+                        {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />}
+                        Mark as Verified Today
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
 
           {/* Photos & Documents */}
           <Card>
