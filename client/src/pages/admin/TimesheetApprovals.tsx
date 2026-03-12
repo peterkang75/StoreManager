@@ -1,9 +1,8 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -20,15 +19,10 @@ import { useToast } from "@/hooks/use-toast";
 import {
   CheckCircle2,
   PenLine,
-  AlertTriangle,
   Clock,
-  CheckSquare,
-  ChevronRight,
   X,
   Loader2,
   Calendar,
-  User,
-  Store,
   ClipboardCheck,
   ArrowRight,
   TrendingUp,
@@ -94,16 +88,13 @@ type DiscrepancyType = "tardy_or_early" | "overtime" | "ok" | "unscheduled";
 function getDiscrepancy(ts: EnrichedTimesheet): DiscrepancyType {
   if (ts.isUnscheduled) return "unscheduled";
   if (!ts.scheduledStartTime || !ts.scheduledEndTime) return "ok";
-
   const schedStart = toMinutes(ts.scheduledStartTime);
   const schedEnd = toMinutes(ts.scheduledEndTime);
   const actStart = toMinutes(ts.actualStartTime);
   const actEnd = toMinutes(ts.actualEndTime);
-
   const lateStart = actStart > schedStart + 5;
   const earlyEnd = actEnd < schedEnd - 5;
   const overtime = actEnd > schedEnd + 5;
-
   if (lateStart || earlyEnd) return "tardy_or_early";
   if (overtime) return "overtime";
   return "ok";
@@ -113,12 +104,323 @@ const STORE_COLORS: Record<string, string> = {
   Sushi: "#16a34a",
   Sandwich: "#dc2626",
 };
-
 function storeColor(storeName: string): string {
   return STORE_COLORS[storeName] ?? "#6366f1";
 }
 
-// ── Edit & Approve Modal ───────────────────────────────────────────────────────
+// ── Discrepancy Badge ──────────────────────────────────────────────────────────
+
+function DiscrepancyBadge({ type }: { type: DiscrepancyType }) {
+  if (type === "tardy_or_early")
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/30" data-testid="badge-tardy">
+        <TrendingDown className="h-3 w-3" /> Discrepancy
+      </span>
+    );
+  if (type === "overtime")
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/30" data-testid="badge-overtime">
+        <TrendingUp className="h-3 w-3" /> Overtime
+      </span>
+    );
+  if (type === "unscheduled")
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/30" data-testid="badge-unscheduled">
+        <Calendar className="h-3 w-3" /> Unscheduled
+      </span>
+    );
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/30" data-testid="badge-ok">
+      <CheckCircle2 className="h-3 w-3" /> On Time
+    </span>
+  );
+}
+
+// ── Time Cell (desktop table) ─────────────────────────────────────────────────
+
+function TimeCell({ actual, scheduled, isStart }: { actual: string; scheduled: string | null; isStart: boolean }) {
+  const discType = (() => {
+    if (!scheduled) return "ok";
+    const diff = toMinutes(actual) - toMinutes(scheduled);
+    if (isStart) return diff > 5 ? "tardy" : "ok";
+    else return diff < -5 ? "early" : diff > 5 ? "overtime" : "ok";
+  })();
+  const colorClass =
+    discType === "tardy" || discType === "early" ? "text-destructive font-semibold"
+    : discType === "overtime" ? "text-orange-600 dark:text-orange-400 font-semibold"
+    : "text-foreground";
+  return (
+    <div className="flex flex-col leading-tight">
+      <span className={`text-sm ${colorClass}`}>{fmtTime(actual)}</span>
+      {scheduled && <span className="text-[11px] text-muted-foreground">{fmtTime(scheduled)}</span>}
+    </div>
+  );
+}
+
+// ── Mobile Card ────────────────────────────────────────────────────────────────
+
+function ApprovalCard({
+  ts,
+  selected,
+  onSelect,
+  onApprove,
+  onEdit,
+  approving,
+}: {
+  ts: EnrichedTimesheet;
+  selected: boolean;
+  onSelect: (id: string, checked: boolean) => void;
+  onApprove: (id: string) => void;
+  onEdit: (ts: EnrichedTimesheet) => void;
+  approving: boolean;
+}) {
+  const disc = getDiscrepancy(ts);
+  const actualHours = calcHours(ts.actualStartTime, ts.actualEndTime);
+  const scheduledHours =
+    ts.scheduledStartTime && ts.scheduledEndTime
+      ? calcHours(ts.scheduledStartTime, ts.scheduledEndTime)
+      : null;
+
+  const delta =
+    scheduledHours !== null
+      ? actualHours > scheduledHours
+        ? `+${fmtHours(actualHours - scheduledHours)}`
+        : actualHours < scheduledHours
+        ? `-${fmtHours(scheduledHours - actualHours)}`
+        : null
+      : null;
+
+  const cardBorderColor =
+    disc === "tardy_or_early" ? "border-l-destructive"
+    : disc === "overtime" ? "border-l-orange-500"
+    : disc === "unscheduled" ? "border-l-purple-500"
+    : "border-l-green-500";
+
+  const hoursColor =
+    disc === "tardy_or_early" ? "text-destructive"
+    : disc === "overtime" ? "text-orange-600 dark:text-orange-400"
+    : "text-foreground";
+
+  return (
+    <div
+      className={`bg-card rounded-xl border border-border/40 border-l-4 ${cardBorderColor} shadow-sm overflow-hidden`}
+      data-testid={`row-timesheet-${ts.id}`}
+    >
+      {/* Card Header */}
+      <div className="flex items-center justify-between px-4 pt-4 pb-2 gap-2">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <Checkbox
+            checked={selected}
+            onCheckedChange={v => onSelect(ts.id, !!v)}
+            data-testid={`checkbox-select-${ts.id}`}
+          />
+          <div className="min-w-0">
+            <p className="font-bold text-base leading-tight truncate">
+              {ts.employeeNickname || ts.employeeName.split(" ")[0]}
+            </p>
+            <p className="text-[11px] text-muted-foreground truncate">{fmtDate(ts.date)}</p>
+          </div>
+        </div>
+        <div className="shrink-0">
+          <DiscrepancyBadge type={disc} />
+        </div>
+      </div>
+
+      {/* Card Body */}
+      <div className="px-4 pb-3 space-y-2.5">
+        {/* Store */}
+        <div className="flex items-center gap-2">
+          <div
+            className="h-2.5 w-2.5 rounded-full shrink-0"
+            style={{ backgroundColor: storeColor(ts.storeName) }}
+          />
+          <span className="text-sm text-muted-foreground font-medium">{ts.storeName}</span>
+        </div>
+
+        {/* Hours + Time */}
+        <div className="flex items-end justify-between gap-4">
+          {/* Actual hours — big display */}
+          <div>
+            <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide mb-0.5">Actual Hours</p>
+            <div className="flex items-baseline gap-2">
+              <span className={`text-3xl font-black leading-none ${hoursColor}`}>
+                {fmtHours(actualHours)}
+              </span>
+              {delta && (
+                <span className={`text-sm font-bold ${delta.startsWith("+") ? "text-orange-500" : "text-destructive"}`}>
+                  {delta}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Time range */}
+          <div className="text-right shrink-0">
+            <p className="text-[11px] text-muted-foreground mb-0.5">
+              {fmtTime(ts.actualStartTime)} – {fmtTime(ts.actualEndTime)}
+            </p>
+            {ts.scheduledStartTime && (
+              <p className="text-[11px] text-muted-foreground/60">
+                Sched: {fmtTime(ts.scheduledStartTime)} – {fmtTime(ts.scheduledEndTime)}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Unscheduled note */}
+        {ts.isUnscheduled && (
+          <p className="text-[11px] text-purple-600 dark:text-purple-400 font-medium italic">
+            No roster shift — unscheduled entry
+          </p>
+        )}
+
+        {/* Adjustment reason if present */}
+        {ts.adjustmentReason && (
+          <p className="text-xs text-muted-foreground bg-muted/40 rounded-md px-2 py-1.5 leading-snug">
+            {ts.adjustmentReason}
+          </p>
+        )}
+      </div>
+
+      {/* Card Footer — Action Buttons */}
+      <div className="flex gap-2 px-4 pb-4">
+        <Button
+          className="flex-1 min-h-[44px] bg-green-600 text-white font-semibold"
+          onClick={() => onApprove(ts.id)}
+          disabled={approving}
+          data-testid={`button-approve-${ts.id}`}
+        >
+          {approving
+            ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            : <CheckCircle2 className="h-4 w-4 mr-2" />}
+          Approve
+        </Button>
+        <Button
+          variant="outline"
+          className="flex-1 min-h-[44px] font-semibold"
+          onClick={() => onEdit(ts)}
+          data-testid={`button-edit-${ts.id}`}
+        >
+          <PenLine className="h-4 w-4 mr-2" />
+          Edit
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Desktop Table Row ──────────────────────────────────────────────────────────
+
+function ApprovalRow({
+  ts,
+  selected,
+  onSelect,
+  onApprove,
+  onEdit,
+}: {
+  ts: EnrichedTimesheet;
+  selected: boolean;
+  onSelect: (id: string, checked: boolean) => void;
+  onApprove: (id: string) => void;
+  onEdit: (ts: EnrichedTimesheet) => void;
+}) {
+  const disc = getDiscrepancy(ts);
+  const rowBg =
+    disc === "tardy_or_early" ? "bg-destructive/5"
+    : disc === "overtime" ? "bg-orange-500/5"
+    : "";
+  const actualHours = calcHours(ts.actualStartTime, ts.actualEndTime);
+  const scheduledHours =
+    ts.scheduledStartTime && ts.scheduledEndTime
+      ? calcHours(ts.scheduledStartTime, ts.scheduledEndTime)
+      : null;
+
+  return (
+    <tr
+      className={`border-b border-border/30 transition-colors hover:bg-muted/20 ${rowBg}`}
+      data-testid={`row-timesheet-${ts.id}`}
+    >
+      <td className="w-10 pl-4 pr-2 py-3">
+        <Checkbox checked={selected} onCheckedChange={v => onSelect(ts.id, !!v)} data-testid={`checkbox-select-${ts.id}`} />
+      </td>
+      <td className="py-3 px-3 whitespace-nowrap">
+        <div className="text-sm font-medium">{fmtDate(ts.date)}</div>
+        <div className="text-[11px] text-muted-foreground">{ts.date}</div>
+      </td>
+      <td className="py-3 px-3 whitespace-nowrap">
+        <div className="flex items-center gap-2">
+          <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: storeColor(ts.storeName) }} />
+          <span className="text-sm font-medium">{ts.storeName}</span>
+        </div>
+      </td>
+      <td className="py-3 px-3">
+        <div className="flex flex-col">
+          <span className="text-sm font-semibold">{ts.employeeNickname || ts.employeeName.split(" ")[0]}</span>
+          <span className="text-[11px] text-muted-foreground truncate max-w-[120px]">{ts.employeeName}</span>
+        </div>
+      </td>
+      <td className="py-3 px-3 whitespace-nowrap">
+        {ts.scheduledStartTime ? (
+          <div className="flex items-center gap-1 text-sm text-muted-foreground font-mono">
+            <span>{fmtTime(ts.scheduledStartTime)}</span>
+            <ArrowRight className="h-3 w-3 shrink-0" />
+            <span>{fmtTime(ts.scheduledEndTime)}</span>
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground italic">{ts.isUnscheduled ? "No roster" : "—"}</span>
+        )}
+        {scheduledHours !== null && <div className="text-[11px] text-muted-foreground">{fmtHours(scheduledHours)}</div>}
+      </td>
+      <td className="py-3 px-3 whitespace-nowrap">
+        <TimeCell actual={ts.actualStartTime} scheduled={ts.scheduledStartTime} isStart={true} />
+      </td>
+      <td className="py-3 px-3 whitespace-nowrap">
+        <TimeCell actual={ts.actualEndTime} scheduled={ts.scheduledEndTime} isStart={false} />
+      </td>
+      <td className="py-3 px-3 whitespace-nowrap">
+        <div className="flex flex-col">
+          <span className={`text-sm font-bold ${disc === "overtime" ? "text-orange-600 dark:text-orange-400" : disc === "tardy_or_early" ? "text-destructive" : "text-foreground"}`}>
+            {fmtHours(actualHours)}
+          </span>
+          {scheduledHours !== null && (
+            <span className="text-[11px] text-muted-foreground">
+              {actualHours > scheduledHours ? `+${fmtHours(actualHours - scheduledHours)}`
+                : actualHours < scheduledHours ? `-${fmtHours(scheduledHours - actualHours)}`
+                : "exact"}
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="py-3 px-3 whitespace-nowrap">
+        <DiscrepancyBadge type={disc} />
+      </td>
+      <td className="py-3 pl-2 pr-4 whitespace-nowrap">
+        <div className="flex items-center gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-9 px-3 border-green-500/50 text-green-700 dark:text-green-400"
+            onClick={() => onApprove(ts.id)}
+            data-testid={`button-approve-${ts.id}`}
+          >
+            <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-9 px-3"
+            onClick={() => onEdit(ts)}
+            data-testid={`button-edit-${ts.id}`}
+          >
+            <PenLine className="h-3.5 w-3.5 mr-1" /> Edit
+          </Button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// ── Edit & Approve Modal / Bottom Sheet ────────────────────────────────────────
 
 function EditApproveModal({
   ts,
@@ -155,17 +457,24 @@ function EditApproveModal({
   const hoursActual = calcHours(startTime, endTime);
 
   return (
+    /* Backdrop */
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex flex-col justify-end md:justify-center md:items-center md:p-4"
       onClick={onClose}
     >
+      {/* Sheet / Modal panel */}
       <div
-        className="w-full max-w-lg bg-card rounded-xl border border-border/40 shadow-2xl"
+        className="w-full md:max-w-lg bg-card md:rounded-xl rounded-t-2xl border border-border/40 shadow-2xl flex flex-col max-h-[92dvh] md:max-h-none"
         onClick={e => e.stopPropagation()}
         data-testid="edit-approve-modal"
       >
+        {/* Drag handle (mobile) */}
+        <div className="md:hidden flex justify-center pt-3 pb-1 shrink-0">
+          <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
+        </div>
+
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border/40">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border/40 shrink-0">
           <div>
             <h2 className="font-bold text-base">Edit &amp; Approve Timesheet</h2>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -177,7 +486,8 @@ function EditApproveModal({
           </Button>
         </div>
 
-        <div className="p-5 space-y-5">
+        {/* Scrollable body */}
+        <div className="overflow-y-auto flex-1 p-5 space-y-5">
           {/* Scheduled reference */}
           {ts.scheduledStartTime && (
             <div className="rounded-md bg-muted/40 border border-border/30 px-4 py-3 flex items-center gap-4">
@@ -193,37 +503,38 @@ function EditApproveModal({
           {/* Time editors */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground font-medium">Adjusted Start Time</Label>
+              <Label className="text-xs text-muted-foreground font-medium">Adjusted Start</Label>
               <Input
                 type="time"
                 value={startTime}
                 onChange={e => setStartTime(e.target.value)}
-                className="font-mono"
+                className="font-mono min-h-[44px]"
                 data-testid="input-adjusted-start"
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground font-medium">Adjusted End Time</Label>
+              <Label className="text-xs text-muted-foreground font-medium">Adjusted End</Label>
               <Input
                 type="time"
                 value={endTime}
                 onChange={e => setEndTime(e.target.value)}
-                className="font-mono"
+                className="font-mono min-h-[44px]"
                 data-testid="input-adjusted-end"
               />
             </div>
           </div>
 
           {/* Hours preview */}
-          <div className="flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Adjusted total:</span>
-            <span className="font-bold text-primary">{fmtHours(hoursActual)}</span>
-            {ts.scheduledStartTime && ts.scheduledEndTime && (
-              <>
-                <span className="text-muted-foreground mx-1">vs scheduled</span>
-                <span className="font-medium">{fmtHours(calcHours(ts.scheduledStartTime, ts.scheduledEndTime))}</span>
-              </>
-            )}
+          <div className="rounded-md bg-muted/40 border border-border/20 px-4 py-3 flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Adjusted total</span>
+            <div className="flex items-center gap-3">
+              <span className="text-xl font-black text-primary">{fmtHours(hoursActual)}</span>
+              {ts.scheduledStartTime && ts.scheduledEndTime && (
+                <span className="text-sm text-muted-foreground">
+                  vs {fmtHours(calcHours(ts.scheduledStartTime, ts.scheduledEndTime))} sched
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Reason */}
@@ -236,7 +547,7 @@ function EditApproveModal({
               onChange={e => setReason(e.target.value)}
               placeholder="e.g. Forgot to clock out, manager confirmed actual hours"
               className="resize-none"
-              rows={3}
+              rows={4}
               data-testid="textarea-adjustment-reason"
             />
             {reason.trim() === "" && (
@@ -245,258 +556,25 @@ function EditApproveModal({
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-border/40">
-          <Button variant="outline" onClick={onClose} data-testid="button-modal-cancel">Cancel</Button>
+        {/* Footer — always pinned at bottom */}
+        <div className="flex items-center gap-2 px-5 py-4 border-t border-border/40 shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+          <Button variant="outline" className="flex-1 min-h-[44px]" onClick={onClose} data-testid="button-modal-cancel">
+            Cancel
+          </Button>
           <Button
+            className="flex-[2] min-h-[44px] bg-green-600 text-white font-semibold"
             onClick={() => editMutation.mutate()}
             disabled={editMutation.isPending || !reason.trim()}
-            className="bg-green-600 hover:bg-green-600 text-white"
             data-testid="button-modal-save-approve"
           >
-            {editMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+            {editMutation.isPending
+              ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              : <CheckCircle2 className="h-4 w-4 mr-2" />}
             Save &amp; Approve
           </Button>
         </div>
       </div>
     </div>
-  );
-}
-
-// ── Discrepancy Badge ──────────────────────────────────────────────────────────
-
-function DiscrepancyBadge({ type }: { type: DiscrepancyType }) {
-  if (type === "tardy_or_early")
-    return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/30" data-testid="badge-tardy">
-        <TrendingDown className="h-3 w-3" />
-        Discrepancy
-      </span>
-    );
-  if (type === "overtime")
-    return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/30" data-testid="badge-overtime">
-        <TrendingUp className="h-3 w-3" />
-        Overtime
-      </span>
-    );
-  if (type === "unscheduled")
-    return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/30" data-testid="badge-unscheduled">
-        <Calendar className="h-3 w-3" />
-        Unscheduled
-      </span>
-    );
-  return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/30" data-testid="badge-ok">
-      <CheckCircle2 className="h-3 w-3" />
-      On Time
-    </span>
-  );
-}
-
-// ── Time Comparison Display ────────────────────────────────────────────────────
-
-function TimeCell({
-  actual,
-  scheduled,
-  isStart,
-}: {
-  actual: string;
-  scheduled: string | null;
-  isStart: boolean;
-}) {
-  const discType: "ok" | "tardy" | "overtime" | "early" = (() => {
-    if (!scheduled) return "ok";
-    const diff = toMinutes(actual) - toMinutes(scheduled);
-    if (isStart) return diff > 5 ? "tardy" : "ok";
-    else return diff < -5 ? "early" : diff > 5 ? "overtime" : "ok";
-  })();
-
-  const colorClass =
-    discType === "tardy" || discType === "early"
-      ? "text-destructive font-semibold"
-      : discType === "overtime"
-      ? "text-orange-600 dark:text-orange-400 font-semibold"
-      : "text-foreground";
-
-  return (
-    <div className="flex flex-col leading-tight">
-      <span className={`text-sm ${colorClass}`}>{fmtTime(actual)}</span>
-      {scheduled && (
-        <span className="text-[11px] text-muted-foreground">{fmtTime(scheduled)}</span>
-      )}
-    </div>
-  );
-}
-
-// ── Row ────────────────────────────────────────────────────────────────────────
-
-function ApprovalRow({
-  ts,
-  selected,
-  onSelect,
-  onApprove,
-  onEdit,
-}: {
-  ts: EnrichedTimesheet;
-  selected: boolean;
-  onSelect: (id: string, checked: boolean) => void;
-  onApprove: (id: string) => void;
-  onEdit: (ts: EnrichedTimesheet) => void;
-}) {
-  const disc = getDiscrepancy(ts);
-  const isApproving = false;
-
-  const rowBg =
-    disc === "tardy_or_early"
-      ? "bg-destructive/5 hover:bg-destructive/8"
-      : disc === "overtime"
-      ? "bg-orange-500/5 hover:bg-orange-500/8"
-      : "hover:bg-muted/30";
-
-  const actualHours = calcHours(ts.actualStartTime, ts.actualEndTime);
-  const scheduledHours =
-    ts.scheduledStartTime && ts.scheduledEndTime
-      ? calcHours(ts.scheduledStartTime, ts.scheduledEndTime)
-      : null;
-
-  return (
-    <tr
-      className={`border-b border-border/30 transition-colors ${rowBg}`}
-      data-testid={`row-timesheet-${ts.id}`}
-    >
-      {/* Checkbox */}
-      <td className="w-10 pl-4 pr-2 py-3">
-        <Checkbox
-          checked={selected}
-          onCheckedChange={v => onSelect(ts.id, !!v)}
-          data-testid={`checkbox-select-${ts.id}`}
-        />
-      </td>
-
-      {/* Date */}
-      <td className="py-3 px-3 whitespace-nowrap">
-        <div className="text-sm font-medium">{fmtDate(ts.date)}</div>
-        <div className="text-[11px] text-muted-foreground">{ts.date}</div>
-      </td>
-
-      {/* Store */}
-      <td className="py-3 px-3 whitespace-nowrap">
-        <div className="flex items-center gap-2">
-          <div
-            className="h-2.5 w-2.5 rounded-full shrink-0"
-            style={{ backgroundColor: storeColor(ts.storeName) }}
-          />
-          <span className="text-sm font-medium">{ts.storeName}</span>
-        </div>
-      </td>
-
-      {/* Employee */}
-      <td className="py-3 px-3">
-        <div className="flex flex-col">
-          <span className="text-sm font-semibold">
-            {ts.employeeNickname || ts.employeeName.split(" ")[0]}
-          </span>
-          <span className="text-[11px] text-muted-foreground truncate max-w-[120px]">
-            {ts.employeeName}
-          </span>
-        </div>
-      </td>
-
-      {/* Scheduled time */}
-      <td className="py-3 px-3 whitespace-nowrap">
-        {ts.scheduledStartTime ? (
-          <div className="flex items-center gap-1 text-sm text-muted-foreground font-mono">
-            <span>{fmtTime(ts.scheduledStartTime)}</span>
-            <ArrowRight className="h-3 w-3 shrink-0" />
-            <span>{fmtTime(ts.scheduledEndTime)}</span>
-          </div>
-        ) : (
-          <span className="text-xs text-muted-foreground italic">
-            {ts.isUnscheduled ? "No roster" : "—"}
-          </span>
-        )}
-        {scheduledHours !== null && (
-          <div className="text-[11px] text-muted-foreground">{fmtHours(scheduledHours)}</div>
-        )}
-      </td>
-
-      {/* Actual start */}
-      <td className="py-3 px-3 whitespace-nowrap">
-        <TimeCell
-          actual={ts.actualStartTime}
-          scheduled={ts.scheduledStartTime}
-          isStart={true}
-        />
-      </td>
-
-      {/* Actual end */}
-      <td className="py-3 px-3 whitespace-nowrap">
-        <TimeCell
-          actual={ts.actualEndTime}
-          scheduled={ts.scheduledEndTime}
-          isStart={false}
-        />
-      </td>
-
-      {/* Actual hours */}
-      <td className="py-3 px-3 whitespace-nowrap">
-        <div className="flex flex-col">
-          <span
-            className={`text-sm font-bold ${
-              disc === "overtime"
-                ? "text-orange-600 dark:text-orange-400"
-                : disc === "tardy_or_early"
-                ? "text-destructive"
-                : "text-foreground"
-            }`}
-          >
-            {fmtHours(actualHours)}
-          </span>
-          {scheduledHours !== null && (
-            <span className="text-[11px] text-muted-foreground">
-              {actualHours > scheduledHours
-                ? `+${fmtHours(actualHours - scheduledHours)}`
-                : actualHours < scheduledHours
-                ? `-${fmtHours(scheduledHours - actualHours)}`
-                : "exact"}
-            </span>
-          )}
-        </div>
-      </td>
-
-      {/* Status badge */}
-      <td className="py-3 px-3 whitespace-nowrap">
-        <DiscrepancyBadge type={disc} />
-      </td>
-
-      {/* Actions */}
-      <td className="py-3 pl-2 pr-4 whitespace-nowrap">
-        <div className="flex items-center gap-1.5">
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 px-2.5 border-green-500/50 text-green-700 dark:text-green-400 hover:bg-green-500/10"
-            onClick={() => onApprove(ts.id)}
-            data-testid={`button-approve-${ts.id}`}
-          >
-            <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-            Approve
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 px-2.5"
-            onClick={() => onEdit(ts)}
-            data-testid={`button-edit-${ts.id}`}
-          >
-            <PenLine className="h-3.5 w-3.5 mr-1" />
-            Edit
-          </Button>
-        </div>
-      </td>
-    </tr>
   );
 }
 
@@ -509,11 +587,11 @@ export function AdminTimesheetApprovals() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editingTs, setEditingTs] = useState<EnrichedTimesheet | null>(null);
   const [storeFilter, setStoreFilter] = useState("ALL");
+  const [approvingId, setApprovingId] = useState<string | null>(null);
 
   const { data: timesheets, isLoading } = useQuery<EnrichedTimesheet[]>({
     queryKey: ["/api/admin/approvals", statusFilter],
-    queryFn: () =>
-      fetch(`/api/admin/approvals?status=${statusFilter}`).then(r => r.json()),
+    queryFn: () => fetch(`/api/admin/approvals?status=${statusFilter}`).then(r => r.json()),
     staleTime: 0,
   });
 
@@ -531,18 +609,24 @@ export function AdminTimesheetApprovals() {
   }, [timesheets]);
 
   const approveMutation = useMutation({
-    mutationFn: (id: string) => apiRequest("PUT", `/api/admin/approvals/${id}/approve`),
+    mutationFn: (id: string) => {
+      setApprovingId(id);
+      return apiRequest("PUT", `/api/admin/approvals/${id}/approve`);
+    },
     onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/approvals"] });
       setSelected(s => { const n = new Set(s); n.delete(id); return n; });
+      setApprovingId(null);
       toast({ title: "Approved", description: "Timesheet approved successfully." });
     },
-    onError: () => toast({ title: "Error", description: "Failed to approve.", variant: "destructive" }),
+    onError: () => {
+      setApprovingId(null);
+      toast({ title: "Error", description: "Failed to approve.", variant: "destructive" });
+    },
   });
 
   const bulkApproveMutation = useMutation({
-    mutationFn: (ids: string[]) =>
-      apiRequest("POST", "/api/admin/approvals/bulk-approve", { ids }),
+    mutationFn: (ids: string[]) => apiRequest("POST", "/api/admin/approvals/bulk-approve", { ids }),
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/approvals"] });
       setSelected(new Set());
@@ -569,9 +653,7 @@ export function AdminTimesheetApprovals() {
     });
   };
 
-  // Summary counts
   const counts = useMemo(() => {
-    if (!filtered) return { tardy: 0, overtime: 0, unscheduled: 0, ok: 0 };
     return filtered.reduce(
       (acc, ts) => {
         const d = getDiscrepancy(ts);
@@ -587,199 +669,231 @@ export function AdminTimesheetApprovals() {
 
   return (
     <AdminLayout title="Approvals">
-      <div className="space-y-5">
-        {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* ── Page wrapper: bottom padding on mobile to clear the floating bulk bar ── */}
+      <div className={`space-y-4 ${someSelected && statusFilter === "PENDING" ? "pb-24 md:pb-0" : ""}`}>
+
+        {/* ── Page Header ─────────────────────────────────────────────────── */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-              <ClipboardCheck className="h-6 w-6 text-primary" />
+            <h2 className="text-xl md:text-2xl font-bold tracking-tight flex items-center gap-2">
+              <ClipboardCheck className="h-5 w-5 text-primary" />
               Timesheet Approvals
             </h2>
-            <p className="text-muted-foreground text-sm mt-0.5">
-              타임시트 검토 및 승인 — Review and approve employee submitted timesheets
+            <p className="text-muted-foreground text-xs md:text-sm mt-0.5">
+              타임시트 검토 및 승인
             </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Store filter */}
-            <Select value={storeFilter} onValueChange={setStoreFilter}>
-              <SelectTrigger className="w-36" data-testid="select-store-filter">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All Stores</SelectItem>
-                {stores.map(s => (
-                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {/* Status filter */}
-            <Select value={statusFilter} onValueChange={v => { setStatusFilter(v); setSelected(new Set()); }}>
-              <SelectTrigger className="w-36" data-testid="select-status-filter">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="PENDING">Pending</SelectItem>
-                <SelectItem value="APPROVED">Approved</SelectItem>
-                <SelectItem value="ALL">All</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
         </div>
 
-        {/* Summary bar */}
+        {/* ── Summary Row — horizontally scrollable on mobile ─────────────── */}
         {!isLoading && filtered.length > 0 && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="rounded-lg border border-border/40 bg-card px-4 py-3 flex items-center gap-3" data-testid="summary-total">
-              <ClipboardCheck className="h-5 w-5 text-muted-foreground" />
-              <div>
-                <p className="text-xs text-muted-foreground">Total Pending</p>
-                <p className="text-xl font-bold">{filtered.length}</p>
+          <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1 md:grid md:grid-cols-4 md:overflow-visible">
+            {[
+              { label: "Total", value: filtered.length, icon: <ClipboardCheck className="h-4 w-4 text-muted-foreground" />, color: "border-border/40 bg-card", text: "text-foreground" },
+              { label: "Discrepancies", value: counts.tardy, icon: <TrendingDown className="h-4 w-4 text-destructive" />, color: "border-destructive/40 bg-destructive/5", text: "text-destructive" },
+              { label: "Overtime", value: counts.overtime, icon: <TrendingUp className="h-4 w-4 text-orange-500" />, color: "border-orange-400/40 bg-orange-500/5", text: "text-orange-600 dark:text-orange-400" },
+              { label: "On Time", value: counts.ok, icon: <CheckCircle2 className="h-4 w-4 text-green-600" />, color: "border-green-500/40 bg-green-500/5", text: "text-green-600 dark:text-green-400" },
+            ].map(item => (
+              <div
+                key={item.label}
+                className={`shrink-0 w-32 md:w-auto rounded-lg border ${item.color} px-3 py-2.5 md:px-4 md:py-3 flex items-center gap-2.5`}
+                data-testid={`summary-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+              >
+                {item.icon}
+                <div>
+                  <p className="text-[10px] md:text-xs text-muted-foreground leading-none mb-0.5">{item.label}</p>
+                  <p className={`text-lg md:text-xl font-bold leading-none ${item.text}`}>{item.value}</p>
+                </div>
               </div>
-            </div>
-            <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 flex items-center gap-3" data-testid="summary-discrepancy">
-              <TrendingDown className="h-5 w-5 text-destructive" />
-              <div>
-                <p className="text-xs text-destructive/80">Discrepancies</p>
-                <p className="text-xl font-bold text-destructive">{counts.tardy}</p>
-              </div>
-            </div>
-            <div className="rounded-lg border border-orange-400/40 bg-orange-500/5 px-4 py-3 flex items-center gap-3" data-testid="summary-overtime">
-              <TrendingUp className="h-5 w-5 text-orange-500" />
-              <div>
-                <p className="text-xs text-orange-600/80">Overtime</p>
-                <p className="text-xl font-bold text-orange-600 dark:text-orange-400">{counts.overtime}</p>
-              </div>
-            </div>
-            <div className="rounded-lg border border-green-500/40 bg-green-500/5 px-4 py-3 flex items-center gap-3" data-testid="summary-ok">
-              <CheckCircle2 className="h-5 w-5 text-green-600" />
-              <div>
-                <p className="text-xs text-green-600/80">On Time</p>
-                <p className="text-xl font-bold text-green-600 dark:text-green-400">{counts.ok}</p>
-              </div>
-            </div>
+            ))}
           </div>
         )}
 
-        {/* Bulk action bar */}
-        {someSelected && statusFilter === "PENDING" && (
-          <div className="flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3" data-testid="bulk-action-bar">
-            <CheckSquare className="h-4 w-4 text-primary" />
-            <span className="text-sm font-medium">{selected.size} selected</span>
+        {/* ── Sticky Filter Bar ────────────────────────────────────────────── */}
+        <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b border-border/30 -mx-4 md:-mx-6 px-4 md:px-6 py-2.5 flex items-center gap-2">
+          {/* Select-all (mobile) — only in PENDING mode with data */}
+          {statusFilter === "PENDING" && filtered.length > 0 && (
+            <div className="flex items-center gap-1.5 mr-1">
+              <Checkbox
+                checked={allSelected}
+                onCheckedChange={handleSelectAll}
+                data-testid="checkbox-select-all"
+              />
+              <span className="text-xs text-muted-foreground hidden sm:inline">All</span>
+            </div>
+          )}
+
+          <Select value={storeFilter} onValueChange={setStoreFilter}>
+            <SelectTrigger className="flex-1 min-w-0 h-9" data-testid="select-store-filter">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Stores</SelectItem>
+              {stores.map(s => (
+                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={statusFilter} onValueChange={v => { setStatusFilter(v); setSelected(new Set()); }}>
+            <SelectTrigger className="flex-1 min-w-0 h-9" data-testid="select-status-filter">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="PENDING">Pending</SelectItem>
+              <SelectItem value="APPROVED">Approved</SelectItem>
+              <SelectItem value="ALL">All</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Count badge */}
+          {!isLoading && (
+            <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+              {filtered.length} item{filtered.length !== 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+
+        {/* ── Content ──────────────────────────────────────────────────────── */}
+        {isLoading ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map(i => <Skeleton key={i} className="h-40 w-full rounded-xl" />)}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center" data-testid="empty-state">
+            <ClipboardCheck className="h-12 w-12 text-muted-foreground/30 mb-4" />
+            <p className="font-semibold text-muted-foreground">
+              {statusFilter === "PENDING" ? "All caught up!" : "No timesheets found"}
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              {statusFilter === "PENDING"
+                ? "No pending timesheets require approval right now."
+                : "Try adjusting your filters."}
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* ── Mobile: Card List ── */}
+            <div className="md:hidden space-y-3" data-testid="approvals-card-list">
+              {filtered.map(ts => (
+                <ApprovalCard
+                  key={ts.id}
+                  ts={ts}
+                  selected={selected.has(ts.id)}
+                  onSelect={handleSelectOne}
+                  onApprove={id => approveMutation.mutate(id)}
+                  onEdit={setEditingTs}
+                  approving={approvingId === ts.id && approveMutation.isPending}
+                />
+              ))}
+            </div>
+
+            {/* ── Desktop: Table ── */}
+            <div className="hidden md:block">
+              <Card>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left" data-testid="approvals-table">
+                      <thead>
+                        <tr className="border-b border-border/40 bg-muted/30">
+                          <th className="w-10 pl-4 pr-2 py-3">
+                            {statusFilter === "PENDING" && (
+                              <Checkbox checked={allSelected} onCheckedChange={handleSelectAll} data-testid="checkbox-select-all" />
+                            )}
+                          </th>
+                          <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Date</th>
+                          <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Store</th>
+                          <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Employee</th>
+                          <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Scheduled</th>
+                          <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">
+                            Start
+                            <span className="block text-[10px] font-normal normal-case tracking-normal">Actual / Sched</span>
+                          </th>
+                          <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">
+                            End
+                            <span className="block text-[10px] font-normal normal-case tracking-normal">Actual / Sched</span>
+                          </th>
+                          <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Hours</th>
+                          <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Status</th>
+                          <th className="py-3 pl-2 pr-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filtered.map(ts => (
+                          <ApprovalRow
+                            key={ts.id}
+                            ts={ts}
+                            selected={selected.has(ts.id)}
+                            onSelect={handleSelectOne}
+                            onApprove={id => approveMutation.mutate(id)}
+                            onEdit={setEditingTs}
+                          />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Desktop inline bulk bar */}
+              {someSelected && statusFilter === "PENDING" && (
+                <div className="flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 mt-3" data-testid="bulk-action-bar">
+                  <span className="text-sm font-medium">{selected.size} selected</span>
+                  <Button
+                    size="sm"
+                    className="ml-auto bg-green-600 text-white"
+                    onClick={() => bulkApproveMutation.mutate(Array.from(selected))}
+                    disabled={bulkApproveMutation.isPending}
+                    data-testid="button-bulk-approve"
+                  >
+                    {bulkApproveMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                    Approve Selected ({selected.size})
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setSelected(new Set())} data-testid="button-clear-selection">
+                    Clear
+                  </Button>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ── Floating Bottom Bar (mobile bulk approve) ───────────────────────── */}
+      {someSelected && statusFilter === "PENDING" && (
+        <div
+          className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-card/95 backdrop-blur-md border-t border-border/40 shadow-2xl px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
+          data-testid="bulk-action-bar"
+        >
+          <div className="flex items-center gap-2">
+            <div className="text-sm font-semibold mr-auto">
+              <span className="text-primary">{selected.size}</span>
+              <span className="text-muted-foreground"> selected</span>
+            </div>
             <Button
-              size="sm"
-              className="ml-auto bg-green-600 hover:bg-green-600 text-white"
+              variant="outline"
+              className="min-h-[44px]"
+              onClick={() => setSelected(new Set())}
+              data-testid="button-clear-selection"
+            >
+              Clear
+            </Button>
+            <Button
+              className="flex-1 min-h-[44px] bg-green-600 text-white font-bold"
               onClick={() => bulkApproveMutation.mutate(Array.from(selected))}
               disabled={bulkApproveMutation.isPending}
               data-testid="button-bulk-approve"
             >
-              {bulkApproveMutation.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <CheckCircle2 className="h-4 w-4 mr-2" />
-              )}
-              Approve Selected ({selected.size})
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setSelected(new Set())} data-testid="button-clear-selection">
-              Clear
+              {bulkApproveMutation.isPending
+                ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                : <CheckCircle2 className="h-4 w-4 mr-2" />}
+              Approve {selected.size} Selected
             </Button>
           </div>
-        )}
-
-        {/* Legend */}
-        <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-          <span className="font-medium">Legend:</span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-destructive/40 inline-block" />
-            Red row = late start or early finish
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-orange-500/40 inline-block" />
-            Orange row = worked more than scheduled
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="font-mono text-[11px] text-muted-foreground">Scheduled / Actual</span>
-            = shown as stacked times
-          </span>
         </div>
+      )}
 
-        {/* Table */}
-        <Card>
-          <CardContent className="p-0">
-            {isLoading ? (
-              <div className="p-6 space-y-3">
-                {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-14 w-full" />)}
-              </div>
-            ) : filtered.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-center" data-testid="empty-state">
-                <ClipboardCheck className="h-12 w-12 text-muted-foreground/30 mb-4" />
-                <p className="font-semibold text-muted-foreground">
-                  {statusFilter === "PENDING" ? "All caught up!" : "No timesheets found"}
-                </p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {statusFilter === "PENDING"
-                    ? "No pending timesheets require approval right now."
-                    : "Try adjusting your filters."}
-                </p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left" data-testid="approvals-table">
-                  <thead>
-                    <tr className="border-b border-border/40 bg-muted/30">
-                      <th className="w-10 pl-4 pr-2 py-3">
-                        {statusFilter === "PENDING" && (
-                          <Checkbox
-                            checked={allSelected}
-                            onCheckedChange={handleSelectAll}
-                            data-testid="checkbox-select-all"
-                          />
-                        )}
-                      </th>
-                      <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Date</th>
-                      <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Store</th>
-                      <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Employee</th>
-                      <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Scheduled</th>
-                      <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">
-                        Start
-                        <span className="block text-[10px] font-normal normal-case tracking-normal">Actual / Sched</span>
-                      </th>
-                      <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">
-                        End
-                        <span className="block text-[10px] font-normal normal-case tracking-normal">Actual / Sched</span>
-                      </th>
-                      <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Hours</th>
-                      <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Status</th>
-                      <th className="py-3 pl-2 pr-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map(ts => (
-                      <ApprovalRow
-                        key={ts.id}
-                        ts={ts}
-                        selected={selected.has(ts.id)}
-                        onSelect={handleSelectOne}
-                        onApprove={id => approveMutation.mutate(id)}
-                        onEdit={setEditingTs}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Footer count */}
-        {!isLoading && filtered.length > 0 && (
-          <p className="text-xs text-muted-foreground text-right">
-            Showing {filtered.length} timesheet{filtered.length !== 1 ? "s" : ""}
-            {storeFilter !== "ALL" ? ` for ${stores.find(s => s.id === storeFilter)?.name}` : " across all stores"}
-          </p>
-        )}
-      </div>
-
-      {/* Edit & Approve Modal */}
+      {/* ── Edit & Approve Bottom Sheet / Modal ─────────────────────────────── */}
       {editingTs && (
         <EditApproveModal
           ts={editingTs}
