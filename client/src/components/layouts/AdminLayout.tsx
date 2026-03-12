@@ -69,7 +69,7 @@ const operationsNavItems = [
   },
   {
     title: "Payroll",
-    url: "/admin/payrolls",
+    url: "/admin/weekly-payroll",
     icon: DollarSign,
   },
 ];
