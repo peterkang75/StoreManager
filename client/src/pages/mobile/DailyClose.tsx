@@ -566,7 +566,7 @@ export function MobileDailyClose() {
                     className={`font-bold text-xl ${differenceAmount > 0.005 ? "text-red-600" : differenceAmount < -0.005 ? "text-green-600" : ""}`}
                     data-testid="text-difference"
                   >
-                    {differenceAmount > 0.005 && "+"}${differenceAmount.toFixed(2)}
+                    {differenceAmount > 0.005 ? `-$${differenceAmount.toFixed(2)}` : differenceAmount < -0.005 ? `+$${Math.abs(differenceAmount).toFixed(2)}` : `$${differenceAmount.toFixed(2)}`}
                     {differenceAmount > 0.005 && <span className="text-xs ml-1">(Shortage)</span>}
                     {differenceAmount < -0.005 && <span className="text-xs ml-1">(Overage)</span>}
                   </span>
