@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,9 @@ import {
   ArrowRight,
   TrendingUp,
   TrendingDown,
+  ChevronLeft,
+  ChevronRight,
+  DollarSign,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -51,7 +55,36 @@ interface EnrichedTimesheet {
   createdAt: string;
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+// ── Week Helpers (AEDT = Australia/Sydney) ────────────────────────────────────
+
+/** Returns YYYY-MM-DD for today in Sydney time */
+function getAEDTToday(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
+}
+
+/** Returns the Monday (YYYY-MM-DD) for the week containing the given date string */
+function getMondayOf(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  const day = d.getDay(); // 0=Sun
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Add N days to a YYYY-MM-DD string, returns YYYY-MM-DD */
+function addDays(dateStr: string, n: number): string {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Format YYYY-MM-DD as "Mar 09, 2026" */
+function fmtWeekDate(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+// ── Other Helpers ─────────────────────────────────────────────────────────────
 
 function toMinutes(time: string): number {
   const [h, m] = time.split(":").map(Number);
@@ -92,11 +125,8 @@ function getDiscrepancy(ts: EnrichedTimesheet): DiscrepancyType {
   const schedEnd = toMinutes(ts.scheduledEndTime);
   const actStart = toMinutes(ts.actualStartTime);
   const actEnd = toMinutes(ts.actualEndTime);
-  const lateStart = actStart > schedStart + 5;
-  const earlyEnd = actEnd < schedEnd - 5;
-  const overtime = actEnd > schedEnd + 5;
-  if (lateStart || earlyEnd) return "tardy_or_early";
-  if (overtime) return "overtime";
+  if (actStart > schedStart + 5 || actEnd < schedEnd - 5) return "tardy_or_early";
+  if (actEnd > schedEnd + 5) return "overtime";
   return "ok";
 }
 
@@ -104,8 +134,8 @@ const STORE_COLORS: Record<string, string> = {
   Sushi: "#16a34a",
   Sandwich: "#dc2626",
 };
-function storeColor(storeName: string): string {
-  return STORE_COLORS[storeName] ?? "#6366f1";
+function storeColor(n: string): string {
+  return STORE_COLORS[n] ?? "#6366f1";
 }
 
 // ── Discrepancy Badge ──────────────────────────────────────────────────────────
@@ -114,7 +144,7 @@ function DiscrepancyBadge({ type }: { type: DiscrepancyType }) {
   if (type === "tardy_or_early")
     return (
       <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/30" data-testid="badge-tardy">
-        <TrendingDown className="h-3 w-3" /> Discrepancy
+        <TrendingDown className="h-3 w-3" /> Late / Short
       </span>
     );
   if (type === "overtime")
@@ -136,22 +166,22 @@ function DiscrepancyBadge({ type }: { type: DiscrepancyType }) {
   );
 }
 
-// ── Time Cell (desktop table) ─────────────────────────────────────────────────
+// ── Time Cell (desktop) ────────────────────────────────────────────────────────
 
 function TimeCell({ actual, scheduled, isStart }: { actual: string; scheduled: string | null; isStart: boolean }) {
-  const discType = (() => {
+  const disc = (() => {
     if (!scheduled) return "ok";
     const diff = toMinutes(actual) - toMinutes(scheduled);
-    if (isStart) return diff > 5 ? "tardy" : "ok";
-    else return diff < -5 ? "early" : diff > 5 ? "overtime" : "ok";
+    if (isStart) return diff > 5 ? "bad" : "ok";
+    return diff < -5 ? "bad" : diff > 5 ? "overtime" : "ok";
   })();
-  const colorClass =
-    discType === "tardy" || discType === "early" ? "text-destructive font-semibold"
-    : discType === "overtime" ? "text-orange-600 dark:text-orange-400 font-semibold"
+  const cls =
+    disc === "bad" ? "text-destructive font-semibold"
+    : disc === "overtime" ? "text-orange-600 dark:text-orange-400 font-semibold"
     : "text-foreground";
   return (
     <div className="flex flex-col leading-tight">
-      <span className={`text-sm ${colorClass}`}>{fmtTime(actual)}</span>
+      <span className={`text-sm ${cls}`}>{fmtTime(actual)}</span>
       {scheduled && <span className="text-[11px] text-muted-foreground">{fmtTime(scheduled)}</span>}
     </div>
   );
@@ -160,12 +190,7 @@ function TimeCell({ actual, scheduled, isStart }: { actual: string; scheduled: s
 // ── Mobile Card ────────────────────────────────────────────────────────────────
 
 function ApprovalCard({
-  ts,
-  selected,
-  onSelect,
-  onApprove,
-  onEdit,
-  approving,
+  ts, selected, onSelect, onApprove, onEdit, approving,
 }: {
   ts: EnrichedTimesheet;
   selected: boolean;
@@ -190,7 +215,7 @@ function ApprovalCard({
         : null
       : null;
 
-  const cardBorderColor =
+  const accentColor =
     disc === "tardy_or_early" ? "border-l-destructive"
     : disc === "overtime" ? "border-l-orange-500"
     : disc === "unscheduled" ? "border-l-purple-500"
@@ -201,51 +226,54 @@ function ApprovalCard({
     : disc === "overtime" ? "text-orange-600 dark:text-orange-400"
     : "text-foreground";
 
+  const isApproved = ts.status === "APPROVED";
+
   return (
     <div
-      className={`bg-card rounded-xl border border-border/40 border-l-4 ${cardBorderColor} shadow-sm overflow-hidden`}
+      className={`bg-card rounded-xl border border-border/40 border-l-4 ${accentColor} shadow-sm overflow-hidden`}
       data-testid={`row-timesheet-${ts.id}`}
     >
-      {/* Card Header */}
+      {/* Header */}
       <div className="flex items-center justify-between px-4 pt-4 pb-2 gap-2">
         <div className="flex items-center gap-2.5 min-w-0">
-          <Checkbox
-            checked={selected}
-            onCheckedChange={v => onSelect(ts.id, !!v)}
-            data-testid={`checkbox-select-${ts.id}`}
-          />
+          {!isApproved && (
+            <Checkbox
+              checked={selected}
+              onCheckedChange={v => onSelect(ts.id, !!v)}
+              data-testid={`checkbox-select-${ts.id}`}
+            />
+          )}
           <div className="min-w-0">
             <p className="font-bold text-base leading-tight truncate">
               {ts.employeeNickname || ts.employeeName.split(" ")[0]}
             </p>
-            <p className="text-[11px] text-muted-foreground truncate">{fmtDate(ts.date)}</p>
+            <p className="text-[11px] text-muted-foreground">{fmtDate(ts.date)}</p>
           </div>
         </div>
-        <div className="shrink-0">
+        <div className="shrink-0 flex items-center gap-2">
+          {isApproved && (
+            <span className="text-[10px] font-semibold text-green-600 dark:text-green-400 bg-green-500/10 border border-green-500/30 px-2 py-0.5 rounded-full">
+              Approved
+            </span>
+          )}
           <DiscrepancyBadge type={disc} />
         </div>
       </div>
 
-      {/* Card Body */}
+      {/* Body */}
       <div className="px-4 pb-3 space-y-2.5">
         {/* Store */}
         <div className="flex items-center gap-2">
-          <div
-            className="h-2.5 w-2.5 rounded-full shrink-0"
-            style={{ backgroundColor: storeColor(ts.storeName) }}
-          />
+          <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: storeColor(ts.storeName) }} />
           <span className="text-sm text-muted-foreground font-medium">{ts.storeName}</span>
         </div>
 
-        {/* Hours + Time */}
+        {/* Hours big display */}
         <div className="flex items-end justify-between gap-4">
-          {/* Actual hours — big display */}
           <div>
-            <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide mb-0.5">Actual Hours</p>
+            <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide mb-0.5">Actual Hours</p>
             <div className="flex items-baseline gap-2">
-              <span className={`text-3xl font-black leading-none ${hoursColor}`}>
-                {fmtHours(actualHours)}
-              </span>
+              <span className={`text-3xl font-black leading-none ${hoursColor}`}>{fmtHours(actualHours)}</span>
               {delta && (
                 <span className={`text-sm font-bold ${delta.startsWith("+") ? "text-orange-500" : "text-destructive"}`}>
                   {delta}
@@ -253,28 +281,23 @@ function ApprovalCard({
               )}
             </div>
           </div>
-
-          {/* Time range */}
           <div className="text-right shrink-0">
-            <p className="text-[11px] text-muted-foreground mb-0.5">
+            <p className="text-[11px] text-muted-foreground font-mono">
               {fmtTime(ts.actualStartTime)} – {fmtTime(ts.actualEndTime)}
             </p>
             {ts.scheduledStartTime && (
-              <p className="text-[11px] text-muted-foreground/60">
+              <p className="text-[10px] text-muted-foreground/60">
                 Sched: {fmtTime(ts.scheduledStartTime)} – {fmtTime(ts.scheduledEndTime)}
               </p>
             )}
           </div>
         </div>
 
-        {/* Unscheduled note */}
         {ts.isUnscheduled && (
           <p className="text-[11px] text-purple-600 dark:text-purple-400 font-medium italic">
             No roster shift — unscheduled entry
           </p>
         )}
-
-        {/* Adjustment reason if present */}
         {ts.adjustmentReason && (
           <p className="text-xs text-muted-foreground bg-muted/40 rounded-md px-2 py-1.5 leading-snug">
             {ts.adjustmentReason}
@@ -282,41 +305,37 @@ function ApprovalCard({
         )}
       </div>
 
-      {/* Card Footer — Action Buttons */}
-      <div className="flex gap-2 px-4 pb-4">
-        <Button
-          className="flex-1 min-h-[44px] bg-green-600 text-white font-semibold"
-          onClick={() => onApprove(ts.id)}
-          disabled={approving}
-          data-testid={`button-approve-${ts.id}`}
-        >
-          {approving
-            ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            : <CheckCircle2 className="h-4 w-4 mr-2" />}
-          Approve
-        </Button>
-        <Button
-          variant="outline"
-          className="flex-1 min-h-[44px] font-semibold"
-          onClick={() => onEdit(ts)}
-          data-testid={`button-edit-${ts.id}`}
-        >
-          <PenLine className="h-4 w-4 mr-2" />
-          Edit
-        </Button>
-      </div>
+      {/* Actions */}
+      {!isApproved && (
+        <div className="flex gap-2 px-4 pb-4">
+          <Button
+            className="flex-1 min-h-[44px] bg-green-600 text-white font-semibold"
+            onClick={() => onApprove(ts.id)}
+            disabled={approving}
+            data-testid={`button-approve-${ts.id}`}
+          >
+            {approving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+            Approve
+          </Button>
+          <Button
+            variant="outline"
+            className="flex-1 min-h-[44px] font-semibold"
+            onClick={() => onEdit(ts)}
+            data-testid={`button-edit-${ts.id}`}
+          >
+            <PenLine className="h-4 w-4 mr-2" />
+            Edit
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Desktop Table Row ──────────────────────────────────────────────────────────
+// ── Desktop Row ────────────────────────────────────────────────────────────────
 
 function ApprovalRow({
-  ts,
-  selected,
-  onSelect,
-  onApprove,
-  onEdit,
+  ts, selected, onSelect, onApprove, onEdit,
 }: {
   ts: EnrichedTimesheet;
   selected: boolean;
@@ -334,18 +353,20 @@ function ApprovalRow({
     ts.scheduledStartTime && ts.scheduledEndTime
       ? calcHours(ts.scheduledStartTime, ts.scheduledEndTime)
       : null;
+  const isApproved = ts.status === "APPROVED";
 
   return (
     <tr
-      className={`border-b border-border/30 transition-colors hover:bg-muted/20 ${rowBg}`}
+      className={`border-b border-border/30 transition-colors hover:bg-muted/20 ${rowBg} ${isApproved ? "opacity-60" : ""}`}
       data-testid={`row-timesheet-${ts.id}`}
     >
       <td className="w-10 pl-4 pr-2 py-3">
-        <Checkbox checked={selected} onCheckedChange={v => onSelect(ts.id, !!v)} data-testid={`checkbox-select-${ts.id}`} />
+        {!isApproved && (
+          <Checkbox checked={selected} onCheckedChange={v => onSelect(ts.id, !!v)} data-testid={`checkbox-select-${ts.id}`} />
+        )}
       </td>
       <td className="py-3 px-3 whitespace-nowrap">
         <div className="text-sm font-medium">{fmtDate(ts.date)}</div>
-        <div className="text-[11px] text-muted-foreground">{ts.date}</div>
       </td>
       <td className="py-3 px-3 whitespace-nowrap">
         <div className="flex items-center gap-2">
@@ -392,40 +413,43 @@ function ApprovalRow({
         </div>
       </td>
       <td className="py-3 px-3 whitespace-nowrap">
-        <DiscrepancyBadge type={disc} />
+        {isApproved
+          ? <span className="text-xs font-semibold text-green-600 dark:text-green-400">Approved</span>
+          : <DiscrepancyBadge type={disc} />
+        }
       </td>
       <td className="py-3 pl-2 pr-4 whitespace-nowrap">
-        <div className="flex items-center gap-1.5">
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-9 px-3 border-green-500/50 text-green-700 dark:text-green-400"
-            onClick={() => onApprove(ts.id)}
-            data-testid={`button-approve-${ts.id}`}
-          >
-            <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-9 px-3"
-            onClick={() => onEdit(ts)}
-            data-testid={`button-edit-${ts.id}`}
-          >
-            <PenLine className="h-3.5 w-3.5 mr-1" /> Edit
-          </Button>
-        </div>
+        {!isApproved && (
+          <div className="flex items-center gap-1.5">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9 px-3 border-green-500/50 text-green-700 dark:text-green-400"
+              onClick={() => onApprove(ts.id)}
+              data-testid={`button-approve-${ts.id}`}
+            >
+              <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9 px-3"
+              onClick={() => onEdit(ts)}
+              data-testid={`button-edit-${ts.id}`}
+            >
+              <PenLine className="h-3.5 w-3.5 mr-1" /> Edit
+            </Button>
+          </div>
+        )}
       </td>
     </tr>
   );
 }
 
-// ── Edit & Approve Modal / Bottom Sheet ────────────────────────────────────────
+// ── Edit & Approve Bottom Sheet / Modal ────────────────────────────────────────
 
 function EditApproveModal({
-  ts,
-  onClose,
-  onSaved,
+  ts, onClose, onSaved,
 }: {
   ts: EnrichedTimesheet;
   onClose: () => void;
@@ -457,18 +481,16 @@ function EditApproveModal({
   const hoursActual = calcHours(startTime, endTime);
 
   return (
-    /* Backdrop */
     <div
       className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex flex-col justify-end md:justify-center md:items-center md:p-4"
       onClick={onClose}
     >
-      {/* Sheet / Modal panel */}
       <div
         className="w-full md:max-w-lg bg-card md:rounded-xl rounded-t-2xl border border-border/40 shadow-2xl flex flex-col max-h-[92dvh] md:max-h-none"
         onClick={e => e.stopPropagation()}
         data-testid="edit-approve-modal"
       >
-        {/* Drag handle (mobile) */}
+        {/* Drag handle */}
         <div className="md:hidden flex justify-center pt-3 pb-1 shrink-0">
           <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
         </div>
@@ -488,9 +510,8 @@ function EditApproveModal({
 
         {/* Scrollable body */}
         <div className="overflow-y-auto flex-1 p-5 space-y-5">
-          {/* Scheduled reference */}
           {ts.scheduledStartTime && (
-            <div className="rounded-md bg-muted/40 border border-border/30 px-4 py-3 flex items-center gap-4">
+            <div className="rounded-md bg-muted/40 border border-border/30 px-4 py-3 flex items-center gap-3">
               <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
               <div className="text-sm">
                 <span className="text-muted-foreground">Scheduled: </span>
@@ -500,44 +521,27 @@ function EditApproveModal({
             </div>
           )}
 
-          {/* Time editors */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground font-medium">Adjusted Start</Label>
-              <Input
-                type="time"
-                value={startTime}
-                onChange={e => setStartTime(e.target.value)}
-                className="font-mono min-h-[44px]"
-                data-testid="input-adjusted-start"
-              />
+              <Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="font-mono min-h-[44px]" data-testid="input-adjusted-start" />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground font-medium">Adjusted End</Label>
-              <Input
-                type="time"
-                value={endTime}
-                onChange={e => setEndTime(e.target.value)}
-                className="font-mono min-h-[44px]"
-                data-testid="input-adjusted-end"
-              />
+              <Input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="font-mono min-h-[44px]" data-testid="input-adjusted-end" />
             </div>
           </div>
 
-          {/* Hours preview */}
           <div className="rounded-md bg-muted/40 border border-border/20 px-4 py-3 flex items-center justify-between">
             <span className="text-sm text-muted-foreground">Adjusted total</span>
             <div className="flex items-center gap-3">
               <span className="text-xl font-black text-primary">{fmtHours(hoursActual)}</span>
               {ts.scheduledStartTime && ts.scheduledEndTime && (
-                <span className="text-sm text-muted-foreground">
-                  vs {fmtHours(calcHours(ts.scheduledStartTime, ts.scheduledEndTime))} sched
-                </span>
+                <span className="text-sm text-muted-foreground">vs {fmtHours(calcHours(ts.scheduledStartTime, ts.scheduledEndTime))} sched</span>
               )}
             </div>
           </div>
 
-          {/* Reason */}
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground font-medium">
               Reason for Adjustment <span className="text-destructive">*</span>
@@ -556,24 +560,80 @@ function EditApproveModal({
           </div>
         </div>
 
-        {/* Footer — always pinned at bottom */}
-        <div className="flex items-center gap-2 px-5 py-4 border-t border-border/40 shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-          <Button variant="outline" className="flex-1 min-h-[44px]" onClick={onClose} data-testid="button-modal-cancel">
-            Cancel
-          </Button>
+        {/* Pinned footer */}
+        <div className="flex gap-2 px-5 py-4 border-t border-border/40 shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+          <Button variant="outline" className="flex-1 min-h-[44px]" onClick={onClose} data-testid="button-modal-cancel">Cancel</Button>
           <Button
             className="flex-[2] min-h-[44px] bg-green-600 text-white font-semibold"
             onClick={() => editMutation.mutate()}
             disabled={editMutation.isPending || !reason.trim()}
             data-testid="button-modal-save-approve"
           >
-            {editMutation.isPending
-              ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              : <CheckCircle2 className="h-4 w-4 mr-2" />}
+            {editMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
             Save &amp; Approve
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Week Navigator ─────────────────────────────────────────────────────────────
+
+function WeekNavigator({
+  weekStart,
+  onPrev,
+  onNext,
+  isThisWeek,
+  onToday,
+}: {
+  weekStart: string;
+  onPrev: () => void;
+  onNext: () => void;
+  isThisWeek: boolean;
+  onToday: () => void;
+}) {
+  const weekEnd = addDays(weekStart, 6);
+  return (
+    <div className="flex items-center gap-1.5" data-testid="week-navigator">
+      <Button
+        size="icon"
+        variant="outline"
+        className="h-9 w-9 shrink-0"
+        onClick={onPrev}
+        data-testid="button-week-prev"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </Button>
+
+      <div className="flex-1 text-center min-w-0">
+        <p className="text-sm font-semibold leading-tight whitespace-nowrap">
+          {fmtWeekDate(weekStart)} – {fmtWeekDate(weekEnd)}
+        </p>
+        <p className="text-[10px] text-muted-foreground">Mon – Sun (AEDT)</p>
+      </div>
+
+      <Button
+        size="icon"
+        variant="outline"
+        className="h-9 w-9 shrink-0"
+        onClick={onNext}
+        data-testid="button-week-next"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </Button>
+
+      {!isThisWeek && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0 h-9 text-xs"
+          onClick={onToday}
+          data-testid="button-week-today"
+        >
+          This Week
+        </Button>
+      )}
     </div>
   );
 }
@@ -583,10 +643,18 @@ function EditApproveModal({
 export function AdminTimesheetApprovals() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
+
+  // Week state — default to AEDT this week's Monday
+  const thisWeekMonday = getMondayOf(getAEDTToday());
+  const [weekStart, setWeekStart] = useState(thisWeekMonday);
+  const weekEnd = addDays(weekStart, 6);
+  const isThisWeek = weekStart === thisWeekMonday;
+
   const [statusFilter, setStatusFilter] = useState("PENDING");
+  const [storeFilter, setStoreFilter] = useState("ALL");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editingTs, setEditingTs] = useState<EnrichedTimesheet | null>(null);
-  const [storeFilter, setStoreFilter] = useState("ALL");
   const [approvingId, setApprovingId] = useState<string | null>(null);
 
   const { data: timesheets, isLoading } = useQuery<EnrichedTimesheet[]>({
@@ -595,11 +663,15 @@ export function AdminTimesheetApprovals() {
     staleTime: 0,
   });
 
+  // Filter by week + store
   const filtered = useMemo(() => {
     if (!timesheets) return [];
-    if (storeFilter === "ALL") return timesheets;
-    return timesheets.filter(t => t.storeId === storeFilter);
-  }, [timesheets, storeFilter]);
+    return timesheets.filter(t => {
+      const inWeek = t.date >= weekStart && t.date <= weekEnd;
+      const inStore = storeFilter === "ALL" || t.storeId === storeFilter;
+      return inWeek && inStore;
+    });
+  }, [timesheets, weekStart, weekEnd, storeFilter]);
 
   const stores = useMemo(() => {
     if (!timesheets) return [];
@@ -630,12 +702,13 @@ export function AdminTimesheetApprovals() {
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/approvals"] });
       setSelected(new Set());
-      toast({ title: `${data?.approved ?? "Multiple"} Timesheets Approved`, description: "Bulk approval complete." });
+      toast({ title: `${data?.approved ?? selected.size} Timesheets Approved`, description: "Bulk approval complete." });
     },
     onError: () => toast({ title: "Error", description: "Bulk approval failed.", variant: "destructive" }),
   });
 
-  const allIds = filtered.map(t => t.id);
+  const pendingFiltered = filtered.filter(t => t.status === "PENDING");
+  const allIds = pendingFiltered.map(t => t.id);
   const allSelected = allIds.length > 0 && allIds.every(id => selected.has(id));
   const someSelected = selected.size > 0;
 
@@ -668,50 +741,67 @@ export function AdminTimesheetApprovals() {
   }, [filtered]);
 
   return (
-    <AdminLayout title="Approvals">
-      {/* ── Page wrapper: bottom padding on mobile to clear the floating bulk bar ── */}
-      <div className={`space-y-4 ${someSelected && statusFilter === "PENDING" ? "pb-24 md:pb-0" : ""}`}>
+    <AdminLayout title="Pending Approvals">
+      <div className={`space-y-4 ${someSelected ? "pb-24 md:pb-0" : ""}`}>
 
-        {/* ── Page Header ─────────────────────────────────────────────────── */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* ── Top Header ───────────────────────────────────────────────────── */}
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-xl md:text-2xl font-bold tracking-tight flex items-center gap-2">
               <ClipboardCheck className="h-5 w-5 text-primary" />
-              Timesheet Approvals
+              Pending Approvals
             </h2>
-            <p className="text-muted-foreground text-xs md:text-sm mt-0.5">
-              타임시트 검토 및 승인
-            </p>
+            <p className="text-muted-foreground text-xs mt-0.5">타임시트 검토 및 승인</p>
           </div>
+          <Button
+            variant="outline"
+            className="h-9 gap-2 text-sm shrink-0"
+            onClick={() => navigate("/admin/payrolls")}
+            data-testid="button-goto-payroll"
+          >
+            <DollarSign className="h-4 w-4 text-primary" />
+            <span className="hidden sm:inline">Weekly Payroll</span>
+            <span className="sm:hidden">Payroll</span>
+          </Button>
         </div>
 
-        {/* ── Summary Row — horizontally scrollable on mobile ─────────────── */}
+        {/* ── Week Navigator ────────────────────────────────────────────────── */}
+        <div className="rounded-lg border border-border/40 bg-card px-3 py-2.5">
+          <WeekNavigator
+            weekStart={weekStart}
+            onPrev={() => { setWeekStart(w => addDays(w, -7)); setSelected(new Set()); }}
+            onNext={() => { setWeekStart(w => addDays(w, 7)); setSelected(new Set()); }}
+            isThisWeek={isThisWeek}
+            onToday={() => { setWeekStart(thisWeekMonday); setSelected(new Set()); }}
+          />
+        </div>
+
+        {/* ── Summary Row — scrollable on mobile ────────────────────────────── */}
         {!isLoading && filtered.length > 0 && (
           <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1 md:grid md:grid-cols-4 md:overflow-visible">
             {[
-              { label: "Total", value: filtered.length, icon: <ClipboardCheck className="h-4 w-4 text-muted-foreground" />, color: "border-border/40 bg-card", text: "text-foreground" },
-              { label: "Discrepancies", value: counts.tardy, icon: <TrendingDown className="h-4 w-4 text-destructive" />, color: "border-destructive/40 bg-destructive/5", text: "text-destructive" },
-              { label: "Overtime", value: counts.overtime, icon: <TrendingUp className="h-4 w-4 text-orange-500" />, color: "border-orange-400/40 bg-orange-500/5", text: "text-orange-600 dark:text-orange-400" },
-              { label: "On Time", value: counts.ok, icon: <CheckCircle2 className="h-4 w-4 text-green-600" />, color: "border-green-500/40 bg-green-500/5", text: "text-green-600 dark:text-green-400" },
+              { label: "Total", value: filtered.length, icon: <ClipboardCheck className="h-4 w-4 text-muted-foreground" />, border: "border-border/40 bg-card", text: "text-foreground" },
+              { label: "Discrepancies", value: counts.tardy, icon: <TrendingDown className="h-4 w-4 text-destructive" />, border: "border-destructive/40 bg-destructive/5", text: "text-destructive" },
+              { label: "Overtime", value: counts.overtime, icon: <TrendingUp className="h-4 w-4 text-orange-500" />, border: "border-orange-400/40 bg-orange-500/5", text: "text-orange-600 dark:text-orange-400" },
+              { label: "On Time", value: counts.ok, icon: <CheckCircle2 className="h-4 w-4 text-green-600" />, border: "border-green-500/40 bg-green-500/5", text: "text-green-600 dark:text-green-400" },
             ].map(item => (
               <div
                 key={item.label}
-                className={`shrink-0 w-32 md:w-auto rounded-lg border ${item.color} px-3 py-2.5 md:px-4 md:py-3 flex items-center gap-2.5`}
+                className={`shrink-0 w-32 md:w-auto rounded-lg border ${item.border} px-3 py-2.5 flex items-center gap-2`}
                 data-testid={`summary-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
               >
                 {item.icon}
                 <div>
-                  <p className="text-[10px] md:text-xs text-muted-foreground leading-none mb-0.5">{item.label}</p>
-                  <p className={`text-lg md:text-xl font-bold leading-none ${item.text}`}>{item.value}</p>
+                  <p className="text-[10px] text-muted-foreground leading-none mb-0.5">{item.label}</p>
+                  <p className={`text-lg font-bold leading-none ${item.text}`}>{item.value}</p>
                 </div>
               </div>
             ))}
           </div>
         )}
 
-        {/* ── Sticky Filter Bar ────────────────────────────────────────────── */}
+        {/* ── Sticky Filter + Select All Bar ────────────────────────────────── */}
         <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b border-border/30 -mx-4 md:-mx-6 px-4 md:px-6 py-2.5 flex items-center gap-2">
-          {/* Select-all (mobile) — only in PENDING mode with data */}
           {statusFilter === "PENDING" && filtered.length > 0 && (
             <div className="flex items-center gap-1.5 mr-1">
               <Checkbox
@@ -729,9 +819,7 @@ export function AdminTimesheetApprovals() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">All Stores</SelectItem>
-              {stores.map(s => (
-                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-              ))}
+              {stores.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
             </SelectContent>
           </Select>
 
@@ -746,7 +834,6 @@ export function AdminTimesheetApprovals() {
             </SelectContent>
           </Select>
 
-          {/* Count badge */}
           {!isLoading && (
             <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
               {filtered.length} item{filtered.length !== 1 ? "s" : ""}
@@ -757,23 +844,28 @@ export function AdminTimesheetApprovals() {
         {/* ── Content ──────────────────────────────────────────────────────── */}
         {isLoading ? (
           <div className="space-y-3">
-            {[1, 2, 3].map(i => <Skeleton key={i} className="h-40 w-full rounded-xl" />)}
+            {[1, 2, 3].map(i => <Skeleton key={i} className="h-44 w-full rounded-xl" />)}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center" data-testid="empty-state">
+          <div className="flex flex-col items-center justify-center py-16 text-center" data-testid="empty-state">
             <ClipboardCheck className="h-12 w-12 text-muted-foreground/30 mb-4" />
             <p className="font-semibold text-muted-foreground">
-              {statusFilter === "PENDING" ? "All caught up!" : "No timesheets found"}
+              {statusFilter === "PENDING" ? "All caught up for this week!" : "No timesheets found"}
             </p>
             <p className="text-sm text-muted-foreground mt-1">
               {statusFilter === "PENDING"
-                ? "No pending timesheets require approval right now."
-                : "Try adjusting your filters."}
+                ? "No pending timesheets for this week require approval."
+                : "Try changing the week or adjusting filters."}
             </p>
+            {!isThisWeek && (
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => setWeekStart(thisWeekMonday)} data-testid="button-back-to-this-week">
+                Back to This Week
+              </Button>
+            )}
           </div>
         ) : (
           <>
-            {/* ── Mobile: Card List ── */}
+            {/* ── Mobile Card List ── */}
             <div className="md:hidden space-y-3" data-testid="approvals-card-list">
               {filtered.map(ts => (
                 <ApprovalCard
@@ -788,7 +880,7 @@ export function AdminTimesheetApprovals() {
               ))}
             </div>
 
-            {/* ── Desktop: Table ── */}
+            {/* ── Desktop Table ── */}
             <div className="hidden md:block">
               <Card>
                 <CardContent className="p-0">
@@ -806,12 +898,10 @@ export function AdminTimesheetApprovals() {
                           <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Employee</th>
                           <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Scheduled</th>
                           <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">
-                            Start
-                            <span className="block text-[10px] font-normal normal-case tracking-normal">Actual / Sched</span>
+                            Start <span className="block text-[10px] font-normal normal-case tracking-normal">Actual / Sched</span>
                           </th>
                           <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">
-                            End
-                            <span className="block text-[10px] font-normal normal-case tracking-normal">Actual / Sched</span>
+                            End <span className="block text-[10px] font-normal normal-case tracking-normal">Actual / Sched</span>
                           </th>
                           <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Hours</th>
                           <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Status</th>
@@ -835,7 +925,7 @@ export function AdminTimesheetApprovals() {
                 </CardContent>
               </Card>
 
-              {/* Desktop inline bulk bar */}
+              {/* Desktop bulk bar */}
               {someSelected && statusFilter === "PENDING" && (
                 <div className="flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 mt-3" data-testid="bulk-action-bar">
                   <span className="text-sm font-medium">{selected.size} selected</span>
@@ -849,9 +939,7 @@ export function AdminTimesheetApprovals() {
                     {bulkApproveMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
                     Approve Selected ({selected.size})
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setSelected(new Set())} data-testid="button-clear-selection">
-                    Clear
-                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setSelected(new Set())} data-testid="button-clear-selection">Clear</Button>
                 </div>
               )}
             </div>
@@ -859,7 +947,7 @@ export function AdminTimesheetApprovals() {
         )}
       </div>
 
-      {/* ── Floating Bottom Bar (mobile bulk approve) ───────────────────────── */}
+      {/* ── Mobile Floating Bulk Bar ──────────────────────────────────────────── */}
       {someSelected && statusFilter === "PENDING" && (
         <div
           className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-card/95 backdrop-blur-md border-t border-border/40 shadow-2xl px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
@@ -870,12 +958,7 @@ export function AdminTimesheetApprovals() {
               <span className="text-primary">{selected.size}</span>
               <span className="text-muted-foreground"> selected</span>
             </div>
-            <Button
-              variant="outline"
-              className="min-h-[44px]"
-              onClick={() => setSelected(new Set())}
-              data-testid="button-clear-selection"
-            >
+            <Button variant="outline" className="min-h-[44px]" onClick={() => setSelected(new Set())} data-testid="button-clear-selection">
               Clear
             </Button>
             <Button
@@ -884,16 +967,14 @@ export function AdminTimesheetApprovals() {
               disabled={bulkApproveMutation.isPending}
               data-testid="button-bulk-approve"
             >
-              {bulkApproveMutation.isPending
-                ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                : <CheckCircle2 className="h-4 w-4 mr-2" />}
-              Approve {selected.size} Selected
+              {bulkApproveMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+              Approve {selected.size}
             </Button>
           </div>
         </div>
       )}
 
-      {/* ── Edit & Approve Bottom Sheet / Modal ─────────────────────────────── */}
+      {/* ── Edit & Approve Modal ─────────────────────────────────────────────── */}
       {editingTs && (
         <EditApproveModal
           ts={editingTs}

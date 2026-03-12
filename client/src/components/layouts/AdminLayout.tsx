@@ -12,6 +12,7 @@ import {
   FileText,
   ArrowLeftRight,
   ClipboardCheck,
+  History,
 } from "lucide-react";
 import {
   Sidebar,
@@ -57,14 +58,14 @@ const operationsNavItems = [
     icon: Calendar,
   },
   {
-    title: "Approvals",
+    title: "Pending Approvals",
     url: "/admin/approvals",
     icon: ClipboardCheck,
   },
   {
-    title: "Timesheets",
+    title: "Attendance History",
     url: "/admin/timesheets",
-    icon: Clock,
+    icon: History,
   },
   {
     title: "Payroll",
