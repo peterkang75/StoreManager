@@ -62,20 +62,28 @@ function getAEDTToday(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
 }
 
+/** Format a Date using LOCAL calendar fields (avoids UTC-shift from toISOString) */
+function toYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 /** Returns the Monday (YYYY-MM-DD) for the week containing the given date string */
 function getMondayOf(dateStr: string): string {
   const d = new Date(dateStr + "T00:00:00");
   const day = d.getDay(); // 0=Sun
   const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
-  return d.toISOString().slice(0, 10);
+  return toYMD(d);
 }
 
 /** Add N days to a YYYY-MM-DD string, returns YYYY-MM-DD */
 function addDays(dateStr: string, n: number): string {
   const d = new Date(dateStr + "T00:00:00");
   d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
+  return toYMD(d);
 }
 
 /** Format YYYY-MM-DD as "Mar 09, 2026" */
