@@ -1738,113 +1738,151 @@ export async function registerRoutes(
   app.post("/api/employees/import-photos", csvUpload.single("file"), async (req: Request, res: Response) => {
     try {
       if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
       const raw = req.file.buffer.toString("utf-8").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
       const lines = raw.split("\n").filter(l => l.trim());
       if (lines.length < 2) return res.status(400).json({ error: "File has no data rows" });
 
+      // ── delimiter & headers ─────────────────────────────────────────────────
       const firstLine = lines[0];
       const delimiter = firstLine.includes("\t") ? "\t" : ",";
-      const headers = firstLine.split(delimiter).map(h => h.trim().toLowerCase().replace(/^"|"$/g, ""));
+      // Strip surrounding quotes from each header
+      const headers = firstLine.split(delimiter).map(h => h.trim().replace(/^"|"$/g, "").toLowerCase());
 
-      // Normalize: strip spaces, underscores, hyphens for flexible matching
-      const norm = (s: string) => s.replace(/[\s_\-]/g, "");
-      const col = (name: string, ...aliases: string[]) => {
+      // Flexible column finder: normalize spaces / underscores / hyphens
+      const normStr = (s: string) => s.replace(/[\s_\-]/g, "");
+      const findCol = (name: string, ...aliases: string[]) => {
         const all = [name, ...aliases];
-        return headers.findIndex(h => all.some(a => h === a || norm(h) === norm(a)));
+        return headers.findIndex(h => all.some(a => h === a || normStr(h) === normStr(a)));
       };
 
-      const nickIdx      = col("nick name", "nickname", "nick", "preferred name");
-      const firstNameIdx = col("first name", "firstname", "given name");
-      const lastNameIdx  = col("last name", "lastname", "surname", "family name");
-      const nameIdx      = col("name", "full name", "fullname", "employee", "employee name");
-      const phoneIdx     = col("phone number", "phone", "mobile", "mobile number", "contact number", "phonenumber");
-      const selfieIdx    = col("selfie url", "selfieurl", "selfie", "profile photo", "profile image",
-                               "photo url", "photourl", "photo", "image", "avatar", "pic", "picture",
-                               "profile pic", "profile picture", "headshot");
-      const passportIdx  = col("passport url", "passporturl", "passport photo", "passport image",
-                               "passport", "visa photo", "id photo", "document", "visa image");
+      // ── column detection ────────────────────────────────────────────────────
+      const phoneIdx    = findCol("phone number", "phone", "mobile", "mobile number", "contact number", "phonenumber");
+      const nickIdx     = findCol("nick name", "nickname", "nick", "preferred name");
+      const firstIdx    = findCol("first name", "firstname", "given name");
+      const lastIdx     = findCol("last name", "lastname", "surname", "family name");
+      const nameIdx     = findCol("name", "full name", "fullname", "employee", "employee name");
 
-      console.log("[import-photos] detected columns:", {
-        headers,
-        nickIdx, firstNameIdx, lastNameIdx, nameIdx, phoneIdx, selfieIdx, passportIdx
-      });
+      // ── photo column detection – includes the EXACT Glide column names ──────
+      const selfieIdx   = findCol(
+        "please show your selfie",                         // exact Glide column
+        "selfie url", "selfieurl", "selfie",
+        "profile photo", "profile image",
+        "photo url", "photourl", "photo",
+        "image", "avatar", "pic", "picture",
+        "profile pic", "profile picture", "headshot"
+      );
+      const passportIdx = findCol(
+        "passport cover page",                             // exact Glide column
+        "passport url", "passporturl",
+        "passport photo", "passport image", "passport",
+        "visa photo", "id photo", "document", "visa image"
+      );
+
+      console.log("[import-photos] headers:", headers);
+      console.log("[import-photos] col idx:", { phoneIdx, nickIdx, firstIdx, lastIdx, nameIdx, selfieIdx, passportIdx });
 
       if (selfieIdx < 0 && passportIdx < 0) {
         return res.status(400).json({
-          error: "No selfie or passport URL columns found in file",
+          error: "No selfie or passport photo column found in file",
+          hint: 'Expected column names: "Please show your selfie" or "Passport Cover page"',
           detectedHeaders: headers,
         });
       }
 
-      const allEmployees = await storage.getEmployees({});
-      const g = (cols: string[], idx: number) => (idx >= 0 ? (cols[idx] || "").trim().replace(/^"|"$/g, "") : "");
-      // Strip all non-digit characters for phone comparison
-      const normPhone = (p: string) => p.replace(/\D/g, "").replace(/^61/, "0");
+      // ── helpers ─────────────────────────────────────────────────────────────
 
+      // Get a cell value, stripping surrounding quotes
+      const cell = (cols: string[], idx: number): string =>
+        idx >= 0 ? (cols[idx] ?? "").trim().replace(/^"|"$/g, "") : "";
+
+      // Normalize phone → last 9 digits only (handles 0406…, +61406…, 406…)
+      const normPhone = (p: string): string => p.replace(/\D/g, "").slice(-9);
+
+      // Extract URL from strings like "filename: ds1.png url: https://…"
+      // Also handles plain URLs
+      const extractUrl = (val: string): string => {
+        const m = val.match(/https?:\/\/\S+/i);
+        return m ? m[0].replace(/[,;'")\]]+$/, "") : "";
+      };
+
+      // ── load all employees once ─────────────────────────────────────────────
+      const allEmployees = await storage.getEmployees({});
+
+      // Build phone-lookup map (last-9 → employee) for O(1) lookup
+      const phoneMap = new Map<string, typeof allEmployees[0]>();
+      for (const e of allEmployees) {
+        if (e.phone) {
+          const key = normPhone(e.phone);
+          if (key.length >= 7) phoneMap.set(key, e);
+        }
+      }
+
+      // ── process rows ────────────────────────────────────────────────────────
       let updated = 0;
       let skipped = 0;
-      const errors: string[] = [];
+      const errors:  string[] = [];
       const matched: string[] = [];
+      // Track IDs already updated so duplicate CSV rows (multi-store) don't double-count
+      const updatedIds = new Set<string>();
 
       for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(delimiter);
-        let firstName = g(cols, firstNameIdx);
-        let lastName  = g(cols, lastNameIdx);
-        const nickname = g(cols, nickIdx);
-        const phone    = g(cols, phoneIdx);
-        if (!firstName && nameIdx >= 0 && g(cols, nameIdx)) {
-          const parts = g(cols, nameIdx).split(/\s+/);
-          firstName = parts[0] || "";
-          lastName  = parts.slice(1).join(" ") || "";
-        }
 
-        const selfieUrl   = g(cols, selfieIdx);
-        const passportUrl = g(cols, passportIdx);
+        const rawSelfie   = cell(cols, selfieIdx);
+        const rawPassport = cell(cols, passportIdx);
+        const selfieUrl   = extractUrl(rawSelfie);
+        const passportUrl = extractUrl(rawPassport);
+
+        // Skip rows with no photo data at all
         if (!selfieUrl && !passportUrl) { skipped++; continue; }
 
-        const nameLower  = nickname.toLowerCase();
-        const firstLower = firstName.toLowerCase();
-        const lastLower  = (lastName || "").toLowerCase();
-        const phoneNorm  = phone ? normPhone(phone) : "";
+        // ── find matching employee ─────────────────────────────────────────
+        const phoneRaw = cell(cols, phoneIdx);
+        const phoneKey = normPhone(phoneRaw);
 
-        const existing = allEmployees.find(e => {
-          // 1. Phone match (most reliable)
-          if (phoneNorm && e.phone) {
-            const ePhone = normPhone(e.phone);
-            if (ePhone && ePhone === phoneNorm) return true;
-            // Also try last 9 digits in case of country code differences
-            if (ePhone.length >= 9 && phoneNorm.length >= 9 &&
-                ePhone.slice(-9) === phoneNorm.slice(-9)) return true;
+        let existing = phoneKey.length >= 7 ? phoneMap.get(phoneKey) : undefined;
+
+        // Fallback: name matching
+        if (!existing) {
+          const nick = cell(cols, nickIdx).toLowerCase();
+          let first  = cell(cols, firstIdx).toLowerCase();
+          let last   = cell(cols, lastIdx).toLowerCase();
+          if (!first && nameIdx >= 0) {
+            const parts = cell(cols, nameIdx).split(/\s+/);
+            first = parts[0]?.toLowerCase() ?? "";
+            last  = parts.slice(1).join(" ").toLowerCase();
           }
-          // 2. Nickname match
-          if (nameLower && e.nickname?.toLowerCase() === nameLower) return true;
-          // 3. First + Last name match
-          if (firstLower) {
-            if (e.firstName.toLowerCase() === firstLower &&
-                e.lastName.toLowerCase() === lastLower) return true;
-            // nickname as first name
-            if (e.nickname?.toLowerCase() === firstLower) return true;
-          }
-          return false;
-        });
+          existing = allEmployees.find(e => {
+            if (nick && e.nickname?.toLowerCase() === nick) return true;
+            if (first && e.firstName.toLowerCase() === first && e.lastName.toLowerCase() === last) return true;
+            if (first && e.nickname?.toLowerCase() === first) return true;
+            return false;
+          });
+        }
 
         if (!existing) {
-          const label = nickname || `${firstName} ${lastName}`;
-          console.log(`[import-photos] row ${i + 1}: no match for "${label}" phone="${phone}"`);
-          errors.push(`Row ${i + 1}: no match for "${label.trim()}"${phone ? ` (phone: ${phone})` : ""}`);
+          const label = phoneRaw || cell(cols, nickIdx) || cell(cols, firstIdx);
+          console.log(`[import-photos] row ${i + 1}: no match – phone="${phoneRaw}"`);
+          errors.push(`Row ${i + 1}: no employee matched (phone: "${phoneRaw}")`);
           skipped++;
           continue;
         }
 
+        // Build patch – ONLY touch photo fields, never names/stores/rates
         const patch: Record<string, string> = {};
         if (selfieUrl)   patch.selfieUrl   = selfieUrl;
         if (passportUrl) patch.passportUrl = passportUrl;
+
         await storage.updateEmployee(existing.id, patch);
-        matched.push(existing.nickname || existing.firstName);
-        updated++;
+        if (!updatedIds.has(existing.id)) {
+          updatedIds.add(existing.id);
+          matched.push(`${existing.nickname ?? existing.firstName} (${phoneRaw})`);
+          updated++;
+        }
       }
 
-      console.log("[import-photos] done. updated:", updated, "skipped:", skipped, "matched:", matched);
+      console.log("[import-photos] done – updated:", updated, "skipped:", skipped);
       res.json({ updated, skipped, errors, matched });
     } catch (error) {
       console.error("Error importing employee photos:", error);
