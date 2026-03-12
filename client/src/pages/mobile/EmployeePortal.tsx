@@ -32,6 +32,7 @@ import {
   KeyRound,
   FileText,
   ChevronRight,
+  ChevronLeft,
   User,
 } from "lucide-react";
 
@@ -56,6 +57,9 @@ interface TodayShiftItem {
 }
 interface TodayData { date: string; shifts: TodayShiftItem[] }
 
+interface DayData { date: string; shift: ShiftInfo | null; timesheet: TimesheetInfo | null }
+interface WeekData { days: DayData[]; published: boolean; weekStart: string; weekEnd: string }
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function toLocalDateStr(d: Date): string {
@@ -65,10 +69,35 @@ function toLocalDateStr(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 function getTodayStr(): string { return toLocalDateStr(new Date()); }
+function addDays(dateStr: string, n: number): string {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return toLocalDateStr(d);
+}
+function getMondayStr(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return toLocalDateStr(d);
+}
 function fmtLongDate(dateStr: string): string {
   return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", {
     weekday: "long", day: "numeric", month: "long",
   });
+}
+function fmtWeekRange(start: string): string {
+  const s = new Date(start + "T00:00:00");
+  const e = new Date(start + "T00:00:00");
+  e.setDate(e.getDate() + 6);
+  return `${s.toLocaleDateString("en-AU", { day: "numeric", month: "short" })} – ${e.toLocaleDateString("en-AU", { day: "numeric", month: "short" })}`;
+}
+function fmtDay(dateStr: string) {
+  const d = new Date(dateStr + "T00:00:00");
+  return {
+    abbr: d.toLocaleDateString("en-AU", { weekday: "short" }),
+    num: d.toLocaleDateString("en-AU", { day: "numeric" }),
+  };
 }
 function calcHours(start: string, end: string): number {
   const [sh, sm] = start.split(":").map(Number);
@@ -486,24 +515,156 @@ function HomeTab({ session }: { session: Session }) {
   );
 }
 
+// ── Week Row ──────────────────────────────────────────────────────────────────
+
+function WeekRow({ day, today }: { day: DayData; today: string }) {
+  const { abbr, num } = fmtDay(day.date);
+  const isToday = day.date === today;
+  const isPast  = day.date < today;
+  const ts = day.timesheet;
+  const st = ts ? STATUS_STYLE[ts.status] ?? STATUS_STYLE.PENDING : null;
+
+  return (
+    <div className={`flex items-center gap-3 px-3 py-3 ${isToday ? "bg-primary/5 dark:bg-primary/10 rounded-md" : ""}`}>
+      {/* Day label */}
+      <div className={`flex flex-col items-center w-10 shrink-0 ${
+        isToday ? "text-primary" : isPast ? "text-muted-foreground" : "text-muted-foreground/40"
+      }`}>
+        <span className="text-[10px] font-medium uppercase tracking-wide">{abbr}</span>
+        <span className={`text-lg font-bold leading-tight ${isToday ? "text-primary" : ""}`}>{num}</span>
+      </div>
+
+      {/* Shift info */}
+      <div className="flex-1 min-w-0">
+        {day.shift ? (
+          <>
+            <p className={`font-semibold text-sm tabular-nums ${
+              !isToday && isPast ? "text-muted-foreground" :
+              !isToday && !isPast ? "text-muted-foreground/50" : ""
+            }`}>
+              {day.shift.startTime} – {day.shift.endTime}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {calcHours(day.shift.startTime, day.shift.endTime).toFixed(1)}h
+            </p>
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground/40 italic">Day off</p>
+        )}
+      </div>
+
+      {/* Timesheet badge */}
+      <div className="shrink-0">
+        {st && ts && (
+          <div className={`flex items-center gap-1 rounded-md px-2 py-1 ${st.bg}`}>
+            <CheckCircle2 className={`h-3 w-3 ${st.text}`} />
+            <span className={`text-xs font-medium ${st.text}`}>{st.label.split(" ")[0]}</span>
+          </div>
+        )}
+        {day.shift && !ts && !isPast && (
+          <span className="text-xs text-muted-foreground/40">–</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Tab: Schedule ─────────────────────────────────────────────────────────────
 
-function ScheduleTab() {
+function ScheduleTab({ session }: { session: Session }) {
+  const today = getTodayStr();
+  const [weekStart, setWeekStart] = useState(() => getMondayStr(today));
+  const isCurrentWeek = weekStart === getMondayStr(today);
+
+  const weekQK = ["/api/portal/week-all", session.id, weekStart];
+  const { data: weekData, isLoading } = useQuery<WeekData>({
+    queryKey: weekQK,
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/portal/week?employeeId=${session.id}&weekStart=${weekStart}`,
+        { credentials: "include" }
+      );
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    staleTime: 0,
+  });
+
+  const days = weekData?.days ?? [];
+  const shiftDays   = days.filter(d => d.shift);
+  const totalHours  = shiftDays.reduce((s, d) => s + calcHours(d.shift!.startTime, d.shift!.endTime), 0);
+  const submitted   = days.filter(d => d.timesheet).length;
+
   return (
-    <div className="flex flex-col gap-5 px-4 py-5">
+    <div className="flex flex-col gap-4 px-4 py-5">
+      {/* Header */}
       <div>
-        <h2 className="text-xl font-bold">My Upcoming Shifts</h2>
-        <p className="text-sm text-muted-foreground mt-1">Your weekly schedule at a glance</p>
+        <h2 className="text-xl font-bold">My Schedule</h2>
+        <p className="text-sm text-muted-foreground mt-0.5">Your weekly shift roster</p>
       </div>
-      <Card>
-        <CardContent className="py-12 flex flex-col items-center gap-3">
-          <CalendarDays className="h-10 w-10 text-muted-foreground/40" />
-          <p className="font-medium text-muted-foreground">Weekly schedule view coming soon.</p>
-          <p className="text-xs text-muted-foreground text-center max-w-[200px]">
-            Your full shift calendar will appear here once it's ready.
-          </p>
-        </CardContent>
-      </Card>
+
+      {/* Week navigation */}
+      <div className="flex items-center justify-between">
+        <Button
+          size="icon" variant="ghost"
+          onClick={() => setWeekStart(s => addDays(s, -7))}
+          data-testid="button-prev-week"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <span className="text-sm font-medium">{fmtWeekRange(weekStart)}</span>
+        <Button
+          size="icon" variant="ghost"
+          onClick={() => setWeekStart(s => addDays(s, 7))}
+          disabled={isCurrentWeek}
+          data-testid="button-next-week"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Summary strip */}
+      {!isLoading && weekData?.published && shiftDays.length > 0 && (
+        <div className="flex items-center justify-between bg-muted/40 rounded-md px-4 py-2.5 text-xs text-muted-foreground">
+          <span>
+            <span className="font-semibold text-foreground">{shiftDays.length}</span> shifts ·{" "}
+            <span className="font-semibold text-foreground">{totalHours.toFixed(1)}h</span> total
+          </span>
+          <span className="flex items-center gap-1.5">
+            <CheckCircle2 className={`h-3.5 w-3.5 ${submitted === shiftDays.length ? "text-green-600" : "text-amber-500"}`} />
+            {submitted}/{shiftDays.length} submitted
+          </span>
+        </div>
+      )}
+
+      {/* Days list */}
+      {isLoading && (
+        <div className="flex justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      )}
+
+      {!isLoading && !weekData?.published && (
+        <Card>
+          <CardContent className="py-10 flex flex-col items-center gap-2 text-center">
+            <CalendarDays className="h-8 w-8 text-muted-foreground/40" />
+            <p className="font-medium text-muted-foreground">Roster not published yet</p>
+            <p className="text-xs text-muted-foreground">
+              Check back once the manager publishes the week's roster.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {!isLoading && weekData?.published && (
+        <Card>
+          <CardContent className="py-2 px-1">
+            <div className="divide-y">
+              {days.map(day => <WeekRow key={day.date} day={day} today={today} />)}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
@@ -622,7 +783,7 @@ function AppShell({ session, onLogout }: { session: Session; onLogout: () => voi
       {/* Scrollable content area */}
       <div className="flex-1 overflow-y-auto">
         {activeTab === "home"     && <HomeTab session={session} />}
-        {activeTab === "schedule" && <ScheduleTab />}
+        {activeTab === "schedule" && <ScheduleTab session={session} />}
         {activeTab === "settings" && <SettingsTab session={session} onLogout={onLogout} />}
       </div>
 
