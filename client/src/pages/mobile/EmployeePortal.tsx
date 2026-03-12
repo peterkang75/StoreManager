@@ -43,7 +43,7 @@ import {
 
 type Tab = "home" | "schedule" | "settings";
 
-interface Session { id: string; nickname: string | null; firstName: string }
+interface Session { id: string; nickname: string | null; firstName: string; selfieUrl?: string | null }
 
 interface ShiftInfo {
   id: string; storeId: string; startTime: string; endTime: string; date: string;
@@ -131,7 +131,7 @@ function getGreeting() {
 
 // ── Session storage ───────────────────────────────────────────────────────────
 
-const SESSION_KEY = "ep_session_v3";
+const SESSION_KEY = "ep_session_v4";
 function loadSession(): Session | null {
   try { const r = sessionStorage.getItem(SESSION_KEY); return r ? JSON.parse(r) : null; }
   catch { return null; }
@@ -166,7 +166,7 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
       if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? "Invalid PIN"); }
       return res.json();
     },
-    onSuccess: (data) => onSuccess({ id: data.id, nickname: data.nickname, firstName: data.firstName }),
+    onSuccess: (data) => onSuccess({ id: data.id, nickname: data.nickname, firstName: data.firstName, selfieUrl: data.selfieUrl ?? null }),
     onError: (err: Error) => { setError(err.message); setPin(""); },
   });
 
@@ -973,12 +973,20 @@ function SettingsTab({ session, onLogout }: { session: Session; onLogout: () => 
       <Card>
         <CardContent className="pt-4 pb-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 shrink-0">
-              <User className="h-6 w-6 text-primary" />
-            </div>
+            {session.selfieUrl ? (
+              <img
+                src={session.selfieUrl}
+                alt={displayName}
+                className="h-14 w-14 rounded-full object-cover shrink-0 border border-border/40"
+              />
+            ) : (
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 shrink-0">
+                <User className="h-7 w-7 text-primary" />
+              </div>
+            )}
             <div>
-              <p className="font-semibold" data-testid="text-settings-name">{displayName}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Logged in as staff</p>
+              <p className="font-semibold text-base" data-testid="text-settings-name">{displayName}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{session.firstName} • Staff</p>
             </div>
           </div>
         </CardContent>

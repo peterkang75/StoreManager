@@ -2433,7 +2433,7 @@ export async function registerRoutes(
       const emp = await storage.getEmployee(employeeId);
       if (!emp) return res.status(404).json({ error: "Employee not found" });
       if (emp.pin !== String(pin)) return res.status(401).json({ error: "Invalid PIN" });
-      res.json({ id: emp.id, nickname: emp.nickname, firstName: emp.firstName, storeId: emp.storeId });
+      res.json({ id: emp.id, nickname: emp.nickname, firstName: emp.firstName, storeId: emp.storeId, selfieUrl: emp.selfieUrl ?? null });
     } catch (err) {
       res.status(500).json({ error: "Login failed" });
     }
@@ -2446,7 +2446,7 @@ export async function registerRoutes(
       if (!pin || String(pin).length !== 4) return res.status(400).json({ error: "4-digit PIN required" });
       const emp = await storage.getEmployeeByPin(String(pin));
       if (!emp) return res.status(401).json({ error: "Invalid PIN" });
-      res.json({ id: emp.id, nickname: emp.nickname, firstName: emp.firstName, storeId: emp.storeId });
+      res.json({ id: emp.id, nickname: emp.nickname, firstName: emp.firstName, storeId: emp.storeId, selfieUrl: emp.selfieUrl ?? null });
     } catch (err) {
       res.status(500).json({ error: "Login failed" });
     }

@@ -74,6 +74,8 @@ export const employees = pgTable("employees", {
   rate: text("rate"),
   contractPosition: text("contract_position"),
   fhc: text("fhc"),
+  selfieUrl: text("selfie_url"),
+  passportUrl: text("passport_url"),
   salaryType: text("salary_type"),
   annualLeave: text("annual_leave"),
   storeId: varchar("store_id").references(() => stores.id),

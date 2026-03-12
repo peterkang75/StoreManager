@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Loader2, Save, User } from "lucide-react";
+import { ArrowLeft, Loader2, Save, User, ExternalLink, Camera, FileImage } from "lucide-react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -200,6 +200,18 @@ export function AdminEmployeeDetail() {
                 <ArrowLeft className="w-4 h-4" />
               </Button>
             </Link>
+            {/* Avatar */}
+            {currentData.selfieUrl ? (
+              <img
+                src={currentData.selfieUrl}
+                alt={employee.firstName}
+                className="h-12 w-12 rounded-full object-cover shrink-0 border border-border/40"
+              />
+            ) : (
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted shrink-0">
+                <User className="w-6 h-6 text-muted-foreground" />
+              </div>
+            )}
             <div>
               <div className="flex items-center gap-3">
                 <h2 className="text-xl font-semibold" data-testid="text-employee-name">
@@ -263,6 +275,114 @@ export function AdminEmployeeDetail() {
                   <Input value={employee.dob ?? ""} disabled className="bg-muted" />
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Photos & Documents */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Photos & Documents</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Selfie */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Camera className="h-4 w-4 text-muted-foreground" />
+                  <Label className="font-medium">Selfie / Profile Photo</Label>
+                </div>
+                <div className="flex items-start gap-4">
+                  {currentData.selfieUrl ? (
+                    <img
+                      src={currentData.selfieUrl}
+                      alt="Selfie"
+                      className="h-24 w-24 rounded-xl object-cover border border-border/40 shrink-0"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                  ) : (
+                    <div className="flex h-24 w-24 items-center justify-center rounded-xl bg-muted border border-border/40 shrink-0">
+                      <User className="h-8 w-8 text-muted-foreground" />
+                    </div>
+                  )}
+                  <div className="flex-1 space-y-1.5">
+                    <Input
+                      value={currentData.selfieUrl ?? ""}
+                      onChange={(e) => handleFieldChange("selfieUrl", e.target.value || null)}
+                      placeholder="https://..."
+                      className="font-mono text-xs"
+                      data-testid="input-selfie-url"
+                    />
+                    <p className="text-xs text-muted-foreground">URL of employee selfie/profile photo</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Passport */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <FileImage className="h-4 w-4 text-muted-foreground" />
+                  <Label className="font-medium">Passport Photo</Label>
+                </div>
+                <div className="flex items-start gap-4">
+                  {currentData.passportUrl ? (
+                    <img
+                      src={currentData.passportUrl}
+                      alt="Passport"
+                      className="h-24 w-24 rounded-xl object-cover border border-border/40 shrink-0"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                  ) : (
+                    <div className="flex h-24 w-24 items-center justify-center rounded-xl bg-muted border border-border/40 shrink-0">
+                      <FileImage className="h-8 w-8 text-muted-foreground" />
+                    </div>
+                  )}
+                  <div className="flex-1 space-y-1.5">
+                    <Input
+                      value={currentData.passportUrl ?? ""}
+                      onChange={(e) => handleFieldChange("passportUrl", e.target.value || null)}
+                      placeholder="https://..."
+                      className="font-mono text-xs"
+                      data-testid="input-passport-url"
+                    />
+                    <p className="text-xs text-muted-foreground">URL of passport photo or scan</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* FHC Document */}
+              {currentData.fhc && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                    <Label className="font-medium">FHC Document</Label>
+                  </div>
+                  <div className="flex items-start gap-4">
+                    {/\.(jpg|jpeg|png|gif|webp)$/i.test(currentData.fhc) ? (
+                      <img
+                        src={currentData.fhc}
+                        alt="FHC"
+                        className="h-24 w-auto max-w-[160px] rounded-xl object-cover border border-border/40 shrink-0"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                      />
+                    ) : (
+                      <div className="flex h-24 w-24 items-center justify-center rounded-xl bg-muted border border-border/40 shrink-0">
+                        <FileImage className="h-8 w-8 text-muted-foreground" />
+                      </div>
+                    )}
+                    <div className="flex-1 space-y-1.5">
+                      <a
+                        href={currentData.fhc}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline break-all"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                        Open document
+                      </a>
+                      <p className="text-xs text-muted-foreground font-mono break-all">{currentData.fhc}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
