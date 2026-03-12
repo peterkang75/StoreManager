@@ -1,12 +1,10 @@
-import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -15,12 +13,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
   Table,
   TableBody,
   TableCell,
@@ -28,384 +20,408 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useToast } from "@/hooks/use-toast";
-import { Clock, Check, X, RefreshCw, Eye } from "lucide-react";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Store, Timesheet, Employee, TimeLog } from "@shared/schema";
+import { History, Clock, ChevronLeft, ChevronRight, CheckCircle2, XCircle, HelpCircle } from "lucide-react";
+import type { Store } from "@shared/schema";
 
-function getStatusBadge(status: string) {
-  switch (status) {
-    case "APPROVED":
-      return <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Approved</Badge>;
-    case "REJECTED":
-      return <Badge variant="destructive">Rejected</Badge>;
-    default:
-      return <Badge variant="secondary">Pending</Badge>;
-  }
+// ── Date Helpers (local-time safe) ───────────────────────────────────────────
+
+function getAEDTToday(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
 }
 
-export function AdminTimesheets() {
-  const { toast } = useToast();
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [storeFilter, setStoreFilter] = useState<string>("all");
-  const [periodStart, setPeriodStart] = useState("");
-  const [periodEnd, setPeriodEnd] = useState("");
-  const [generateStart, setGenerateStart] = useState("");
-  const [generateEnd, setGenerateEnd] = useState("");
-  const [selectedTimesheet, setSelectedTimesheet] = useState<Timesheet | null>(null);
-  const [rejectNotes, setRejectNotes] = useState("");
-  const [showRejectDialog, setShowRejectDialog] = useState(false);
+function toYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
-  const { data: stores } = useQuery<Store[]>({
-    queryKey: ["/api/stores"],
+function getMondayOf(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return toYMD(d);
+}
+
+function addDays(dateStr: string, n: number): string {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return toYMD(d);
+}
+
+function fmtWeekDate(dateStr: string): string {
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", {
+    day: "2-digit", month: "short", year: "numeric",
   });
+}
 
-  const { data: employees } = useQuery<Employee[]>({
-    queryKey: ["/api/employees"],
+function fmtDate(dateStr: string): string {
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", {
+    weekday: "short", day: "numeric", month: "short",
   });
+}
 
-  const buildQuery = () => {
-    const params = new URLSearchParams();
-    if (statusFilter !== "all") params.append("status", statusFilter);
-    if (storeFilter !== "all") params.append("store_id", storeFilter);
-    if (periodStart) params.append("period_start", periodStart);
-    if (periodEnd) params.append("period_end", periodEnd);
-    return params.toString();
-  };
+function fmtTime(t: string | null): string {
+  if (!t) return "—";
+  const [h, m] = t.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${period}`;
+}
 
-  const { data: timesheets, isLoading } = useQuery<Timesheet[]>({
-    queryKey: ["/api/timesheets", statusFilter, storeFilter, periodStart, periodEnd],
-    queryFn: async () => {
-      const query = buildQuery();
-      const res = await fetch(`/api/timesheets${query ? `?${query}` : ""}`);
-      if (!res.ok) throw new Error("Failed to fetch timesheets");
-      return res.json();
-    },
-  });
+function calcHours(start: string, end: string): number {
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  const diff = (eh * 60 + em) - (sh * 60 + sm);
+  return Math.round((diff < 0 ? diff + 1440 : diff) / 60 * 100) / 100;
+}
 
-  const { data: timeLogs } = useQuery<TimeLog[]>({
-    queryKey: ["/api/time-logs", selectedTimesheet?.employeeId, selectedTimesheet?.periodStart, selectedTimesheet?.periodEnd],
-    enabled: !!selectedTimesheet,
-    queryFn: async () => {
-      if (!selectedTimesheet) return [];
-      const params = new URLSearchParams({
-        employee_id: selectedTimesheet.employeeId,
-        start_date: selectedTimesheet.periodStart,
-        end_date: selectedTimesheet.periodEnd,
-      });
-      const res = await fetch(`/api/time-logs?${params}`);
-      if (!res.ok) throw new Error("Failed to fetch time logs");
-      return res.json();
-    },
-  });
+function fmtHours(h: number): string {
+  const hh = Math.floor(h);
+  const mm = Math.round((h - hh) * 60);
+  return mm === 0 ? `${hh}h` : `${hh}h ${mm}m`;
+}
 
-  const generateMutation = useMutation({
-    mutationFn: async () => {
-      if (!generateStart) throw new Error("Period start date is required");
-      if (!generateEnd) throw new Error("Period end date is required");
-      const res = await apiRequest("POST", "/api/timesheets/generate", {
-        period_start: generateStart,
-        period_end: generateEnd,
-        store_id: storeFilter !== "all" ? storeFilter : undefined,
-      });
-      return res.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/timesheets"] });
-      toast({ title: `Generated ${data.length} timesheet(s)` });
-    },
-    onError: (error: Error) => {
-      toast({ title: error.message || "Failed to generate timesheets", variant: "destructive" });
-    },
-  });
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-  const approveMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await apiRequest("PUT", `/api/timesheets/${id}/approve`, {});
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/timesheets"] });
-      toast({ title: "Timesheet approved" });
-    },
-    onError: (error: Error) => {
-      toast({ title: error.message || "Failed to approve timesheet", variant: "destructive" });
-    },
-  });
+interface ShiftTimesheetRow {
+  id: string;
+  date: string;
+  storeId: string;
+  storeName: string;
+  storeCode: string;
+  employeeId: string;
+  employeeName: string;
+  employeeNickname: string | null;
+  actualStartTime: string;
+  actualEndTime: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  adjustmentReason: string | null;
+  isUnscheduled: boolean;
+  scheduledStartTime: string | null;
+  scheduledEndTime: string | null;
+}
 
-  const rejectMutation = useMutation({
-    mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
-      const res = await apiRequest("PUT", `/api/timesheets/${id}/reject`, { notes });
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/timesheets"] });
-      setShowRejectDialog(false);
-      setRejectNotes("");
-      toast({ title: "Timesheet rejected" });
-    },
-    onError: (error: Error) => {
-      toast({ title: error.message || "Failed to reject timesheet", variant: "destructive" });
-    },
-  });
+const STORE_COLORS: Record<string, string> = {
+  Sushi: "#16a34a",
+  Sandwich: "#dc2626",
+};
+function storeColor(name: string): string {
+  return STORE_COLORS[name] ?? "#6366f1";
+}
 
-  const getEmployeeName = (employeeId: string) => {
-    const emp = employees?.find(e => e.id === employeeId);
-    return emp ? `${emp.firstName} ${emp.lastName}` : "Unknown";
-  };
+// ── Status Badge ──────────────────────────────────────────────────────────────
 
-  const getStoreName = (storeId: string | null) => {
-    if (!storeId) return "-";
-    const store = stores?.find(s => s.id === storeId);
-    return store?.name || "-";
-  };
-
-  if (isLoading) {
+function StatusBadge({ status }: { status: string }) {
+  if (status === "APPROVED") {
     return (
-      <AdminLayout title="Timesheets">
-        <div className="space-y-4">
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-96 w-full" />
-        </div>
-      </AdminLayout>
+      <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 gap-1 whitespace-nowrap">
+        <CheckCircle2 className="h-3 w-3" /> Approved
+      </Badge>
     );
   }
+  if (status === "REJECTED") {
+    return (
+      <Badge variant="destructive" className="gap-1 whitespace-nowrap">
+        <XCircle className="h-3 w-3" /> Rejected
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="secondary" className="gap-1 whitespace-nowrap">
+      <HelpCircle className="h-3 w-3" /> Pending
+    </Badge>
+  );
+}
+
+// ── Week Navigator ────────────────────────────────────────────────────────────
+
+function WeekNavigator({
+  weekStart, onPrev, onNext, isThisWeek, onToday,
+}: {
+  weekStart: string;
+  onPrev: () => void;
+  onNext: () => void;
+  isThisWeek: boolean;
+  onToday: () => void;
+}) {
+  const weekEnd = addDays(weekStart, 6);
+  return (
+    <div className="flex items-center gap-1.5" data-testid="week-navigator">
+      <Button size="icon" variant="outline" className="h-9 w-9 shrink-0" onClick={onPrev} data-testid="button-week-prev">
+        <ChevronLeft className="h-4 w-4" />
+      </Button>
+      <div className="flex-1 text-center min-w-0">
+        <p className="text-sm font-semibold leading-tight whitespace-nowrap">
+          {fmtWeekDate(weekStart)} – {fmtWeekDate(weekEnd)}
+        </p>
+        <p className="text-[10px] text-muted-foreground">Mon – Sun (AEDT)</p>
+      </div>
+      <Button size="icon" variant="outline" className="h-9 w-9 shrink-0" onClick={onNext} data-testid="button-week-next">
+        <ChevronRight className="h-4 w-4" />
+      </Button>
+      {!isThisWeek && (
+        <Button variant="outline" size="sm" className="shrink-0 h-9 text-xs" onClick={onToday} data-testid="button-week-today">
+          This Week
+        </Button>
+      )}
+    </div>
+  );
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
+export function AdminTimesheets() {
+  const thisWeekMonday = getMondayOf(getAEDTToday());
+  const [weekStart, setWeekStart] = useState(thisWeekMonday);
+  const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [storeFilter, setStoreFilter] = useState<string>("ALL");
+
+  const weekEnd = addDays(weekStart, 6);
+  const isThisWeek = weekStart === thisWeekMonday;
+
+  const { data: stores } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
+
+  // Re-use the approvals API — pass status=ALL to get every record regardless of status
+  const { data: allRows = [], isLoading } = useQuery<ShiftTimesheetRow[]>({
+    queryKey: ["/api/admin/approvals", "ALL"],
+    queryFn: () => fetch("/api/admin/approvals?status=ALL").then(r => r.json()),
+    staleTime: 0,
+  });
+
+  // Client-side filter: week + status + store
+  const filtered = useMemo(() => {
+    return allRows.filter(r => {
+      if (r.date < weekStart || r.date > weekEnd) return false;
+      if (statusFilter !== "ALL" && r.status !== statusFilter) return false;
+      if (storeFilter !== "ALL" && r.storeId !== storeFilter) return false;
+      return true;
+    });
+  }, [allRows, weekStart, weekEnd, statusFilter, storeFilter]);
+
+  // Summary counts
+  const counts = useMemo(() => {
+    const base = allRows.filter(r => r.date >= weekStart && r.date <= weekEnd);
+    return {
+      total: base.length,
+      approved: base.filter(r => r.status === "APPROVED").length,
+      pending: base.filter(r => r.status === "PENDING").length,
+      rejected: base.filter(r => r.status === "REJECTED").length,
+    };
+  }, [allRows, weekStart, weekEnd]);
+
+  // Total hours of filtered rows
+  const totalHours = useMemo(() =>
+    filtered.reduce((s, r) => s + calcHours(r.actualStartTime, r.actualEndTime), 0),
+    [filtered]
+  );
+
+  // Active stores from data
+  const activeStores = useMemo(() => {
+    const ids = new Set(allRows.map(r => r.storeId));
+    return (stores || []).filter(s => ids.has(s.id) && s.active);
+  }, [stores, allRows]);
 
   return (
-    <AdminLayout title="Timesheets">
-      <div className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Generate Timesheets</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap items-end gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="gen-start">Period Start</Label>
-                <Input
-                  id="gen-start"
-                  type="date"
-                  value={generateStart}
-                  onChange={(e) => setGenerateStart(e.target.value)}
-                  data-testid="input-generate-start"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="gen-end">Period End</Label>
-                <Input
-                  id="gen-end"
-                  type="date"
-                  value={generateEnd}
-                  onChange={(e) => setGenerateEnd(e.target.value)}
-                  data-testid="input-generate-end"
-                />
-              </div>
-              <Button 
-                onClick={() => generateMutation.mutate()}
-                disabled={!generateStart || !generateEnd || generateMutation.isPending}
-                data-testid="button-generate-timesheets"
-              >
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Generate
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+    <AdminLayout title="Attendance History">
+      <div className="space-y-4">
 
-        <Card>
-          <CardHeader>
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <CardTitle className="text-base">Timesheets</CardTitle>
-              <div className="flex flex-wrap items-center gap-4">
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-32" data-testid="select-status-filter">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="PENDING">Pending</SelectItem>
-                    <SelectItem value="APPROVED">Approved</SelectItem>
-                    <SelectItem value="REJECTED">Rejected</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={storeFilter} onValueChange={setStoreFilter}>
-                  <SelectTrigger className="w-40" data-testid="select-store-filter">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Stores</SelectItem>
-                    {stores?.filter(s => s.active).map(store => (
-                      <SelectItem key={store.id} value={store.id}>{store.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+        {/* ── Header ───────────────────────────────────────────────────────── */}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl md:text-2xl font-bold tracking-tight flex items-center gap-2">
+              <History className="h-5 w-5 text-primary" />
+              Attendance History
+            </h2>
+            <p className="text-muted-foreground text-xs mt-0.5">전체 근무 기록 — 승인된 항목 포함</p>
+          </div>
+
+          {/* Filters */}
+          <div className="flex gap-2 flex-wrap">
+            <Select value={storeFilter} onValueChange={setStoreFilter}>
+              <SelectTrigger className="h-9 w-36" data-testid="select-store-filter">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Stores</SelectItem>
+                {activeStores.map(s => (
+                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="h-9 w-36" data-testid="select-status-filter">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Status</SelectItem>
+                <SelectItem value="APPROVED">Approved</SelectItem>
+                <SelectItem value="PENDING">Pending</SelectItem>
+                <SelectItem value="REJECTED">Rejected</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* ── Week Navigator ────────────────────────────────────────────────── */}
+        <div className="rounded-lg border border-border/40 bg-card px-3 py-2.5">
+          <WeekNavigator
+            weekStart={weekStart}
+            onPrev={() => setWeekStart(addDays(weekStart, -7))}
+            onNext={() => setWeekStart(addDays(weekStart, 7))}
+            isThisWeek={isThisWeek}
+            onToday={() => setWeekStart(thisWeekMonday)}
+          />
+        </div>
+
+        {/* ── Summary Stats ─────────────────────────────────────────────────── */}
+        {isLoading ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}
+          </div>
+        ) : (
+          <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1 md:grid md:grid-cols-4 md:overflow-visible">
+            {[
+              { label: "Total Shifts", value: counts.total, color: "text-foreground" },
+              { label: "Approved", value: counts.approved, color: "text-green-600 dark:text-green-400" },
+              { label: "Pending", value: counts.pending, color: "text-amber-600 dark:text-amber-400" },
+              { label: "Rejected", value: counts.rejected, color: "text-destructive" },
+            ].map(item => (
+              <div
+                key={item.label}
+                className="shrink-0 w-36 md:w-auto rounded-lg border border-border/30 bg-card px-4 py-2.5"
+                data-testid={`stat-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+              >
+                <p className="text-[11px] text-muted-foreground">{item.label}</p>
+                <p className={`text-2xl font-black leading-tight ${item.color}`}>{item.value}</p>
               </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {!timesheets?.length ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>근무 기록표가 없습니다</p>
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Employee</TableHead>
-                    <TableHead>Store</TableHead>
-                    <TableHead>Period</TableHead>
-                    <TableHead className="text-right">Hours</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {timesheets.map(sheet => (
-                    <TableRow key={sheet.id} data-testid={`row-timesheet-${sheet.id}`}>
-                      <TableCell className="font-medium">{getEmployeeName(sheet.employeeId)}</TableCell>
-                      <TableCell>{getStoreName(sheet.storeId)}</TableCell>
-                      <TableCell>{sheet.periodStart} - {sheet.periodEnd}</TableCell>
-                      <TableCell className="text-right">{sheet.totalHours.toFixed(2)}</TableCell>
-                      <TableCell>{getStatusBadge(sheet.status)}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button 
-                            variant="ghost" 
-                            size="icon"
-                            onClick={() => setSelectedTimesheet(sheet)}
-                            data-testid={`button-view-${sheet.id}`}
-                          >
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                          {sheet.status === "PENDING" && (
-                            <>
-                              <Button 
-                                variant="ghost" 
-                                size="icon"
-                                onClick={() => approveMutation.mutate(sheet.id)}
-                                data-testid={`button-approve-${sheet.id}`}
-                              >
-                                <Check className="w-4 h-4 text-green-600" />
-                              </Button>
-                              <Button 
-                                variant="ghost" 
-                                size="icon"
-                                onClick={() => {
-                                  setSelectedTimesheet(sheet);
-                                  setShowRejectDialog(true);
-                                }}
-                                data-testid={`button-reject-${sheet.id}`}
-                              >
-                                <X className="w-4 h-4 text-red-600" />
-                              </Button>
-                            </>
+            ))}
+          </div>
+        )}
+
+        {/* ── Content ──────────────────────────────────────────────────────── */}
+        {isLoading ? (
+          <div className="space-y-2">
+            {[1, 2, 3].map(i => <Skeleton key={i} className="h-14 w-full rounded-lg" />)}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <Clock className="h-12 w-12 text-muted-foreground/30 mb-4" />
+            <p className="font-semibold text-muted-foreground">근무 기록표가 없습니다</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              {statusFilter !== "ALL"
+                ? `No ${statusFilter.toLowerCase()} records for this week.`
+                : "No attendance records found for this week."}
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Mobile Card List */}
+            <div className="md:hidden space-y-2.5" data-testid="history-cards">
+              {filtered.map(r => {
+                const hours = calcHours(r.actualStartTime, r.actualEndTime);
+                return (
+                  <div
+                    key={r.id}
+                    className="rounded-xl border border-border/40 border-l-4 bg-card px-4 py-3 shadow-sm"
+                    style={{ borderLeftColor: storeColor(r.storeName) }}
+                    data-testid={`card-history-${r.id}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-sm">{r.employeeNickname || r.employeeName.split(" ")[0]}</span>
+                          <span className="text-[11px] text-muted-foreground">{r.storeName}</span>
+                          {r.isUnscheduled && (
+                            <span className="text-[10px] text-purple-600 dark:text-purple-400 italic">Unscheduled</span>
                           )}
                         </div>
-                      </TableCell>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">{fmtDate(r.date)}</p>
+                        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground mt-1">
+                          <Clock className="h-3 w-3" />
+                          <span>{fmtTime(r.actualStartTime)} – {fmtTime(r.actualEndTime)}</span>
+                          <span className="text-foreground font-semibold">({fmtHours(hours)})</span>
+                        </div>
+                      </div>
+                      <StatusBadge status={r.status} />
+                    </div>
+                    {r.adjustmentReason && (
+                      <p className="text-[11px] text-muted-foreground mt-1.5 bg-muted/30 rounded px-2 py-1 leading-snug">
+                        {r.adjustmentReason}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop Table */}
+            <Card className="hidden md:block" data-testid="history-table">
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/20">
+                      <TableHead className="pl-4 py-2.5 text-[11px] uppercase tracking-wide">Date</TableHead>
+                      <TableHead className="py-2.5 text-[11px] uppercase tracking-wide">Employee</TableHead>
+                      <TableHead className="py-2.5 text-[11px] uppercase tracking-wide">Store</TableHead>
+                      <TableHead className="py-2.5 text-[11px] uppercase tracking-wide">Time In</TableHead>
+                      <TableHead className="py-2.5 text-[11px] uppercase tracking-wide">Time Out</TableHead>
+                      <TableHead className="py-2.5 text-[11px] uppercase tracking-wide">Hours</TableHead>
+                      <TableHead className="py-2.5 pr-4 text-[11px] uppercase tracking-wide">Status</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.map(r => {
+                      const hours = calcHours(r.actualStartTime, r.actualEndTime);
+                      return (
+                        <TableRow key={r.id} data-testid={`row-history-${r.id}`}>
+                          <TableCell className="pl-4 py-2.5 whitespace-nowrap text-sm">{fmtDate(r.date)}</TableCell>
+                          <TableCell className="py-2.5">
+                            <div className="text-sm font-semibold">{r.employeeNickname || r.employeeName.split(" ")[0]}</div>
+                            <div className="text-[11px] text-muted-foreground">{r.employeeName}</div>
+                          </TableCell>
+                          <TableCell className="py-2.5">
+                            <div className="flex items-center gap-1.5">
+                              <div className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: storeColor(r.storeName) }} />
+                              <span className="text-sm">{r.storeName}</span>
+                              {r.isUnscheduled && (
+                                <span className="text-[10px] text-purple-600 dark:text-purple-400 italic ml-1">Unscheduled</span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="py-2.5 font-mono text-sm">{fmtTime(r.actualStartTime)}</TableCell>
+                          <TableCell className="py-2.5 font-mono text-sm">{fmtTime(r.actualEndTime)}</TableCell>
+                          <TableCell className="py-2.5">
+                            <span className="text-sm font-semibold">{fmtHours(hours)}</span>
+                          </TableCell>
+                          <TableCell className="py-2.5 pr-4">
+                            <div className="space-y-1">
+                              <StatusBadge status={r.status} />
+                              {r.adjustmentReason && (
+                                <p className="text-[10px] text-muted-foreground max-w-[200px] truncate" title={r.adjustmentReason}>
+                                  {r.adjustmentReason}
+                                </p>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+
+                {/* Footer summary */}
+                <div className="flex items-center justify-between px-4 py-2.5 border-t border-border/30 bg-muted/20">
+                  <span className="text-xs text-muted-foreground">{filtered.length} records</span>
+                  <span className="text-sm font-bold">
+                    Total: <span className="text-primary">{fmtHours(totalHours)}</span>
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
-
-      <Dialog open={!!selectedTimesheet && !showRejectDialog} onOpenChange={() => setSelectedTimesheet(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Timesheet Details</DialogTitle>
-          </DialogHeader>
-          {selectedTimesheet && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Employee:</span>
-                  <span className="ml-2 font-medium">{getEmployeeName(selectedTimesheet.employeeId)}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Status:</span>
-                  <span className="ml-2">{getStatusBadge(selectedTimesheet.status)}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Period:</span>
-                  <span className="ml-2 font-medium">{selectedTimesheet.periodStart} - {selectedTimesheet.periodEnd}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Total Hours:</span>
-                  <span className="ml-2 font-medium">{selectedTimesheet.totalHours.toFixed(2)}</span>
-                </div>
-              </div>
-              
-              <div>
-                <h4 className="font-medium mb-2">Time Logs</h4>
-                {!timeLogs?.length ? (
-                  <p className="text-sm text-muted-foreground">해당 기간의 출퇴근 기록이 없습니다</p>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Clock In</TableHead>
-                        <TableHead>Clock Out</TableHead>
-                        <TableHead className="text-right">Hours</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {timeLogs.map(log => {
-                        const hours = log.clockOut 
-                          ? (new Date(log.clockOut).getTime() - new Date(log.clockIn).getTime()) / (1000 * 60 * 60)
-                          : 0;
-                        return (
-                          <TableRow key={log.id}>
-                            <TableCell>{new Date(log.clockIn).toLocaleDateString()}</TableCell>
-                            <TableCell>{new Date(log.clockIn).toLocaleTimeString()}</TableCell>
-                            <TableCell>{log.clockOut ? new Date(log.clockOut).toLocaleTimeString() : "-"}</TableCell>
-                            <TableCell className="text-right">{hours.toFixed(2)}</TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                )}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Reject Timesheet</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="reject-notes">Reason for rejection</Label>
-              <Textarea
-                id="reject-notes"
-                value={rejectNotes}
-                onChange={(e) => setRejectNotes(e.target.value)}
-                placeholder="Enter reason..."
-                data-testid="input-reject-notes"
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setShowRejectDialog(false)}>Cancel</Button>
-              <Button 
-                variant="destructive"
-                onClick={() => selectedTimesheet && rejectMutation.mutate({ id: selectedTimesheet.id, notes: rejectNotes })}
-                disabled={rejectMutation.isPending}
-                data-testid="button-confirm-reject"
-              >
-                Reject
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </AdminLayout>
   );
 }
