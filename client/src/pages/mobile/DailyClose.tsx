@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { useMobileSession } from "@/hooks/use-mobile-session";
+import { useMobileSession, MobileSession } from "@/hooks/use-mobile-session";
 import {
   Wallet,
   CheckCircle2,
@@ -48,9 +48,8 @@ function emptyNotes(): NoteCounts {
   };
 }
 
-function PinEntry({ onSuccess }: { onSuccess: () => void }) {
+function PinEntry({ onSuccess, setSession }: { onSuccess: () => void; setSession: (s: MobileSession) => void }) {
   const { toast } = useToast();
-  const { setSession } = useMobileSession();
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -138,7 +137,7 @@ function PinEntry({ onSuccess }: { onSuccess: () => void }) {
 
 export function MobileDailyClose() {
   const { toast } = useToast();
-  const { session, clearSession } = useMobileSession();
+  const { session, setSession, clearSession } = useMobileSession();
   // Invalidate legacy sessions that pre-date storeIds field
   const isValidSession = !!session && Array.isArray(session.storeIds);
   const [pinDone, setPinDone] = useState(isValidSession);
@@ -275,7 +274,7 @@ export function MobileDailyClose() {
   };
 
   if (!pinDone || !isValidSession) {
-    return <PinEntry onSuccess={() => setPinDone(true)} />;
+    return <PinEntry setSession={setSession} onSuccess={() => setPinDone(true)} />;
   }
 
   if (storesLoading) {
