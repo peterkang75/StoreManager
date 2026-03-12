@@ -130,7 +130,8 @@ export function AdminEmployeeDetail() {
   const [formData, setFormData] = useState<Partial<InsertEmployee>>({});
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
   const [storesDirty, setStoresDirty] = useState(false);
-  const [assignmentOverrides, setAssignmentOverrides] = useState<Record<string, { rate?: string; fixedAmount?: string }>>({});
+  const [assignmentOverrides, setAssignmentOverrides] = useState<Record<string, { rate?: string; fixedAmount?: string }>>({}); 
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const { data: employee, isLoading: employeeLoading } = useQuery<Employee>({
     queryKey: ["/api/employees", employeeId],
@@ -295,7 +296,8 @@ export function AdminEmployeeDetail() {
               <img
                 src={currentData.selfieUrl}
                 alt={employee.firstName}
-                className="h-12 w-12 rounded-full object-cover shrink-0 border border-border/40"
+                className="h-12 w-12 rounded-full object-cover shrink-0 border border-border/40 cursor-zoom-in"
+                onClick={() => setLightboxUrl(currentData.selfieUrl!)}
               />
             ) : (
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted shrink-0">
@@ -442,7 +444,8 @@ export function AdminEmployeeDetail() {
                     <img
                       src={currentData.selfieUrl}
                       alt="Selfie"
-                      className="h-24 w-24 rounded-xl object-cover border border-border/40 shrink-0"
+                      className="h-24 w-24 rounded-xl object-cover border border-border/40 shrink-0 cursor-zoom-in"
+                      onClick={() => setLightboxUrl(currentData.selfieUrl!)}
                       onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                     />
                   ) : (
@@ -474,7 +477,8 @@ export function AdminEmployeeDetail() {
                     <img
                       src={currentData.passportUrl}
                       alt="Passport"
-                      className="h-24 w-24 rounded-xl object-cover border border-border/40 shrink-0"
+                      className="h-24 w-24 rounded-xl object-cover border border-border/40 shrink-0 cursor-zoom-in"
+                      onClick={() => setLightboxUrl(currentData.passportUrl!)}
                       onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                     />
                   ) : (
@@ -750,6 +754,30 @@ export function AdminEmployeeDetail() {
           </Card>
         </div>
       </div>
+
+      {/* Lightbox */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setLightboxUrl(null)}
+          data-testid="lightbox-overlay"
+        >
+          <div className="relative max-w-[90vw] max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={lightboxUrl}
+              alt="Preview"
+              className="max-w-full max-h-[90vh] rounded-xl object-contain shadow-2xl"
+            />
+            <button
+              className="absolute -top-3 -right-3 flex h-8 w-8 items-center justify-center rounded-full bg-background border border-border/40 text-foreground shadow-md hover-elevate"
+              onClick={() => setLightboxUrl(null)}
+              data-testid="button-lightbox-close"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
     </AdminLayout>
   );
 }
