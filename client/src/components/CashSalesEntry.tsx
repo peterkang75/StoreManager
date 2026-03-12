@@ -121,11 +121,11 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
       return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
     });
 
-  // Fixed 14-day blocks anchored to 2026-01-01
-  // Block 4: 2026-02-26 ~ 2026-03-11, Block 5: 2026-03-12 ~ 2026-03-25, etc.
+  // Fixed 14-day blocks anchored to 2026-03-10 (Tuesday, confirmed period start)
+  // Block 0: 2026-03-10 ~ 2026-03-23, Block -1: 2026-02-24 ~ 2026-03-09, etc.
   useEffect(() => {
     if (!storeId) return;
-    const anchor = new Date("2026-01-01T00:00:00");
+    const anchor = new Date("2026-03-10T00:00:00");
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const diffDays = Math.floor((today.getTime() - anchor.getTime()) / (24 * 60 * 60 * 1000));
@@ -174,9 +174,17 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     const newAutoFilled = new Set<string>();
     const seenDates = new Set<string>();
 
-    // First: saved cash-sales records
+    // Helper: a cash-sales record is meaningful only if it has non-zero data
+    const isMeaningfulCashSale = (rec: CashSalesDetail) => {
+      const env = typeof rec.envelopeAmount === "string" ? parseFloat(rec.envelopeAmount) : (rec.envelopeAmount ?? 0);
+      const cnt = typeof rec.countedAmount === "string" ? parseFloat(rec.countedAmount) : (rec.countedAmount ?? 0);
+      const anyDenom = ALL_DENOMINATIONS.some((d) => ((rec as any)[d.key] ?? 0) !== 0);
+      return env !== 0 || cnt !== 0 || anyDenom;
+    };
+
+    // First: saved cash-sales records (only meaningful ones — skip pure-zero records)
     if (existingData) {
-      for (const rec of [...existingData].sort((a, b) => a.date.localeCompare(b.date))) {
+      for (const rec of [...existingData].filter(isMeaningfulCashSale).sort((a, b) => a.date.localeCompare(b.date))) {
         const row: RowData = {
           date: rec.date,
           envelopeAmount: rec.envelopeAmount,
@@ -562,15 +570,15 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                 return (
                   <tr
                     key={idx}
-                    className={`
-                      ${isSunday && !isAutoFilled ? "bg-red-50/40 dark:bg-red-950/20" : ""}
-                      ${isWeekEnd ? "border-b-2 border-b-border" : ""}
-                      ${isAutoFilled ? "bg-blue-100/70 dark:bg-blue-900/30" : ""}
-                    `}
+                    className={[
+                      isSunday && !isAutoFilled ? "bg-red-50 dark:bg-red-950/20" : "",
+                      isWeekEnd ? "border-b-2 border-b-border" : "",
+                      isAutoFilled ? "bg-blue-50 dark:bg-blue-950/30" : "",
+                    ].filter(Boolean).join(" ")}
                     data-testid={`row-cashsales-${idx}`}
                     title={isAutoFilled ? "Auto-filled from daily close form" : undefined}
                   >
-                    <td className={`sticky left-0 z-10 px-0.5 py-0.5 border-b border-r ${isAutoFilled ? "bg-blue-100/70 dark:bg-blue-900/30" : "bg-background"}`}>
+                    <td className={`sticky left-0 z-10 px-0.5 py-0.5 border-b border-r ${isAutoFilled ? "bg-blue-50 dark:bg-blue-950/30" : "bg-background"}`}>
                       <Input
                         type="text"
                         inputMode="numeric"
