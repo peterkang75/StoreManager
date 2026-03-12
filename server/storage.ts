@@ -42,6 +42,7 @@ export interface IStorage {
 
   getEmployees(filters?: { storeId?: string; status?: string; keyword?: string }): Promise<Employee[]>;
   getEmployee(id: string): Promise<Employee | undefined>;
+  getEmployeeByPin(pin: string): Promise<Employee | undefined>;
   createEmployee(employee: InsertEmployee): Promise<Employee>;
   updateEmployee(id: string, employee: Partial<InsertEmployee>): Promise<Employee | undefined>;
 
@@ -291,6 +292,10 @@ export class MemStorage implements IStorage {
 
   async getEmployee(id: string): Promise<Employee | undefined> {
     return this.employees.get(id);
+  }
+
+  async getEmployeeByPin(pin: string): Promise<Employee | undefined> {
+    return Array.from(this.employees.values()).find(e => e.pin === pin);
   }
 
   async createEmployee(insertEmployee: InsertEmployee): Promise<Employee> {
@@ -1121,6 +1126,11 @@ export class DatabaseStorage implements IStorage {
 
   async getEmployee(id: string): Promise<Employee | undefined> {
     const [e] = await db.select().from(employees).where(eq(employees.id, id));
+    return e;
+  }
+
+  async getEmployeeByPin(pin: string): Promise<Employee | undefined> {
+    const [e] = await db.select().from(employees).where(eq(employees.pin, pin)).limit(1);
     return e;
   }
 

@@ -2425,7 +2425,7 @@ export async function registerRoutes(
     }
   });
 
-  // POST /api/portal/login — verify PIN
+  // POST /api/portal/login — verify PIN (legacy: takes employeeId + pin)
   app.post("/api/portal/login", async (req: Request, res: Response) => {
     try {
       const { employeeId, pin } = req.body;
@@ -2436,6 +2436,55 @@ export async function registerRoutes(
       res.json({ id: emp.id, nickname: emp.nickname, firstName: emp.firstName, storeId: emp.storeId });
     } catch (err) {
       res.status(500).json({ error: "Login failed" });
+    }
+  });
+
+  // POST /api/portal/login-pin — 1-step PIN login (just a PIN, no employee selection)
+  app.post("/api/portal/login-pin", async (req: Request, res: Response) => {
+    try {
+      const { pin } = req.body;
+      if (!pin || String(pin).length !== 4) return res.status(400).json({ error: "4-digit PIN required" });
+      const emp = await storage.getEmployeeByPin(String(pin));
+      if (!emp) return res.status(401).json({ error: "Invalid PIN" });
+      res.json({ id: emp.id, nickname: emp.nickname, firstName: emp.firstName, storeId: emp.storeId });
+    } catch (err) {
+      res.status(500).json({ error: "Login failed" });
+    }
+  });
+
+  // GET /api/portal/today?employeeId=X&date=YYYY-MM-DD
+  // Returns all stores' shifts for this employee today (multi-store support)
+  app.get("/api/portal/today", async (req: Request, res: Response) => {
+    try {
+      const { employeeId, date } = req.query;
+      if (!employeeId || !date) return res.status(400).json({ error: "employeeId and date required" });
+      const dateStr = date as string;
+      const weekStart = getMondayStr(dateStr);
+
+      // Get ALL stores to check publication status
+      const allStores = await storage.getStores();
+
+      // Get all rosters for this employee on this date (across all stores)
+      const allRosters = await storage.getRosters({ startDate: dateStr, endDate: dateStr, employeeId: employeeId as string });
+
+      // For each shift, check if the week is published for that store
+      const shiftsWithMeta = await Promise.all(allRosters.map(async (shift) => {
+        const published = await storage.isRosterWeekPublished(shift.storeId, weekStart);
+        if (!published) return null;
+        const store = allStores.find(s => s.id === shift.storeId);
+        const allTimesheets = await storage.getShiftTimesheets({ employeeId: employeeId as string, date: dateStr, storeId: shift.storeId });
+        return {
+          shift,
+          storeName: store?.name ?? "Unknown",
+          storeColor: store?.name === "Sushi" ? "#16a34a" : store?.name === "Sandwich" ? "#dc2626" : "#888",
+          timesheet: allTimesheets.length > 0 ? allTimesheets[0] : null,
+        };
+      }));
+
+      const result = shiftsWithMeta.filter(Boolean);
+      res.json({ date: dateStr, shifts: result });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch today's shifts" });
     }
   });
 
@@ -2455,23 +2504,39 @@ export async function registerRoutes(
     }
   });
 
-  // GET /api/portal/week?employeeId=X&storeId=Y&weekStart=YYYY-MM-DD
-  // Returns all 7 days of shift + timesheet data for the week
+  // GET /api/portal/week?employeeId=X&weekStart=YYYY-MM-DD[&storeId=Y]
+  // Returns all 7 days of shift + timesheet data for the week.
+  // storeId is optional — if omitted, fetches shifts across all stores.
   app.get("/api/portal/week", async (req: Request, res: Response) => {
     try {
       const { employeeId, storeId, weekStart } = req.query;
-      if (!employeeId || !storeId || !weekStart) return res.status(400).json({ error: "employeeId, storeId, weekStart required" });
+      if (!employeeId || !weekStart) return res.status(400).json({ error: "employeeId and weekStart required" });
       const weekStartStr = weekStart as string;
 
       // Compute weekEnd (Sunday = weekStart + 6)
-      const ws = new Date(weekStartStr + "T00:00:00");
-      ws.setDate(ws.getDate() + 6);
-      const weekEnd = ws.toISOString().split("T")[0];
+      const wsDate = new Date(weekStartStr + "T00:00:00");
+      wsDate.setDate(wsDate.getDate() + 6);
+      const weekEnd = wsDate.toISOString().split("T")[0];
 
-      const published = await storage.isRosterWeekPublished(storeId as string, weekStartStr);
-      const shifts = published
-        ? await storage.getRosters({ storeId: storeId as string, startDate: weekStartStr, endDate: weekEnd, employeeId: employeeId as string })
-        : [];
+      // If storeId provided, check that one store; else check all roster stores
+      let published = false;
+      let shifts: Awaited<ReturnType<typeof storage.getRosters>> = [];
+
+      if (storeId) {
+        published = await storage.isRosterWeekPublished(storeId as string, weekStartStr);
+        if (published) {
+          shifts = await storage.getRosters({ storeId: storeId as string, startDate: weekStartStr, endDate: weekEnd, employeeId: employeeId as string });
+        }
+      } else {
+        // No storeId — get all shifts for employee, filter by published stores
+        const allShifts = await storage.getRosters({ startDate: weekStartStr, endDate: weekEnd, employeeId: employeeId as string });
+        const storeIds = [...new Set(allShifts.map(s => s.storeId))];
+        const pubChecks = await Promise.all(storeIds.map(sid => storage.isRosterWeekPublished(sid, weekStartStr)));
+        const publishedStoreIds = new Set(storeIds.filter((_, i) => pubChecks[i]));
+        shifts = allShifts.filter(s => publishedStoreIds.has(s.storeId));
+        published = publishedStoreIds.size > 0;
+      }
+
       const timesheets = await storage.getShiftTimesheets({ employeeId: employeeId as string });
 
       // Build day-by-day map
