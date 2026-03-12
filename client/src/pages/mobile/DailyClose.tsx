@@ -386,35 +386,56 @@ export function MobileDailyClose() {
               Sales & Float
             </h3>
 
-            <div className="grid grid-cols-2 gap-4">
-              {[
-                { id: "previousFloat", label: "Previous Float" },
-                { id: "salesTotal",    label: "Sales Total" },
-                { id: "cashSales",     label: "Cash Sales" },
-                { id: "nextFloat",     label: "Next Float" },
-              ].map(({ id, label }) => (
-                <div key={id} className="space-y-2">
-                  <Label htmlFor={id}>{label}</Label>
-                  <Input
-                    id={id}
-                    type="number"
-                    step="0.01"
-                    value={(form as any)[id] || ""}
-                    onChange={(e) => updateForm(id, e.target.value)}
-                    className="h-12 text-base"
-                    data-testid={`input-${id}`}
-                  />
-                </div>
-              ))}
+            {/* Row 1: Previous Float — full width */}
+            <div className="space-y-2">
+              <Label htmlFor="previousFloat">Previous Float</Label>
+              <Input
+                id="previousFloat"
+                type="text"
+                inputMode="decimal"
+                value={form.previousFloat || ""}
+                onChange={(e) => updateForm("previousFloat", e.target.value)}
+                className="h-12 text-base"
+                data-testid="input-previousFloat"
+              />
             </div>
 
+            {/* Row 2: Sales Total + Cash Sales */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="salesTotal">Sales Total</Label>
+                <Input
+                  id="salesTotal"
+                  type="text"
+                  inputMode="decimal"
+                  value={form.salesTotal || ""}
+                  onChange={(e) => updateForm("salesTotal", e.target.value)}
+                  className="h-12 text-base"
+                  data-testid="input-salesTotal"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cashSales">Cash Sales</Label>
+                <Input
+                  id="cashSales"
+                  type="text"
+                  inputMode="decimal"
+                  value={form.cashSales || ""}
+                  onChange={(e) => updateForm("cashSales", e.target.value)}
+                  className="h-12 text-base"
+                  data-testid="input-cashSales"
+                />
+              </div>
+            </div>
+
+            {/* Row 3: Cash Out Total + No. of Receipts */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="cashOutTotal">Cash Out Total</Label>
                 <Input
                   id="cashOutTotal"
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={form.cashOutTotal || ""}
                   onChange={(e) => updateForm("cashOutTotal", e.target.value)}
                   className="h-12 text-base"
@@ -425,9 +446,8 @@ export function MobileDailyClose() {
                 <Label htmlFor="numberOfReceipts">No. of Receipts</Label>
                 <Input
                   id="numberOfReceipts"
-                  type="number"
-                  step="1"
-                  min="0"
+                  type="text"
+                  inputMode="numeric"
                   value={form.numberOfReceipts || ""}
                   onChange={(e) => setForm(prev => ({ ...prev, numberOfReceipts: parseInt(e.target.value) || 0 }))}
                   className="h-12 text-base"
@@ -436,13 +456,28 @@ export function MobileDailyClose() {
               </div>
             </div>
 
+            {/* Row 4: Next Float — full width */}
+            <div className="space-y-2">
+              <Label htmlFor="nextFloat">Next Float</Label>
+              <Input
+                id="nextFloat"
+                type="text"
+                inputMode="decimal"
+                value={form.nextFloat || ""}
+                onChange={(e) => updateForm("nextFloat", e.target.value)}
+                className="h-12 text-base"
+                data-testid="input-nextFloat"
+              />
+            </div>
+
+            {/* Row 5: UberEats + DoorDash */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="ubereats">UberEats</Label>
                 <Input
                   id="ubereats"
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={form.ubereatsAmount || ""}
                   onChange={(e) => updateForm("ubereatsAmount", e.target.value)}
                   className="h-12 text-base"
@@ -453,8 +488,8 @@ export function MobileDailyClose() {
                 <Label htmlFor="doordash">DoorDash</Label>
                 <Input
                   id="doordash"
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={form.doordashAmount || ""}
                   onChange={(e) => updateForm("doordashAmount", e.target.value)}
                   className="h-12 text-base"
