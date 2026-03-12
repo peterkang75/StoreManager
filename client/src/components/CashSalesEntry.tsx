@@ -18,7 +18,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Save, ChevronLeft, ChevronRight, ClipboardCheck } from "lucide-react";
+import { Save, ChevronLeft, ChevronRight, ClipboardCheck, Trash2, X, Check } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Store, CashSalesDetail, DailyCloseForm } from "@shared/schema";
@@ -236,6 +236,13 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     const confirmed: Record<number, boolean> = {};
     newRows.forEach((r, i) => { if (r.date) confirmed[i] = true; });
     setConfirmedDates(confirmed);
+
+    // Track all dates that exist in the DB (used to show/hide delete button)
+    const dbDateSet = new Set<string>();
+    existingData?.forEach((r) => dbDateSet.add(r.date));
+    closeFormsData?.forEach((r) => dbDateSet.add(r.date));
+    setDbDates(dbDateSet);
+    setDeleteConfirmDate(null);
   }, [existingData, closeFormsData, periodStart]);
 
   const updateRow = useCallback(
@@ -309,6 +316,29 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     },
   });
 
+  const voidMutation = useMutation({
+    mutationFn: async ({ date }: { date: string }) => {
+      const res = await apiRequest("DELETE", "/api/cash-sales/void-day", {
+        storeId,
+        date,
+        periodStart: startDate,
+        periodEnd: endDate,
+      });
+      return res.json();
+    },
+    onSuccess: (_data, { date }) => {
+      toast({ title: "Entry voided", description: `Record for ${date} has been permanently deleted.` });
+      setDeleteConfirmDate(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/cash-sales"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/daily-close-forms"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/balances"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Delete failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   const shiftPeriod = (direction: number) => {
     setPeriodStart((prev) => prev ? addDays(prev, direction * 14) : prev);
     setDateEditValues({});
@@ -326,6 +356,8 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
   const [dateEditValues, setDateEditValues] = useState<Record<number, string>>({});
   const [expandedMemoIdx, setExpandedMemoIdx] = useState<number | null>(null);
   const [confirmedDates, setConfirmedDates] = useState<Record<number, boolean>>({});
+  const [dbDates, setDbDates] = useState<Set<string>>(new Set());
+  const [deleteConfirmDate, setDeleteConfirmDate] = useState<string | null>(null);
 
   useEffect(() => {
     setExpandedMemoIdx(null);
@@ -535,14 +567,15 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
         <div ref={gridRef} className="border rounded-md overflow-x-auto">
           <table className="w-full text-sm border-collapse table-fixed">
             <colgroup>
-              <col style={{ width: "12%" }} />
-              <col style={{ width: "9%" }} />
-              <col style={{ width: "9%" }} />
+              <col style={{ width: "11%" }} />
+              <col style={{ width: "8%" }} />
+              <col style={{ width: "8%" }} />
               {DENOMINATIONS.map((d) => (
                 <col key={d.key} style={{ width: "6.5%" }} />
               ))}
-              <col style={{ width: "7.5%" }} />
-              <col style={{ width: "18%" }} />
+              <col style={{ width: "7%" }} />
+              <col style={{ width: "14%" }} />
+              <col style={{ width: "4%" }} />
             </colgroup>
             <thead>
               <tr className="bg-muted/50">
@@ -555,7 +588,8 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                   </th>
                 ))}
                 <th className="px-1 py-1 text-right font-medium border-b border-r">Diff</th>
-                <th className="px-1 py-1 text-left font-medium border-b">Memo</th>
+                <th className="px-1 py-1 text-left font-medium border-b border-r">Memo</th>
+                <th className="px-0.5 py-1 text-center font-medium border-b"></th>
               </tr>
             </thead>
             <tbody>
@@ -644,7 +678,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                     >
                       {hasDiff ? `$${diff.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
                     </td>
-                    <td className="px-0.5 py-0.5 border-b relative">
+                    <td className="px-0.5 py-0.5 border-b border-r relative">
                       {expandedMemoIdx === idx ? (
                         <div className="absolute top-0 left-0 right-0 z-20" style={{ minWidth: "100%" }}>
                           <Textarea
@@ -689,6 +723,45 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                         </Tooltip>
                       )}
                     </td>
+                    {/* Delete / void column */}
+                    <td className="px-0.5 py-0.5 border-b text-center">
+                      {row.date && dbDates.has(row.date) && (
+                        deleteConfirmDate === row.date ? (
+                          <div className="flex items-center justify-center gap-0.5">
+                            <button
+                              type="button"
+                              className="flex items-center justify-center rounded text-destructive hover:bg-destructive/10 p-0.5 disabled:opacity-50"
+                              onClick={() => voidMutation.mutate({ date: row.date })}
+                              disabled={voidMutation.isPending}
+                              data-testid={`button-void-confirm-${idx}`}
+                              title="Confirm delete"
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              className="flex items-center justify-center rounded text-muted-foreground hover:bg-muted p-0.5 disabled:opacity-50"
+                              onClick={() => setDeleteConfirmDate(null)}
+                              disabled={voidMutation.isPending}
+                              data-testid={`button-void-cancel-${idx}`}
+                              title="Cancel"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className="flex items-center justify-center rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 p-0.5"
+                            onClick={() => setDeleteConfirmDate(row.date)}
+                            data-testid={`button-void-${idx}`}
+                            title={`Delete entry for ${row.date}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -718,6 +791,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                     ? `$${totalDifference.toLocaleString(undefined, { minimumFractionDigits: 2 })}`
                     : "—"}
                 </td>
+                <td className="px-1 py-1.5 border-t-2 border-r"></td>
                 <td className="px-1 py-1.5 border-t-2"></td>
               </tr>
             </tfoot>

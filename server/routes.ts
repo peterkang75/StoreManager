@@ -1780,6 +1780,63 @@ export async function registerRoutes(
     }
   });
 
+  // Void/delete a single day's cash sales entry (cascading: cashSalesDetails + dailyCloseForms + ledger update)
+  app.delete("/api/cash-sales/void-day", async (req: Request, res: Response) => {
+    try {
+      const { storeId, date, periodStart, periodEnd } = req.body;
+      if (!storeId || !date) {
+        return res.status(400).json({ error: "storeId and date are required" });
+      }
+
+      // 1. Delete any cash sales detail record for this exact date
+      const cashDeleted = await storage.deleteCashSalesDetailsByStoreAndDateRange(storeId, date, date);
+
+      // 2. Delete the daily close form for this date
+      const closeDeleted = await storage.deleteDailyCloseFormByStoreAndDate(storeId, date);
+
+      // 3. Recalculate the period ledger transaction
+      if (periodStart && periodEnd) {
+        const store = await storage.getStore(storeId);
+        const storeName = store?.name || storeId;
+        const refNote = `Cash Sales: ${storeName} (${periodStart} ~ ${periodEnd})`;
+
+        // Recalculate remaining total from still-existing cash sales records in this period
+        const remaining = await storage.getCashSalesDetails({ storeId, startDate: periodStart, endDate: periodEnd });
+        const remainingTotal = remaining.reduce((sum, r) => {
+          const amt = typeof r.countedAmount === "string" ? parseFloat(r.countedAmount) : (r.countedAmount ?? 0);
+          return sum + amt;
+        }, 0);
+
+        // Remove old CASH_SALES transaction for this period
+        const existingTx = await storage.getFinancialTransactionsByRef(refNote);
+        for (const tx of existingTx) {
+          if (tx.toStoreId === storeId && tx.transactionType === "CASH_SALES") {
+            await storage.deleteFinancialTransaction(tx.id);
+          }
+        }
+
+        // Recreate transaction only if there is still data in this period
+        if (remainingTotal > 0) {
+          await storage.createFinancialTransaction({
+            transactionType: "CASH_SALES",
+            fromStoreId: null,
+            toStoreId: storeId,
+            cashAmount: Math.round(remainingTotal * 100) / 100,
+            bankAmount: 0,
+            referenceNote: refNote,
+            executedBy: null,
+            isBankSettled: false,
+          });
+        }
+      }
+
+      res.json({ cashDeleted, closeDeleted, message: `Entry for ${date} has been voided.` });
+    } catch (error) {
+      console.error("Error voiding cash sales day:", error);
+      res.status(500).json({ error: "Failed to void entry" });
+    }
+  });
+
   app.get("/api/suppliers", async (req: Request, res: Response) => {
     try {
       const suppliers = await storage.getSuppliers();

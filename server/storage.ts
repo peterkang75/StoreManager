@@ -117,6 +117,7 @@ export interface IStorage {
 
   getDailyCloseForms(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<DailyCloseForm[]>;
   upsertDailyCloseForm(storeId: string, date: string, data: InsertDailyCloseForm): Promise<DailyCloseForm>;
+  deleteDailyCloseFormByStoreAndDate(storeId: string, date: string): Promise<number>;
 }
 
 export class MemStorage implements IStorage {
@@ -939,6 +940,10 @@ export class MemStorage implements IStorage {
   async upsertDailyCloseForm(storeId: string, date: string, data: InsertDailyCloseForm): Promise<DailyCloseForm> {
     throw new Error("Not implemented in MemStorage");
   }
+
+  async deleteDailyCloseFormByStoreAndDate(storeId: string, date: string): Promise<number> {
+    return 0;
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1445,6 +1450,13 @@ export class DatabaseStorage implements IStorage {
     }
     const [created] = await db.insert(dailyCloseForms).values(data).returning();
     return created;
+  }
+
+  async deleteDailyCloseFormByStoreAndDate(storeId: string, date: string): Promise<number> {
+    const result = await db.delete(dailyCloseForms)
+      .where(and(eq(dailyCloseForms.storeId, storeId), eq(dailyCloseForms.date, date)))
+      .returning();
+    return result.length;
   }
 }
 
