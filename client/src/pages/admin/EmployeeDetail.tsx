@@ -135,6 +135,7 @@ export function AdminEmployeeDetail() {
   const { data: employee, isLoading: employeeLoading } = useQuery<Employee>({
     queryKey: ["/api/employees", employeeId],
     enabled: !!employeeId,
+    staleTime: 0,
   });
 
   const { data: stores } = useQuery<Store[]>({
