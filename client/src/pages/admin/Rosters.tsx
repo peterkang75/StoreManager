@@ -2,7 +2,6 @@ import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -62,6 +61,37 @@ function fmtShortDate(dateStr: string): string {
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 // ─── Time helpers ────────────────────────────────────────────────────────────
+// 30-minute increment time slots: 00:00 → 23:30
+const TIME_SLOTS: string[] = Array.from({ length: 48 }, (_, i) => {
+  const h = Math.floor(i / 2).toString().padStart(2, "0");
+  const m = i % 2 === 0 ? "00" : "30";
+  return `${h}:${m}`;
+});
+
+function snapTo30(t: string): string {
+  if (!t) return "06:00";
+  const [h, m] = t.split(":").map(Number);
+  const snapped = m < 30 ? "00" : "30";
+  return `${h.toString().padStart(2, "0")}:${snapped}`;
+}
+
+function TimeSelect({ value, onChange, testId }: { value: string; onChange: (v: string) => void; testId?: string }) {
+  return (
+    <Select value={snapTo30(value)} onValueChange={onChange}>
+      <SelectTrigger className="h-8 text-xs" data-testid={testId}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className="max-h-48">
+        {TIME_SLOTS.map((t) => (
+          <SelectItem key={t} value={t} className="text-xs font-mono">
+            {t}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 function toMins(t: string): number {
   if (!t) return 0;
   const [h, m] = t.split(":").map(Number);
@@ -142,23 +172,11 @@ function CellEditor({ roster, storeOpenTime, storeCloseTime, onSave, onClear, is
           <div className="flex gap-2">
             <div className="flex-1">
               <p className="text-xs text-muted-foreground mb-1">Start</p>
-              <Input
-                type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                className="h-8 text-xs"
-                data-testid="input-start-time"
-              />
+              <TimeSelect value={startTime} onChange={setStartTime} testId="input-start-time" />
             </div>
             <div className="flex-1">
               <p className="text-xs text-muted-foreground mb-1">End</p>
-              <Input
-                type="time"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-                className="h-8 text-xs"
-                data-testid="input-end-time"
-              />
+              <TimeSelect value={endTime} onChange={setEndTime} testId="input-end-time" />
             </div>
           </div>
 
@@ -217,9 +235,10 @@ function CellEditor({ roster, storeOpenTime, storeCloseTime, onSave, onClear, is
 }
 
 function addHalfDay(open: string, close: string): string {
-  const mid = Math.round((toMins(open) + toMins(close)) / 2);
-  const h = Math.floor(mid / 60).toString().padStart(2, "0");
-  const m = (mid % 60).toString().padStart(2, "0");
+  const raw = Math.round((toMins(open) + toMins(close)) / 2);
+  const snapped = Math.round(raw / 30) * 30;
+  const h = Math.floor(snapped / 60).toString().padStart(2, "0");
+  const m = (snapped % 60).toString().padStart(2, "0");
   return `${h}:${m}`;
 }
 
