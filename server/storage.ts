@@ -17,8 +17,9 @@ import {
   type SupplierInvoice, type InsertSupplierInvoice,
   type SupplierPayment, type InsertSupplierPayment,
   type FinancialTransaction, type InsertFinancialTransaction,
+  type Roster, type InsertRoster,
   stores, candidates, employees, employeeStoreAssignments, employeeOnboardingTokens, employeeDocuments,
-  rosterPeriods, shifts, timeLogs, timesheets, payrolls,
+  rosterPeriods, shifts, rosters, timeLogs, timesheets, payrolls,
   dailyClosings, cashSalesDetails, dailyCloseForms, suppliers, supplierInvoices, supplierPayments,
   financialTransactions,
 } from "@shared/schema";
@@ -118,6 +119,13 @@ export interface IStorage {
   getDailyCloseForms(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<DailyCloseForm[]>;
   upsertDailyCloseForm(storeId: string, date: string, data: InsertDailyCloseForm): Promise<DailyCloseForm>;
   deleteDailyCloseFormByStoreAndDate(storeId: string, date: string): Promise<number>;
+
+  getRosters(filters?: { storeId?: string; startDate?: string; endDate?: string; employeeId?: string }): Promise<Roster[]>;
+  getRoster(id: string): Promise<Roster | undefined>;
+  upsertRoster(storeId: string, employeeId: string, date: string, data: Omit<InsertRoster, "storeId" | "employeeId" | "date">): Promise<Roster>;
+  deleteRoster(id: string): Promise<boolean>;
+  deleteRostersByStoreAndDateRange(storeId: string, startDate: string, endDate: string): Promise<number>;
+  getRostersByEmployeeAndDateRange(employeeId: string, startDate: string, endDate: string): Promise<Roster[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -138,6 +146,7 @@ export class MemStorage implements IStorage {
   private supplierPayments: Map<string, SupplierPayment>;
   private employeeStoreAssignments: Map<string, EmployeeStoreAssignment>;
   private financialTransactions: Map<string, FinancialTransaction>;
+  private rostersMap: Map<string, Roster>;
 
   constructor() {
     this.stores = new Map();
@@ -157,6 +166,7 @@ export class MemStorage implements IStorage {
     this.supplierInvoices = new Map();
     this.supplierPayments = new Map();
     this.financialTransactions = new Map();
+    this.rostersMap = new Map();
   }
 
   async getStores(): Promise<Store[]> {
@@ -944,6 +954,51 @@ export class MemStorage implements IStorage {
   async deleteDailyCloseFormByStoreAndDate(storeId: string, date: string): Promise<number> {
     return 0;
   }
+
+  async getRosters(filters?: { storeId?: string; startDate?: string; endDate?: string; employeeId?: string }): Promise<Roster[]> {
+    let items = Array.from(this.rostersMap.values());
+    if (filters?.storeId) items = items.filter(r => r.storeId === filters.storeId);
+    if (filters?.employeeId) items = items.filter(r => r.employeeId === filters.employeeId);
+    if (filters?.startDate) items = items.filter(r => r.date >= filters.startDate!);
+    if (filters?.endDate) items = items.filter(r => r.date <= filters.endDate!);
+    return items.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  async getRoster(id: string): Promise<Roster | undefined> {
+    return this.rostersMap.get(id);
+  }
+
+  async upsertRoster(storeId: string, employeeId: string, date: string, data: Omit<InsertRoster, "storeId" | "employeeId" | "date">): Promise<Roster> {
+    const existing = Array.from(this.rostersMap.values()).find(r => r.storeId === storeId && r.employeeId === employeeId && r.date === date);
+    if (existing) {
+      const updated = { ...existing, ...data, updatedAt: new Date() };
+      this.rostersMap.set(existing.id, updated);
+      return updated;
+    }
+    const id = randomUUID();
+    const roster: Roster = { id, storeId, employeeId, date, notes: data.notes ?? null, startTime: data.startTime, endTime: data.endTime, createdAt: new Date(), updatedAt: new Date() };
+    this.rostersMap.set(id, roster);
+    return roster;
+  }
+
+  async deleteRoster(id: string): Promise<boolean> {
+    return this.rostersMap.delete(id);
+  }
+
+  async deleteRostersByStoreAndDateRange(storeId: string, startDate: string, endDate: string): Promise<number> {
+    let count = 0;
+    for (const [id, r] of this.rostersMap.entries()) {
+      if (r.storeId === storeId && r.date >= startDate && r.date <= endDate) {
+        this.rostersMap.delete(id);
+        count++;
+      }
+    }
+    return count;
+  }
+
+  async getRostersByEmployeeAndDateRange(employeeId: string, startDate: string, endDate: string): Promise<Roster[]> {
+    return Array.from(this.rostersMap.values()).filter(r => r.employeeId === employeeId && r.date >= startDate && r.date <= endDate);
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1457,6 +1512,52 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(dailyCloseForms.storeId, storeId), eq(dailyCloseForms.date, date)))
       .returning();
     return result.length;
+  }
+
+  async getRosters(filters?: { storeId?: string; startDate?: string; endDate?: string; employeeId?: string }): Promise<Roster[]> {
+    const conditions = [];
+    if (filters?.storeId) conditions.push(eq(rosters.storeId, filters.storeId));
+    if (filters?.employeeId) conditions.push(eq(rosters.employeeId, filters.employeeId));
+    if (filters?.startDate) conditions.push(gte(rosters.date, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(rosters.date, filters.endDate));
+    return db.select().from(rosters).where(conditions.length ? and(...conditions) : undefined).orderBy(asc(rosters.date));
+  }
+
+  async getRoster(id: string): Promise<Roster | undefined> {
+    const [r] = await db.select().from(rosters).where(eq(rosters.id, id)).limit(1);
+    return r;
+  }
+
+  async upsertRoster(storeId: string, employeeId: string, date: string, data: Omit<InsertRoster, "storeId" | "employeeId" | "date">): Promise<Roster> {
+    const [existing] = await db.select().from(rosters)
+      .where(and(eq(rosters.storeId, storeId), eq(rosters.employeeId, employeeId), eq(rosters.date, date)))
+      .limit(1);
+    if (existing) {
+      const [updated] = await db.update(rosters)
+        .set({ startTime: data.startTime, endTime: data.endTime, notes: data.notes ?? null, updatedAt: new Date() })
+        .where(eq(rosters.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(rosters).values({ storeId, employeeId, date, ...data }).returning();
+    return created;
+  }
+
+  async deleteRoster(id: string): Promise<boolean> {
+    const result = await db.delete(rosters).where(eq(rosters.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async deleteRostersByStoreAndDateRange(storeId: string, startDate: string, endDate: string): Promise<number> {
+    const result = await db.delete(rosters)
+      .where(and(eq(rosters.storeId, storeId), gte(rosters.date, startDate), lte(rosters.date, endDate)))
+      .returning();
+    return result.length;
+  }
+
+  async getRostersByEmployeeAndDateRange(employeeId: string, startDate: string, endDate: string): Promise<Roster[]> {
+    return db.select().from(rosters)
+      .where(and(eq(rosters.employeeId, employeeId), gte(rosters.date, startDate), lte(rosters.date, endDate)));
   }
 }
 

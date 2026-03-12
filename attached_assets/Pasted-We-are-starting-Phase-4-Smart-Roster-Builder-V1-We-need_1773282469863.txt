@@ -1,0 +1,25 @@
+We are starting Phase 4: Smart Roster Builder (V1). We need to build a robust scheduling interface for Managers and Owners. Do not build the employee mobile portal yet, just the Admin/Manager Roster Builder.
+
+### 1. Database Schema Updates
+- Ensure we have a `rosters` table: `id`, `storeId`, `employeeId`, `date` (YYYY-MM-DD), `startTime` (string, e.g., "06:30"), `endTime` (string, e.g., "15:30").
+- Add operating hours to the `stores` table (e.g., `openTime` default "06:00", `closeTime` default "22:00").
+
+### 2. Roster Builder UI (Weekly Grid)
+- Create a new page: `/admin/rosters` (accessible by Owner and Manager roles).
+- **Navigation:** Store selector dropdown and Week navigator (`<` `>` buttons moving in strict 7-day Mon-Sun blocks).
+- **Grid Layout:** - Rows: All Active Employees assigned to the selected Store.
+  - Columns: The 7 days of the selected week (Mon to Sun).
+- **Cell Input:** Clicking a cell allows typing or selecting a `startTime` and `endTime` (e.g., 06:30 - 15:30).
+- **Quick Templates (Optional UX):** Provide quick fill options like "Clear Shift", "Open", "Close" if possible, but manual time entry is required.
+
+### 3. Critical Validations (Safety Guards)
+- **Store Hours Check:** If the entered time is outside the store's `openTime` and `closeTime`, show a warning.
+- **Cross-Store Overlap (CRITICAL):** Before saving, check if the employee already has a shift in ANOTHER store that overlaps with this new time on the same date. If true, BLOCK the save and show a red error toast: "Overlap Error: [Name] is already scheduled at [Other Store] from [Time] to [Time]".
+
+### 4. Smart Features
+- **"Copy Previous Week" Button:** Add a button that fetches all roster entries for this specific store from the previous 7 days, shifts the dates forward by 7 days, and populates the current grid.
+- **Financial & Hour Summary (Bottom Bar):** - For each employee row, calculate their Total Hours for the week.
+  - Multiply Total Hours by the employee's `rate` (from the employees table) to get Estimated Cost.
+  - At the bottom of the grid, display a sticky summary: `Total Store Hours: XX hrs | Estimated Wage Cost: $YYY.YY`.
+
+Please implement the API routes, DB schema, and the React frontend for this Roster Builder.

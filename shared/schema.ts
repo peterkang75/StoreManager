@@ -11,6 +11,8 @@ export const stores = pgTable("stores", {
   active: boolean("active").default(true).notNull(),
   isExternal: boolean("is_external").default(false).notNull(),
   globalPayrollNote: text("global_payroll_note"),
+  openTime: text("open_time").default("06:00").notNull(),
+  closeTime: text("close_time").default("22:00").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -195,6 +197,28 @@ export const insertShiftSchema = createInsertSchema(shifts).omit({
 
 export type InsertShift = z.infer<typeof insertShiftSchema>;
 export type Shift = typeof shifts.$inferSelect;
+
+// Simple flat roster table for the Weekly Grid Roster Builder
+export const rosters = pgTable("rosters", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  employeeId: varchar("employee_id").references(() => employees.id).notNull(),
+  date: text("date").notNull(),
+  startTime: text("start_time").notNull(),
+  endTime: text("end_time").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertRosterSchema = createInsertSchema(rosters).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertRoster = z.infer<typeof insertRosterSchema>;
+export type Roster = typeof rosters.$inferSelect;
 
 export const timeLogs = pgTable("time_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

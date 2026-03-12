@@ -45,6 +45,8 @@ function StoreForm({
     code: store?.code ?? "",
     address: store?.address ?? "",
     active: store?.active ?? true,
+    openTime: (store as any)?.openTime ?? "06:00",
+    closeTime: (store as any)?.closeTime ?? "22:00",
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -87,6 +89,28 @@ function StoreForm({
           placeholder="Enter store address"
           data-testid="input-store-address"
         />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="openTime">Open Time</Label>
+          <Input
+            id="openTime"
+            type="time"
+            value={(formData as any).openTime ?? "06:00"}
+            onChange={(e) => setFormData({ ...formData, openTime: e.target.value } as any)}
+            data-testid="input-store-open-time"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="closeTime">Close Time</Label>
+          <Input
+            id="closeTime"
+            type="time"
+            value={(formData as any).closeTime ?? "22:00"}
+            onChange={(e) => setFormData({ ...formData, closeTime: e.target.value } as any)}
+            data-testid="input-store-close-time"
+          />
+        </div>
       </div>
       <div className="flex items-center gap-3">
         <Switch

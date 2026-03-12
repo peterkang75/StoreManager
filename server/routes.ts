@@ -572,6 +572,114 @@ export async function registerRoutes(
     }
   });
 
+  // ===== ROSTER BUILDER ROUTES =====
+  // Get employees assigned to a store (for roster grid)
+  app.get("/api/rosters/employees", async (req: Request, res: Response) => {
+    try {
+      const { store_id } = req.query as Record<string, string>;
+      if (!store_id) return res.status(400).json({ error: "store_id is required" });
+      const assignedEmps = await storage.getEmployeesByStoreAssignment(store_id, "ACTIVE");
+      res.json(assignedEmps);
+    } catch (error) {
+      console.error("Error fetching roster employees:", error);
+      res.status(500).json({ error: "Failed to fetch roster employees" });
+    }
+  });
+
+  app.get("/api/rosters", async (req: Request, res: Response) => {
+    try {
+      const { storeId, startDate, endDate, employeeId } = req.query as Record<string, string>;
+      const items = await storage.getRosters({ storeId, startDate, endDate, employeeId });
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching rosters:", error);
+      res.status(500).json({ error: "Failed to fetch rosters" });
+    }
+  });
+
+  // Copy previous week's roster into current week for a store
+  app.post("/api/rosters/copy-week", async (req: Request, res: Response) => {
+    try {
+      const { storeId, fromStart, fromEnd, toStart, toEnd } = req.body;
+      if (!storeId || !fromStart || !fromEnd || !toStart || !toEnd) {
+        return res.status(400).json({ error: "storeId, fromStart, fromEnd, toStart, toEnd are required" });
+      }
+      const sourceRosters = await storage.getRosters({ storeId, startDate: fromStart, endDate: fromEnd });
+      if (sourceRosters.length === 0) {
+        return res.json({ copied: 0 });
+      }
+      const dayDiff = Math.round((new Date(toStart).getTime() - new Date(fromStart).getTime()) / (1000 * 60 * 60 * 24));
+      const created = [];
+      for (const r of sourceRosters) {
+        const srcDate = new Date(r.date);
+        srcDate.setDate(srcDate.getDate() + dayDiff);
+        const newDate = srcDate.toISOString().split("T")[0];
+        if (newDate >= toStart && newDate <= toEnd) {
+          const roster = await storage.upsertRoster(r.storeId, r.employeeId, newDate, {
+            startTime: r.startTime,
+            endTime: r.endTime,
+            notes: r.notes,
+          });
+          created.push(roster);
+        }
+      }
+      res.json({ copied: created.length });
+    } catch (error) {
+      console.error("Error copying week:", error);
+      res.status(500).json({ error: "Failed to copy week" });
+    }
+  });
+
+  // Upsert a single roster entry (with cross-store overlap check)
+  app.post("/api/rosters", async (req: Request, res: Response) => {
+    try {
+      const { storeId, employeeId, date, startTime, endTime, notes } = req.body;
+      if (!storeId || !employeeId || !date || !startTime || !endTime) {
+        return res.status(400).json({ error: "storeId, employeeId, date, startTime, endTime are required" });
+      }
+
+      // Cross-store overlap check
+      const existing = await storage.getRostersByEmployeeAndDateRange(employeeId, date, date);
+      const toMins = (t: string) => {
+        const [h, m] = t.split(":").map(Number);
+        return h * 60 + m;
+      };
+      const newStart = toMins(startTime);
+      const newEnd = toMins(endTime);
+      for (const r of existing) {
+        if (r.storeId !== storeId) {
+          const exStart = toMins(r.startTime);
+          const exEnd = toMins(r.endTime);
+          if (newStart < exEnd && newEnd > exStart) {
+            const store = await storage.getStore(r.storeId);
+            return res.status(409).json({
+              error: `Overlap Error: Employee is already scheduled at ${store?.name ?? r.storeId} from ${r.startTime} to ${r.endTime} on ${date}`,
+            });
+          }
+        }
+      }
+
+      const roster = await storage.upsertRoster(storeId, employeeId, date, { startTime, endTime, notes: notes ?? null });
+      res.json(roster);
+    } catch (error) {
+      console.error("Error upserting roster:", error);
+      res.status(500).json({ error: "Failed to save roster" });
+    }
+  });
+
+  app.delete("/api/rosters/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const deleted = await storage.deleteRoster(id);
+      if (!deleted) return res.status(404).json({ error: "Roster not found" });
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting roster:", error);
+      res.status(500).json({ error: "Failed to delete roster" });
+    }
+  });
+  // ===== END ROSTER BUILDER ROUTES =====
+
   app.post("/api/time-logs/clock-in", async (req: Request, res: Response) => {
     try {
       const { employee_id, store_id, shift_id } = req.body;

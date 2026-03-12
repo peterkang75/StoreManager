@@ -1,10 +1,9 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -13,41 +12,25 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Calendar, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Clock,
+  AlertTriangle,
+  Trash2,
+  Calendar,
+} from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Store, RosterPeriod, Shift, Employee } from "@shared/schema";
+import type { Store, Employee, Roster } from "@shared/schema";
 
-function getWeekDates(startDate: string): string[] {
-  const dates: string[] = [];
-  const start = new Date(startDate);
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    dates.push(d.toISOString().split("T")[0]);
-  }
-  return dates;
-}
-
-function formatTime(time: string): string {
-  return time.slice(0, 5);
-}
-
+// ─── Date helpers ───────────────────────────────────────────────────────────
 function getMonday(date: Date): string {
   const d = new Date(date);
   const day = d.getDay();
@@ -56,383 +39,515 @@ function getMonday(date: Date): string {
   return d.toISOString().split("T")[0];
 }
 
+function addDays(dateStr: string, n: number): string {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + n);
+  return d.toISOString().split("T")[0];
+}
+
+function getWeekDates(monday: string): string[] {
+  return Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+}
+
+function fmtDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
+}
+
+function fmtShortDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString("en-AU", { weekday: "short", day: "numeric" });
+}
+
+const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+// ─── Time helpers ────────────────────────────────────────────────────────────
+function toMins(t: string): number {
+  if (!t) return 0;
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + (m || 0);
+}
+
+function calcHours(start: string, end: string): number {
+  const diff = toMins(end) - toMins(start);
+  return diff > 0 ? diff / 60 : 0;
+}
+
+function isOutsideHours(start: string, end: string, open: string, close: string): boolean {
+  return toMins(start) < toMins(open) || toMins(end) > toMins(close);
+}
+
+// ─── Cell editor popover ─────────────────────────────────────────────────────
+interface CellEditorProps {
+  roster: Roster | undefined;
+  storeOpenTime: string;
+  storeCloseTime: string;
+  onSave: (start: string, end: string) => void;
+  onClear: () => void;
+  isPending: boolean;
+}
+
+function CellEditor({ roster, storeOpenTime, storeCloseTime, onSave, onClear, isPending }: CellEditorProps) {
+  const [open, setOpen] = useState(false);
+  const [startTime, setStartTime] = useState(roster?.startTime ?? storeOpenTime);
+  const [endTime, setEndTime] = useState(roster?.endTime ?? storeCloseTime);
+
+  const handleOpen = (o: boolean) => {
+    if (o) {
+      setStartTime(roster?.startTime ?? storeOpenTime);
+      setEndTime(roster?.endTime ?? storeCloseTime);
+    }
+    setOpen(o);
+  };
+
+  const hours = calcHours(startTime, endTime);
+  const outsideHours = startTime && endTime ? isOutsideHours(startTime, endTime, storeOpenTime, storeCloseTime) : false;
+
+  const handleSave = () => {
+    if (!startTime || !endTime) return;
+    onSave(startTime, endTime);
+    setOpen(false);
+  };
+
+  const handleClear = () => {
+    onClear();
+    setOpen(false);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={handleOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={`w-full min-h-[40px] text-xs rounded-md px-1.5 py-1 text-left transition-colors
+            ${roster
+              ? "bg-primary/10 hover:bg-primary/20 text-primary font-medium"
+              : "hover:bg-muted text-muted-foreground/50 hover:text-muted-foreground"
+            }`}
+          data-testid="cell-roster"
+        >
+          {roster ? (
+            <span className="flex flex-col gap-0.5">
+              <span>{roster.startTime}</span>
+              <span className="text-muted-foreground font-normal">→ {roster.endTime}</span>
+              <span className="text-[10px] text-muted-foreground">{calcHours(roster.startTime, roster.endTime).toFixed(1)}h</span>
+            </span>
+          ) : (
+            <span className="text-center block">—</span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 p-3" side="bottom" align="center">
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <p className="text-xs text-muted-foreground mb-1">Start</p>
+              <Input
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className="h-8 text-xs"
+                data-testid="input-start-time"
+              />
+            </div>
+            <div className="flex-1">
+              <p className="text-xs text-muted-foreground mb-1">End</p>
+              <Input
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                className="h-8 text-xs"
+                data-testid="input-end-time"
+              />
+            </div>
+          </div>
+
+          {/* Quick fill */}
+          <div className="flex gap-1 flex-wrap">
+            <button
+              type="button"
+              onClick={() => { setStartTime(storeOpenTime); setEndTime(storeCloseTime); }}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-muted hover:bg-muted/80 text-muted-foreground"
+            >
+              Full day
+            </button>
+            <button
+              type="button"
+              onClick={() => { setStartTime(storeOpenTime); setEndTime(addHalfDay(storeOpenTime, storeCloseTime)); }}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-muted hover:bg-muted/80 text-muted-foreground"
+            >
+              Open shift
+            </button>
+            <button
+              type="button"
+              onClick={() => { setStartTime(addHalfDay(storeOpenTime, storeCloseTime)); setEndTime(storeCloseTime); }}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-muted hover:bg-muted/80 text-muted-foreground"
+            >
+              Close shift
+            </button>
+          </div>
+
+          {/* Preview & warning */}
+          {startTime && endTime && (
+            <div className="text-xs text-muted-foreground">
+              {hours > 0 ? `${hours.toFixed(1)} hrs` : "Invalid range"}
+              {outsideHours && (
+                <span className="flex items-center gap-1 text-amber-600 mt-0.5">
+                  <AlertTriangle className="h-3 w-3" />
+                  Outside store hours ({storeOpenTime}–{storeCloseTime})
+                </span>
+              )}
+            </div>
+          )}
+
+          <div className="flex gap-1.5 pt-1">
+            <Button size="sm" onClick={handleSave} disabled={isPending || hours <= 0} className="flex-1" data-testid="button-save-shift">
+              {isPending ? "Saving…" : "Save"}
+            </Button>
+            {roster && (
+              <Button size="sm" variant="ghost" onClick={handleClear} disabled={isPending} data-testid="button-clear-shift">
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function addHalfDay(open: string, close: string): string {
+  const mid = Math.round((toMins(open) + toMins(close)) / 2);
+  const h = Math.floor(mid / 60).toString().padStart(2, "0");
+  const m = (mid % 60).toString().padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 export function AdminRosters() {
   const { toast } = useToast();
   const [selectedStore, setSelectedStore] = useState<string>("");
-  const [selectedPeriod, setSelectedPeriod] = useState<RosterPeriod | null>(null);
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
-  const [showPeriodDialog, setShowPeriodDialog] = useState(false);
-  const [showShiftDialog, setShowShiftDialog] = useState(false);
-  const [newPeriodDesc, setNewPeriodDesc] = useState("");
-  const [shiftForm, setShiftForm] = useState({
-    employeeId: "",
-    date: "",
-    startTime: "09:00",
-    endTime: "17:00",
-    role: "",
-    notes: "",
-  });
-
-  const { data: stores, isLoading: storesLoading } = useQuery<Store[]>({
-    queryKey: ["/api/stores"],
-  });
-
-  const { data: employees } = useQuery<Employee[]>({
-    queryKey: ["/api/employees"],
-  });
-
-  const { data: periods } = useQuery<RosterPeriod[]>({
-    queryKey: ["/api/roster-periods", selectedStore],
-    enabled: !!selectedStore,
-  });
-
-  const { data: shifts } = useQuery<Shift[]>({
-    queryKey: ["/api/shifts", selectedPeriod?.id],
-    enabled: !!selectedPeriod,
-  });
-
-  const createPeriodMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedStore) throw new Error("Store is required");
-      const endDate = new Date(weekStart);
-      endDate.setDate(endDate.getDate() + 6);
-      const res = await apiRequest("POST", "/api/roster-periods", {
-        storeId: selectedStore,
-        startDate: weekStart,
-        endDate: endDate.toISOString().split("T")[0],
-        description: newPeriodDesc || null,
-      });
-      return res.json();
-    },
-    onSuccess: (period) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/roster-periods"] });
-      setSelectedPeriod(period);
-      setShowPeriodDialog(false);
-      setNewPeriodDesc("");
-      toast({ title: "Roster period created" });
-    },
-    onError: (error: Error) => {
-      toast({ title: error.message || "Failed to create roster period", variant: "destructive" });
-    },
-  });
-
-  const createShiftMutation = useMutation({
-    mutationFn: async () => {
-      if (!shiftForm.employeeId) throw new Error("Employee is required");
-      if (!shiftForm.date) throw new Error("Date is required");
-      if (!shiftForm.startTime || !shiftForm.endTime) throw new Error("Shift times are required");
-      const res = await apiRequest("POST", "/api/shifts", {
-        rosterPeriodId: selectedPeriod?.id,
-        storeId: selectedStore,
-        employeeId: shiftForm.employeeId,
-        date: shiftForm.date,
-        startTime: shiftForm.startTime,
-        endTime: shiftForm.endTime,
-        role: shiftForm.role || null,
-        notes: shiftForm.notes || null,
-      });
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
-      setShowShiftDialog(false);
-      setShiftForm({ employeeId: "", date: "", startTime: "09:00", endTime: "17:00", role: "", notes: "" });
-      toast({ title: "Shift added" });
-    },
-    onError: (error: Error) => {
-      toast({ title: error.message || "Failed to add shift", variant: "destructive" });
-    },
-  });
-
-  const deleteShiftMutation = useMutation({
-    mutationFn: async (shiftId: string) => {
-      await apiRequest("DELETE", `/api/shifts/${shiftId}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
-      toast({ title: "Shift deleted" });
-    },
-    onError: (error: Error) => {
-      toast({ title: error.message || "Failed to delete shift", variant: "destructive" });
-    },
-  });
-
+  const weekEnd = addDays(weekStart, 6);
   const weekDates = getWeekDates(weekStart);
-  const activeEmployees = employees?.filter(e => e.status === "ACTIVE" && (!selectedStore || e.storeId === selectedStore)) || [];
 
-  const navigateWeek = (direction: number) => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + direction * 7);
-    setWeekStart(d.toISOString().split("T")[0]);
-    setSelectedPeriod(null);
-  };
+  const { data: stores, isLoading: storesLoading } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
 
-  const getShiftsForCell = (employeeId: string, date: string) => {
-    return shifts?.filter(s => s.employeeId === employeeId && s.date === date) || [];
-  };
+  const activeStores = stores?.filter((s) => s.active && !s.isExternal) ?? [];
 
-  if (storesLoading) {
-    return (
-      <AdminLayout title="Rosters">
-        <div className="space-y-4">
-          <Skeleton className="h-10 w-48" />
-          <Skeleton className="h-96 w-full" />
-        </div>
-      </AdminLayout>
-    );
+  const selectedStoreObj = activeStores.find((s) => s.id === selectedStore);
+
+  // Auto-select first store
+  const [autoSelected, setAutoSelected] = useState(false);
+  if (!autoSelected && activeStores.length > 0 && !selectedStore) {
+    setSelectedStore(activeStores[0].id);
+    setAutoSelected(true);
   }
 
-  return (
-    <AdminLayout title="Rosters">
-      <div className="space-y-6">
-        <Card>
-          <CardHeader className="pb-4">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className="w-48">
-                  <Select value={selectedStore} onValueChange={setSelectedStore}>
-                    <SelectTrigger data-testid="select-store">
-                      <SelectValue placeholder="Select store" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {stores?.filter(s => s.active).map(store => (
-                        <SelectItem key={store.id} value={store.id}>{store.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {selectedStore && (
-                  <div className="w-64">
-                    <Select 
-                      value={selectedPeriod?.id || ""} 
-                      onValueChange={(id) => setSelectedPeriod(periods?.find(p => p.id === id) || null)}
-                    >
-                      <SelectTrigger data-testid="select-period">
-                        <SelectValue placeholder="Select or create period" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {periods?.filter(p => p.startDate === weekStart).map(period => (
-                          <SelectItem key={period.id} value={period.id}>
-                            {period.description || `Week of ${period.startDate}`}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="icon" onClick={() => navigateWeek(-1)} data-testid="button-prev-week">
-                  <ChevronLeft className="w-4 h-4" />
-                </Button>
-                <span className="text-sm font-medium min-w-[180px] text-center">
-                  Week of {new Date(weekStart).toLocaleDateString()}
-                </span>
-                <Button variant="outline" size="icon" onClick={() => navigateWeek(1)} data-testid="button-next-week">
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {!selectedStore ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <Calendar className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>매장을 선택하여 근무표를 관리하세요</p>
-              </div>
-            ) : !selectedPeriod ? (
-              <div className="text-center py-12">
-                <Calendar className="w-12 h-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
-                <p className="text-muted-foreground mb-4">이번 주에 대한 근무 기간이 없습니다</p>
-                <Dialog open={showPeriodDialog} onOpenChange={setShowPeriodDialog}>
-                  <DialogTrigger asChild>
-                    <Button data-testid="button-create-period">
-                      <Plus className="w-4 h-4 mr-2" />
-                      Create Roster Period
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Create Roster Period</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4 py-4">
-                      <div className="space-y-2">
-                        <Label>Week</Label>
-                        <p className="text-sm text-muted-foreground">
-                          {new Date(weekStart).toLocaleDateString()} - {new Date(weekDates[6]).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="period-desc">Description (optional)</Label>
-                        <Input
-                          id="period-desc"
-                          value={newPeriodDesc}
-                          onChange={(e) => setNewPeriodDesc(e.target.value)}
-                          placeholder="e.g., Holiday week schedule"
-                          data-testid="input-period-description"
-                        />
-                      </div>
-                      <Button 
-                        onClick={() => createPeriodMutation.mutate()} 
-                        disabled={createPeriodMutation.isPending}
-                        className="w-full"
-                        data-testid="button-save-period"
-                      >
-                        Create Period
-                      </Button>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="flex justify-end">
-                  <Dialog open={showShiftDialog} onOpenChange={setShowShiftDialog}>
-                    <DialogTrigger asChild>
-                      <Button data-testid="button-add-shift">
-                        <Plus className="w-4 h-4 mr-2" />
-                        Add Shift
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Add Shift</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4 py-4">
-                        <div className="space-y-2">
-                          <Label>Employee</Label>
-                          <Select value={shiftForm.employeeId} onValueChange={(v) => setShiftForm({...shiftForm, employeeId: v})}>
-                            <SelectTrigger data-testid="select-shift-employee">
-                              <SelectValue placeholder="Select employee" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {activeEmployees.map(emp => (
-                                <SelectItem key={emp.id} value={emp.id}>
-                                  {emp.firstName} {emp.lastName}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Date</Label>
-                          <Select value={shiftForm.date} onValueChange={(v) => setShiftForm({...shiftForm, date: v})}>
-                            <SelectTrigger data-testid="select-shift-date">
-                              <SelectValue placeholder="Select date" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {weekDates.map(d => (
-                                <SelectItem key={d} value={d}>
-                                  {new Date(d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="start-time">Start Time</Label>
-                            <Input
-                              id="start-time"
-                              type="time"
-                              value={shiftForm.startTime}
-                              onChange={(e) => setShiftForm({...shiftForm, startTime: e.target.value})}
-                              data-testid="input-shift-start"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="end-time">End Time</Label>
-                            <Input
-                              id="end-time"
-                              type="time"
-                              value={shiftForm.endTime}
-                              onChange={(e) => setShiftForm({...shiftForm, endTime: e.target.value})}
-                              data-testid="input-shift-end"
-                            />
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="role">Role (optional)</Label>
-                          <Input
-                            id="role"
-                            value={shiftForm.role}
-                            onChange={(e) => setShiftForm({...shiftForm, role: e.target.value})}
-                            placeholder="e.g., Manager, Cashier"
-                            data-testid="input-shift-role"
-                          />
-                        </div>
-                        <Button 
-                          onClick={() => createShiftMutation.mutate()} 
-                          disabled={createShiftMutation.isPending || !shiftForm.employeeId || !shiftForm.date}
-                          className="w-full"
-                          data-testid="button-save-shift"
-                        >
-                          Add Shift
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                </div>
+  const { data: employees, isLoading: empLoading } = useQuery<{ employee: Employee; assignment: { storeId: string; rate?: string | null; fixedAmount?: string | null } }[]>({
+    queryKey: ["/api/rosters/employees", selectedStore],
+    enabled: !!selectedStore,
+    queryFn: async () => {
+      const res = await fetch(`/api/rosters/employees?store_id=${selectedStore}`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
 
-                <div className="overflow-x-auto border rounded-lg">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="min-w-[150px] sticky left-0 bg-background">Employee</TableHead>
-                        {weekDates.map(d => (
-                          <TableHead key={d} className="min-w-[120px] text-center">
-                            {new Date(d).toLocaleDateString("en-US", { weekday: "short", day: "numeric" })}
-                          </TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {activeEmployees.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
-                            이 매장에 활성 직원이 없습니다
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        activeEmployees.map(emp => (
-                          <TableRow key={emp.id} data-testid={`row-employee-${emp.id}`}>
-                            <TableCell className="font-medium sticky left-0 bg-background">
-                              {emp.firstName} {emp.lastName}
-                            </TableCell>
-                            {weekDates.map(d => {
-                              const cellShifts = getShiftsForCell(emp.id, d);
-                              return (
-                                <TableCell key={d} className="text-center p-1">
-                                  {cellShifts.map(shift => (
-                                    <div 
-                                      key={shift.id} 
-                                      className="bg-primary/10 text-primary text-xs p-1 rounded mb-1 flex items-center justify-between gap-1"
-                                    >
-                                      <span>{formatTime(shift.startTime)}-{formatTime(shift.endTime)}</span>
-                                      <Button 
-                                        variant="ghost" 
-                                        size="icon" 
-                                        className="h-5 w-5"
-                                        onClick={() => deleteShiftMutation.mutate(shift.id)}
-                                        data-testid={`button-delete-shift-${shift.id}`}
-                                      >
-                                        <Trash2 className="w-3 h-3" />
-                                      </Button>
-                                    </div>
-                                  ))}
-                                </TableCell>
-                              );
-                            })}
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+  const activeEmployees = (employees ?? [])
+    .filter((e) => e.employee.status === "ACTIVE")
+    .sort((a, b) => {
+      const na = `${a.employee.firstName} ${a.employee.lastName}`;
+      const nb = `${b.employee.firstName} ${b.employee.lastName}`;
+      return na.localeCompare(nb);
+    });
+
+  const { data: rostersData, isLoading: rostersLoading } = useQuery<Roster[]>({
+    queryKey: ["/api/rosters", selectedStore, weekStart, weekEnd],
+    enabled: !!selectedStore,
+    queryFn: async () => {
+      const url = `/api/rosters?storeId=${selectedStore}&startDate=${weekStart}&endDate=${weekEnd}`;
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+
+  const rosterMap = new Map<string, Roster>();
+  rostersData?.forEach((r) => rosterMap.set(`${r.employeeId}|${r.date}`, r));
+
+  const invalidateRosters = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["/api/rosters", selectedStore, weekStart, weekEnd] });
+  }, [selectedStore, weekStart, weekEnd]);
+
+  const upsertMutation = useMutation({
+    mutationFn: async (payload: { employeeId: string; date: string; startTime: string; endTime: string }) => {
+      const res = await apiRequest("POST", "/api/rosters", {
+        storeId: selectedStore,
+        employeeId: payload.employeeId,
+        date: payload.date,
+        startTime: payload.startTime,
+        endTime: payload.endTime,
+      });
+      return res.json();
+    },
+    onSuccess: () => invalidateRosters(),
+    onError: (err: Error) => {
+      toast({ title: "Save failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/rosters/${id}`);
+    },
+    onSuccess: () => invalidateRosters(),
+    onError: (err: Error) => {
+      toast({ title: "Delete failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const copyWeekMutation = useMutation({
+    mutationFn: async () => {
+      const prevStart = addDays(weekStart, -7);
+      const prevEnd = addDays(weekStart, -1);
+      const res = await apiRequest("POST", "/api/rosters/copy-week", {
+        storeId: selectedStore,
+        fromStart: prevStart,
+        fromEnd: prevEnd,
+        toStart: weekStart,
+        toEnd: weekEnd,
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "Week copied", description: `${data.copied} shift(s) copied from previous week.` });
+      invalidateRosters();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Copy failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // ── Summary calculations ───────────────────────────────────────────────────
+  const empHours = (empId: string) =>
+    weekDates.reduce((sum, d) => {
+      const r = rosterMap.get(`${empId}|${d}`);
+      return r ? sum + calcHours(r.startTime, r.endTime) : sum;
+    }, 0);
+
+  const totalStoreHours = activeEmployees.reduce((sum, e) => sum + empHours(e.employee.id), 0);
+
+  const empCost = (emp: Employee) => {
+    const rate = parseFloat(emp.rate ?? "0") || 0;
+    return empHours(emp.id) * rate;
+  };
+
+  const totalStoreCost = activeEmployees.reduce((sum, e) => sum + empCost(e.employee), 0);
+
+  const isLoading = storesLoading || empLoading || rostersLoading;
+
+  return (
+    <AdminLayout>
+      <div className="flex flex-col h-full">
+        {/* ── Header bar ───────────────────────────────────────────────── */}
+        <div className="flex items-center gap-3 p-4 border-b flex-wrap">
+          <Calendar className="h-5 w-5 text-muted-foreground" />
+          <h1 className="text-lg font-semibold">Roster Builder</h1>
+
+          <div className="flex-1" />
+
+          {/* Store selector */}
+          <Select value={selectedStore} onValueChange={setSelectedStore} data-testid="select-store">
+            <SelectTrigger className="w-44" data-testid="trigger-store-select">
+              <SelectValue placeholder="Select store…" />
+            </SelectTrigger>
+            <SelectContent>
+              {activeStores.map((s) => (
+                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Week navigator */}
+          <div className="flex items-center gap-1 border rounded-md">
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setWeekStart(addDays(weekStart, -7))}
+              data-testid="button-prev-week"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm font-medium px-2 whitespace-nowrap" data-testid="text-week-range">
+              {fmtDate(weekStart)} – {fmtDate(weekEnd)}
+            </span>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setWeekStart(addDays(weekStart, 7))}
+              data-testid="button-next-week"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {/* Today button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setWeekStart(getMonday(new Date()))}
+            data-testid="button-today"
+          >
+            Today
+          </Button>
+
+          {/* Copy previous week */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => copyWeekMutation.mutate()}
+            disabled={!selectedStore || copyWeekMutation.isPending}
+            data-testid="button-copy-week"
+          >
+            <Copy className="h-4 w-4 mr-1.5" />
+            Copy Prev Week
+          </Button>
+        </div>
+
+        {/* ── Store hours info ───────────────────────────────────────── */}
+        {selectedStoreObj && (
+          <div className="px-4 py-2 border-b bg-muted/30 flex items-center gap-2 text-xs text-muted-foreground">
+            <Clock className="h-3.5 w-3.5" />
+            <span>
+              Store hours: <span className="font-medium text-foreground">{selectedStoreObj.openTime}</span> –{" "}
+              <span className="font-medium text-foreground">{selectedStoreObj.closeTime}</span>
+            </span>
+          </div>
+        )}
+
+        {/* ── Grid ─────────────────────────────────────────────────────── */}
+        <div className="flex-1 overflow-auto p-4">
+          {!selectedStore ? (
+            <div className="flex items-center justify-center h-40 text-muted-foreground">
+              Select a store to view the roster.
+            </div>
+          ) : isLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+            </div>
+          ) : activeEmployees.length === 0 ? (
+            <div className="flex items-center justify-center h-40 text-muted-foreground">
+              No active employees assigned to this store.
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-md border">
+              <table className="w-full text-sm border-collapse table-fixed min-w-[900px]">
+                <colgroup>
+                  <col style={{ width: "160px" }} />
+                  {weekDates.map((d) => <col key={d} style={{ width: "calc((100% - 160px - 100px - 100px) / 7)" }} />)}
+                  <col style={{ width: "80px" }} />
+                  <col style={{ width: "100px" }} />
+                </colgroup>
+                <thead>
+                  <tr className="bg-muted/50 border-b">
+                    <th className="sticky left-0 z-10 bg-muted/50 px-3 py-2 text-left font-medium text-sm border-r">
+                      Employee
+                    </th>
+                    {weekDates.map((d, i) => (
+                      <th key={d} className={`px-1 py-2 text-center font-medium text-xs border-r ${i >= 5 ? "bg-amber-50/50 dark:bg-amber-950/20" : ""}`} data-testid={`header-day-${i}`}>
+                        <div>{DAY_NAMES[i]}</div>
+                        <div className="text-muted-foreground font-normal">
+                          {new Date(d).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
+                        </div>
+                      </th>
+                    ))}
+                    <th className="px-2 py-2 text-right font-medium text-xs border-r">Hrs</th>
+                    <th className="px-2 py-2 text-right font-medium text-xs">Est. Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeEmployees.map(({ employee: emp }) => {
+                    const hrs = empHours(emp.id);
+                    const cost = empCost(emp);
+                    const rate = parseFloat(emp.rate ?? "0") || 0;
+                    return (
+                      <tr key={emp.id} className="border-b hover-elevate" data-testid={`row-employee-${emp.id}`}>
+                        <td className="sticky left-0 z-10 bg-background px-3 py-1.5 border-r">
+                          <div className="font-medium text-sm truncate">
+                            {emp.nickname || `${emp.firstName} ${emp.lastName}`}
+                          </div>
+                          {rate > 0 && (
+                            <div className="text-xs text-muted-foreground">${rate.toFixed(2)}/hr</div>
+                          )}
+                        </td>
+                        {weekDates.map((d, i) => {
+                          const roster = rosterMap.get(`${emp.id}|${d}`);
+                          return (
+                            <td
+                              key={d}
+                              className={`px-0.5 py-0.5 border-r align-top ${i >= 5 ? "bg-amber-50/30 dark:bg-amber-950/10" : ""}`}
+                              data-testid={`cell-${emp.id}-${d}`}
+                            >
+                              <CellEditor
+                                roster={roster}
+                                storeOpenTime={selectedStoreObj?.openTime ?? "06:00"}
+                                storeCloseTime={selectedStoreObj?.closeTime ?? "22:00"}
+                                onSave={(start, end) =>
+                                  upsertMutation.mutate({ employeeId: emp.id, date: d, startTime: start, endTime: end })
+                                }
+                                onClear={() => roster && deleteMutation.mutate(roster.id)}
+                                isPending={upsertMutation.isPending || deleteMutation.isPending}
+                              />
+                            </td>
+                          );
+                        })}
+                        <td className="px-2 py-1.5 border-r text-right text-xs font-mono tabular-nums" data-testid={`text-hours-${emp.id}`}>
+                          {hrs > 0 ? `${hrs.toFixed(1)}h` : "—"}
+                        </td>
+                        <td className="px-2 py-1.5 text-right text-xs font-mono tabular-nums" data-testid={`text-cost-${emp.id}`}>
+                          {cost > 0 ? `$${cost.toFixed(2)}` : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* ── Summary footer ────────────────────────────────────────────── */}
+        {selectedStore && !isLoading && activeEmployees.length > 0 && (
+          <div className="sticky bottom-0 border-t bg-muted/60 backdrop-blur px-4 py-2.5 flex items-center gap-6 text-sm z-20">
+            <span className="text-muted-foreground">Week Summary</span>
+            <div className="flex items-center gap-1.5">
+              <Clock className="h-4 w-4 text-muted-foreground" />
+              <span className="font-medium" data-testid="text-total-hours">
+                {totalStoreHours.toFixed(1)} hrs
+              </span>
+              <span className="text-muted-foreground text-xs">total</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">Est. Wage Cost:</span>
+              <span className="font-semibold text-primary" data-testid="text-total-cost">
+                ${totalStoreCost.toFixed(2)}
+              </span>
+            </div>
+            <div className="flex-1" />
+            <div className="flex gap-2">
+              {activeEmployees.map(({ employee: emp }) => {
+                const hrs = empHours(emp.id);
+                if (hrs === 0) return null;
+                return (
+                  <Badge key={emp.id} variant="secondary" className="text-xs" data-testid={`badge-emp-hours-${emp.id}`}>
+                    {emp.nickname || emp.firstName}: {hrs.toFixed(1)}h
+                  </Badge>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </AdminLayout>
   );
