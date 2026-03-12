@@ -279,8 +279,8 @@ interface DailyTimelineProps {
   closeTime: string;
 }
 
-const HOUR_PX = 56; // pixels per hour in the vertical calendar
-const TIME_COL_W = 52; // px — left time axis width
+const HOUR_PX = 26; // pixels per hour — compact bird's-eye view
+const TIME_COL_W = 44; // px — left time axis width
 
 function DailyTimeline({ employees, rosterMap, weekDates, selectedDay, onDayChange, openTime, closeTime }: DailyTimelineProps) {
   const openMins = toMins(openTime);
@@ -329,7 +329,7 @@ function DailyTimeline({ employees, rosterMap, weekDates, selectedDay, onDayChan
     Math.max(8, ((Math.min(toMins(e), closeMins) - Math.max(toMins(s), openMins)) / 60) * HOUR_PX);
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div className="flex flex-col">
       {/* Day selector tabs */}
       <div className="px-4 py-2 border-b">
         <div className="flex gap-0.5 bg-muted/40 rounded-lg p-0.5">
@@ -378,20 +378,18 @@ function DailyTimeline({ employees, rosterMap, weekDates, selectedDay, onDayChan
         )}
       </div>
 
-      {/* ── Main calendar grid — vertical scroll ──────────────────────── */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden">
+      {/* ── Main calendar grid — no internal scroll ──────────────────── */}
+      <div className="overflow-x-hidden px-3 pb-3">
 
-        {/* Sticky employee name header row */}
-        <div
-          className="flex sticky top-0 z-20 bg-background border-b shadow-sm"
-        >
+        {/* Employee name header row */}
+        <div className="flex border-b mb-0">
           {/* Corner spacer aligned with time axis */}
           <div
             className="shrink-0 border-r border-muted/40"
             style={{ width: `${TIME_COL_W}px` }}
           />
           {workingEmployees.length === 0 ? (
-            <div className="flex-1 py-2 px-3 text-sm text-muted-foreground">
+            <div className="flex-1 py-1.5 px-2 text-xs text-muted-foreground">
               No shifts scheduled
             </div>
           ) : (
@@ -401,18 +399,17 @@ function DailyTimeline({ employees, rosterMap, weekDates, selectedDay, onDayChan
               return (
                 <div
                   key={emp.id}
-                  className="flex-1 min-w-0 flex flex-col items-center justify-center py-2 px-1 border-r border-muted/30 last:border-r-0"
+                  className="flex-1 min-w-0 flex flex-col items-center justify-center py-1.5 px-1 border-r border-muted/30 last:border-r-0"
                   data-testid={`timeline-col-header-${emp.id}`}
                 >
-                  {/* Colour swatch dot */}
                   <span
-                    className="h-2 w-2 rounded-full mb-1 shrink-0"
+                    className="h-1.5 w-1.5 rounded-full mb-0.5 shrink-0"
                     style={{ backgroundColor: color }}
                   />
-                  <span className="text-xs font-semibold truncate w-full text-center leading-tight">
+                  <span className="text-[11px] font-semibold truncate w-full text-center leading-none">
                     {emp.nickname || emp.firstName}
                   </span>
-                  <span className="text-[10px] text-muted-foreground leading-tight">
+                  <span className="text-[9px] text-muted-foreground leading-none mt-0.5">
                     {hrs.toFixed(1)}h
                   </span>
                 </div>
@@ -423,7 +420,7 @@ function DailyTimeline({ employees, rosterMap, weekDates, selectedDay, onDayChan
 
         {/* No shifts at all */}
         {workingEmployees.length === 0 && (
-          <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
+          <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
             No shifts scheduled for this day.
           </div>
         )}
@@ -437,14 +434,14 @@ function DailyTimeline({ employees, rosterMap, weekDates, selectedDay, onDayChan
               className="shrink-0 relative border-r border-muted/40"
               style={{ width: `${TIME_COL_W}px` }}
             >
-              {hourTicks.map(({ mins, label }) => (
+              {hourTicks.map(({ mins, label }, tickIdx) => (
                 <div
                   key={mins}
                   className="absolute right-0 flex items-center"
                   style={{ top: `${((mins - openMins) / 60) * HOUR_PX}px` }}
                 >
-                  <span className="text-[10px] text-muted-foreground pr-1.5 select-none leading-none -translate-y-1/2">
-                    {label}
+                  <span className="text-[9px] text-muted-foreground pr-1 select-none leading-none -translate-y-1/2 tabular-nums">
+                    {tickIdx % 2 === 0 ? label : label.replace(":00", "")}
                   </span>
                 </div>
               ))}
@@ -485,7 +482,7 @@ function DailyTimeline({ employees, rosterMap, weekDates, selectedDay, onDayChan
 
                   {/* Shift block */}
                   <div
-                    className="absolute inset-x-1.5 rounded-md overflow-hidden shadow-sm flex flex-col"
+                    className="absolute inset-x-1 rounded shadow-sm overflow-hidden flex flex-col"
                     style={{
                       top: `${tp}px`,
                       height: `${hp}px`,
@@ -493,24 +490,23 @@ function DailyTimeline({ employees, rosterMap, weekDates, selectedDay, onDayChan
                     }}
                     title={`${emp.nickname || emp.firstName}: ${roster.startTime}–${roster.endTime} (${shiftHours.toFixed(1)}h)`}
                   >
-                    {/* Top accent stripe */}
-                    <div
-                      className="h-1 w-full shrink-0 opacity-60"
-                      style={{ backgroundColor: "rgba(0,0,0,0.2)" }}
-                    />
-                    <div className="flex flex-col gap-0.5 p-1.5 flex-1 min-h-0 overflow-hidden">
-                      <span className="text-[11px] font-bold text-white leading-tight whitespace-nowrap">
-                        {roster.startTime}
-                      </span>
-                      <span className="text-[10px] text-white/80 leading-tight whitespace-nowrap">
-                        – {roster.endTime}
-                      </span>
-                      {hp >= 60 && (
-                        <span className="text-[10px] text-white/70 leading-tight mt-auto whitespace-nowrap">
-                          {shiftHours.toFixed(1)}h
+                    {hp >= 20 && (
+                      <div className="flex flex-col p-1 overflow-hidden leading-none gap-px">
+                        <span className="text-[9px] font-bold text-white whitespace-nowrap leading-none">
+                          {roster.startTime}
                         </span>
-                      )}
-                    </div>
+                        {hp >= 36 && (
+                          <span className="text-[9px] text-white/80 whitespace-nowrap leading-none">
+                            –{roster.endTime}
+                          </span>
+                        )}
+                        {hp >= 56 && (
+                          <span className="text-[8px] text-white/65 whitespace-nowrap leading-none mt-auto">
+                            {shiftHours.toFixed(1)}h
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
