@@ -2439,7 +2439,7 @@ export async function registerRoutes(
     }
   });
 
-  // GET /api/portal/shift?employeeId=X&storeId=Y&date=YYYY-MM-DD
+  // GET /api/portal/shift?employeeId=X&storeId=Y&date=YYYY-MM-DD (single day, kept for compat)
   app.get("/api/portal/shift", async (req: Request, res: Response) => {
     try {
       const { employeeId, storeId, date } = req.query;
@@ -2452,6 +2452,42 @@ export async function registerRoutes(
       res.json({ shift, published: true });
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch shift" });
+    }
+  });
+
+  // GET /api/portal/week?employeeId=X&storeId=Y&weekStart=YYYY-MM-DD
+  // Returns all 7 days of shift + timesheet data for the week
+  app.get("/api/portal/week", async (req: Request, res: Response) => {
+    try {
+      const { employeeId, storeId, weekStart } = req.query;
+      if (!employeeId || !storeId || !weekStart) return res.status(400).json({ error: "employeeId, storeId, weekStart required" });
+      const weekStartStr = weekStart as string;
+
+      // Compute weekEnd (Sunday = weekStart + 6)
+      const ws = new Date(weekStartStr + "T00:00:00");
+      ws.setDate(ws.getDate() + 6);
+      const weekEnd = ws.toISOString().split("T")[0];
+
+      const published = await storage.isRosterWeekPublished(storeId as string, weekStartStr);
+      const shifts = published
+        ? await storage.getRosters({ storeId: storeId as string, startDate: weekStartStr, endDate: weekEnd, employeeId: employeeId as string })
+        : [];
+      const timesheets = await storage.getShiftTimesheets({ employeeId: employeeId as string });
+
+      // Build day-by-day map
+      const days: Array<{ date: string; shift: typeof shifts[0] | null; timesheet: typeof timesheets[0] | null }> = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(weekStartStr + "T00:00:00");
+        d.setDate(d.getDate() + i);
+        const dateStr = d.toISOString().split("T")[0];
+        const shift = shifts.find(s => s.date === dateStr) ?? null;
+        const timesheet = timesheets.find(t => t.date === dateStr) ?? null;
+        days.push({ date: dateStr, shift, timesheet });
+      }
+
+      res.json({ days, published, weekStart: weekStartStr, weekEnd });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch week data" });
     }
   });
 
