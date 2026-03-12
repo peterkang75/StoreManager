@@ -139,7 +139,15 @@ function PinEntry({ onSuccess }: { onSuccess: () => void }) {
 export function MobileDailyClose() {
   const { toast } = useToast();
   const { session, clearSession } = useMobileSession();
-  const [pinDone, setPinDone] = useState(!!session);
+  // Invalidate legacy sessions that pre-date storeIds field
+  const isValidSession = !!session && Array.isArray(session.storeIds);
+  const [pinDone, setPinDone] = useState(isValidSession);
+
+  useEffect(() => {
+    if (session && !isValidSession) {
+      clearSession();
+    }
+  }, []);
 
   const [storeId, setStoreId] = useState<string>("");
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
