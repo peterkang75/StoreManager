@@ -1757,6 +1757,7 @@ export async function registerRoutes(
       const firstNameIdx = col("first name", "firstname", "given name");
       const lastNameIdx  = col("last name", "lastname", "surname", "family name");
       const nameIdx      = col("name", "full name", "fullname", "employee", "employee name");
+      const phoneIdx     = col("phone number", "phone", "mobile", "mobile number", "contact number", "phonenumber");
       const selfieIdx    = col("selfie url", "selfieurl", "selfie", "profile photo", "profile image",
                                "photo url", "photourl", "photo", "image", "avatar", "pic", "picture",
                                "profile pic", "profile picture", "headshot");
@@ -1765,7 +1766,7 @@ export async function registerRoutes(
 
       console.log("[import-photos] detected columns:", {
         headers,
-        nickIdx, firstNameIdx, lastNameIdx, nameIdx, selfieIdx, passportIdx
+        nickIdx, firstNameIdx, lastNameIdx, nameIdx, phoneIdx, selfieIdx, passportIdx
       });
 
       if (selfieIdx < 0 && passportIdx < 0) {
@@ -1777,6 +1778,8 @@ export async function registerRoutes(
 
       const allEmployees = await storage.getEmployees({});
       const g = (cols: string[], idx: number) => (idx >= 0 ? (cols[idx] || "").trim().replace(/^"|"$/g, "") : "");
+      // Strip all non-digit characters for phone comparison
+      const normPhone = (p: string) => p.replace(/\D/g, "").replace(/^61/, "0");
 
       let updated = 0;
       let skipped = 0;
@@ -1788,6 +1791,7 @@ export async function registerRoutes(
         let firstName = g(cols, firstNameIdx);
         let lastName  = g(cols, lastNameIdx);
         const nickname = g(cols, nickIdx);
+        const phone    = g(cols, phoneIdx);
         if (!firstName && nameIdx >= 0 && g(cols, nameIdx)) {
           const parts = g(cols, nameIdx).split(/\s+/);
           firstName = parts[0] || "";
@@ -1798,16 +1802,27 @@ export async function registerRoutes(
         const passportUrl = g(cols, passportIdx);
         if (!selfieUrl && !passportUrl) { skipped++; continue; }
 
-        const nameLower = nickname.toLowerCase();
+        const nameLower  = nickname.toLowerCase();
         const firstLower = firstName.toLowerCase();
         const lastLower  = (lastName || "").toLowerCase();
+        const phoneNorm  = phone ? normPhone(phone) : "";
 
         const existing = allEmployees.find(e => {
+          // 1. Phone match (most reliable)
+          if (phoneNorm && e.phone) {
+            const ePhone = normPhone(e.phone);
+            if (ePhone && ePhone === phoneNorm) return true;
+            // Also try last 9 digits in case of country code differences
+            if (ePhone.length >= 9 && phoneNorm.length >= 9 &&
+                ePhone.slice(-9) === phoneNorm.slice(-9)) return true;
+          }
+          // 2. Nickname match
           if (nameLower && e.nickname?.toLowerCase() === nameLower) return true;
+          // 3. First + Last name match
           if (firstLower) {
             if (e.firstName.toLowerCase() === firstLower &&
                 e.lastName.toLowerCase() === lastLower) return true;
-            // also try matching nickname to first name (some CSVs use nickname as name column)
+            // nickname as first name
             if (e.nickname?.toLowerCase() === firstLower) return true;
           }
           return false;
@@ -1815,8 +1830,8 @@ export async function registerRoutes(
 
         if (!existing) {
           const label = nickname || `${firstName} ${lastName}`;
-          console.log(`[import-photos] row ${i + 1}: no match for "${label}"`);
-          errors.push(`Row ${i + 1}: no match for "${label.trim()}"`);
+          console.log(`[import-photos] row ${i + 1}: no match for "${label}" phone="${phone}"`);
+          errors.push(`Row ${i + 1}: no match for "${label.trim()}"${phone ? ` (phone: ${phone})` : ""}`);
           skipped++;
           continue;
         }
