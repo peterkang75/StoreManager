@@ -395,6 +395,16 @@ export function AdminEmployeeDetail() {
                   <Label>Visa Expiry</Label>
                   <Input value={employee.visaExpiry ?? ""} disabled className="bg-muted" />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="passportNo">Passport No</Label>
+                  <Input
+                    id="passportNo"
+                    value={currentData.passportNo ?? ""}
+                    onChange={(e) => handleFieldChange("passportNo", e.target.value || null)}
+                    placeholder="Passport number"
+                    data-testid="input-passport-no"
+                  />
+                </div>
               </div>
               {/* Address */}
               <div className="pt-1 border-t border-border/40">

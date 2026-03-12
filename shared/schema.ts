@@ -69,6 +69,7 @@ export const employees = pgTable("employees", {
   maritalStatus: text("marital_status"),
   visaType: text("visa_type"),
   visaExpiry: text("visa_expiry"),
+  passportNo: text("passport_no"),
   lineId: text("line_id"),
   typeOfContact: text("type_of_contact"),
   rate: text("rate"),
