@@ -301,13 +301,28 @@ export function AdminRosters() {
 
   const upsertMutation = useMutation({
     mutationFn: async (payload: { employeeId: string; date: string; startTime: string; endTime: string }) => {
-      const res = await apiRequest("POST", "/api/rosters", {
-        storeId: selectedStore,
-        employeeId: payload.employeeId,
-        date: payload.date,
-        startTime: payload.startTime,
-        endTime: payload.endTime,
+      const res = await fetch("/api/rosters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          storeId: selectedStore,
+          employeeId: payload.employeeId,
+          date: payload.date,
+          startTime: payload.startTime,
+          endTime: payload.endTime,
+        }),
       });
+      if (!res.ok) {
+        let msg = "Failed to save roster";
+        try {
+          const body = await res.json();
+          msg = body.error ?? body.message ?? msg;
+        } catch {
+          msg = await res.text().catch(() => msg);
+        }
+        throw new Error(msg);
+      }
       return res.json();
     },
     onSuccess: () => invalidateRosters(),
