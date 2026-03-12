@@ -112,6 +112,12 @@ function isOutsideHours(start: string, end: string, open: string, close: string)
   return toMins(start) < toMins(open) || toMins(end) > toMins(close);
 }
 
+// ─── Store brand colours ──────────────────────────────────────────────────────
+const STORE_COLORS: Record<string, string> = {
+  Sushi:    "#16a34a",  // green-600
+  Sandwich: "#dc2626",  // red-600
+};
+
 // ─── Cell editor popover ─────────────────────────────────────────────────────
 interface CellEditorProps {
   roster: Roster | undefined;
@@ -121,9 +127,10 @@ interface CellEditorProps {
   onClear: () => void;
   isPending: boolean;
   mobileMode?: boolean;
+  accentHex?: string;
 }
 
-function CellEditor({ roster, storeOpenTime, storeCloseTime, onSave, onClear, isPending, mobileMode }: CellEditorProps) {
+function CellEditor({ roster, storeOpenTime, storeCloseTime, onSave, onClear, isPending, mobileMode, accentHex }: CellEditorProps) {
   const [open, setOpen] = useState(false);
   const [startTime, setStartTime] = useState(roster?.startTime ?? storeOpenTime);
   const [endTime, setEndTime] = useState(roster?.endTime ?? storeCloseTime);
@@ -158,6 +165,7 @@ function CellEditor({ roster, storeOpenTime, storeCloseTime, onSave, onClear, is
             size="sm"
             variant={roster ? "outline" : "default"}
             className="text-xs h-8 px-3"
+            style={!roster && accentHex ? { backgroundColor: accentHex, borderColor: accentHex, color: "white" } : undefined}
             data-testid="mobile-cell-roster"
           >
             {roster ? "Edit" : (
@@ -546,12 +554,21 @@ export function AdminRosters() {
 
   const activeStores = stores?.filter((s) => s.active && !s.isExternal) ?? [];
 
+  // Only Sushi + Sandwich use the roster feature — Sushi first
+  const rosterStores = [
+    ...activeStores.filter((s) => s.name === "Sushi"),
+    ...activeStores.filter((s) => s.name === "Sandwich"),
+  ];
+
   const selectedStoreObj = activeStores.find((s) => s.id === selectedStore);
 
-  // Auto-select first store
+  // Brand accent colour for the currently selected store
+  const accentHex = STORE_COLORS[selectedStoreObj?.name ?? ""] ?? "";
+
+  // Auto-select Sushi (first roster store)
   const [autoSelected, setAutoSelected] = useState(false);
-  if (!autoSelected && activeStores.length > 0 && !selectedStore) {
-    setSelectedStore(activeStores[0].id);
+  if (!autoSelected && rosterStores.length > 0 && !selectedStore) {
+    setSelectedStore(rosterStores[0].id);
     setAutoSelected(true);
   }
 
@@ -728,12 +745,19 @@ export function AdminRosters() {
                 variant={isPublished ? "outline" : "default"}
                 onClick={() => publishMutation.mutate()}
                 disabled={publishMutation.isPending}
-                className={`w-full md:w-auto ${isPublished ? "border-green-500 text-green-700 dark:text-green-400" : ""}`}
+                className="w-full md:w-auto"
+                style={
+                  isPublished
+                    ? { borderColor: accentHex, color: accentHex }
+                    : accentHex
+                    ? { backgroundColor: accentHex, borderColor: accentHex, color: "white" }
+                    : undefined
+                }
                 data-testid="button-publish-roster"
               >
                 {isPublished ? (
                   <>
-                    <CheckCircle2 className="h-4 w-4 mr-1.5 text-green-600 dark:text-green-400" />
+                    <CheckCircle2 className="h-4 w-4 mr-1.5" />
                     Published — Click to Unpublish
                   </>
                 ) : (
@@ -748,17 +772,29 @@ export function AdminRosters() {
 
           {/* Row 2: Controls – vertical stack on mobile, horizontal on desktop */}
           <div className="flex flex-col md:flex-row md:items-center gap-2">
-            {/* Store selector — full width on mobile */}
-            <Select value={selectedStore} onValueChange={setSelectedStore} data-testid="select-store">
-              <SelectTrigger className="w-full md:w-44" data-testid="trigger-store-select">
-                <SelectValue placeholder="Select store…" />
-              </SelectTrigger>
-              <SelectContent>
-                {activeStores.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* Store selector — two branded buttons */}
+            <div className="flex gap-1.5">
+              {rosterStores.map((s) => {
+                const hex = STORE_COLORS[s.name] ?? "";
+                const isActive = selectedStore === s.id;
+                return (
+                  <Button
+                    key={s.id}
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setSelectedStore(s.id)}
+                    style={
+                      isActive
+                        ? { backgroundColor: hex, borderColor: hex, color: "white" }
+                        : { borderColor: hex, color: hex, backgroundColor: "transparent" }
+                    }
+                    data-testid={`button-store-${s.name.toLowerCase()}`}
+                  >
+                    {s.name}
+                  </Button>
+                );
+              })}
+            </div>
 
             {/* Week navigator — full width on mobile */}
             <div className="flex items-center border rounded-md w-full md:w-auto">
@@ -988,6 +1024,7 @@ export function AdminRosters() {
                                 }
                                 onClear={() => roster && deleteMutation.mutate(roster.id)}
                                 isPending={upsertMutation.isPending || deleteMutation.isPending}
+                                accentHex={accentHex}
                               />
                             </td>
                           );
@@ -1065,6 +1102,7 @@ export function AdminRosters() {
                         onClear={() => roster && deleteMutation.mutate(roster.id)}
                         isPending={upsertMutation.isPending || deleteMutation.isPending}
                         mobileMode
+                        accentHex={accentHex}
                       />
                     </div>
                   </div>
