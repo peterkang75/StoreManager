@@ -153,6 +153,7 @@ interface PayrollRow {
   persistentMemo: string;
   lastEditedField: "gross" | "cash" | null;
   taxOverridden: boolean;
+  isCover: boolean;
 }
 
 interface ApprovedShift {
@@ -299,6 +300,7 @@ export function AdminPayrolls() {
     const newRows: PayrollRow[] = currentData.map(({ employee, payroll }) => {
       const empRate = parseFloat(employee.rate || "0");
       const empFixed = parseFloat(employee.fixedAmount || "0");
+      const empIsCover = !!(employee as any).isCover;
       if (payroll) {
         return {
           employeeId: employee.id,
@@ -319,6 +321,7 @@ export function AdminPayrolls() {
           persistentMemo: employee.persistentMemo || "",
           lastEditedField: null,
           taxOverridden: false,
+          isCover: empIsCover,
         };
       }
       const base: PayrollRow = {
@@ -340,6 +343,7 @@ export function AdminPayrolls() {
         persistentMemo: employee.persistentMemo || "",
         lastEditedField: null,
         taxOverridden: false,
+        isCover: empIsCover,
       };
       return recalcRow(base);
     });
@@ -721,6 +725,11 @@ export function AdminPayrolls() {
                                   <span className="text-sm font-medium truncate" data-testid={`text-employee-name-${row.employeeId}`}>
                                     {row.employeeName}
                                   </span>
+                                  {row.isCover && (
+                                    <span className="text-[10px] italic text-muted-foreground flex-shrink-0" data-testid={`badge-cover-${row.employeeId}`}>
+                                      (Cover)
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                                   {hasData && (

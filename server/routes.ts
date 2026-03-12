@@ -1048,6 +1048,25 @@ export async function registerRoutes(
         });
       }
 
+      // Pull in any employee who has an APPROVED timesheet for this store in the period
+      // even if they are not officially assigned here (cross-store coverage)
+      const approvedTimesheets = await storage.getShiftTimesheets({ storeId: store_id, status: "APPROVED" });
+      const periodTimesheets = approvedTimesheets.filter(
+        (ts) => ts.date >= period_start && ts.date <= period_end
+      );
+      const coverEmployeeIds = new Set<string>();
+      for (const ts of periodTimesheets) {
+        if (!empMap.has(ts.employeeId)) {
+          coverEmployeeIds.add(ts.employeeId);
+        }
+      }
+      for (const coverId of coverEmployeeIds) {
+        const emp = await storage.getEmployee(coverId);
+        if (emp) {
+          empMap.set(coverId, { employee: { ...emp, isCover: true } });
+        }
+      }
+
       const existingPayrolls = await storage.getPayrolls({ periodStart: period_start, periodEnd: period_end });
       const empPayrollMap = new Map<string, any>();
       for (const p of existingPayrolls) {
