@@ -447,20 +447,20 @@ export function AdminRosters() {
     <AdminLayout>
       <div className="flex flex-col h-full">
         {/* ── Header bar ───────────────────────────────────────────────── */}
-        <div className="border-b">
+        <div className="border-b px-4 pt-4 pb-3 flex flex-col gap-3">
           {/* Row 1: Title + Publish button */}
-          <div className="flex items-center gap-3 px-4 pt-4 pb-2">
-            <Calendar className="h-5 w-5 text-muted-foreground shrink-0" />
-            <h1 className="text-lg font-semibold">Roster Builder</h1>
-            <div className="flex-1" />
-            {/* Publish / Unpublish toggle */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <Calendar className="h-5 w-5 text-muted-foreground shrink-0" />
+              <h1 className="text-xl font-bold whitespace-nowrap">Roster Builder</h1>
+            </div>
             {selectedStore && (
               <Button
                 size="sm"
                 variant={isPublished ? "outline" : "default"}
                 onClick={() => publishMutation.mutate()}
                 disabled={publishMutation.isPending}
-                className={isPublished ? "border-green-500 text-green-700 dark:text-green-400" : ""}
+                className={`w-full md:w-auto ${isPublished ? "border-green-500 text-green-700 dark:text-green-400" : ""}`}
                 data-testid="button-publish-roster"
               >
                 {isPublished ? (
@@ -478,11 +478,11 @@ export function AdminRosters() {
             )}
           </div>
 
-          {/* Row 2: Store selector + week navigator + Today + Copy */}
-          <div className="flex items-center gap-2 px-4 pb-3 flex-wrap">
-            {/* Store selector */}
+          {/* Row 2: Controls – vertical stack on mobile, horizontal on desktop */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2">
+            {/* Store selector — full width on mobile */}
             <Select value={selectedStore} onValueChange={setSelectedStore} data-testid="select-store">
-              <SelectTrigger className="w-44" data-testid="trigger-store-select">
+              <SelectTrigger className="w-full md:w-44" data-testid="trigger-store-select">
                 <SelectValue placeholder="Select store…" />
               </SelectTrigger>
               <SelectContent>
@@ -492,8 +492,8 @@ export function AdminRosters() {
               </SelectContent>
             </Select>
 
-            {/* Week navigator */}
-            <div className="flex items-center gap-1 border rounded-md">
+            {/* Week navigator — full width on mobile */}
+            <div className="flex items-center border rounded-md w-full md:w-auto">
               <Button
                 size="icon"
                 variant="ghost"
@@ -506,7 +506,7 @@ export function AdminRosters() {
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <span className="text-sm font-medium px-2 whitespace-nowrap" data-testid="text-week-range">
+              <span className="flex-1 text-center text-sm font-medium whitespace-nowrap" data-testid="text-week-range">
                 {fmtDate(weekStart)} – {fmtDate(weekEnd)}
               </span>
               <Button
@@ -523,30 +523,30 @@ export function AdminRosters() {
               </Button>
             </div>
 
-            {/* Today button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setWeekStart(getMonday(new Date()));
-                setSelectedDay(new Date().toISOString().split("T")[0]);
-              }}
-              data-testid="button-today"
-            >
-              Today
-            </Button>
-
-            {/* Copy previous week */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => copyWeekMutation.mutate()}
-              disabled={!selectedStore || copyWeekMutation.isPending}
-              data-testid="button-copy-week"
-            >
-              <Copy className="h-4 w-4 mr-1.5" />
-              Copy Prev Week
-            </Button>
+            {/* Today + Copy — side-by-side grid on mobile */}
+            <div className="grid grid-cols-2 gap-2 md:flex md:gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setWeekStart(getMonday(new Date()));
+                  setSelectedDay(new Date().toISOString().split("T")[0]);
+                }}
+                data-testid="button-today"
+              >
+                Today
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => copyWeekMutation.mutate()}
+                disabled={!selectedStore || copyWeekMutation.isPending}
+                data-testid="button-copy-week"
+              >
+                <Copy className="h-4 w-4 mr-1.5" />
+                Copy Prev Week
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -564,7 +564,7 @@ export function AdminRosters() {
         {/* ── Mobile: Day selector ribbon ─────────────────────────────── */}
         {selectedStore && (
           <div className="md:hidden border-b bg-background">
-            <div className="flex w-full px-1 py-2 gap-0.5">
+            <div className="flex w-full px-2 py-1.5 gap-1">
               {weekDates.map((d, i) => {
                 const dayNum = new Date(d).getDate();
                 const isActive = d === selectedDay;
@@ -575,18 +575,21 @@ export function AdminRosters() {
                     key={d}
                     type="button"
                     onClick={() => setSelectedDay(d)}
-                    className={`flex-1 flex flex-col items-center py-1.5 rounded-md text-xs transition-colors
+                    className={`flex-1 flex flex-col items-center pt-1.5 pb-1 rounded-md text-xs transition-colors relative
                       ${isActive
-                        ? "bg-primary text-primary-foreground font-semibold"
+                        ? "bg-primary/10 text-primary"
                         : "text-muted-foreground hover:bg-muted"
                       }`}
                     data-testid={`button-day-tab-${i}`}
                   >
-                    <span className={`font-medium text-[11px] ${isToday && !isActive ? "text-primary" : ""}`}>{DAY_NAMES[i]}</span>
-                    <span className={`text-base font-bold leading-tight ${isToday && !isActive ? "text-primary" : ""}`}>{dayNum}</span>
-                    {hasSomeShift && (
-                      <span className={`mt-0.5 h-1 w-1 rounded-full ${isActive ? "bg-primary-foreground" : "bg-primary"}`} />
-                    )}
+                    <span className={`text-[10px] font-medium uppercase tracking-wide ${isActive ? "text-primary" : isToday ? "text-primary" : ""}`}>
+                      {DAY_NAMES[i]}
+                    </span>
+                    <span className={`text-sm font-bold leading-tight mt-0.5 ${isActive ? "text-primary" : isToday ? "text-primary" : ""}`}>
+                      {dayNum}
+                    </span>
+                    {/* Active underline pill */}
+                    <span className={`mt-1 h-0.5 rounded-full transition-all ${isActive ? "w-4 bg-primary" : hasSomeShift ? "w-1 bg-muted-foreground/40" : "w-0"}`} />
                   </button>
                 );
               })}
@@ -754,42 +757,44 @@ export function AdminRosters() {
 
         {/* ── Summary footer ────────────────────────────────────────────── */}
         {selectedStore && !isLoading && activeEmployees.length > 0 && (
-          <div className="sticky bottom-0 border-t bg-muted/60 backdrop-blur px-4 py-2.5 z-20">
+          <div className="sticky bottom-0 z-20 border-t bg-background shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] px-4 py-2.5">
             {/* Mobile: stacked layout */}
-            <div className="flex flex-col gap-1.5 md:hidden">
+            <div className="flex flex-col gap-2 md:hidden">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">Week Summary</span>
-                <div className="flex items-center gap-3 text-sm">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Week Summary</span>
+                <div className="flex items-center gap-3">
                   <div className="flex items-center gap-1">
                     <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span className="font-medium" data-testid="text-total-hours-mobile">
+                    <span className="text-sm font-semibold" data-testid="text-total-hours-mobile">
                       {totalStoreHours.toFixed(1)} hrs
                     </span>
                   </div>
                   <div className="flex items-center gap-1">
                     <span className="text-xs text-muted-foreground">Cost:</span>
-                    <span className="font-semibold text-primary text-sm" data-testid="text-total-cost-mobile">
+                    <span className="text-sm font-bold text-primary" data-testid="text-total-cost-mobile">
                       ${totalStoreCost.toFixed(2)}
                     </span>
                   </div>
                 </div>
               </div>
-              <div className="flex gap-1.5 flex-wrap">
-                {activeEmployees.map(({ employee: emp }) => {
-                  const hrs = empHours(emp.id);
-                  if (hrs === 0) return null;
-                  return (
-                    <Badge key={emp.id} variant="secondary" className="text-[10px]">
-                      {emp.nickname || emp.firstName}: {hrs.toFixed(1)}h
-                    </Badge>
-                  );
-                })}
-              </div>
+              {activeEmployees.some(({ employee: emp }) => empHours(emp.id) > 0) && (
+                <div className="flex gap-1.5 flex-wrap">
+                  {activeEmployees.map(({ employee: emp }) => {
+                    const hrs = empHours(emp.id);
+                    if (hrs === 0) return null;
+                    return (
+                      <Badge key={emp.id} variant="secondary" className="text-[10px]">
+                        {emp.nickname || emp.firstName}: {hrs.toFixed(1)}h
+                      </Badge>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Desktop: horizontal layout */}
             <div className="hidden md:flex items-center gap-6 text-sm">
-              <span className="text-muted-foreground">Week Summary</span>
+              <span className="text-muted-foreground font-medium">Week Summary</span>
               <div className="flex items-center gap-1.5">
                 <Clock className="h-4 w-4 text-muted-foreground" />
                 <span className="font-medium" data-testid="text-total-hours">
