@@ -1,0 +1,27 @@
+The Admin Roster Builder is complete and polished! Now we move to Phase 4, Step 3: The Employee Mobile Portal and "1-Click Exception Timesheet".
+
+### 1. New Route & Auth (Employee Portal)
+- Create a new mobile-first route: `/employee-portal`.
+- **PIN Login Screen:** - A clean mobile screen.
+  - Dropdown or list to select the `Store`, then select their `Employee Name` (fetch from active employees).
+  - A numeric keypad or input for their `4-digit PIN`.
+  - Upon successful PIN match, set a basic session/local state for the employee.
+
+### 2. Employee Dashboard (Today's Shift)
+- Once logged in, show the employee's dashboard focused on "Today".
+- **Fetch Logic:** Fetch the `rosters` record for this employee for today's date, BUT ONLY IF the `publishedSchedules` (or equivalent publish status) for that store/week is `true`.
+- If no shift or not published: Display "You have no scheduled shifts for today."
+- If a shift exists, display a clear card: "Scheduled Today: [startTime] to [endTime]".
+
+### 3. The "1-Click Timesheet" UI
+- Check the `timesheets` table. If a timesheet for today already exists, show "✅ Timesheet Submitted (Pending Approval)" and hide the buttons.
+- If NO timesheet exists yet, show two primary actions:
+  - **Button A: "Confirm Scheduled Hours" (Primary/Green).** Clicking this automatically creates a `timesheets` record using the roster's exact `startTime` and `endTime`, sets `status: 'PENDING'`, and leaves `adjustmentReason` empty.
+  - **Button B: "Modify Hours" (Secondary).** Clicking this opens a modal/drawer.
+    - Inside modal: Time pickers to adjust `actualStartTime` and `actualEndTime` (15-min increments), and a required text input for `adjustmentReason`.
+    - Submit creates the `timesheets` record with `status: 'PENDING'`.
+
+### 4. Database Reminder
+- Ensure the `timesheets` table has: `id`, `storeId`, `employeeId`, `date`, `actualStartTime`, `actualEndTime`, `status` ('PENDING', 'APPROVED', 'REJECTED'), and `adjustmentReason`.
+
+Please implement this clean, mobile-optimized Employee Portal.

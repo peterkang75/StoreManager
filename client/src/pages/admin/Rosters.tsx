@@ -28,6 +28,8 @@ import {
   Plus,
   Rocket,
   CheckCircle2,
+  LayoutGrid,
+  BarChart2,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Store, Employee, Roster } from "@shared/schema";
@@ -259,6 +261,225 @@ function addHalfDay(open: string, close: string): string {
   return `${h}:${m}`;
 }
 
+// ─── Timeline color palette (inline styles to avoid Tailwind purge) ─────────
+const TIMELINE_COLORS = [
+  "#3b82f6", "#8b5cf6", "#10b981", "#f59e0b",
+  "#ef4444", "#06b6d4", "#d946ef", "#f97316",
+  "#84cc16", "#ec4899",
+];
+
+// ─── Daily Timeline (Gantt) component ────────────────────────────────────────
+interface DailyTimelineProps {
+  employees: { employee: Employee; assignment: { storeId: string; rate?: string | null } }[];
+  rosterMap: Map<string, Roster>;
+  weekDates: string[];
+  selectedDay: string;
+  onDayChange: (d: string) => void;
+  openTime: string;
+  closeTime: string;
+}
+
+function DailyTimeline({ employees, rosterMap, weekDates, selectedDay, onDayChange, openTime, closeTime }: DailyTimelineProps) {
+  const openMins = toMins(openTime);
+  const closeMins = toMins(closeTime);
+  const totalMins = Math.max(closeMins - openMins, 1);
+
+  // Hour tick marks
+  const hourTicks: { mins: number; label: string }[] = [];
+  for (let m = openMins; m <= closeMins; m += 60) {
+    const h = Math.floor(m / 60).toString().padStart(2, "0");
+    hourTicks.push({ mins: m, label: `${h}:00` });
+  }
+
+  // Half-hour tick marks (lighter)
+  const halfTicks: number[] = [];
+  for (let m = openMins + 30; m < closeMins; m += 60) {
+    halfTicks.push(m);
+  }
+
+  const leftPct = (t: string) =>
+    Math.max(0, ((toMins(t) - openMins) / totalMins) * 100);
+  const widthPct = (s: string, e: string) =>
+    Math.max(0.5, ((Math.min(toMins(e), closeMins) - Math.max(toMins(s), openMins)) / totalMins) * 100);
+
+  const LABEL_W = 136;
+
+  // Total hours scheduled for the selected day (coverage stat)
+  const totalDayHours = employees.reduce((sum, { employee: emp }) => {
+    const r = rosterMap.get(`${emp.id}|${selectedDay}`);
+    return r ? sum + calcHours(r.startTime, r.endTime) : sum;
+  }, 0);
+
+  const staffedCount = employees.filter(({ employee: emp }) => rosterMap.get(`${emp.id}|${selectedDay}`)).length;
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0">
+      {/* Day selector tabs */}
+      <div className="px-4 py-2 border-b">
+        <div className="flex gap-0.5 bg-muted/40 rounded-lg p-0.5">
+          {weekDates.map((d, i) => {
+            const isActive = d === selectedDay;
+            const dayNum = new Date(d).getDate();
+            const hasShift = employees.some(({ employee: emp }) => rosterMap.get(`${emp.id}|${d}`));
+            return (
+              <button
+                key={d}
+                type="button"
+                onClick={() => onDayChange(d)}
+                className={`flex-1 flex flex-col items-center py-1.5 rounded-md text-xs transition-colors relative min-w-0
+                  ${isActive ? "bg-background shadow-sm text-foreground font-semibold" : "text-muted-foreground hover:text-foreground"}`}
+                data-testid={`timeline-day-tab-${i}`}
+              >
+                <span className="text-[10px] font-medium">{DAY_NAMES[i]}</span>
+                <span className="text-sm font-bold">{dayNum}</span>
+                {hasShift && (
+                  <span className={`mt-0.5 h-1 w-1 rounded-full ${isActive ? "bg-primary" : "bg-muted-foreground/50"}`} />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Coverage stats */}
+      <div className="px-4 py-2 border-b bg-muted/20 flex items-center gap-4 text-xs text-muted-foreground">
+        <div className="flex items-center gap-1.5">
+          <span className="font-medium text-foreground">{staffedCount}</span> of {employees.length} staff scheduled
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Clock className="h-3 w-3" />
+          <span className="font-medium text-foreground">{totalDayHours.toFixed(1)}</span> total hrs
+        </div>
+      </div>
+
+      {/* Gantt chart — scrollable */}
+      <div className="flex-1 overflow-auto p-4">
+        <div style={{ minWidth: "640px" }}>
+          {/* Time axis header */}
+          <div className="flex items-end pb-1.5 mb-1 border-b border-muted/60">
+            {/* Sticky header corner */}
+            <div
+              className="shrink-0 sticky left-0 z-20 bg-background"
+              style={{ width: `${LABEL_W}px` }}
+            />
+            <div className="relative flex-1 h-5">
+              {hourTicks.map(({ mins, label }) => (
+                <span
+                  key={mins}
+                  className="absolute text-[10px] text-muted-foreground -translate-x-1/2 select-none"
+                  style={{ left: `${((mins - openMins) / totalMins) * 100}%` }}
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Employee rows */}
+          {employees.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-8 text-center">No active employees assigned to this store.</p>
+          ) : (
+            employees.map(({ employee: emp }, empIdx) => {
+              const roster = rosterMap.get(`${emp.id}|${selectedDay}`);
+              const barColor = TIMELINE_COLORS[empIdx % TIMELINE_COLORS.length];
+              return (
+                <div key={emp.id} className="flex items-center border-b border-muted/30 last:border-0" style={{ height: "44px" }} data-testid={`timeline-row-${emp.id}`}>
+                  {/* Employee name — sticky left */}
+                  <div
+                    className="shrink-0 sticky left-0 z-10 flex flex-col justify-center pr-3 bg-background"
+                    style={{ width: `${LABEL_W}px` }}
+                  >
+                    <p className="text-sm font-medium truncate leading-tight">
+                      {emp.nickname || emp.firstName}
+                    </p>
+                    {roster && (
+                      <p className="text-[10px] text-muted-foreground leading-tight">
+                        {calcHours(roster.startTime, roster.endTime).toFixed(1)}h
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Bar area */}
+                  <div className="relative flex-1 h-full">
+                    {/* Grid lines — hours */}
+                    {hourTicks.map(({ mins }) => (
+                      <div
+                        key={mins}
+                        className="absolute top-0 bottom-0 border-l border-muted/40"
+                        style={{ left: `${((mins - openMins) / totalMins) * 100}%` }}
+                      />
+                    ))}
+                    {/* Grid lines — half-hours */}
+                    {halfTicks.map((mins) => (
+                      <div
+                        key={mins}
+                        className="absolute top-0 bottom-0 border-l border-muted/20 border-dashed"
+                        style={{ left: `${((mins - openMins) / totalMins) * 100}%` }}
+                      />
+                    ))}
+
+                    {/* Shift bar */}
+                    {roster && (() => {
+                      const lp = leftPct(roster.startTime);
+                      const wp = widthPct(roster.startTime, roster.endTime);
+                      const shiftHours = calcHours(roster.startTime, roster.endTime);
+                      return (
+                        <div
+                          className="absolute top-1/2 -translate-y-1/2 rounded-md flex items-center px-2 shadow-sm overflow-hidden group"
+                          style={{
+                            left: `${lp}%`,
+                            width: `${wp}%`,
+                            height: "28px",
+                            backgroundColor: barColor,
+                            minWidth: "4px",
+                          }}
+                          title={`${emp.nickname || emp.firstName}: ${roster.startTime}–${roster.endTime} (${shiftHours.toFixed(1)}h)`}
+                        >
+                          {wp > 8 && (
+                            <span className="text-[10px] font-semibold text-white truncate whitespace-nowrap select-none">
+                              {roster.startTime}–{roster.endTime}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* No shift placeholder */}
+                    {!roster && (
+                      <div className="absolute inset-y-0 flex items-center pl-1">
+                        <span className="text-[10px] text-muted-foreground/50 select-none">—</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+
+          {/* Bottom time axis */}
+          <div className="flex items-start pt-1.5 mt-0.5 border-t border-muted/60">
+            <div
+              className="shrink-0 sticky left-0 z-20 bg-background"
+              style={{ width: `${LABEL_W}px` }}
+            />
+            <div className="relative flex-1 h-4">
+              {hourTicks.map(({ mins, label }) => (
+                <span
+                  key={mins}
+                  className="absolute text-[10px] text-muted-foreground/60 -translate-x-1/2 select-none"
+                  style={{ left: `${((mins - openMins) / totalMins) * 100}%` }}
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export function AdminRosters() {
   const { toast } = useToast();
@@ -268,6 +489,15 @@ export function AdminRosters() {
   const weekDates = getWeekDates(weekStart);
   const todayStr = new Date().toISOString().split("T")[0];
   const [selectedDay, setSelectedDay] = useState<string>(() => {
+    const today = new Date().toISOString().split("T")[0];
+    const monday = getMonday(new Date());
+    const weekDs = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+    return weekDs.includes(today) ? today : monday;
+  });
+
+  // ── View mode: "grid" | "timeline" ────────────────────────────────────────
+  const [viewMode, setViewMode] = useState<"grid" | "timeline">("grid");
+  const [timelineDay, setTimelineDay] = useState<string>(() => {
     const today = new Date().toISOString().split("T")[0];
     const monday = getMonday(new Date());
     const weekDs = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
@@ -550,19 +780,52 @@ export function AdminRosters() {
           </div>
         </div>
 
-        {/* ── Store hours info ───────────────────────────────────────── */}
+        {/* ── Store hours info + View toggle ─────────────────────────── */}
         {selectedStoreObj && (
-          <div className="px-4 py-2 border-b bg-muted/30 flex items-center gap-2 text-xs text-muted-foreground">
-            <Clock className="h-3.5 w-3.5" />
-            <span>
-              Store hours: <span className="font-medium text-foreground">{selectedStoreObj.openTime}</span> –{" "}
-              <span className="font-medium text-foreground">{selectedStoreObj.closeTime}</span>
-            </span>
+          <div className="px-4 py-2 border-b bg-muted/30 flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Clock className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                Store hours: <span className="font-medium text-foreground">{selectedStoreObj.openTime}</span> –{" "}
+                <span className="font-medium text-foreground">{selectedStoreObj.closeTime}</span>
+              </span>
+            </div>
+            <div className="flex-1" />
+            {/* View mode toggle */}
+            <div className="flex items-center border rounded-md overflow-hidden text-xs">
+              <button
+                type="button"
+                onClick={() => setViewMode("grid")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 transition-colors ${
+                  viewMode === "grid"
+                    ? "bg-background text-foreground font-medium shadow-sm"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                }`}
+                data-testid="button-view-grid"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+                Grid View
+              </button>
+              <div className="w-px h-5 bg-border" />
+              <button
+                type="button"
+                onClick={() => setViewMode("timeline")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 transition-colors ${
+                  viewMode === "timeline"
+                    ? "bg-background text-foreground font-medium shadow-sm"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                }`}
+                data-testid="button-view-timeline"
+              >
+                <BarChart2 className="h-3.5 w-3.5" />
+                Timeline View
+              </button>
+            </div>
           </div>
         )}
 
-        {/* ── Mobile: Day selector ribbon ─────────────────────────────── */}
-        {selectedStore && (
+        {/* ── Mobile: Day selector ribbon (hidden in timeline mode) ──── */}
+        {selectedStore && viewMode === "grid" && (
           <div className="md:hidden border-b bg-background">
             <div className="flex w-full px-2 py-1.5 gap-1">
               {weekDates.map((d, i) => {
@@ -597,8 +860,26 @@ export function AdminRosters() {
           </div>
         )}
 
+        {/* ── Timeline View (both mobile + desktop) ─────────────────── */}
+        {viewMode === "timeline" && selectedStoreObj && (
+          <DailyTimeline
+            employees={activeEmployees}
+            rosterMap={rosterMap}
+            weekDates={weekDates}
+            selectedDay={timelineDay}
+            onDayChange={setTimelineDay}
+            openTime={selectedStoreObj.openTime ?? "06:00"}
+            closeTime={selectedStoreObj.closeTime ?? "22:00"}
+          />
+        )}
+        {viewMode === "timeline" && !selectedStoreObj && (
+          <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+            Select a store to view the timeline.
+          </div>
+        )}
+
         {/* ── Desktop: 7-day grid ──────────────────────────────────────── */}
-        <div className="hidden md:flex flex-1 overflow-auto p-4">
+        {viewMode === "grid" && <div className="hidden md:flex flex-1 overflow-auto p-4">
           {!selectedStore ? (
             <div className="flex items-center justify-center h-40 w-full text-muted-foreground">
               Select a store to view the roster.
@@ -686,10 +967,10 @@ export function AdminRosters() {
               </table>
             </div>
           )}
-        </div>
+        </div>}
 
         {/* ── Mobile: Daily card view ──────────────────────────────────── */}
-        <div className="md:hidden flex-1 overflow-auto">
+        {viewMode === "grid" && <div className="md:hidden flex-1 overflow-auto">
           {!selectedStore ? (
             <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">
               Select a store to view the roster.
@@ -753,7 +1034,7 @@ export function AdminRosters() {
               })}
             </div>
           )}
-        </div>
+        </div>}
 
         {/* ── Summary footer ────────────────────────────────────────────── */}
         {selectedStore && !isLoading && activeEmployees.length > 0 && (
