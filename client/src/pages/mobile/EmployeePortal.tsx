@@ -746,7 +746,7 @@ const NAV_ITEMS: { tab: Tab; label: string; Icon: typeof Home }[] = [
 
 function BottomNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
   return (
-    <nav className="sticky bottom-0 z-50 w-full border-t bg-background/95 backdrop-blur-sm">
+    <nav className="shrink-0 z-50 w-full border-t bg-background/95 backdrop-blur-sm">
       <div className="flex items-stretch h-16">
         {NAV_ITEMS.map(({ tab, label, Icon }) => {
           const isActive = active === tab;
@@ -779,15 +779,15 @@ function AppShell({ session, onLogout }: { session: Session; onLogout: () => voi
   const [activeTab, setActiveTab] = useState<Tab>("home");
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Scrollable content area */}
+    <div className="flex-1 flex flex-col min-h-0">
+      {/* Scrollable content area — fills available space between header and bottom nav */}
       <div className="flex-1 overflow-y-auto">
         {activeTab === "home"     && <HomeTab session={session} />}
         {activeTab === "schedule" && <ScheduleTab session={session} />}
         {activeTab === "settings" && <SettingsTab session={session} onLogout={onLogout} />}
       </div>
 
-      {/* Bottom nav */}
+      {/* Bottom nav — always pinned to bottom because parent height is exact viewport */}
       <BottomNav active={activeTab} onChange={setActiveTab} />
     </div>
   );
@@ -803,21 +803,21 @@ export function EmployeePortal() {
   const handleLogin  = (s: Session) => { saveSession(s); setSession(s); };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center">
-      {/* Mobile-optimised shell: constrained width, full height */}
-      <div className="w-full max-w-md flex flex-col min-h-screen border-x border-border/30">
-        {/* Top bar — always visible */}
-        <header className="sticky top-0 z-50 bg-background/95 backdrop-blur-sm border-b">
+    <div className="h-screen overflow-hidden bg-background flex flex-col items-center">
+      {/* Mobile-optimised shell: constrained width, exact viewport height */}
+      <div className="w-full max-w-md h-full flex flex-col border-x border-border/30">
+        {/* Top bar — always visible, never scrolls */}
+        <header className="shrink-0 z-50 bg-background/95 backdrop-blur-sm border-b">
           <div className="flex items-center gap-2 px-4 h-12">
             <div className="h-2.5 w-2.5 rounded-full bg-primary" />
             <span className="font-semibold text-sm tracking-wide">Staff Portal</span>
           </div>
         </header>
 
-        {/* Main content */}
+        {/* Main content fills remaining height */}
         {session
           ? <AppShell session={session} onLogout={handleLogout} />
-          : <div className="flex-1 flex flex-col">
+          : <div className="flex-1 flex flex-col overflow-y-auto">
               <PinLogin onSuccess={handleLogin} />
             </div>
         }
