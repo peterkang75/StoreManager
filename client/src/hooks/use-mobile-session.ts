@@ -5,6 +5,7 @@ export interface MobileSession {
   name: string;
   role: string;
   storeId: string | null;
+  storeIds: string[];
 }
 
 const SESSION_KEY = "mobile_session";

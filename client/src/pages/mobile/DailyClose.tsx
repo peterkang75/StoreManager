@@ -141,7 +141,7 @@ export function MobileDailyClose() {
   const { session, clearSession } = useMobileSession();
   const [pinDone, setPinDone] = useState(!!session);
 
-  const [storeId, setStoreId] = useState<string>(() => session?.storeId ?? "");
+  const [storeId, setStoreId] = useState<string>("");
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [submitted, setSubmitted] = useState(false);
 
@@ -160,8 +160,16 @@ export function MobileDailyClose() {
 
   const [notes, setNotes] = useState<NoteCounts>(emptyNotes);
 
+  // Auto-select store when session loads or stores data arrives
   useEffect(() => {
-    if (session?.storeId) setStoreId(session.storeId);
+    if (!session) return;
+    const assignedIds = session.storeIds ?? [];
+    if (assignedIds.length === 1) {
+      setStoreId(assignedIds[0]);
+    } else if (assignedIds.length === 0 && session.storeId) {
+      setStoreId(session.storeId);
+    }
+    // length > 1: leave blank so user must choose
   }, [session]);
 
   const { data: stores, isLoading: storesLoading } = useQuery<Store[]>({
@@ -299,7 +307,10 @@ export function MobileDailyClose() {
     );
   }
 
-  const sessionStore = session?.storeId ? stores?.find(s => s.id === session.storeId) : null;
+  const assignedIds = session?.storeIds ?? [];
+  const assignedStores = stores?.filter(s => assignedIds.includes(s.id)) ?? [];
+  const lockedStore = storeId && stores ? stores.find(s => s.id === storeId) : null;
+  const isStoreLocked = assignedIds.length === 1;
 
   return (
     <MobileLayout title="Daily Close">
@@ -321,9 +332,9 @@ export function MobileDailyClose() {
           <CardContent className="p-4 space-y-4">
             <div className="space-y-2">
               <Label>Store</Label>
-              {sessionStore ? (
+              {isStoreLocked ? (
                 <div className="h-12 flex items-center px-3 rounded-md border bg-muted text-base font-medium" data-testid="text-store-locked">
-                  {sessionStore.name}
+                  {lockedStore?.name ?? "—"}
                 </div>
               ) : (
                 <Select value={storeId} onValueChange={setStoreId}>
@@ -331,7 +342,7 @@ export function MobileDailyClose() {
                     <SelectValue placeholder="Select store" />
                   </SelectTrigger>
                   <SelectContent>
-                    {stores?.filter(s => s.active && !s.isExternal).map(store => (
+                    {(assignedStores.length > 0 ? assignedStores : stores?.filter(s => s.active && !s.isExternal) ?? []).map(store => (
                       <SelectItem key={store.id} value={store.id}>
                         {store.name}
                       </SelectItem>

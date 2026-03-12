@@ -384,11 +384,14 @@ export async function registerRoutes(
       if (!match) {
         return res.status(401).json({ error: "PIN not recognised" });
       }
+      const assignments = await storage.getEmployeeStoreAssignments({ employeeId: match.id });
+      const storeIds = assignments.map((a: any) => a.storeId);
       res.json({
         id: match.id,
         name: match.nickname || `${match.firstName} ${match.lastName}`,
         role: match.role ?? "EMPLOYEE",
         storeId: match.storeId ?? null,
+        storeIds,
       });
     } catch (error) {
       console.error("Error in mobile auth:", error);
