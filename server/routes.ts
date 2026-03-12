@@ -1734,6 +1734,88 @@ export async function registerRoutes(
     }
   });
 
+  // Photo-only import: only updates selfieUrl / passportUrl for existing employees
+  app.post("/api/employees/import-photos", csvUpload.single("file"), async (req: Request, res: Response) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+      const raw = req.file.buffer.toString("utf-8").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      const lines = raw.split("\n").filter(l => l.trim());
+      if (lines.length < 2) return res.status(400).json({ error: "File has no data rows" });
+
+      const firstLine = lines[0];
+      const delimiter = firstLine.includes("\t") ? "\t" : ",";
+      const headers = firstLine.split(delimiter).map(h => h.trim().toLowerCase().replace(/^"|"$/g, ""));
+
+      const ci = (names: string[]) => {
+        for (const n of names) {
+          const idx = headers.indexOf(n);
+          if (idx >= 0) return idx;
+        }
+        return -1;
+      };
+
+      const nickIdx      = ci(["nickname", "nick", "preferred name"]);
+      const firstNameIdx = ci(["first name", "firstname", "given name"]);
+      const lastNameIdx  = ci(["last name", "lastname", "surname", "family name"]);
+      const nameIdx      = ci(["name", "full name", "fullname"]);
+      const selfieIdx    = ci(["selfie url", "selfieurl", "selfie", "profile photo", "profile image", "photo url", "photourl"]);
+      const passportIdx  = ci(["passport url", "passporturl", "passport photo", "passport image", "passport"]);
+
+      if (selfieIdx < 0 && passportIdx < 0) {
+        return res.status(400).json({ error: "No selfie or passport URL columns found in file" });
+      }
+
+      const allEmployees = await storage.getEmployees({});
+      const g = (cols: string[], idx: number) => (idx >= 0 ? (cols[idx] || "").trim().replace(/^"|"$/g, "") : "");
+
+      let updated = 0;
+      let skipped = 0;
+      const errors: string[] = [];
+
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(delimiter);
+        let firstName = g(cols, firstNameIdx);
+        let lastName  = g(cols, lastNameIdx);
+        const nickname = g(cols, nickIdx);
+        if (!firstName && nameIdx >= 0 && g(cols, nameIdx)) {
+          const parts = g(cols, nameIdx).split(/\s+/);
+          firstName = parts[0] || "";
+          lastName  = parts.slice(1).join(" ") || "";
+        }
+
+        const selfieUrl   = g(cols, selfieIdx);
+        const passportUrl = g(cols, passportIdx);
+        if (!selfieUrl && !passportUrl) { skipped++; continue; }
+
+        const existing = allEmployees.find(e => {
+          if (nickname && e.nickname?.toLowerCase() === nickname.toLowerCase()) return true;
+          if (firstName) {
+            return e.firstName.toLowerCase() === firstName.toLowerCase() &&
+                   e.lastName.toLowerCase() === (lastName || "").toLowerCase();
+          }
+          return false;
+        });
+
+        if (!existing) {
+          errors.push(`Row ${i + 1}: no match for "${nickname || firstName} ${lastName}"`);
+          skipped++;
+          continue;
+        }
+
+        const patch: Record<string, string> = {};
+        if (selfieUrl)   patch.selfieUrl   = selfieUrl;
+        if (passportUrl) patch.passportUrl = passportUrl;
+        await storage.updateEmployee(existing.id, patch);
+        updated++;
+      }
+
+      res.json({ updated, skipped, errors });
+    } catch (error) {
+      console.error("Error importing employee photos:", error);
+      res.status(500).json({ error: "Failed to import photos" });
+    }
+  });
+
   app.get("/api/daily-closings", async (req: Request, res: Response) => {
     try {
       const filters: { storeId?: string; startDate?: string; endDate?: string } = {};

@@ -34,7 +34,9 @@ export function AdminEmployees() {
   const [storeFilter, setStoreFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [importing, setImporting] = useState(false);
+  const [importingPhotos, setImportingPhotos] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
+  const importPhotosRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   const handleImportCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -58,6 +60,29 @@ export function AdminEmployees() {
     } finally {
       setImporting(false);
       if (importRef.current) importRef.current.value = "";
+    }
+  };
+
+  const handleImportPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingPhotos(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/employees/import-photos", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Photo import failed");
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      toast({
+        title: "Photos imported",
+        description: `${data.updated} employees updated${data.errors?.length ? `, ${data.errors.length} unmatched` : ""}`,
+      });
+    } catch (err: any) {
+      toast({ title: "Photo import failed", description: err.message, variant: "destructive" });
+    } finally {
+      setImportingPhotos(false);
+      if (importPhotosRef.current) importPhotosRef.current.value = "";
     }
   };
 
@@ -154,6 +179,24 @@ export function AdminEmployees() {
               onChange={handleImportCsv}
               data-testid="input-import-csv"
             />
+            <input
+              ref={importPhotosRef}
+              type="file"
+              accept=".csv,.tsv,.txt"
+              className="hidden"
+              onChange={handleImportPhotos}
+              data-testid="input-import-photos"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid="button-import-photos"
+              onClick={() => importPhotosRef.current?.click()}
+              disabled={importingPhotos}
+            >
+              {importingPhotos ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Upload className="h-4 w-4 mr-1.5" />}
+              {importingPhotos ? "Importing..." : "Import Photos"}
+            </Button>
             <Button
               variant="outline"
               size="sm"
