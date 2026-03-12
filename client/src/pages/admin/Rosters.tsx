@@ -25,6 +25,7 @@ import {
   AlertTriangle,
   Trash2,
   Calendar,
+  Plus,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Store, Employee, Roster } from "@shared/schema";
@@ -115,9 +116,10 @@ interface CellEditorProps {
   onSave: (start: string, end: string) => void;
   onClear: () => void;
   isPending: boolean;
+  mobileMode?: boolean;
 }
 
-function CellEditor({ roster, storeOpenTime, storeCloseTime, onSave, onClear, isPending }: CellEditorProps) {
+function CellEditor({ roster, storeOpenTime, storeCloseTime, onSave, onClear, isPending, mobileMode }: CellEditorProps) {
   const [open, setOpen] = useState(false);
   const [startTime, setStartTime] = useState(roster?.startTime ?? storeOpenTime);
   const [endTime, setEndTime] = useState(roster?.endTime ?? storeCloseTime);
@@ -147,25 +149,38 @@ function CellEditor({ roster, storeOpenTime, storeCloseTime, onSave, onClear, is
   return (
     <Popover open={open} onOpenChange={handleOpen}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={`w-full min-h-[40px] text-xs rounded-md px-1.5 py-1 text-left transition-colors
-            ${roster
-              ? "bg-primary/10 hover:bg-primary/20 text-primary font-medium"
-              : "hover:bg-muted text-muted-foreground/50 hover:text-muted-foreground"
-            }`}
-          data-testid="cell-roster"
-        >
-          {roster ? (
-            <span className="flex flex-col gap-0.5">
-              <span>{roster.startTime}</span>
-              <span className="text-muted-foreground font-normal">→ {roster.endTime}</span>
-              <span className="text-[10px] text-muted-foreground">{calcHours(roster.startTime, roster.endTime).toFixed(1)}h</span>
-            </span>
-          ) : (
-            <span className="text-center block">—</span>
-          )}
-        </button>
+        {mobileMode ? (
+          <Button
+            size="sm"
+            variant={roster ? "outline" : "default"}
+            className="text-xs h-8 px-3"
+            data-testid="mobile-cell-roster"
+          >
+            {roster ? "Edit" : (
+              <span className="flex items-center gap-1"><Plus className="h-3.5 w-3.5" /> Add</span>
+            )}
+          </Button>
+        ) : (
+          <button
+            type="button"
+            className={`w-full min-h-[40px] text-xs rounded-md px-1.5 py-1 text-left transition-colors
+              ${roster
+                ? "bg-primary/10 hover:bg-primary/20 text-primary font-medium"
+                : "hover:bg-muted text-muted-foreground/50 hover:text-muted-foreground"
+              }`}
+            data-testid="cell-roster"
+          >
+            {roster ? (
+              <span className="flex flex-col gap-0.5">
+                <span>{roster.startTime}</span>
+                <span className="text-muted-foreground font-normal">→ {roster.endTime}</span>
+                <span className="text-[10px] text-muted-foreground">{calcHours(roster.startTime, roster.endTime).toFixed(1)}h</span>
+              </span>
+            ) : (
+              <span className="text-center block">—</span>
+            )}
+          </button>
+        )}
       </PopoverTrigger>
       <PopoverContent className="w-56 p-3" side="bottom" align="center">
         <div className="space-y-2">
@@ -249,6 +264,13 @@ export function AdminRosters() {
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
   const weekEnd = addDays(weekStart, 6);
   const weekDates = getWeekDates(weekStart);
+  const todayStr = new Date().toISOString().split("T")[0];
+  const [selectedDay, setSelectedDay] = useState<string>(() => {
+    const today = new Date().toISOString().split("T")[0];
+    const monday = getMonday(new Date());
+    const weekDs = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+    return weekDs.includes(today) ? today : monday;
+  });
 
   const { data: stores, isLoading: storesLoading } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
 
@@ -408,7 +430,11 @@ export function AdminRosters() {
             <Button
               size="icon"
               variant="ghost"
-              onClick={() => setWeekStart(addDays(weekStart, -7))}
+              onClick={() => {
+                const newStart = addDays(weekStart, -7);
+                setWeekStart(newStart);
+                setSelectedDay(newStart);
+              }}
               data-testid="button-prev-week"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -419,7 +445,11 @@ export function AdminRosters() {
             <Button
               size="icon"
               variant="ghost"
-              onClick={() => setWeekStart(addDays(weekStart, 7))}
+              onClick={() => {
+                const newStart = addDays(weekStart, 7);
+                setWeekStart(newStart);
+                setSelectedDay(newStart);
+              }}
               data-testid="button-next-week"
             >
               <ChevronRight className="h-4 w-4" />
@@ -430,7 +460,10 @@ export function AdminRosters() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setWeekStart(getMonday(new Date()))}
+            onClick={() => {
+              setWeekStart(getMonday(new Date()));
+              setSelectedDay(new Date().toISOString().split("T")[0]);
+            }}
             data-testid="button-today"
           >
             Today
@@ -460,22 +493,55 @@ export function AdminRosters() {
           </div>
         )}
 
-        {/* ── Grid ─────────────────────────────────────────────────────── */}
-        <div className="flex-1 overflow-auto p-4">
+        {/* ── Mobile: Day selector ribbon ─────────────────────────────── */}
+        {selectedStore && (
+          <div className="md:hidden border-b bg-background overflow-x-auto">
+            <div className="flex min-w-full px-2 py-2 gap-1">
+              {weekDates.map((d, i) => {
+                const dayNum = new Date(d).getDate();
+                const isActive = d === selectedDay;
+                const isToday = d === todayStr;
+                const hasSomeShift = activeEmployees.some(({ employee: emp }) => rosterMap.get(`${emp.id}|${d}`));
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setSelectedDay(d)}
+                    className={`flex flex-col items-center px-3 py-1.5 rounded-md min-w-[52px] text-xs transition-colors
+                      ${isActive
+                        ? "bg-primary text-primary-foreground font-semibold"
+                        : "text-muted-foreground hover:bg-muted"
+                      }`}
+                    data-testid={`button-day-tab-${i}`}
+                  >
+                    <span className={`font-medium ${isToday && !isActive ? "text-primary" : ""}`}>{DAY_NAMES[i]}</span>
+                    <span className={`text-base font-bold leading-tight ${isToday && !isActive ? "text-primary" : ""}`}>{dayNum}</span>
+                    {hasSomeShift && (
+                      <span className={`mt-0.5 h-1 w-1 rounded-full ${isActive ? "bg-primary-foreground" : "bg-primary"}`} />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── Desktop: 7-day grid ──────────────────────────────────────── */}
+        <div className="hidden md:flex flex-1 overflow-auto p-4">
           {!selectedStore ? (
-            <div className="flex items-center justify-center h-40 text-muted-foreground">
+            <div className="flex items-center justify-center h-40 w-full text-muted-foreground">
               Select a store to view the roster.
             </div>
           ) : isLoading ? (
-            <div className="space-y-2">
+            <div className="space-y-2 w-full">
               {Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="h-12 w-full" />)}
             </div>
           ) : activeEmployees.length === 0 ? (
-            <div className="flex items-center justify-center h-40 text-muted-foreground">
+            <div className="flex items-center justify-center h-40 w-full text-muted-foreground">
               No active employees assigned to this store.
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-md border">
+            <div className="overflow-x-auto rounded-md border w-full">
               <table className="w-full text-sm border-collapse table-fixed min-w-[900px]">
                 <colgroup>
                   <col style={{ width: "160px" }} />
@@ -551,34 +617,136 @@ export function AdminRosters() {
           )}
         </div>
 
-        {/* ── Summary footer ────────────────────────────────────────────── */}
-        {selectedStore && !isLoading && activeEmployees.length > 0 && (
-          <div className="sticky bottom-0 border-t bg-muted/60 backdrop-blur px-4 py-2.5 flex items-center gap-6 text-sm z-20">
-            <span className="text-muted-foreground">Week Summary</span>
-            <div className="flex items-center gap-1.5">
-              <Clock className="h-4 w-4 text-muted-foreground" />
-              <span className="font-medium" data-testid="text-total-hours">
-                {totalStoreHours.toFixed(1)} hrs
-              </span>
-              <span className="text-muted-foreground text-xs">total</span>
+        {/* ── Mobile: Daily card view ──────────────────────────────────── */}
+        <div className="md:hidden flex-1 overflow-auto">
+          {!selectedStore ? (
+            <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">
+              Select a store to view the roster.
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-muted-foreground">Est. Wage Cost:</span>
-              <span className="font-semibold text-primary" data-testid="text-total-cost">
-                ${totalStoreCost.toFixed(2)}
-              </span>
+          ) : isLoading ? (
+            <div className="p-4 space-y-3">
+              {Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-16 w-full rounded-md" />)}
             </div>
-            <div className="flex-1" />
-            <div className="flex gap-2">
+          ) : activeEmployees.length === 0 ? (
+            <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">
+              No active employees assigned to this store.
+            </div>
+          ) : (
+            <div className="p-3 space-y-2">
+              {/* Date label */}
+              <p className="text-xs font-medium text-muted-foreground px-1">
+                {new Date(selectedDay).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}
+              </p>
               {activeEmployees.map(({ employee: emp }) => {
-                const hrs = empHours(emp.id);
-                if (hrs === 0) return null;
+                const roster = rosterMap.get(`${emp.id}|${selectedDay}`);
+                const rate = parseFloat(emp.rate ?? "0") || 0;
+                const hrs = roster ? calcHours(roster.startTime, roster.endTime) : 0;
                 return (
-                  <Badge key={emp.id} variant="secondary" className="text-xs" data-testid={`badge-emp-hours-${emp.id}`}>
-                    {emp.nickname || emp.firstName}: {hrs.toFixed(1)}h
-                  </Badge>
+                  <div
+                    key={emp.id}
+                    className="flex items-center gap-3 rounded-md border bg-card px-3 py-3"
+                    data-testid={`mobile-card-${emp.id}`}
+                  >
+                    {/* Left: name + rate */}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate">
+                        {emp.nickname || `${emp.firstName} ${emp.lastName}`}
+                      </p>
+                      {rate > 0 && (
+                        <p className="text-xs text-muted-foreground">${rate.toFixed(2)}/hr</p>
+                      )}
+                    </div>
+
+                    {/* Right: shift info + CellEditor trigger */}
+                    <div className="shrink-0 flex items-center gap-2">
+                      {roster && (
+                        <div className="text-right mr-1">
+                          <p className="text-xs font-mono font-medium text-primary">{roster.startTime} – {roster.endTime}</p>
+                          <p className="text-[10px] text-muted-foreground">{hrs.toFixed(1)} hrs</p>
+                        </div>
+                      )}
+                      <CellEditor
+                        roster={roster}
+                        storeOpenTime={selectedStoreObj?.openTime ?? "06:00"}
+                        storeCloseTime={selectedStoreObj?.closeTime ?? "22:00"}
+                        onSave={(start, end) =>
+                          upsertMutation.mutate({ employeeId: emp.id, date: selectedDay, startTime: start, endTime: end })
+                        }
+                        onClear={() => roster && deleteMutation.mutate(roster.id)}
+                        isPending={upsertMutation.isPending || deleteMutation.isPending}
+                        mobileMode
+                      />
+                    </div>
+                  </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+
+        {/* ── Summary footer ────────────────────────────────────────────── */}
+        {selectedStore && !isLoading && activeEmployees.length > 0 && (
+          <div className="sticky bottom-0 border-t bg-muted/60 backdrop-blur px-4 py-2.5 z-20">
+            {/* Mobile: stacked layout */}
+            <div className="flex flex-col gap-1.5 md:hidden">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-muted-foreground">Week Summary</span>
+                <div className="flex items-center gap-3 text-sm">
+                  <div className="flex items-center gap-1">
+                    <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="font-medium" data-testid="text-total-hours-mobile">
+                      {totalStoreHours.toFixed(1)} hrs
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-muted-foreground">Cost:</span>
+                    <span className="font-semibold text-primary text-sm" data-testid="text-total-cost-mobile">
+                      ${totalStoreCost.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-1.5 flex-wrap">
+                {activeEmployees.map(({ employee: emp }) => {
+                  const hrs = empHours(emp.id);
+                  if (hrs === 0) return null;
+                  return (
+                    <Badge key={emp.id} variant="secondary" className="text-[10px]">
+                      {emp.nickname || emp.firstName}: {hrs.toFixed(1)}h
+                    </Badge>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Desktop: horizontal layout */}
+            <div className="hidden md:flex items-center gap-6 text-sm">
+              <span className="text-muted-foreground">Week Summary</span>
+              <div className="flex items-center gap-1.5">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <span className="font-medium" data-testid="text-total-hours">
+                  {totalStoreHours.toFixed(1)} hrs
+                </span>
+                <span className="text-muted-foreground text-xs">total</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">Est. Wage Cost:</span>
+                <span className="font-semibold text-primary" data-testid="text-total-cost">
+                  ${totalStoreCost.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex-1" />
+              <div className="flex gap-2 flex-wrap">
+                {activeEmployees.map(({ employee: emp }) => {
+                  const hrs = empHours(emp.id);
+                  if (hrs === 0) return null;
+                  return (
+                    <Badge key={emp.id} variant="secondary" className="text-xs" data-testid={`badge-emp-hours-${emp.id}`}>
+                      {emp.nickname || emp.firstName}: {hrs.toFixed(1)}h
+                    </Badge>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
