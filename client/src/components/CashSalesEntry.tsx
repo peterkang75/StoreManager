@@ -121,23 +121,17 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
       return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
     });
 
-  const { data: latestDateData } = useQuery<{ latestDate: string | null }>({
-    queryKey: ["/api/cash-sales/latest-date", storeId],
-    enabled: !!storeId,
-    queryFn: async () => {
-      const res = await fetch(`/api/cash-sales/latest-date?store_id=${storeId}`);
-      if (!res.ok) throw new Error("Failed to fetch");
-      return res.json();
-    },
-  });
-
+  // Fixed 14-day blocks anchored to 2026-01-01
+  // Block 4: 2026-02-26 ~ 2026-03-11, Block 5: 2026-03-12 ~ 2026-03-25, etc.
   useEffect(() => {
     if (!storeId) return;
+    const anchor = new Date("2026-01-01T00:00:00");
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const yesterday = addDays(today, -1);
-    setPeriodStart(addDays(yesterday, -13));
-  }, [latestDateData, storeId]);
+    const diffDays = Math.floor((today.getTime() - anchor.getTime()) / (24 * 60 * 60 * 1000));
+    const blockOffset = Math.floor(diffDays / 14);
+    setPeriodStart(addDays(anchor, blockOffset * 14));
+  }, [storeId]);
 
   const startDate = periodStart ? formatDateStr(periodStart) : "";
   const endDate = periodStart ? formatDateStr(addDays(periodStart, 13)) : "";
@@ -174,59 +168,65 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
 
   useEffect(() => {
     if (!periodStart) return;
-    const newRows: RowData[] = [];
+
+    // 1. Collect all records within the period (cashSalesDetails take priority)
+    const populated: RowData[] = [];
     const newAutoFilled = new Set<string>();
-    for (let i = 0; i < 14; i++) {
-      const date = formatDateStr(addDays(periodStart, i));
-      const existing = existingData?.find((d) => d.date === date);
-      if (existing) {
+    const seenDates = new Set<string>();
+
+    // First: saved cash-sales records
+    if (existingData) {
+      for (const rec of [...existingData].sort((a, b) => a.date.localeCompare(b.date))) {
         const row: RowData = {
-          date: existing.date,
-          envelopeAmount: existing.envelopeAmount,
-          countedAmount: existing.countedAmount,
-          differenceAmount: existing.differenceAmount,
-          memo: (existing as any).memo ?? "",
+          date: rec.date,
+          envelopeAmount: rec.envelopeAmount,
+          countedAmount: rec.countedAmount,
+          differenceAmount: rec.differenceAmount,
+          memo: (rec as any).memo ?? "",
         };
-        for (const denom of ALL_DENOMINATIONS) {
-          row[denom.key] = (existing as any)[denom.key] ?? 0;
-        }
-        newRows.push(row);
-      } else {
-        const closeForm = closeFormsData?.find((f) => f.date === date);
-        if (closeForm) {
-          // envelopeAmount in dailyCloseForms = expectedCredit (Prev Float + Cash Sales - Cash Out - Next Float)
-          const expectedCredit = typeof closeForm.envelopeAmount === "string"
-            ? parseFloat(closeForm.envelopeAmount) || 0
-            : (closeForm.envelopeAmount ?? 0);
-          const countedTotal = typeof closeForm.totalCalculated === "string"
-            ? parseFloat(closeForm.totalCalculated) || 0
-            : (closeForm.totalCalculated ?? 0);
-          const row: RowData = {
-            date,
-            envelopeAmount: expectedCredit,
-            countedAmount: countedTotal,
-            differenceAmount: Math.round((expectedCredit - countedTotal) * 100) / 100,
-            memo: closeForm.notes ?? "",
-          };
-          for (const denom of ALL_DENOMINATIONS) {
-            row[denom.key] = (closeForm as any)[denom.key] ?? 0;
-          }
-          newRows.push(row);
-          newAutoFilled.add(date);
-        } else {
-          newRows.push(createEmptyRow(date));
-        }
+        for (const denom of ALL_DENOMINATIONS) row[denom.key] = (rec as any)[denom.key] ?? 0;
+        populated.push(row);
+        seenDates.add(rec.date);
       }
     }
+
+    // Second: daily-close forms for dates not already present
+    if (closeFormsData) {
+      for (const cf of [...closeFormsData].sort((a, b) => a.date.localeCompare(b.date))) {
+        if (seenDates.has(cf.date)) continue;
+        const expectedCredit = typeof cf.envelopeAmount === "string"
+          ? parseFloat(cf.envelopeAmount) || 0
+          : (cf.envelopeAmount ?? 0);
+        const countedTotal = typeof cf.totalCalculated === "string"
+          ? parseFloat(cf.totalCalculated) || 0
+          : (cf.totalCalculated ?? 0);
+        const row: RowData = {
+          date: cf.date,
+          envelopeAmount: expectedCredit,
+          countedAmount: countedTotal,
+          differenceAmount: Math.round((expectedCredit - countedTotal) * 100) / 100,
+          memo: cf.notes ?? "",
+        };
+        for (const denom of ALL_DENOMINATIONS) row[denom.key] = (cf as any)[denom.key] ?? 0;
+        populated.push(row);
+        newAutoFilled.add(cf.date);
+        seenDates.add(cf.date);
+      }
+    }
+
+    // 2. Build exactly 14 rows: data top-down, rest completely blank
+    const newRows: RowData[] = [];
+    for (let i = 0; i < 14; i++) {
+      newRows.push(i < populated.length ? populated[i] : createEmptyRow(""));
+    }
+
     setRows(newRows);
     setAutoFilledDates(newAutoFilled);
     setIsDirty(false);
+
+    // Mark rows that have a date as confirmed (shows formatted date label)
     const confirmed: Record<number, boolean> = {};
-    newRows.forEach((r, i) => {
-      if ((r.envelopeAmount as number) > 0 || (r.countedAmount as number) > 0) {
-        confirmed[i] = true;
-      }
-    });
+    newRows.forEach((r, i) => { if (r.date) confirmed[i] = true; });
     setConfirmedDates(confirmed);
   }, [existingData, closeFormsData, periodStart]);
 
@@ -267,7 +267,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
         storeId,
         startDate,
         endDate,
-        rows: rows.map((r) => ({
+        rows: rows.filter(r => !!r.date).map((r) => ({
           date: r.date,
           envelopeAmount: r.envelopeAmount,
           countedAmount: r.countedAmount,
@@ -289,7 +289,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
       return res.json();
     },
     onSuccess: (data) => {
-      toast({ title: "Cash sales saved", description: `${data.saved}일 저장 완료. 총 $${data.totalCounted.toLocaleString()}` });
+      toast({ title: "Cash sales saved", description: `${data.saved} record(s) saved. Total $${data.totalCounted.toLocaleString()}` });
       setIsDirty(false);
       queryClient.invalidateQueries({ queryKey: ["/api/cash-sales"] });
       queryClient.invalidateQueries({ queryKey: ["/api/cash-sales/latest-date"] });
@@ -460,7 +460,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        2주간 매장별 현금 매출 실물 정산 입력
+        14-day cash sales reconciliation per store
       </p>
 
       <div className="flex items-end gap-4 flex-wrap">
@@ -516,7 +516,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
 
       {!storeId ? (
         <p className="text-sm text-muted-foreground py-8 text-center">
-          매장을 선택해 주세요
+          Select a store to get started
         </p>
       ) : loadingData ? (
         <div className="space-y-2">
@@ -552,12 +552,12 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
             </thead>
             <tbody>
               {rows.map((row, idx) => {
-                const dayLabel = getDayLabel(row.date);
+                const dayLabel = row.date ? getDayLabel(row.date) : "";
                 const isSunday = dayLabel === "Sun";
                 const isWeekEnd = idx === 6 || idx === 13;
                 const diff = row.differenceAmount as number;
                 const hasDiff = Math.abs(diff) >= 0.01;
-                const isAutoFilled = autoFilledDates.has(row.date);
+                const isAutoFilled = row.date ? autoFilledDates.has(row.date) : false;
 
                 return (
                   <tr
