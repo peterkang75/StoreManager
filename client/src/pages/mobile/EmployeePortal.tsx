@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/drawer";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import {
   CheckCircle2,
@@ -37,6 +38,14 @@ import {
   User,
   Plus,
   AlertTriangle,
+  Upload,
+  Save,
+  ArrowLeft,
+  MapPin,
+  Shield,
+  CreditCard,
+  Building2,
+  X,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -957,9 +966,352 @@ function ScheduleTab({ session }: { session: Session }) {
   );
 }
 
+// ── Edit Profile View ─────────────────────────────────────────────────────────
+
+interface ProfileFormData {
+  streetAddress: string;
+  streetAddress2: string;
+  suburb: string;
+  state: string;
+  postCode: string;
+  visaType: string;
+  visaExpiry: string;
+  fhc: string;
+  tfn: string;
+  bsb: string;
+  accountNo: string;
+  superCompany: string;
+  superMembershipNo: string;
+}
+
+function EditProfileView({ session, onBack }: { session: Session; onBack: () => void }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const fhcFileRef = useRef<HTMLInputElement>(null);
+  const [fhcUploading, setFhcUploading] = useState(false);
+
+  const { data: employee, isLoading } = useQuery<any>({
+    queryKey: ["/api/employees", session.id],
+    queryFn: () => fetch(`/api/employees/${session.id}`).then(r => r.json()),
+    staleTime: 0,
+  });
+
+  const [form, setForm] = useState<ProfileFormData>({
+    streetAddress: "", streetAddress2: "", suburb: "", state: "", postCode: "",
+    visaType: "", visaExpiry: "", fhc: "", tfn: "", bsb: "", accountNo: "",
+    superCompany: "", superMembershipNo: "",
+  });
+  const [bsbError, setBsbError] = useState("");
+
+  const toIsoDate = (raw: string | null | undefined): string => {
+    if (!raw) return "";
+    const d = new Date(raw);
+    if (!isNaN(d.getTime())) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    }
+    return "";
+  };
+
+  useEffect(() => {
+    if (employee) {
+      setForm({
+        streetAddress: employee.streetAddress ?? "",
+        streetAddress2: employee.streetAddress2 ?? "",
+        suburb: employee.suburb ?? "",
+        state: employee.state ?? "",
+        postCode: employee.postCode ?? "",
+        visaType: employee.visaType ?? "",
+        visaExpiry: toIsoDate(employee.visaExpiry),
+        fhc: employee.fhc ?? "",
+        tfn: employee.tfn ?? "",
+        bsb: employee.bsb ?? "",
+        accountNo: employee.accountNo ?? "",
+        superCompany: employee.superCompany ?? "",
+        superMembershipNo: employee.superMembershipNo ?? "",
+      });
+    }
+  }, [employee]);
+
+  const updateMutation = useMutation({
+    mutationFn: (data: Partial<ProfileFormData>) =>
+      fetch(`/api/employees/${session.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }).then(async r => {
+        if (!r.ok) throw new Error("Update failed");
+        return r.json();
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/employees", session.id] });
+      toast({ title: "Profile Updated Successfully", description: "Your details have been saved." });
+      onBack();
+    },
+    onError: () => {
+      toast({ title: "Save Failed", description: "Could not save your profile. Please try again.", variant: "destructive" });
+    },
+  });
+
+  const handleFhcUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFhcUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch("/api/upload", { method: "POST", body: fd });
+      if (!r.ok) throw new Error("Upload failed");
+      const { url } = await r.json();
+      setForm(f => ({ ...f, fhc: url }));
+      toast({ title: "Certificate Uploaded", description: "FHC document ready to save." });
+    } catch {
+      toast({ title: "Upload Failed", description: "Could not upload the file.", variant: "destructive" });
+    } finally {
+      setFhcUploading(false);
+      if (fhcFileRef.current) fhcFileRef.current.value = "";
+    }
+  };
+
+  const handleSave = () => {
+    const bsnClean = form.bsb.replace(/\s/g, "");
+    if (bsnClean && !/^\d{6}$/.test(bsnClean)) {
+      setBsbError("BSB must be exactly 6 digits");
+      return;
+    }
+    setBsbError("");
+    updateMutation.mutate({ ...form, bsb: bsnClean || null } as any);
+  };
+
+  const field = (key: keyof ProfileFormData) => ({
+    value: form[key],
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => setForm(f => ({ ...f, [key]: e.target.value })),
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-3">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">Loading your profile...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-0">
+      {/* Sticky header */}
+      <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b flex items-center gap-3 px-4 py-3">
+        <Button size="icon" variant="ghost" onClick={onBack} data-testid="button-edit-profile-back">
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <h2 className="font-bold text-base flex-1">Edit My Profile</h2>
+        <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending} data-testid="button-save-profile">
+          {updateMutation.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Save className="h-4 w-4 mr-1.5" />}
+          Save
+        </Button>
+      </div>
+
+      <div className="flex flex-col gap-5 px-4 py-5">
+
+        {/* ── Residential Address ──────────────────────────────── */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+              <MapPin className="h-4 w-4 text-primary" />
+            </div>
+            <h3 className="font-semibold text-sm">Residential Address</h3>
+          </div>
+          <Card>
+            <CardContent className="pt-4 pb-4 flex flex-col gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Street Address</Label>
+                <Input placeholder="e.g. 12 Smith Street" {...field("streetAddress")} data-testid="input-street-address" className="h-11 text-base" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Street Address 2 (Apt, Unit, etc.)</Label>
+                <Input placeholder="Optional" {...field("streetAddress2")} data-testid="input-street-address-2" className="h-11 text-base" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Suburb</Label>
+                  <Input placeholder="Suburb" {...field("suburb")} data-testid="input-suburb" className="h-11 text-base" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">State</Label>
+                  <Select value={form.state} onValueChange={v => setForm(f => ({ ...f, state: v }))}>
+                    <SelectTrigger className="h-11 text-base" data-testid="select-state">
+                      <SelectValue placeholder="State" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {["NSW","VIC","QLD","WA","SA","TAS","ACT","NT"].map(s => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Post Code</Label>
+                <Input placeholder="e.g. 2000" {...field("postCode")} data-testid="input-post-code" className="h-11 text-base" inputMode="numeric" />
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* ── Visa Information ─────────────────────────────────── */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+              <Shield className="h-4 w-4 text-primary" />
+            </div>
+            <h3 className="font-semibold text-sm">Visa Information</h3>
+          </div>
+          <Card>
+            <CardContent className="pt-4 pb-4 flex flex-col gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Visa Type</Label>
+                <Select value={form.visaType} onValueChange={v => setForm(f => ({ ...f, visaType: v }))}>
+                  <SelectTrigger className="h-11 text-base" data-testid="select-visa-type">
+                    <SelectValue placeholder="Select visa type..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CTZ">Australian Citizen</SelectItem>
+                    <SelectItem value="PR">Permanent Resident</SelectItem>
+                    <SelectItem value="Student">Student Visa (500)</SelectItem>
+                    <SelectItem value="WHM">Working Holiday (417/462)</SelectItem>
+                    <SelectItem value="TSS">Skilled — Sponsored (482)</SelectItem>
+                    <SelectItem value="Bridging">Bridging Visa</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {form.visaType && form.visaType !== "CTZ" && form.visaType !== "PR" && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Visa Expiry Date</Label>
+                  <Input type="date" {...field("visaExpiry")} data-testid="input-visa-expiry" className="h-11 text-base" />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* ── Food Handler Certificate ─────────────────────────── */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+              <FileText className="h-4 w-4 text-primary" />
+            </div>
+            <h3 className="font-semibold text-sm">Food Handler Certificate (FHC)</h3>
+          </div>
+          <Card>
+            <CardContent className="pt-4 pb-4 flex flex-col gap-3">
+              <input ref={fhcFileRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleFhcUpload} data-testid="input-fhc-file" />
+              {form.fhc ? (
+                <div className="flex items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-3">
+                  <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <a href={form.fhc} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-sm text-blue-600 dark:text-blue-400">
+                    View Certificate
+                  </a>
+                  <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={() => setForm(f => ({ ...f, fhc: "" }))} data-testid="button-remove-fhc">
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  variant="outline"
+                  className="h-14 border-dashed flex-col gap-1"
+                  onClick={() => fhcFileRef.current?.click()}
+                  disabled={fhcUploading}
+                  data-testid="button-upload-fhc"
+                >
+                  {fhcUploading
+                    ? <Loader2 className="h-5 w-5 animate-spin" />
+                    : <Upload className="h-5 w-5 text-muted-foreground" />}
+                  <span className="text-xs text-muted-foreground">{fhcUploading ? "Uploading..." : "Upload Certificate (PDF or Image)"}</span>
+                </Button>
+              )}
+              <p className="text-xs text-muted-foreground">Upload your Food Handler Certificate so managers can verify your compliance.</p>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* ── Financial Details ────────────────────────────────── */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+              <CreditCard className="h-4 w-4 text-primary" />
+            </div>
+            <h3 className="font-semibold text-sm">Financial Details</h3>
+          </div>
+          <Card>
+            <CardContent className="pt-4 pb-4 flex flex-col gap-3">
+              <div className="rounded-md border border-amber-400/40 bg-amber-400/8 px-3 py-2.5">
+                <p className="text-xs text-amber-700 dark:text-amber-400">Your financial details are stored securely and only used for payroll purposes.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">TFN (Tax File Number)</Label>
+                <Input placeholder="e.g. 123 456 789" {...field("tfn")} data-testid="input-tfn" className="h-11 text-base font-mono" inputMode="numeric" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">BSB (6 digits, no dash)</Label>
+                <Input
+                  placeholder="e.g. 062000"
+                  value={form.bsb}
+                  onChange={e => { setForm(f => ({ ...f, bsb: e.target.value })); setBsbError(""); }}
+                  data-testid="input-bsb"
+                  className={`h-11 text-base font-mono ${bsbError ? "border-destructive" : ""}`}
+                  inputMode="numeric"
+                  maxLength={6}
+                />
+                {bsbError && <p className="text-xs text-destructive" data-testid="error-bsb">{bsbError}</p>}
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Account Number</Label>
+                <Input placeholder="e.g. 12345678" {...field("accountNo")} data-testid="input-account-no" className="h-11 text-base font-mono" inputMode="numeric" />
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* ── Superannuation ───────────────────────────────────── */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+              <Building2 className="h-4 w-4 text-primary" />
+            </div>
+            <h3 className="font-semibold text-sm">Superannuation</h3>
+          </div>
+          <Card>
+            <CardContent className="pt-4 pb-4 flex flex-col gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Super Fund Name</Label>
+                <Input placeholder="e.g. Australian Super, Hostplus" {...field("superCompany")} data-testid="input-super-company" className="h-11 text-base" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Member Number</Label>
+                <Input placeholder="Your membership number" {...field("superMembershipNo")} data-testid="input-super-membership-no" className="h-11 text-base font-mono" />
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* Save Button (bottom) */}
+        <Button size="lg" className="w-full h-14 text-base" onClick={handleSave} disabled={updateMutation.isPending} data-testid="button-save-profile-bottom">
+          {updateMutation.isPending ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <Save className="h-5 w-5 mr-2" />}
+          {updateMutation.isPending ? "Saving..." : "Save Changes"}
+        </Button>
+
+        <div className="h-4" />
+      </div>
+    </div>
+  );
+}
+
 // ── Tab: Settings ─────────────────────────────────────────────────────────────
 
-function SettingsTab({ session, onLogout }: { session: Session; onLogout: () => void }) {
+function SettingsTab({ session, onLogout, onEditProfile }: { session: Session; onLogout: () => void; onEditProfile: () => void }) {
   const displayName = session.nickname || session.firstName;
 
   return (
@@ -996,11 +1348,28 @@ function SettingsTab({ session, onLogout }: { session: Session; onLogout: () => 
       <div className="flex flex-col gap-2">
         <p className="text-xs uppercase tracking-widest text-muted-foreground font-semibold px-1 mb-1">Account</p>
         <Card>
-          <CardContent className="p-0">
+          <CardContent className="p-0 divide-y">
+            {/* Edit My Profile */}
+            <button
+              type="button"
+              data-testid="button-edit-profile"
+              className="w-full flex items-center gap-4 px-4 py-4 hover-elevate active-elevate-2 rounded-t-md text-left"
+              onClick={onEditProfile}
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 shrink-0">
+                <PenLine className="h-5 w-5 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm">Edit My Profile</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Update address, visa, bank &amp; super details</p>
+              </div>
+              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+            </button>
+            {/* Change PIN */}
             <button
               type="button"
               data-testid="button-change-pin"
-              className="w-full flex items-center gap-4 px-4 py-4 hover-elevate active-elevate-2 rounded-md text-left"
+              className="w-full flex items-center gap-4 px-4 py-4 hover-elevate active-elevate-2 rounded-b-md text-left"
               onClick={() => {}}
             >
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted shrink-0">
@@ -1073,6 +1442,17 @@ function BottomNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => vo
 
 function AppShell({ session, onLogout }: { session: Session; onLogout: () => void }) {
   const [activeTab, setActiveTab] = useState<Tab>("home");
+  const [subView, setSubView] = useState<"edit-profile" | null>(null);
+
+  if (subView === "edit-profile") {
+    return (
+      <div className="flex-1 flex flex-col min-h-0">
+        <div className="flex-1 overflow-y-auto">
+          <EditProfileView session={session} onBack={() => setSubView(null)} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -1080,7 +1460,13 @@ function AppShell({ session, onLogout }: { session: Session; onLogout: () => voi
       <div className="flex-1 overflow-y-auto">
         {activeTab === "home"     && <HomeTab session={session} />}
         {activeTab === "schedule" && <ScheduleTab session={session} />}
-        {activeTab === "settings" && <SettingsTab session={session} onLogout={onLogout} />}
+        {activeTab === "settings" && (
+          <SettingsTab
+            session={session}
+            onLogout={onLogout}
+            onEditProfile={() => setSubView("edit-profile")}
+          />
+        )}
       </div>
 
       {/* Bottom nav — always pinned to bottom because parent height is exact viewport */}
