@@ -374,35 +374,44 @@ function TodayShiftCard({
 
   return (
     <>
-      <Card data-testid={`card-shift-${item.shift.storeId}`}>
-        <CardContent className="pt-4 pb-4">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: item.storeColor }} />
-            <span className="font-semibold text-sm">{item.storeName} Store</span>
-          </div>
-          <div className="flex items-end justify-between mb-3">
-            <div>
-              <p className="text-3xl font-bold tabular-nums tracking-tight" data-testid="text-shift-time">
-                {shift.startTime} – {shift.endTime}
-              </p>
-              <p className="text-sm text-muted-foreground mt-0.5">{hours.toFixed(1)} hours</p>
-            </div>
-            <div className="h-12 w-1.5 rounded-full shrink-0" style={{ backgroundColor: item.storeColor }} />
-          </div>
-          {ts && st ? (
-            <div className={`flex items-center gap-2 rounded-md px-3 py-2.5 ${st.bg}`}>
-              <CheckCircle2 className={`h-4 w-4 shrink-0 ${st.text}`} />
-              <div>
-                <p className={`text-sm font-semibold ${st.text}`}>{st.label}</p>
-                <p className={`text-xs opacity-80 mt-0.5 ${st.text}`}>
-                  {ts.actualStartTime} – {ts.actualEndTime}
-                  {ts.adjustmentReason && ` · "${ts.adjustmentReason}"`}
-                </p>
+      <div
+        data-testid={`card-shift-${item.shift.storeId}`}
+        className="flex overflow-hidden rounded-2xl border border-border/40 bg-card shadow-sm"
+      >
+        {/* Left accent bar — store colour */}
+        <div className="w-1.5 shrink-0" style={{ backgroundColor: item.storeColor }} />
+
+        {/* Content */}
+        <div className="flex-1 p-5">
+          {/* Row 1: store name + status badge */}
+          <div className="flex items-start justify-between gap-2 mb-4">
+            <span className="font-semibold text-sm text-muted-foreground">{item.storeName} Store</span>
+            {ts && st && (
+              <div className={`flex items-center gap-1 rounded-md px-2 py-1 shrink-0 ${st.bg}`}>
+                <CheckCircle2 className={`h-3 w-3 ${st.text}`} />
+                <span className={`text-[11px] font-semibold ${st.text}`}>{st.label}</span>
               </div>
+            )}
+          </div>
+
+          {/* Time range */}
+          <p className="text-3xl font-bold tabular-nums tracking-tight leading-none" data-testid="text-shift-time">
+            {shift.startTime} – {shift.endTime}
+          </p>
+          <p className="text-sm text-muted-foreground mt-1.5">{hours.toFixed(1)} hours</p>
+
+          {/* Adjustment reason memo block */}
+          {ts?.adjustmentReason && (
+            <div className="flex items-start gap-2 mt-4 bg-muted/50 rounded-lg px-3 py-2.5 border border-border/30">
+              <FileText className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+              <p className="text-xs text-muted-foreground leading-relaxed">{ts.adjustmentReason}</p>
             </div>
-          ) : (
+          )}
+
+          {/* Submit button (only if no timesheet yet) */}
+          {!ts && (
             <Button
-              className="w-full"
+              className="w-full mt-4"
               style={{ backgroundColor: item.storeColor, borderColor: item.storeColor, color: "white" }}
               onClick={() => setDrawerOpen(true)}
               data-testid={`button-submit-${shift.storeId}`}
@@ -411,8 +420,9 @@ function TodayShiftCard({
               Submit Timesheet
             </Button>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
+
       <TimesheetDrawer
         open={drawerOpen}
         item={item}
@@ -590,41 +600,50 @@ function UnscheduledShiftDrawer({
 // ── Unscheduled Timesheet Card ────────────────────────────────────────────────
 
 function UnscheduledTimesheetCard({ item }: { item: UnscheduledTimesheetItem }) {
-  const { timesheet, storeName, storeColor } = item;
+  const { timesheet, storeName } = item;
   const st = STATUS_STYLE[timesheet.status] ?? STATUS_STYLE.PENDING;
   const hours = calcHours(timesheet.actualStartTime, timesheet.actualEndTime);
 
   return (
-    <Card data-testid={`card-unscheduled-${timesheet.id}`}>
-      <CardContent className="p-4">
-        <div className="flex items-start gap-3">
-          <div
-            className="h-1.5 w-1.5 rounded-full mt-2 shrink-0"
-            style={{ backgroundColor: storeColor }}
-          />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap mb-1">
-              <span className="font-semibold text-sm">{storeName}</span>
-              <span className="flex items-center gap-1 text-[10px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-950 rounded px-1.5 py-0.5">
-                <AlertTriangle className="h-2.5 w-2.5" />
-                Unscheduled
-              </span>
+    <div
+      data-testid={`card-unscheduled-${timesheet.id}`}
+      className="flex overflow-hidden rounded-2xl border border-border/40 bg-card shadow-sm"
+    >
+      {/* Left accent bar — amber signals exception/unscheduled state */}
+      <div className="w-1.5 shrink-0 bg-amber-500" />
+
+      {/* Content */}
+      <div className="flex-1 p-5">
+        {/* Row 1: store name + badges */}
+        <div className="flex items-start justify-between gap-2 mb-4">
+          <span className="font-semibold text-sm text-muted-foreground">{storeName} Store</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-950 rounded-md px-2 py-1">
+              <AlertTriangle className="h-2.5 w-2.5" />
+              Unscheduled
+            </span>
+            <div className={`flex items-center gap-1 rounded-md px-2 py-1 ${st.bg}`}>
+              <CheckCircle2 className={`h-3 w-3 ${st.text}`} />
+              <span className={`text-[11px] font-semibold ${st.text}`}>{st.label}</span>
             </div>
-            <p className="text-sm tabular-nums text-muted-foreground">
-              {timesheet.actualStartTime} – {timesheet.actualEndTime}
-              <span className="ml-2 text-xs">({hours.toFixed(1)}h)</span>
-            </p>
-            {timesheet.adjustmentReason && (
-              <p className="text-xs text-muted-foreground mt-1 italic">"{timesheet.adjustmentReason}"</p>
-            )}
-          </div>
-          <div className={`flex items-center gap-1 rounded-md px-2 py-1 shrink-0 ${st.bg}`}>
-            <CheckCircle2 className={`h-3 w-3 ${st.text}`} />
-            <span className={`text-xs font-medium ${st.text}`}>Pending</span>
           </div>
         </div>
-      </CardContent>
-    </Card>
+
+        {/* Time range */}
+        <p className="text-3xl font-bold tabular-nums tracking-tight leading-none">
+          {timesheet.actualStartTime} – {timesheet.actualEndTime}
+        </p>
+        <p className="text-sm text-muted-foreground mt-1.5">{hours.toFixed(1)} hours</p>
+
+        {/* Reason memo block */}
+        {timesheet.adjustmentReason && (
+          <div className="flex items-start gap-2 mt-4 bg-muted/50 rounded-lg px-3 py-2.5 border border-border/30">
+            <FileText className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+            <p className="text-xs text-muted-foreground leading-relaxed">{timesheet.adjustmentReason}</p>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -687,7 +706,7 @@ function HomeTab({ session }: { session: Session }) {
 
         {/* No scheduled shift: prominent button */}
         {!todayLoading && todayShifts.length === 0 && (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-4">
             <Card>
               <CardContent className="py-6 text-center">
                 <Clock className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
@@ -712,7 +731,7 @@ function HomeTab({ session }: { session: Session }) {
 
         {/* Has scheduled shifts: show cards + secondary link */}
         {!todayLoading && todayShifts.length > 0 && (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-4">
             {todayShifts.map(item => (
               <TodayShiftCard
                 key={item.shift.storeId}
