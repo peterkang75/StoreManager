@@ -153,7 +153,6 @@ export function MobileDailyClose() {
   const [submitted, setSubmitted] = useState(false);
 
   const [form, setForm] = useState({
-    staffNames: "",
     previousFloat: 0,
     salesTotal: 0,
     cashSales: 0,
@@ -207,7 +206,6 @@ export function MobileDailyClose() {
       const closingData = {
         storeId,
         date,
-        staffNames: form.staffNames || null,
         previousFloat: form.previousFloat,
         salesTotal: form.salesTotal,
         cashSales: form.cashSales,
@@ -259,7 +257,6 @@ export function MobileDailyClose() {
   const resetForm = () => {
     setSubmitted(false);
     setForm({
-      staffNames: "",
       previousFloat: 0,
       salesTotal: 0,
       cashSales: 0,
@@ -379,17 +376,6 @@ export function MobileDailyClose() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="staff">Staff on Duty</Label>
-              <Textarea
-                id="staff"
-                value={form.staffNames}
-                onChange={(e) => setForm({ ...form, staffNames: e.target.value })}
-                placeholder="Enter staff names"
-                className="text-base"
-                data-testid="input-staff"
-              />
-            </div>
           </CardContent>
         </Card>
 
