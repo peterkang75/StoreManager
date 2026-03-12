@@ -22,17 +22,22 @@ import { useToast } from "@/hooks/use-toast";
 import {
   CheckCircle2,
   Clock,
-  LogOut,
   AlertCircle,
   Loader2,
-  ChevronLeft,
-  ChevronRight,
-  MapPin,
   PenLine,
+  Home,
   CalendarDays,
+  Settings,
+  LogOut,
+  KeyRound,
+  FileText,
+  ChevronRight,
+  User,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+type Tab = "home" | "schedule" | "settings";
 
 interface Session { id: string; nickname: string | null; firstName: string }
 
@@ -51,9 +56,6 @@ interface TodayShiftItem {
 }
 interface TodayData { date: string; shifts: TodayShiftItem[] }
 
-interface DayData { date: string; shift: ShiftInfo | null; timesheet: TimesheetInfo | null }
-interface WeekData { days: DayData[]; published: boolean; weekStart: string; weekEnd: string }
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function toLocalDateStr(d: Date): string {
@@ -63,35 +65,10 @@ function toLocalDateStr(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 function getTodayStr(): string { return toLocalDateStr(new Date()); }
-function getMondayStr(dateStr: string): string {
-  const d = new Date(dateStr + "T00:00:00");
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  return toLocalDateStr(d);
-}
-function addDays(dateStr: string, n: number): string {
-  const d = new Date(dateStr + "T00:00:00");
-  d.setDate(d.getDate() + n);
-  return toLocalDateStr(d);
-}
 function fmtLongDate(dateStr: string): string {
   return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", {
-    weekday: "long", day: "numeric", month: "long", year: "numeric",
+    weekday: "long", day: "numeric", month: "long",
   });
-}
-function fmtWeekRange(start: string): string {
-  const s = new Date(start + "T00:00:00");
-  const e = new Date(start + "T00:00:00");
-  e.setDate(e.getDate() + 6);
-  return `${s.toLocaleDateString("en-AU", { day: "numeric", month: "short" })} – ${e.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}`;
-}
-function fmtDay(dateStr: string) {
-  const d = new Date(dateStr + "T00:00:00");
-  return {
-    abbr: d.toLocaleDateString("en-AU", { weekday: "short" }),
-    num: d.toLocaleDateString("en-AU", { day: "numeric" }),
-  };
 }
 function calcHours(start: string, end: string): number {
   const [sh, sm] = start.split(":").map(Number);
@@ -158,46 +135,50 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
     setError("");
     if (next.length === 4) setTimeout(() => loginMutation.mutate(next), 80);
   };
-  const handleDel = () => setPin(p => p.slice(0, -1));
+  const handleDel = () => { setPin(p => p.slice(0, -1)); setError(""); };
 
   return (
-    <div className="flex flex-col items-center gap-6 w-full max-w-xs mx-auto pt-4">
+    <div className="flex flex-col items-center justify-center flex-1 gap-8 px-4">
       <div className="text-center">
-        <h1 className="text-2xl font-bold">Staff Portal</h1>
-        <p className="text-muted-foreground mt-1 text-sm">Enter your 4-digit PIN</p>
+        <h1 className="text-3xl font-bold tracking-tight">Staff Portal</h1>
+        <p className="text-muted-foreground mt-2 text-sm">Enter your 4-digit PIN to continue</p>
       </div>
 
       {/* PIN dots */}
-      <div className="flex gap-5 py-2" data-testid="pin-dots">
+      <div className="flex gap-6" data-testid="pin-dots">
         {[0,1,2,3].map(i => (
-          <div key={i} className={`h-5 w-5 rounded-full border-2 transition-all duration-150 ${
-            i < pin.length ? "bg-foreground border-foreground scale-110" : "border-muted-foreground"
+          <div key={i} className={`h-4 w-4 rounded-full border-2 transition-all duration-150 ${
+            i < pin.length ? "bg-foreground border-foreground scale-110" : "border-muted-foreground/50"
           }`} />
         ))}
       </div>
 
       {/* Error */}
-      {error && (
-        <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 rounded-md px-4 py-2.5 w-full">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {loginMutation.isPending && (
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      )}
+      <div className="w-full max-w-xs" style={{ minHeight: "40px" }}>
+        {error && (
+          <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 rounded-md px-4 py-2.5">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+        {loginMutation.isPending && (
+          <div className="flex justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        )}
+      </div>
 
       {/* Numpad */}
-      <div className="grid grid-cols-3 gap-3 w-full">
+      <div className="grid grid-cols-3 gap-4 w-full max-w-xs">
         {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((key, idx) => (
           <button
             key={idx} type="button"
             disabled={loginMutation.isPending || key === ""}
             data-testid={key === "⌫" ? "pin-delete" : key ? `pin-digit-${key}` : undefined}
-            className={`h-16 rounded-xl text-2xl font-semibold transition-all ${
-              key === "" ? "invisible" : "bg-muted hover-elevate active-elevate-2"
-            } ${key === "⌫" ? "text-muted-foreground text-lg" : ""}`}
+            className={`h-[72px] rounded-2xl text-2xl font-semibold transition-all select-none ${
+              key === "" ? "invisible pointer-events-none" :
+              "bg-muted hover-elevate active-elevate-2"
+            } ${key === "⌫" ? "text-muted-foreground" : "text-foreground"}`}
             onClick={() => key === "⌫" ? handleDel() : handleDigit(key)}
           >{key}</button>
         ))}
@@ -224,6 +205,10 @@ function TimesheetDrawer({
   const [reason, setReason] = useState("");
   const isModified = startTime !== shift.startTime || endTime !== shift.endTime;
   const hours = calcHours(startTime, endTime);
+
+  useEffect(() => {
+    if (open) { setStartTime(shift.startTime); setEndTime(shift.endTime); setReason(""); }
+  }, [open, shift.startTime, shift.endTime]);
 
   const submitMutation = useMutation({
     mutationFn: async () => {
@@ -255,7 +240,7 @@ function TimesheetDrawer({
 
   return (
     <Drawer open={open} onOpenChange={o => { if (!o) onClose(); }}>
-      <DrawerContent className="px-4">
+      <DrawerContent className="px-4 max-w-md mx-auto">
         <DrawerHeader className="pb-2">
           <div className="flex items-center gap-2 mb-0.5">
             <div className="h-3 w-3 rounded-full" style={{ backgroundColor: item.storeColor }} />
@@ -306,8 +291,8 @@ function TimesheetDrawer({
               />
             </div>
           ) : (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
-              <CheckCircle2 className="h-4 w-4 text-green-600" />
+            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-2.5">
+              <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
               Hours match the roster — no reason needed
             </div>
           )}
@@ -334,9 +319,7 @@ function TimesheetDrawer({
 // ── Today Shift Card ──────────────────────────────────────────────────────────
 
 function TodayShiftCard({
-  item,
-  employeeId,
-  onTimesheetChange,
+  item, employeeId, onTimesheetChange,
 }: {
   item: TodayShiftItem;
   employeeId: string;
@@ -352,13 +335,10 @@ function TodayShiftCard({
     <>
       <Card data-testid={`card-shift-${item.shift.storeId}`}>
         <CardContent className="pt-4 pb-4">
-          {/* Store header */}
           <div className="flex items-center gap-2 mb-3">
             <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: item.storeColor }} />
             <span className="font-semibold text-sm">{item.storeName} Store</span>
           </div>
-
-          {/* Time + hours */}
           <div className="flex items-end justify-between mb-3">
             <div>
               <p className="text-3xl font-bold tabular-nums tracking-tight" data-testid="text-shift-time">
@@ -368,8 +348,6 @@ function TodayShiftCard({
             </div>
             <div className="h-12 w-1.5 rounded-full shrink-0" style={{ backgroundColor: item.storeColor }} />
           </div>
-
-          {/* Timesheet status or actions */}
           {ts && st ? (
             <div className={`flex items-center gap-2 rounded-md px-3 py-2.5 ${st.bg}`}>
               <CheckCircle2 className={`h-4 w-4 shrink-0 ${st.text}`} />
@@ -394,7 +372,6 @@ function TodayShiftCard({
           )}
         </CardContent>
       </Card>
-
       <TimesheetDrawer
         open={drawerOpen}
         item={item}
@@ -406,56 +383,14 @@ function TodayShiftCard({
   );
 }
 
-// ── Weekly Schedule Row ───────────────────────────────────────────────────────
+// ── Tab: Home ─────────────────────────────────────────────────────────────────
 
-function WeekRow({ day, today }: { day: DayData; today: string }) {
-  const { abbr, num } = fmtDay(day.date);
-  const isToday = day.date === today;
-  const isPast = day.date < today;
-  const ts = day.timesheet;
-  const st = ts ? STATUS_STYLE[ts.status] ?? STATUS_STYLE.PENDING : null;
-
-  return (
-    <div className={`flex items-center gap-3 px-3 py-2.5 ${isToday ? "bg-primary/5 dark:bg-primary/10 rounded-md" : ""}`}>
-      <div className={`flex flex-col items-center w-10 shrink-0 ${isToday ? "text-primary" : isPast ? "text-muted-foreground" : "text-muted-foreground/40"}`}>
-        <span className="text-[10px] font-medium uppercase tracking-wide">{abbr}</span>
-        <span className={`text-lg font-bold leading-tight ${isToday ? "text-primary" : ""}`}>{num}</span>
-      </div>
-      <div className="flex-1 min-w-0">
-        {day.shift ? (
-          <>
-            <p className={`font-semibold text-sm tabular-nums ${!isToday && isPast ? "text-muted-foreground" : !isPast && !isToday ? "text-muted-foreground/50" : ""}`}>
-              {day.shift.startTime} – {day.shift.endTime}
-            </p>
-            <p className="text-xs text-muted-foreground">{calcHours(day.shift.startTime, day.shift.endTime).toFixed(1)}h</p>
-          </>
-        ) : (
-          <p className="text-sm text-muted-foreground/40 italic">No shift</p>
-        )}
-      </div>
-      <div className="shrink-0">
-        {st && ts && (
-          <div className={`flex items-center gap-1 rounded-md px-2 py-1 ${st.bg}`}>
-            <CheckCircle2 className={`h-3 w-3 ${st.text}`} />
-            <span className={`text-xs font-medium ${st.text}`}>{st.label.split(" ")[0]}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Dashboard ─────────────────────────────────────────────────────────────────
-
-function Dashboard({ session, onLogout }: { session: Session; onLogout: () => void }) {
+function HomeTab({ session }: { session: Session }) {
   const today = getTodayStr();
-  const [weekStart, setWeekStart] = useState(() => getMondayStr(today));
   const [localTimesheets, setLocalTimesheets] = useState<Record<string, TimesheetInfo>>({});
   const qc = useQueryClient();
   const displayName = session.nickname || session.firstName;
-  const isCurrentWeek = weekStart === getMondayStr(today);
 
-  // Today's multi-store shifts
   const todayQK = ["/api/portal/today", session.id, today];
   const { data: todayData, isLoading: todayLoading } = useQuery<TodayData>({
     queryKey: todayQK,
@@ -467,55 +402,32 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
     staleTime: 0,
   });
 
-  // Weekly schedule — no storeId filter, fetches across all stores
-  const weekQK = ["/api/portal/week-all", session.id, weekStart];
-  const { data: weekData, isLoading: weekLoading } = useQuery<WeekData>({
-    queryKey: weekQK,
-    queryFn: async () => {
-      const res = await fetch(
-        `/api/portal/week?employeeId=${session.id}&weekStart=${weekStart}`,
-        { credentials: "include" }
-      );
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    },
-    staleTime: 0,
-  });
-
   const todayShifts: TodayShiftItem[] = (todayData?.shifts ?? []).map(item => ({
     ...item,
     timesheet: localTimesheets[item.shift.storeId] ?? item.timesheet,
   }));
 
-  const weekDays = weekData?.days ?? [];
-  const shiftCount = weekDays.filter(d => d.shift).length;
-  const submittedCount = weekDays.filter(d => d.timesheet).length;
-  const weekTotal = weekDays.reduce((s, d) => d.shift ? s + calcHours(d.shift.startTime, d.shift.endTime) : s, 0);
-
   return (
-    <div className="flex flex-col gap-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs text-muted-foreground">Good {getGreeting()},</p>
-          <h2 className="text-2xl font-bold" data-testid="text-employee-name">{displayName}</h2>
-        </div>
-        <Button size="icon" variant="ghost" onClick={onLogout} data-testid="button-logout">
-          <LogOut className="h-4 w-4" />
-        </Button>
+    <div className="flex flex-col gap-5 px-4 py-5">
+      {/* Greeting */}
+      <div>
+        <p className="text-sm text-muted-foreground">Good {getGreeting()},</p>
+        <h2 className="text-2xl font-bold" data-testid="text-employee-name">{displayName}</h2>
       </div>
 
       {/* TODAY section */}
       <div>
         <div className="flex items-center gap-2 mb-3">
           <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-          <h3 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">
+          <h3 className="font-semibold text-xs uppercase tracking-widest text-muted-foreground">
             Today · {fmtLongDate(today)}
           </h3>
         </div>
 
         {todayLoading && (
-          <div className="flex justify-center py-6"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
         )}
 
         {!todayLoading && todayShifts.length === 0 && (
@@ -523,7 +435,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
             <CardContent className="py-8 text-center">
               <Clock className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
               <p className="font-medium">No shifts today</p>
-              <p className="text-sm text-muted-foreground mt-1">You have no published shifts scheduled for today.</p>
+              <p className="text-sm text-muted-foreground mt-1">You have no published shifts scheduled.</p>
             </CardContent>
           </Card>
         )}
@@ -545,49 +457,177 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         )}
       </div>
 
-      {/* WEEKLY SCHEDULE section */}
+      {/* Quick Actions */}
       <div>
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground flex items-center gap-2">
-            <CalendarDays className="h-4 w-4" />Week Schedule
-          </h3>
-          <div className="flex items-center gap-1">
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setWeekStart(s => addDays(s, -7))} data-testid="button-prev-week">
-              <ChevronLeft className="h-3.5 w-3.5" />
-            </Button>
-            <span className="text-xs text-muted-foreground px-1">{fmtWeekRange(weekStart)}</span>
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setWeekStart(s => addDays(s, 7))} disabled={isCurrentWeek} data-testid="button-next-week">
-              <ChevronRight className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
-
-        {/* Summary pill */}
-        {!weekLoading && weekData && shiftCount > 0 && (
-          <div className="flex items-center justify-between text-xs text-muted-foreground bg-muted/40 rounded-md px-3 py-1.5 mb-2">
-            <span>{shiftCount} shifts · {weekTotal.toFixed(1)}h</span>
-            <span className="flex items-center gap-1">
-              <CheckCircle2 className={`h-3 w-3 ${submittedCount === shiftCount ? "text-green-600" : "text-amber-500"}`} />
-              {submittedCount}/{shiftCount} submitted
-            </span>
-          </div>
-        )}
-
-        {weekLoading && <div className="flex justify-center py-4"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}
-
-        {!weekLoading && weekData && (
-          <Card>
-            <CardContent className="py-2 px-1">
-              {!weekData.published && (
-                <p className="text-sm text-muted-foreground text-center py-3">Roster not published for this week</p>
-              )}
-              <div className="divide-y">
-                {weekDays.map(day => <WeekRow key={day.date} day={day} today={today} />)}
+        <h3 className="font-semibold text-xs uppercase tracking-widest text-muted-foreground mb-3">
+          Quick Actions
+        </h3>
+        <Card>
+          <CardContent className="p-0">
+            <button
+              type="button"
+              data-testid="button-daily-close-report"
+              className="w-full flex items-center gap-4 px-4 py-4 hover-elevate active-elevate-2 rounded-md text-left"
+              onClick={() => {}}
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 shrink-0">
+                <FileText className="h-5 w-5 text-primary" />
               </div>
-            </CardContent>
-          </Card>
-        )}
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm">Submit Daily Close Report</p>
+                <p className="text-xs text-muted-foreground mt-0.5">End-of-day summary for managers</p>
+              </div>
+              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+            </button>
+          </CardContent>
+        </Card>
       </div>
+    </div>
+  );
+}
+
+// ── Tab: Schedule ─────────────────────────────────────────────────────────────
+
+function ScheduleTab() {
+  return (
+    <div className="flex flex-col gap-5 px-4 py-5">
+      <div>
+        <h2 className="text-xl font-bold">My Upcoming Shifts</h2>
+        <p className="text-sm text-muted-foreground mt-1">Your weekly schedule at a glance</p>
+      </div>
+      <Card>
+        <CardContent className="py-12 flex flex-col items-center gap-3">
+          <CalendarDays className="h-10 w-10 text-muted-foreground/40" />
+          <p className="font-medium text-muted-foreground">Weekly schedule view coming soon.</p>
+          <p className="text-xs text-muted-foreground text-center max-w-[200px]">
+            Your full shift calendar will appear here once it's ready.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ── Tab: Settings ─────────────────────────────────────────────────────────────
+
+function SettingsTab({ session, onLogout }: { session: Session; onLogout: () => void }) {
+  const displayName = session.nickname || session.firstName;
+
+  return (
+    <div className="flex flex-col gap-5 px-4 py-5">
+      <div>
+        <h2 className="text-xl font-bold">Settings</h2>
+        <p className="text-sm text-muted-foreground mt-1">Manage your account</p>
+      </div>
+
+      {/* User info card */}
+      <Card>
+        <CardContent className="pt-4 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 shrink-0">
+              <User className="h-6 w-6 text-primary" />
+            </div>
+            <div>
+              <p className="font-semibold" data-testid="text-settings-name">{displayName}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Logged in as staff</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Actions */}
+      <div className="flex flex-col gap-2">
+        <p className="text-xs uppercase tracking-widest text-muted-foreground font-semibold px-1 mb-1">Account</p>
+        <Card>
+          <CardContent className="p-0">
+            <button
+              type="button"
+              data-testid="button-change-pin"
+              className="w-full flex items-center gap-4 px-4 py-4 hover-elevate active-elevate-2 rounded-md text-left"
+              onClick={() => {}}
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted shrink-0">
+                <KeyRound className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm">Change PIN</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Update your 4-digit access code</p>
+              </div>
+              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+            </button>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Log out */}
+      <div className="pt-2">
+        <Button
+          variant="destructive"
+          className="w-full"
+          onClick={onLogout}
+          data-testid="button-logout"
+        >
+          <LogOut className="h-4 w-4 mr-2" />
+          Log Out
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Bottom Navigation Bar ─────────────────────────────────────────────────────
+
+const NAV_ITEMS: { tab: Tab; label: string; Icon: typeof Home }[] = [
+  { tab: "home",     label: "Home",     Icon: Home },
+  { tab: "schedule", label: "Schedule", Icon: CalendarDays },
+  { tab: "settings", label: "Settings", Icon: Settings },
+];
+
+function BottomNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
+  return (
+    <nav className="sticky bottom-0 z-50 w-full border-t bg-background/95 backdrop-blur-sm">
+      <div className="flex items-stretch h-16">
+        {NAV_ITEMS.map(({ tab, label, Icon }) => {
+          const isActive = active === tab;
+          return (
+            <button
+              key={tab}
+              type="button"
+              data-testid={`nav-tab-${tab}`}
+              className="flex-1 flex flex-col items-center justify-center gap-1 transition-colors"
+              onClick={() => onChange(tab)}
+            >
+              <Icon
+                className={`h-5 w-5 transition-colors ${isActive ? "text-primary" : "text-muted-foreground"}`}
+                strokeWidth={isActive ? 2.5 : 1.8}
+              />
+              <span className={`text-[10px] font-medium tracking-wide transition-colors ${
+                isActive ? "text-primary" : "text-muted-foreground"
+              }`}>{label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+// ── Logged-in App Shell ───────────────────────────────────────────────────────
+
+function AppShell({ session, onLogout }: { session: Session; onLogout: () => void }) {
+  const [activeTab, setActiveTab] = useState<Tab>("home");
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Scrollable content area */}
+      <div className="flex-1 overflow-y-auto">
+        {activeTab === "home"     && <HomeTab session={session} />}
+        {activeTab === "schedule" && <ScheduleTab />}
+        {activeTab === "settings" && <SettingsTab session={session} onLogout={onLogout} />}
+      </div>
+
+      {/* Bottom nav */}
+      <BottomNav active={activeTab} onChange={setActiveTab} />
     </div>
   );
 }
@@ -599,25 +639,28 @@ export function EmployeePortal() {
   useEffect(() => { saveSession(session); }, [session]);
 
   const handleLogout = () => setSession(null);
+  const handleLogin  = (s: Session) => { saveSession(s); setSession(s); };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <header className="px-4 py-3 border-b sticky top-0 bg-background z-50">
-        <div className="flex items-center gap-2">
-          <MapPin className="h-4 w-4 text-muted-foreground" />
-          <span className="font-semibold text-sm">Staff Portal</span>
-        </div>
-      </header>
+    <div className="min-h-screen bg-background flex flex-col items-center">
+      {/* Mobile-optimised shell: constrained width, full height */}
+      <div className="w-full max-w-md flex flex-col min-h-screen border-x border-border/30">
+        {/* Top bar — always visible */}
+        <header className="sticky top-0 z-50 bg-background/95 backdrop-blur-sm border-b">
+          <div className="flex items-center gap-2 px-4 h-12">
+            <div className="h-2.5 w-2.5 rounded-full bg-primary" />
+            <span className="font-semibold text-sm tracking-wide">Staff Portal</span>
+          </div>
+        </header>
 
-      <main className="flex-1 flex flex-col items-center px-4 py-8">
-        <div className="w-full max-w-sm">
-          {session ? (
-            <Dashboard session={session} onLogout={handleLogout} />
-          ) : (
-            <PinLogin onSuccess={s => { saveSession(s); setSession(s); }} />
-          )}
-        </div>
-      </main>
+        {/* Main content */}
+        {session
+          ? <AppShell session={session} onLogout={handleLogout} />
+          : <div className="flex-1 flex flex-col">
+              <PinLogin onSuccess={handleLogin} />
+            </div>
+        }
+      </div>
     </div>
   );
 }
