@@ -495,8 +495,8 @@ export function AdminRosters() {
 
         {/* ── Mobile: Day selector ribbon ─────────────────────────────── */}
         {selectedStore && (
-          <div className="md:hidden border-b bg-background overflow-x-auto">
-            <div className="flex min-w-full px-2 py-2 gap-1">
+          <div className="md:hidden border-b bg-background">
+            <div className="flex w-full px-1 py-2 gap-0.5">
               {weekDates.map((d, i) => {
                 const dayNum = new Date(d).getDate();
                 const isActive = d === selectedDay;
@@ -507,14 +507,14 @@ export function AdminRosters() {
                     key={d}
                     type="button"
                     onClick={() => setSelectedDay(d)}
-                    className={`flex flex-col items-center px-3 py-1.5 rounded-md min-w-[52px] text-xs transition-colors
+                    className={`flex-1 flex flex-col items-center py-1.5 rounded-md text-xs transition-colors
                       ${isActive
                         ? "bg-primary text-primary-foreground font-semibold"
                         : "text-muted-foreground hover:bg-muted"
                       }`}
                     data-testid={`button-day-tab-${i}`}
                   >
-                    <span className={`font-medium ${isToday && !isActive ? "text-primary" : ""}`}>{DAY_NAMES[i]}</span>
+                    <span className={`font-medium text-[11px] ${isToday && !isActive ? "text-primary" : ""}`}>{DAY_NAMES[i]}</span>
                     <span className={`text-base font-bold leading-tight ${isToday && !isActive ? "text-primary" : ""}`}>{dayNum}</span>
                     {hasSomeShift && (
                       <span className={`mt-0.5 h-1 w-1 rounded-full ${isActive ? "bg-primary-foreground" : "bg-primary"}`} />
