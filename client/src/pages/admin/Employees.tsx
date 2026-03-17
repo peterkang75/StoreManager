@@ -32,7 +32,7 @@ export function AdminEmployees() {
   const [linkCopied, setLinkCopied] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [storeFilter, setStoreFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("ACTIVE");
   const [importing, setImporting] = useState(false);
   const [importingPhotos, setImportingPhotos] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
@@ -119,6 +119,18 @@ export function AdminEmployees() {
       .join(", ");
   };
 
+  const STORE_ORDER: Record<string, number> = { Sushi: 0, Sandwich: 1, HO: 2 };
+
+  const getStorePriority = (employeeId: string): number => {
+    const storeIds = empStoreMap.get(employeeId) || [];
+    if (storeIds.length === 0) return 99;
+    const priorities = storeIds.map(sid => {
+      const name = storeMap.get(sid)?.name ?? "";
+      return STORE_ORDER[name] ?? 3;
+    });
+    return Math.min(...priorities);
+  };
+
   const filteredEmployees = employees?.filter((e) => {
     const matchesSearch =
       e.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -129,6 +141,11 @@ export function AdminEmployees() {
     const matchesStore = storeFilter === "all" || empStores.includes(storeFilter);
     const matchesStatus = statusFilter === "all" || e.status === statusFilter;
     return matchesSearch && matchesStore && matchesStatus;
+  }).sort((a, b) => {
+    const pa = getStorePriority(a.id);
+    const pb = getStorePriority(b.id);
+    if (pa !== pb) return pa - pb;
+    return (a.nickname || a.firstName).localeCompare(b.nickname || b.firstName);
   });
 
   const handleRowClick = (employee: Employee) => {
