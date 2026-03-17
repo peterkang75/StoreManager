@@ -280,25 +280,33 @@ export function AdminEmployeeDetail() {
       const data = await res.json();
       const parsed: Record<string, string | null> = data.parsedData ?? {};
       const today = todayYMD();
-      setVevoFileName(data.originalName || file.name);
-      setFormData(prev => ({
-        ...prev,
+
+      // Build the fields to save immediately to DB
+      const patch: Record<string, string | null> = {
         vevoUrl: data.url,
         lastVevoCheckDate: today,
-        ...(parsed.visaExpiry ? { visaExpiry: parsed.visaExpiry } : {}),
-        ...(parsed.visaSubclass ? { visaSubclass: parsed.visaSubclass } : {}),
-        ...(parsed.workEntitlements ? { workEntitlements: parsed.workEntitlements } : {}),
-        ...(parsed.passportNo ? { passportNo: parsed.passportNo } : {}),
-        ...(parsed.nationality ? { nationality: parsed.nationality } : {}),
-      }));
+      };
+      if (parsed.visaExpiry) patch.visaExpiry = parsed.visaExpiry;
+      if (parsed.visaSubclass) patch.visaSubclass = parsed.visaSubclass;
+      if (parsed.workEntitlements) patch.workEntitlements = parsed.workEntitlements;
+      if (parsed.passportNo) patch.passportNo = parsed.passportNo;
+      if (parsed.nationality) patch.nationality = parsed.nationality;
+
+      // Persist immediately — no need to click Save
+      await apiRequest("PUT", `/api/employees/${employeeId}`, patch);
+      queryClient.invalidateQueries({ queryKey: ["/api/employees", employeeId] });
+
+      setVevoFileName(data.originalName || file.name);
+      setFormData(prev => ({ ...prev, ...patch }));
+
       const parsedFields = [
         parsed.visaExpiry && `Expiry: ${parsed.visaExpiry}`,
         parsed.visaSubclass && `Subclass: ${parsed.visaSubclass}`,
         parsed.workEntitlements && `Work: ${parsed.workEntitlements}`,
       ].filter(Boolean).join(" · ");
       toast({
-        title: "VEVO document uploaded",
-        description: parsedFields || "Last check date set to today. Review fields below.",
+        title: "VEVO document saved",
+        description: parsedFields || "Document saved. Review fields below.",
       });
     } catch {
       toast({ title: "Upload failed", variant: "destructive" });
@@ -628,7 +636,7 @@ export function AdminEmployeeDetail() {
                               <Upload className="h-3.5 w-3.5 mr-1" />
                               Replace
                             </Button>
-                            <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => { handleFieldChange("vevoUrl", null); setVevoFileName(null); }} data-testid="button-remove-vevo">
+                            <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={async () => { handleFieldChange("vevoUrl", null); setVevoFileName(null); await apiRequest("PUT", `/api/employees/${employeeId}`, { vevoUrl: null }); queryClient.invalidateQueries({ queryKey: ["/api/employees", employeeId] }); }} data-testid="button-remove-vevo">
                               <X className="h-3.5 w-3.5" />
                             </Button>
                           </div>

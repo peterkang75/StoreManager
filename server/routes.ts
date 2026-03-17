@@ -119,14 +119,26 @@ export async function registerRoutes(
           return m ? m[1]?.trim().replace(/\s+/g, " ") || null : null;
         };
 
+        // Map raw VEVO work entitlements text → one of 3 canonical values
+        const mapWorkEntitlements = (raw: string | null): string | null => {
+          if (!raw) return null;
+          const s = raw.toLowerCase();
+          if (/cannot\s+work|no\s+work\s+right|not\s+permitted\s+to\s+work/i.test(s)) return "No Work Rights";
+          if (/40\s+hour|per\s+fortnight|limited|restricted|condition/i.test(s)) return "Restricted";
+          if (/may\s+work|full\s+work|unlimited|no\s+restriction|unrestricted/i.test(s)) return "Full Work Rights";
+          return null;
+        };
+
         parsedData = {
           visaExpiry: parseDate(get(/[Ee]xpiry\s+[Dd]ate\s*[:|\s]\s*([^\n\r|]+)/i)
             ?? get(/[Ee]xpires?\s*[:|\s]\s*([^\n\r|]+)/i)
-            ?? get(/[Ee]xpiry\s*[:|\s]\s*([^\n\r|]+)/i)) ,
+            ?? get(/[Ee]xpiry\s*[:|\s]\s*([^\n\r|]+)/i)),
           visaSubclass: get(/[Vv]isa\s+[Ss]ubclass\s*[:|\s]\s*(\d+)/i)
             ?? get(/[Ss]ubclass\s*[:|\s]\s*(\d+)/i),
-          workEntitlements: get(/[Ww]ork\s+[Ee]ntitlements?\s*[:|\s]\s*([^\n\r|]+)/i)
-            ?? get(/[Ww]ork\s+[Cc]onditions?\s*[:|\s]\s*([^\n\r|]+)/i),
+          workEntitlements: mapWorkEntitlements(
+            get(/[Ww]ork\s+[Ee]ntitlements?\s*[:|\s]\s*([^\n\r|]+)/i)
+            ?? get(/[Ww]ork\s+[Cc]onditions?\s*[:|\s]\s*([^\n\r|]+)/i)
+          ),
           passportNo: get(/[Pp]assport\s+[Nn]o\s*[:|\s]\s*([A-Z0-9]+)/i)
             ?? get(/[Pp]assport\s+[Nn]umber\s*[:|\s]\s*([A-Z0-9]+)/i),
           nationality: get(/[Nn]ationality\s*[:|\s]\s*([^\n\r|]+)/i)
