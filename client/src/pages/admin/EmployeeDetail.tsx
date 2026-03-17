@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Loader2, Save, User, ExternalLink, Camera, FileImage, Upload, X, ShieldCheck, AlertTriangle, ClipboardCopy, CheckCircle2, Shield } from "lucide-react";
+import { ArrowLeft, Loader2, Save, User, ExternalLink, Camera, FileImage, Upload, X, ShieldCheck, AlertTriangle, ClipboardCopy, CheckCircle2, Shield, FileText, Download } from "lucide-react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -136,6 +136,7 @@ export function AdminEmployeeDetail() {
   const [vevoVerifiedByInput, setVevoVerifiedByInput] = useState("");
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [showVevoModal, setShowVevoModal] = useState(false);
+  const [vevoFileName, setVevoFileName] = useState<string | null>(null);
   const vevoFileRef = useRef<HTMLInputElement>(null);
 
   const { data: employee, isLoading: employeeLoading } = useQuery<Employee>({
@@ -265,6 +266,8 @@ export function AdminEmployeeDetail() {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
+  const todayYMD = () => new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
+
   const handleVevoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -272,11 +275,31 @@ export function AdminEmployeeDetail() {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const res = await fetch(`/api/employees/${employeeId}/vevo-upload`, { method: "POST", body: fd });
       if (!res.ok) throw new Error("Upload failed");
       const data = await res.json();
-      handleFieldChange("vevoUrl", data.url);
-      toast({ title: "VEVO document uploaded" });
+      const parsed: Record<string, string | null> = data.parsedData ?? {};
+      const today = todayYMD();
+      setVevoFileName(data.originalName || file.name);
+      setFormData(prev => ({
+        ...prev,
+        vevoUrl: data.url,
+        lastVevoCheckDate: today,
+        ...(parsed.visaExpiry ? { visaExpiry: parsed.visaExpiry } : {}),
+        ...(parsed.visaSubclass ? { visaSubclass: parsed.visaSubclass } : {}),
+        ...(parsed.workEntitlements ? { workEntitlements: parsed.workEntitlements } : {}),
+        ...(parsed.passportNo ? { passportNo: parsed.passportNo } : {}),
+        ...(parsed.nationality ? { nationality: parsed.nationality } : {}),
+      }));
+      const parsedFields = [
+        parsed.visaExpiry && `Expiry: ${parsed.visaExpiry}`,
+        parsed.visaSubclass && `Subclass: ${parsed.visaSubclass}`,
+        parsed.workEntitlements && `Work: ${parsed.workEntitlements}`,
+      ].filter(Boolean).join(" · ");
+      toast({
+        title: "VEVO document uploaded",
+        description: parsedFields || "Last check date set to today. Review fields below.",
+      });
     } catch {
       toast({ title: "Upload failed", variant: "destructive" });
     } finally {
@@ -559,7 +582,7 @@ export function AdminEmployeeDetail() {
                         <p className="text-sm font-medium">VEVO Organisation Login</p>
                         <p className="text-xs text-muted-foreground">Copy employee details, then open the government portal</p>
                       </div>
-                      <Button size="sm" onClick={() => setShowVevoModal(true)} data-testid="button-open-vevo-modal">
+                      <Button size="sm" onClick={() => { setShowVevoModal(true); setFormData(prev => ({ ...prev, lastVevoCheckDate: todayYMD() })); }} data-testid="button-open-vevo-modal">
                         <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
                         Open VEVO Organisation Login
                       </Button>
@@ -578,14 +601,37 @@ export function AdminEmployeeDetail() {
                     <div className="flex items-center gap-3">
                       <input ref={vevoFileRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleVevoUpload} data-testid="input-vevo-file" />
                       {currentData.vevoUrl ? (
-                        <div className="flex flex-1 items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-2">
-                          <Shield className="h-4 w-4 text-muted-foreground shrink-0" />
-                          <a href={currentData.vevoUrl} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-sm text-blue-600 dark:text-blue-400 hover:underline">
-                            {currentData.vevoUrl.split("/").pop() || "VEVO Document"}
-                          </a>
-                          <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => handleFieldChange("vevoUrl", null)} data-testid="button-remove-vevo">
-                            <X className="h-3.5 w-3.5" />
-                          </Button>
+                        <div className="flex flex-1 flex-wrap items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-2">
+                          <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <span className="flex-1 truncate text-sm font-medium min-w-0" data-testid="text-vevo-filename">
+                            {vevoFileName || currentData.vevoUrl.split("/").pop()?.replace(/^\d+-\d+-/, "") || "VEVO Document"}
+                          </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => window.open(currentData.vevoUrl!, "_blank")}
+                              data-testid="button-view-vevo"
+                            >
+                              <Download className="h-3.5 w-3.5 mr-1" />
+                              View
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => vevoFileRef.current?.click()}
+                              disabled={vevoUploading}
+                              data-testid="button-replace-vevo"
+                            >
+                              <Upload className="h-3.5 w-3.5 mr-1" />
+                              Replace
+                            </Button>
+                            <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => { handleFieldChange("vevoUrl", null); setVevoFileName(null); }} data-testid="button-remove-vevo">
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
                         </div>
                       ) : (
                         <Button size="sm" variant="outline" onClick={() => vevoFileRef.current?.click()} disabled={vevoUploading} data-testid="button-upload-vevo">

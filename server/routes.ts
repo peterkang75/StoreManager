@@ -73,6 +73,76 @@ export async function registerRoutes(
     }
   });
 
+  // VEVO result document upload with text parsing
+  app.post("/api/employees/:id/vevo-upload", upload.single("file"), async (req: Request, res: Response) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+      const protocol = req.protocol;
+      const host = req.get("host");
+      const url = `${protocol}://${host}/uploads/${req.file.filename}`;
+
+      // Attempt to extract VEVO data from the file text (works for text-based PDFs and HTML exports)
+      let parsedData: Record<string, string | null> = {};
+      try {
+        const raw = fs.readFileSync(req.file.path);
+        // Try UTF-8 first, fall back to latin1 for binary PDFs
+        let text = "";
+        try { text = raw.toString("utf-8"); } catch { text = raw.toString("latin1"); }
+
+        const parseDate = (raw: string | undefined): string | null => {
+          if (!raw) return null;
+          const s = raw.trim().replace(/\|/g, "").trim();
+          if (!s || /^no\s+fixed\s+date$/i.test(s)) return null;
+          // "26 September 2026" or "26 Sep 2026"
+          const months: Record<string, string> = {
+            january: "01", february: "02", march: "03", april: "04",
+            may: "05", june: "06", july: "07", august: "08",
+            september: "09", october: "10", november: "11", december: "12",
+            jan: "01", feb: "02", mar: "03", apr: "04",
+            jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
+          };
+          const wordy = s.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
+          if (wordy) {
+            const m = months[wordy[2].toLowerCase()];
+            if (m) return `${wordy[3]}-${m}-${wordy[1].padStart(2, "0")}`;
+          }
+          // DD/MM/YYYY
+          const slash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+          if (slash) return `${slash[3]}-${slash[2].padStart(2, "0")}-${slash[1].padStart(2, "0")}`;
+          // YYYY-MM-DD already
+          if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+          return null;
+        };
+
+        const get = (pattern: RegExp): string | null => {
+          const m = text.match(pattern);
+          return m ? m[1]?.trim().replace(/\s+/g, " ") || null : null;
+        };
+
+        parsedData = {
+          visaExpiry: parseDate(get(/[Ee]xpiry\s+[Dd]ate\s*[:|\s]\s*([^\n\r|]+)/i)
+            ?? get(/[Ee]xpires?\s*[:|\s]\s*([^\n\r|]+)/i)
+            ?? get(/[Ee]xpiry\s*[:|\s]\s*([^\n\r|]+)/i)) ,
+          visaSubclass: get(/[Vv]isa\s+[Ss]ubclass\s*[:|\s]\s*(\d+)/i)
+            ?? get(/[Ss]ubclass\s*[:|\s]\s*(\d+)/i),
+          workEntitlements: get(/[Ww]ork\s+[Ee]ntitlements?\s*[:|\s]\s*([^\n\r|]+)/i)
+            ?? get(/[Ww]ork\s+[Cc]onditions?\s*[:|\s]\s*([^\n\r|]+)/i),
+          passportNo: get(/[Pp]assport\s+[Nn]o\s*[:|\s]\s*([A-Z0-9]+)/i)
+            ?? get(/[Pp]assport\s+[Nn]umber\s*[:|\s]\s*([A-Z0-9]+)/i),
+          nationality: get(/[Nn]ationality\s*[:|\s]\s*([^\n\r|]+)/i)
+            ?? get(/[Cc]ountry\s+of\s+[Pp]assport\s*[:|\s]\s*([^\n\r|]+)/i),
+        };
+      } catch {
+        // Parsing failed — return empty parsedData, still save the file
+      }
+
+      res.json({ url, filename: req.file.filename, originalName: req.file.originalname, size: req.file.size, parsedData });
+    } catch (error) {
+      console.error("VEVO upload error:", error);
+      res.status(500).json({ error: "Upload failed" });
+    }
+  });
+
   app.get("/api/stores", async (req: Request, res: Response) => {
     try {
       const stores = await storage.getStores();
