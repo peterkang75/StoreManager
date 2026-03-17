@@ -299,15 +299,24 @@ export function AdminEmployeeDetail() {
       setVevoFileName(data.originalName || file.name);
       setFormData(prev => ({ ...prev, ...patch }));
 
+      const parsedCount = Object.values(parsed).filter(Boolean).length;
       const parsedFields = [
         parsed.visaExpiry && `Expiry: ${parsed.visaExpiry}`,
         parsed.visaSubclass && `Subclass: ${parsed.visaSubclass}`,
         parsed.workEntitlements && `Work: ${parsed.workEntitlements}`,
       ].filter(Boolean).join(" · ");
-      toast({
-        title: "VEVO document saved",
-        description: parsedFields || "Document saved. Review fields below.",
-      });
+      if (parsedCount === 0) {
+        toast({
+          title: "VEVO document saved",
+          description: "파일이 이미지 기반 PDF라 텍스트를 자동으로 읽을 수 없습니다. 아래 입력창에 직접 입력 후 Save 해주세요.",
+          variant: "default",
+        });
+      } else {
+        toast({
+          title: "VEVO document saved",
+          description: parsedFields,
+        });
+      }
     } catch {
       toast({ title: "Upload failed", variant: "destructive" });
     } finally {
@@ -605,7 +614,10 @@ export function AdminEmployeeDetail() {
 
                   {/* VEVO Document Upload */}
                   <div className="space-y-2">
-                    <Label className="font-medium">VEVO Result Document (PDF / Image)</Label>
+                    <div>
+                      <Label className="font-medium">VEVO Result Document (PDF / Image)</Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">텍스트 PDF는 자동 입력됩니다. 이미지/스캔 PDF는 자동 입력이 안 되며, 업로드 후 아래 항목을 직접 입력하세요.</p>
+                    </div>
                     <div className="flex items-center gap-3">
                       <input ref={vevoFileRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleVevoUpload} data-testid="input-vevo-file" />
                       {currentData.vevoUrl ? (

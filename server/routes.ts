@@ -84,16 +84,30 @@ export async function registerRoutes(
       // Attempt to extract VEVO data from the file text (works for text-based PDFs and HTML exports)
       let parsedData: Record<string, string | null> = {};
       try {
-        const raw = fs.readFileSync(req.file.path);
-        // Try UTF-8 first, fall back to latin1 for binary PDFs
         let text = "";
-        try { text = raw.toString("utf-8"); } catch { text = raw.toString("latin1"); }
 
-        const parseDate = (raw: string | undefined): string | null => {
+        const ext = req.file.originalname.toLowerCase();
+        if (ext.endsWith(".pdf")) {
+          // Use pdftotext CLI for clean text extraction from PDF
+          const { spawnSync } = await import("child_process");
+          const result = spawnSync("pdftotext", [req.file.path, "-"], { encoding: "utf-8", timeout: 15000 });
+          if (result.status === 0 && result.stdout) {
+            text = result.stdout;
+          } else {
+            // Fallback: read raw bytes
+            const raw = fs.readFileSync(req.file.path);
+            text = raw.toString("utf-8");
+          }
+        } else {
+          // Image or HTML: read raw
+          const raw = fs.readFileSync(req.file.path);
+          text = raw.toString("utf-8");
+        }
+
+        const parseDate = (raw: string | undefined | null): string | null => {
           if (!raw) return null;
           const s = raw.trim().replace(/\|/g, "").trim();
           if (!s || /^no\s+fixed\s+date$/i.test(s)) return null;
-          // "26 September 2026" or "26 Sep 2026"
           const months: Record<string, string> = {
             january: "01", february: "02", march: "03", april: "04",
             may: "05", june: "06", july: "07", august: "08",
@@ -101,6 +115,7 @@ export async function registerRoutes(
             jan: "01", feb: "02", mar: "03", apr: "04",
             jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
           };
+          // "30 September 2026" or "30 Sep 2026"
           const wordy = s.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
           if (wordy) {
             const m = months[wordy[2].toLowerCase()];
@@ -114,35 +129,56 @@ export async function registerRoutes(
           return null;
         };
 
+        // Match a field: "Label\n\n\nValue" OR "Label: Value" OR "Label Value" formats
         const get = (pattern: RegExp): string | null => {
           const m = text.match(pattern);
           return m ? m[1]?.trim().replace(/\s+/g, " ") || null : null;
         };
 
-        // Map raw VEVO work entitlements text → one of 3 canonical values
-        const mapWorkEntitlements = (raw: string | null): string | null => {
-          if (!raw) return null;
-          const s = raw.toLowerCase();
-          if (/cannot\s+work|no\s+work\s+right|not\s+permitted\s+to\s+work/i.test(s)) return "No Work Rights";
-          if (/40\s+hour|per\s+fortnight|limited|restricted|condition/i.test(s)) return "Restricted";
-          if (/may\s+work|full\s+work|unlimited|no\s+restriction|unrestricted/i.test(s)) return "Full Work Rights";
+        // Detect work entitlements from the full document (handles condition codes)
+        const detectWorkEntitlements = (): string | null => {
+          // Check Restricted FIRST — "cannot work more than 48 hours" is Restricted, not No Work Rights
+          // Condition 8105 = Student visa work limitation (48 hrs/fortnight)
+          // Condition 8104 = Working holiday (limited hours)
+          if (/8105|8104|48\s+hours?\s+(a|per)\s+fortnight|work\s+limitation|limited\s+hours/i.test(text)) return "Restricted";
+          // Absolute no-work restriction (no hours mentioned)
+          if (/not\s+permitted\s+to\s+work|no\s+work\s+right|\bcannot\s+work\s+in\s+australia\b/i.test(text)) return "No Work Rights";
+          if (/8101|8108|may\s+work|full\s+work|unlimited|no\s+restriction|unrestricted/i.test(text)) return "Full Work Rights";
+          // Fallback: look at the "Work entitlements" section label value
+          const inline = get(/[Ww]ork\s+[Ee]ntitlements?\s*:\s*([^\n\r|]+)/i)
+            ?? get(/[Ww]ork\s+[Cc]onditions?\s*:\s*([^\n\r|]+)/i);
+          if (inline) {
+            const s = inline.toLowerCase();
+            if (/cannot|no\s+work/.test(s)) return "No Work Rights";
+            if (/40\s+hour|fortnight|limited|restricted/.test(s)) return "Restricted";
+            if (/may\s+work|full|unlimited/.test(s)) return "Full Work Rights";
+          }
           return null;
         };
 
         parsedData = {
-          visaExpiry: parseDate(get(/[Ee]xpiry\s+[Dd]ate\s*[:|\s]\s*([^\n\r|]+)/i)
-            ?? get(/[Ee]xpires?\s*[:|\s]\s*([^\n\r|]+)/i)
-            ?? get(/[Ee]xpiry\s*[:|\s]\s*([^\n\r|]+)/i)),
-          visaSubclass: get(/[Vv]isa\s+[Ss]ubclass\s*[:|\s]\s*(\d+)/i)
-            ?? get(/[Ss]ubclass\s*[:|\s]\s*(\d+)/i),
-          workEntitlements: mapWorkEntitlements(
-            get(/[Ww]ork\s+[Ee]ntitlements?\s*[:|\s]\s*([^\n\r|]+)/i)
-            ?? get(/[Ww]ork\s+[Cc]onditions?\s*[:|\s]\s*([^\n\r|]+)/i)
+          // VEVO PDF format: "Visa expiry date\n\n30 September 2026"
+          visaExpiry: parseDate(
+            get(/[Vv]isa\s+expiry\s+date\s*\n[\s\n]*([^\n]+)/i)
+            ?? get(/[Ee]xpiry\s+[Dd]ate\s*[:\s]\s*([^\n\r|]+)/i)
+            ?? get(/[Ee]xpires?\s*[:\s]\s*([^\n\r|]+)/i)
           ),
-          passportNo: get(/[Pp]assport\s+[Nn]o\s*[:|\s]\s*([A-Z0-9]+)/i)
-            ?? get(/[Pp]assport\s+[Nn]umber\s*[:|\s]\s*([A-Z0-9]+)/i),
-          nationality: get(/[Nn]ationality\s*[:|\s]\s*([^\n\r|]+)/i)
-            ?? get(/[Cc]ountry\s+of\s+[Pp]assport\s*[:|\s]\s*([^\n\r|]+)/i),
+          // VEVO PDF format: "Visa class / subclass\n\nTU / 500" → extract "500"
+          visaSubclass:
+            get(/[Vv]isa\s+class\s*\/\s*subclass\s*\n[\s\n]*[A-Z]+\s*\/\s*(\d+)/i)
+            ?? get(/[Vv]isa\s+[Ss]ubclass\s*\n[\s\n]*(\d+)/i)
+            ?? get(/[Ss]ubclass\s*[:\s]\s*(\d+)/i)
+            ?? get(/\/\s*(\d{3})\b/),
+          workEntitlements: detectWorkEntitlements(),
+          // VEVO PDF uses "Document number" for passport number
+          passportNo:
+            get(/[Dd]ocument\s+number\s*\n[\s\n]*([A-Z0-9]+)/i)
+            ?? get(/[Pp]assport\s+[Nn]o\s*[:\s]\s*([A-Z0-9]+)/i)
+            ?? get(/[Pp]assport\s+[Nn]umber\s*[:\s]\s*([A-Z0-9]+)/i),
+          nationality:
+            get(/[Nn]ationality\s*\n[\s\n]*([^\n]+)/i)
+            ?? get(/[Nn]ationality\s*[:\s]\s*([^\n\r|]+)/i)
+            ?? get(/[Cc]ountry\s+of\s+[Pp]assport\s*[:\s]\s*([^\n\r|]+)/i),
         };
       } catch {
         // Parsing failed — return empty parsedData, still save the file
