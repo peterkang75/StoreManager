@@ -546,10 +546,21 @@ export function AdminEmployeeDetail() {
                       </div>
                     </div>
                   )}
-                  {visaStatus === "valid" && currentData.visaExpiry && (
+                  {visaStatus === "valid" && currentData.visaExpiry && currentData.vevoUrl && (
                     <div className="flex items-center gap-3 rounded-md border border-green-500/30 bg-green-500/8 p-3" data-testid="alert-visa-valid">
                       <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
-                      <p className="text-sm text-green-700 dark:text-green-400">Work rights valid — visa expires {currentData.visaExpiry} ({daysLeft} days remaining)</p>
+                      <div>
+                        <p className="text-sm text-green-700 dark:text-green-400">Work rights valid — visa expires {currentData.visaExpiry} ({daysLeft} days remaining)</p>
+                        {currentData.lastVevoCheckDate && (
+                          <p className="text-xs text-green-600/70 dark:text-green-500/70 mt-0.5">VEVO verified on {currentData.lastVevoCheckDate}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {visaStatus === "valid" && currentData.visaExpiry && !currentData.vevoUrl && (
+                    <div className="flex items-center gap-3 rounded-md border border-border/40 bg-muted/30 p-3" data-testid="alert-visa-no-vevo">
+                      <AlertTriangle className="h-5 w-5 text-muted-foreground shrink-0" />
+                      <p className="text-sm text-muted-foreground">Visa expiry on record — upload VEVO result to confirm work rights</p>
                     </div>
                   )}
 
