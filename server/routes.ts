@@ -3220,10 +3220,9 @@ export async function registerRoutes(
       const envelopeFrom: string = req.body?.envelope?.from ?? "";
       const headersFrom: string = req.body?.headers?.from ?? "";
       if (envelopeFrom.includes("forwarding-noreply@google.com") || headersFrom.includes("forwarding-noreply@google.com")) {
-        console.log("=== GOOGLE VERIFICATION EMAIL ===");
-        console.log(req.body.plain);
-        console.log("=================================");
-        return res.status(200).send("Logged");
+        const content = req.body.plain || JSON.stringify(req.body);
+        require("fs").writeFileSync("google_verification.txt", content);
+        return res.status(200).send("OK");
       }
 
       // ── 3. Whitelist check ───────────────────────────────────────────────────
