@@ -486,6 +486,24 @@ export const insertSupplierPaymentSchema = createInsertSchema(supplierPayments).
 export type InsertSupplierPayment = z.infer<typeof insertSupplierPaymentSchema>;
 export type SupplierPayment = typeof supplierPayments.$inferSelect;
 
+// Emails from unknown senders with attachments — quarantined for manager review
+export const quarantinedEmails = pgTable("quarantined_emails", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  senderEmail: text("sender_email").notNull(),
+  subject: text("subject").notNull(),
+  hasAttachment: boolean("has_attachment").default(false).notNull(),
+  rawPayload: text("raw_payload"), // full JSON for debugging
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertQuarantinedEmailSchema = createInsertSchema(quarantinedEmails).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertQuarantinedEmail = z.infer<typeof insertQuarantinedEmailSchema>;
+export type QuarantinedEmail = typeof quarantinedEmails.$inferSelect;
+
 export const financialTransactions = pgTable("financial_transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   transactionType: text("transaction_type").notNull(),

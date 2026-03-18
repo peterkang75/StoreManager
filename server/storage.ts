@@ -16,6 +16,7 @@ import {
   type Supplier, type InsertSupplier,
   type SupplierInvoice, type InsertSupplierInvoice,
   type SupplierPayment, type InsertSupplierPayment,
+  type QuarantinedEmail, type InsertQuarantinedEmail,
   type FinancialTransaction, type InsertFinancialTransaction,
   type Roster, type InsertRoster,
   type RosterPublication,
@@ -23,6 +24,7 @@ import {
   stores, candidates, employees, employeeStoreAssignments, employeeOnboardingTokens, employeeDocuments,
   rosterPeriods, shifts, rosters, rosterPublications, timeLogs, timesheets, payrolls,
   dailyClosings, cashSalesDetails, dailyCloseForms, suppliers, supplierInvoices, supplierPayments,
+  quarantinedEmails,
   financialTransactions, shiftTimesheets,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
@@ -110,6 +112,10 @@ export interface IStorage {
   getSupplierPayment(id: string): Promise<SupplierPayment | undefined>;
   createSupplierPayment(payment: InsertSupplierPayment): Promise<SupplierPayment>;
 
+  findSupplierByEmail(email: string): Promise<Supplier | undefined>;
+  getQuarantinedEmails(): Promise<QuarantinedEmail[]>;
+  createQuarantinedEmail(email: InsertQuarantinedEmail): Promise<QuarantinedEmail>;
+
   getFinancialTransactions(limit?: number): Promise<FinancialTransaction[]>;
   createFinancialTransaction(tx: InsertFinancialTransaction): Promise<FinancialTransaction>;
   deleteFinancialTransaction(id: string): Promise<boolean>;
@@ -154,6 +160,7 @@ export class MemStorage implements IStorage {
   private suppliers: Map<string, Supplier>;
   private supplierInvoices: Map<string, SupplierInvoice>;
   private supplierPayments: Map<string, SupplierPayment>;
+  private quarantinedEmails: Map<string, QuarantinedEmail>;
   private employeeStoreAssignments: Map<string, EmployeeStoreAssignment>;
   private financialTransactions: Map<string, FinancialTransaction>;
   private rostersMap: Map<string, Roster>;
@@ -175,6 +182,7 @@ export class MemStorage implements IStorage {
     this.suppliers = new Map();
     this.supplierInvoices = new Map();
     this.supplierPayments = new Map();
+    this.quarantinedEmails = new Map();
     this.financialTransactions = new Map();
     this.rostersMap = new Map();
   }
@@ -878,6 +886,31 @@ export class MemStorage implements IStorage {
     return payment;
   }
 
+  async findSupplierByEmail(email: string): Promise<Supplier | undefined> {
+    return Array.from(this.suppliers.values()).find(s =>
+      s.contactEmails && s.contactEmails.includes(email)
+    );
+  }
+
+  async getQuarantinedEmails(): Promise<QuarantinedEmail[]> {
+    return Array.from(this.quarantinedEmails.values())
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async createQuarantinedEmail(insertEmail: InsertQuarantinedEmail): Promise<QuarantinedEmail> {
+    const id = randomUUID();
+    const email: QuarantinedEmail = {
+      id,
+      senderEmail: insertEmail.senderEmail,
+      subject: insertEmail.subject,
+      hasAttachment: insertEmail.hasAttachment ?? false,
+      rawPayload: insertEmail.rawPayload ?? null,
+      createdAt: new Date(),
+    };
+    this.quarantinedEmails.set(id, email);
+    return email;
+  }
+
   async getFinancialTransactions(limit: number = 30): Promise<FinancialTransaction[]> {
     return Array.from(this.financialTransactions.values())
       .sort((a, b) => new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime())
@@ -1484,6 +1517,21 @@ export class DatabaseStorage implements IStorage {
   async createSupplierPayment(data: InsertSupplierPayment): Promise<SupplierPayment> {
     const [p] = await db.insert(supplierPayments).values(data).returning();
     return p;
+  }
+
+  async findSupplierByEmail(email: string): Promise<Supplier | undefined> {
+    // contactEmails is a text array — check if the sender email is in any supplier's list
+    const all = await db.select().from(suppliers).where(eq(suppliers.active, true));
+    return all.find(s => s.contactEmails && s.contactEmails.includes(email));
+  }
+
+  async getQuarantinedEmails(): Promise<QuarantinedEmail[]> {
+    return db.select().from(quarantinedEmails).orderBy(desc(quarantinedEmails.createdAt));
+  }
+
+  async createQuarantinedEmail(data: InsertQuarantinedEmail): Promise<QuarantinedEmail> {
+    const [q] = await db.insert(quarantinedEmails).values(data).returning();
+    return q;
   }
 
   async getFinancialTransactions(limit: number = 30): Promise<FinancialTransaction[]> {

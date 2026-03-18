@@ -3131,5 +3131,85 @@ export async function registerRoutes(
     }
   });
 
+  // ── AP: Inbound Invoice Email Webhook (Resend) ───────────────────────────────
+  // Receives inbound email events from Resend inbound routing.
+  // Filters by known supplier contactEmails (whitelist).
+  app.post("/api/webhooks/inbound-invoices", async (req: Request, res: Response) => {
+    try {
+      const payload = req.body;
+
+      // ── 1. Extract sender email ──────────────────────────────────────────────
+      // Resend payload can be flat or nested under `data`
+      const rawFrom: string =
+        payload?.data?.from ??
+        payload?.from ??
+        payload?.record?.from ??
+        "";
+
+      // "Display Name <email@domain.com>" → "email@domain.com"
+      const senderEmail = (rawFrom.match(/<([^>]+)>/) ?? [null, rawFrom])[1]
+        .trim()
+        .toLowerCase();
+
+      if (!senderEmail) {
+        console.warn("[Webhook/inbound-invoices] Could not extract sender email from payload");
+        return res.status(200).json({ received: true, action: "ignored", reason: "no_sender" });
+      }
+
+      // ── 2. Extract subject and attachments ───────────────────────────────────
+      const subject: string =
+        payload?.data?.subject ?? payload?.subject ?? payload?.record?.subject ?? "(no subject)";
+
+      const attachments: any[] =
+        payload?.data?.attachments ?? payload?.attachments ?? payload?.record?.attachments ?? [];
+
+      const hasAttachment = Array.isArray(attachments) && attachments.length > 0;
+
+      // ── 3. Whitelist check ───────────────────────────────────────────────────
+      const matchedSupplier = await storage.findSupplierByEmail(senderEmail);
+
+      if (matchedSupplier) {
+        // Condition A: Known supplier ✓
+        console.log(`[Webhook/inbound-invoices] Supplier matched: ${matchedSupplier.name} (${senderEmail})`);
+        // TODO (next step): extract PDF attachment, parse with AI, create invoice record
+        return res.status(200).json({ received: true, action: "matched", supplier: matchedSupplier.name });
+      }
+
+      // Condition B: Unknown sender
+      if (!hasAttachment) {
+        // No attachment → likely spam / general email, ignore
+        console.log(`[Webhook/inbound-invoices] Unknown sender with no attachment — ignored: ${senderEmail}`);
+        return res.status(200).json({ received: true, action: "ignored", reason: "no_attachment" });
+      }
+
+      // Has attachment → quarantine for manager review
+      console.log(`[Webhook/inbound-invoices] Unknown sender with attachment — quarantining: ${senderEmail}`);
+      await storage.createQuarantinedEmail({
+        senderEmail,
+        subject,
+        hasAttachment: true,
+        rawPayload: JSON.stringify(payload),
+      });
+
+      return res.status(200).json({ received: true, action: "quarantined", sender: senderEmail });
+
+    } catch (err) {
+      console.error("[Webhook/inbound-invoices] Error processing webhook:", err);
+      // Always return 200 to Resend so it doesn't retry endlessly
+      return res.status(200).json({ received: true, action: "error" });
+    }
+  });
+
+  // ── AP: Quarantined emails (admin read) ──────────────────────────────────────
+  app.get("/api/webhooks/quarantined-emails", async (_req: Request, res: Response) => {
+    try {
+      const emails = await storage.getQuarantinedEmails();
+      res.json(emails);
+    } catch (err) {
+      console.error("Error fetching quarantined emails:", err);
+      res.status(500).json({ error: "Failed to fetch quarantined emails" });
+    }
+  });
+
   return httpServer;
 }
