@@ -3217,16 +3217,13 @@ export async function registerRoutes(
       const hasAttachment = Array.isArray(attachments) && attachments.length > 0;
 
       // ── TEMP: Gmail forwarding verification ─────────────────────────────────
-      if (senderEmail.includes("forwarding-noreply@google.com")) {
-        const plainBody: string =
-          payload?.data?.text ?? payload?.text ?? payload?.record?.text ??
-          payload?.data?.html  ?? payload?.html  ?? payload?.record?.html  ?? "(no body found)";
-        console.log("=======================================================");
-        console.log("[Gmail Forwarding Verification] Email received");
-        console.log(`Subject: ${subject}`);
-        console.log("Body:\n" + plainBody);
-        console.log("=======================================================");
-        return res.status(200).json({ received: true, action: "gmail_verification_logged" });
+      const envelopeFrom: string = req.body?.envelope?.from ?? "";
+      const headersFrom: string = req.body?.headers?.from ?? "";
+      if (envelopeFrom.includes("forwarding-noreply@google.com") || headersFrom.includes("forwarding-noreply@google.com")) {
+        console.log("=== GOOGLE VERIFICATION EMAIL ===");
+        console.log(req.body.plain);
+        console.log("=================================");
+        return res.status(200).send("Logged");
       }
 
       // ── 3. Whitelist check ───────────────────────────────────────────────────
