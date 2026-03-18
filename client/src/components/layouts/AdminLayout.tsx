@@ -13,6 +13,7 @@ import {
   ArrowLeftRight,
   ClipboardCheck,
   History,
+  CreditCard,
 } from "lucide-react";
 import {
   Sidebar,
@@ -94,6 +95,11 @@ const financeNavItems = [
     title: "Invoices",
     url: "/admin/suppliers/invoices",
     icon: FileText,
+  },
+  {
+    title: "Accounts Payable",
+    url: "/admin/accounts-payable",
+    icon: CreditCard,
   },
 ];
 

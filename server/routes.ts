@@ -2325,6 +2325,56 @@ export async function registerRoutes(
     }
   });
 
+  // ── AP: Invoices with enriched supplier data ─────────────────────────────────
+  app.get("/api/invoices", async (req: Request, res: Response) => {
+    try {
+      const filters: { supplierId?: string; storeId?: string; status?: string } = {};
+      if (typeof req.query.supplierId === "string") filters.supplierId = req.query.supplierId;
+      if (typeof req.query.storeId === "string") filters.storeId = req.query.storeId;
+      if (typeof req.query.status === "string" && req.query.status !== "ALL") filters.status = req.query.status;
+
+      const [invoices, allSuppliers] = await Promise.all([
+        storage.getSupplierInvoices(filters),
+        storage.getSuppliers(),
+      ]);
+
+      const supplierMap = new Map(allSuppliers.map(s => [s.id, s]));
+      const enriched = invoices.map(inv => ({
+        ...inv,
+        supplier: supplierMap.get(inv.supplierId) ?? null,
+      }));
+
+      // Sort: PENDING first (by dueDate asc), then others
+      enriched.sort((a, b) => {
+        const dateA = a.dueDate ?? a.invoiceDate ?? "";
+        const dateB = b.dueDate ?? b.invoiceDate ?? "";
+        return dateA.localeCompare(dateB);
+      });
+
+      res.json(enriched);
+    } catch (err) {
+      console.error("Error fetching invoices:", err);
+      res.status(500).json({ error: "Failed to fetch invoices" });
+    }
+  });
+
+  app.patch("/api/invoices/:id/status", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+      const VALID = ["PENDING", "PAID", "OVERDUE", "QUARANTINE"];
+      if (!status || !VALID.includes(status)) {
+        return res.status(400).json({ error: `Invalid status. Must be one of: ${VALID.join(", ")}` });
+      }
+      const updated = await storage.updateSupplierInvoice(id, { status });
+      if (!updated) return res.status(404).json({ error: "Invoice not found" });
+      res.json(updated);
+    } catch (err) {
+      console.error("Error updating invoice status:", err);
+      res.status(500).json({ error: "Failed to update invoice status" });
+    }
+  });
+
   app.get("/api/supplier-invoices", async (req: Request, res: Response) => {
     try {
       const filters: { supplierId?: string; storeId?: string; status?: string; startDate?: string; endDate?: string } = {};
