@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, date, integer, timestamp, real } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, date, integer, timestamp, real, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -417,11 +417,15 @@ export type DailyCloseForm = typeof dailyCloseForms.$inferSelect;
 
 export const suppliers = pgTable("suppliers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  name: text("name").notNull(),
+  name: text("name").notNull().unique(),
+  abn: text("abn"),
   contactName: text("contact_name"),
+  contactEmails: text("contact_emails").array(),
   email: text("email"),
   phone: text("phone"),
   address: text("address"),
+  bsb: text("bsb"),
+  accountNumber: text("account_number"),
   notes: text("notes"),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -445,11 +449,14 @@ export const supplierInvoices = pgTable("supplier_invoices", {
   invoiceDate: text("invoice_date").notNull(),
   dueDate: text("due_date"),
   amount: real("amount").default(0).notNull(),
-  status: text("status").default("UNPAID").notNull(),
+  status: text("status").default("PENDING").notNull(), // PENDING | PAID | OVERDUE | QUARANTINE
+  pdfUrl: text("pdf_url"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  supplierInvoiceUniq: uniqueIndex("supplier_invoice_supplier_number_uniq").on(table.supplierId, table.invoiceNumber),
+}));
 
 export const insertSupplierInvoiceSchema = createInsertSchema(supplierInvoices).omit({
   id: true,
