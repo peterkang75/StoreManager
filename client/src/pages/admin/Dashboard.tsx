@@ -3,7 +3,7 @@ import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Store, Users, UserCheck, ClipboardList, Smartphone, CalendarDays, Clock, Wallet, ExternalLink, UserPlus, KeyRound, AlertTriangle, ShieldCheck } from "lucide-react";
+import { Store, Users, UserCheck, ClipboardList, Smartphone, ExternalLink, UserPlus, KeyRound, AlertTriangle, ShieldCheck } from "lucide-react";
 import { Link } from "wouter";
 import type { Store as StoreType, Candidate, Employee } from "@shared/schema";
 
@@ -220,36 +220,6 @@ export function AdminDashboard() {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium">Interview Form</p>
                     <p className="text-sm text-muted-foreground">현장 후보자 면접</p>
-                  </div>
-                  <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                </div>
-              </Link>
-              <Link href="/m/roster">
-                <div className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer" data-testid="link-mobile-roster">
-                  <CalendarDays className="h-5 w-5 text-primary" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium">Roster View</p>
-                    <p className="text-sm text-muted-foreground">직원 근무 일정</p>
-                  </div>
-                  <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                </div>
-              </Link>
-              <Link href="/m/clock">
-                <div className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer" data-testid="link-mobile-clock">
-                  <Clock className="h-5 w-5 text-primary" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium">Clock In/Out</p>
-                    <p className="text-sm text-muted-foreground">출퇴근 기록</p>
-                  </div>
-                  <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                </div>
-              </Link>
-              <Link href="/m/daily-close">
-                <div className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer" data-testid="link-mobile-daily-close">
-                  <Wallet className="h-5 w-5 text-primary" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium">Daily Close</p>
-                    <p className="text-sm text-muted-foreground">일일 마감 정산</p>
                   </div>
                   <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 </div>
