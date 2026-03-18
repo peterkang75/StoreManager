@@ -1,0 +1,22 @@
+The AP email pipeline is working, but we need to implement crucial business logic for the AI parser and upgrade the AP Dashboard UI.
+
+### Part 1: Backend (AI Parser Update in `POST /api/webhooks/inbound-invoices` or `invoiceParser.ts`)
+Update the OpenAI system prompt and JSON schema to handle Statements and Multi-store routing.
+1. **Schema Change:** The AI must ALWAYS return an **ARRAY** of invoice objects, not a single object. 
+   - If the document is a single INVOICE, return an array with 1 item.
+   - If the document is a STATEMENT, extract EACH individual invoice listed in the statement as a separate item in the array. DO NOT return the statement's grand total as a single invoice.
+2. **Multi-Store Routing (Store Classification):** Add a `storeCode` field to the expected JSON output. Instruct the AI to look at the "Bill To" or "Invoice To" name:
+   - If it contains "olitin" or "sushime", set `storeCode` to `"SUSHI"`.
+   - If it contains "eatem pty ltd" or "eatem sandwich", set `storeCode` to `"SANDWICH"`.
+   - Otherwise, set to `"UNKNOWN"`.
+3. **Save Logic Update:** When saving to the database, loop through the AI's returned array and `prisma.invoice.create` for each item. Match the `storeCode` to the actual `Store` ID in the database before saving.
+
+### Part 2: Frontend (Accounts Payable Dashboard Update)
+Update the `/admin/accounts-payable` page to support bulk actions and filtering.
+1. **Store Filter:** Add a "Store" dropdown filter next to the Status and Supplier filters. It should filter the table by the assigned store.
+2. **Checkboxes (Selection):** Add a checkbox column to the far left of the invoice table. Allow users to select multiple invoices.
+3. **Dynamic Total:** Create a "Selected Total" display (e.g., "$0.00 Selected") near the top or above the table. As the user checks boxes, calculate and display the sum of the selected invoices in real-time.
+4. **Bulk 'Mark Paid':** Change the individual 'Mark Paid' button to a bulk action. When items are selected, show a primary `[ Mark Selected as Paid ]` button. Clicking this should send a PATCH request to update all selected invoices to 'PAID' status, uncheck them, and refresh the list so they disappear from the 'Pending' view.
+5. **Paid View:** Ensure the Status filter allows viewing 'Paid' invoices so historical data can be searched.
+
+Please implement these changes to make the AP system production-ready.

@@ -3281,45 +3281,64 @@ export async function registerRoutes(
         return res.status(200).json({ received: true, action: "error", reason: "pdf_parse_failed" });
       }
 
-      // ── 6. AI extraction ─────────────────────────────────────────────────────
-      const parsed = await parseInvoiceWithAI(pdfText, matchedSupplier.name);
+      // ── 6. AI extraction (returns array for statements) ──────────────────────
+      const parsedItems = await parseInvoiceWithAI(pdfText, matchedSupplier.name);
 
-      if (!parsed || !parsed.invoiceNumber || !parsed.issueDate || !parsed.totalAmount) {
-        console.warn(`[Webhook/inbound-invoices] AI could not extract complete invoice data for ${matchedSupplier.name}`);
+      if (!parsedItems || parsedItems.length === 0) {
+        console.warn(`[Webhook/inbound-invoices] AI could not extract invoice data for ${matchedSupplier.name}`);
         return res.status(200).json({ received: true, action: "ai_parse_failed", supplier: matchedSupplier.name });
       }
 
-      console.log(`[Webhook/inbound-invoices] AI extracted: #${parsed.invoiceNumber}, ${parsed.issueDate}, $${parsed.totalAmount}`);
+      console.log(`[Webhook/inbound-invoices] AI extracted ${parsedItems.length} invoice(s) for ${matchedSupplier.name}`);
 
-      // ── 7. Duplicate check ───────────────────────────────────────────────────
-      const existing = await storage.getSupplierInvoices({ supplierId: matchedSupplier.id });
-      const duplicate = existing.find(inv => inv.invoiceNumber === parsed.invoiceNumber);
+      // ── 7. Load stores for storeCode → storeId mapping ───────────────────────
+      const allStores = await storage.getStores();
+      const sushiStore = allStores.find(s => s.name.toLowerCase().includes("sushi"));
+      const sandwichStore = allStores.find(s => s.name.toLowerCase().includes("sandwich"));
 
-      if (duplicate) {
-        console.log(`[Webhook/inbound-invoices] Duplicate invoice ignored: ${parsed.invoiceNumber} for ${matchedSupplier.name}`);
-        return res.status(200).json({ received: true, action: "duplicate", invoiceNumber: parsed.invoiceNumber });
+      function resolveStoreId(code: string): string | null {
+        if (code === "SUSHI" && sushiStore) return sushiStore.id;
+        if (code === "SANDWICH" && sandwichStore) return sandwichStore.id;
+        return null;
       }
 
-      // ── 8. Create new invoice record ─────────────────────────────────────────
-      const newInvoice = await storage.createSupplierInvoice({
-        supplierId: matchedSupplier.id,
-        storeId: null,
-        invoiceNumber: parsed.invoiceNumber,
-        invoiceDate: parsed.issueDate,
-        dueDate: parsed.dueDate ?? undefined,
-        amount: parsed.totalAmount,
-        status: "PENDING",
-        notes: `Auto-imported via email from ${senderEmail}. Subject: ${subject}`,
-      });
+      // ── 8. Duplicate check + create one record per invoice ───────────────────
+      const existing = await storage.getSupplierInvoices({ supplierId: matchedSupplier.id });
+      const existingNumbers = new Set(existing.map(inv => inv.invoiceNumber));
 
-      console.log(`[Webhook/inbound-invoices] Created invoice ${newInvoice.id} for ${matchedSupplier.name}`);
+      const created: string[] = [];
+      const skipped: string[] = [];
+
+      for (const parsed of parsedItems) {
+        if (!parsed.invoiceNumber && !parsed.issueDate && !parsed.totalAmount) continue;
+
+        if (parsed.invoiceNumber && existingNumbers.has(parsed.invoiceNumber)) {
+          console.log(`[Webhook/inbound-invoices] Duplicate skipped: ${parsed.invoiceNumber}`);
+          skipped.push(parsed.invoiceNumber);
+          continue;
+        }
+
+        const newInvoice = await storage.createSupplierInvoice({
+          supplierId: matchedSupplier.id,
+          storeId: resolveStoreId(parsed.storeCode),
+          invoiceNumber: parsed.invoiceNumber,
+          invoiceDate: parsed.issueDate,
+          dueDate: parsed.dueDate ?? undefined,
+          amount: parsed.totalAmount,
+          status: "PENDING",
+          notes: `Auto-imported via email from ${senderEmail}. Subject: ${subject}`,
+        });
+
+        console.log(`[Webhook/inbound-invoices] Created invoice ${newInvoice.id} (#${parsed.invoiceNumber}) store=${parsed.storeCode}`);
+        created.push(newInvoice.id);
+      }
+
       return res.status(200).json({
         received: true,
-        action: "invoice_created",
-        invoiceId: newInvoice.id,
-        invoiceNumber: parsed.invoiceNumber,
+        action: "invoices_created",
+        created: created.length,
+        skipped: skipped.length,
         supplier: matchedSupplier.name,
-        amount: parsed.totalAmount,
       });
 
     } catch (err) {
