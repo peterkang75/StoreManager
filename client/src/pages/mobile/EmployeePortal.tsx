@@ -46,6 +46,11 @@ import {
   CreditCard,
   Building2,
   X,
+  Camera,
+  ImagePlus,
+  Mail,
+  Phone,
+  BadgeCheck,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -969,13 +974,14 @@ function ScheduleTab({ session }: { session: Session }) {
 // ── Edit Profile View ─────────────────────────────────────────────────────────
 
 interface ProfileFormData {
+  email: string;
   streetAddress: string;
   streetAddress2: string;
   suburb: string;
   state: string;
   postCode: string;
-  visaType: string;
-  visaExpiry: string;
+  selfieUrl: string;
+  passportUrl: string;
   fhc: string;
   tfn: string;
   bsb: string;
@@ -987,8 +993,17 @@ interface ProfileFormData {
 function EditProfileView({ session, onBack }: { session: Session; onBack: () => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // File input refs
   const fhcFileRef = useRef<HTMLInputElement>(null);
+  const selfieFileRef = useRef<HTMLInputElement>(null);
+  const selfieCamRef = useRef<HTMLInputElement>(null);
+  const passportFileRef = useRef<HTMLInputElement>(null);
+  const passportCamRef = useRef<HTMLInputElement>(null);
+
   const [fhcUploading, setFhcUploading] = useState(false);
+  const [selfieUploading, setSelfieUploading] = useState(false);
+  const [passportUploading, setPassportUploading] = useState(false);
 
   const { data: employee, isLoading } = useQuery<any>({
     queryKey: ["/api/employees", session.id],
@@ -997,34 +1012,23 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
   });
 
   const [form, setForm] = useState<ProfileFormData>({
-    streetAddress: "", streetAddress2: "", suburb: "", state: "", postCode: "",
-    visaType: "", visaExpiry: "", fhc: "", tfn: "", bsb: "", accountNo: "",
+    email: "", streetAddress: "", streetAddress2: "", suburb: "", state: "", postCode: "",
+    selfieUrl: "", passportUrl: "", fhc: "", tfn: "", bsb: "", accountNo: "",
     superCompany: "", superMembershipNo: "",
   });
   const [bsbError, setBsbError] = useState("");
 
-  const toIsoDate = (raw: string | null | undefined): string => {
-    if (!raw) return "";
-    const d = new Date(raw);
-    if (!isNaN(d.getTime())) {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      return `${y}-${m}-${day}`;
-    }
-    return "";
-  };
-
   useEffect(() => {
     if (employee) {
       setForm({
+        email: employee.email ?? "",
         streetAddress: employee.streetAddress ?? "",
         streetAddress2: employee.streetAddress2 ?? "",
         suburb: employee.suburb ?? "",
         state: employee.state ?? "",
         postCode: employee.postCode ?? "",
-        visaType: employee.visaType ?? "",
-        visaExpiry: toIsoDate(employee.visaExpiry),
+        selfieUrl: employee.selfieUrl ?? "",
+        passportUrl: employee.passportUrl ?? "",
         fhc: employee.fhc ?? "",
         tfn: employee.tfn ?? "",
         bsb: employee.bsb ?? "",
@@ -1055,34 +1059,53 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
     },
   });
 
-  const handleFhcUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setFhcUploading(true);
+  const uploadFile = async (
+    file: File,
+    setUploading: (v: boolean) => void,
+    formKey: keyof ProfileFormData,
+    ref: React.RefObject<HTMLInputElement>,
+    successMsg: string,
+  ) => {
+    setUploading(true);
     try {
       const fd = new FormData();
       fd.append("file", file);
       const r = await fetch("/api/upload", { method: "POST", body: fd });
       if (!r.ok) throw new Error("Upload failed");
       const { url } = await r.json();
-      setForm(f => ({ ...f, fhc: url }));
-      toast({ title: "Certificate Uploaded", description: "FHC document ready to save." });
+      setForm(f => ({ ...f, [formKey]: url }));
+      toast({ title: successMsg, description: "Ready to save." });
     } catch {
       toast({ title: "Upload Failed", description: "Could not upload the file.", variant: "destructive" });
     } finally {
-      setFhcUploading(false);
-      if (fhcFileRef.current) fhcFileRef.current.value = "";
+      setUploading(false);
+      if (ref.current) ref.current.value = "";
     }
   };
 
+  const handleFhcUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) uploadFile(file, setFhcUploading, "fhc", fhcFileRef, "Certificate Uploaded");
+  };
+
+  const handleSelfieUpload = (e: React.ChangeEvent<HTMLInputElement>, ref: React.RefObject<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) uploadFile(file, setSelfieUploading, "selfieUrl", ref, "Selfie Uploaded");
+  };
+
+  const handlePassportUpload = (e: React.ChangeEvent<HTMLInputElement>, ref: React.RefObject<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) uploadFile(file, setPassportUploading, "passportUrl", ref, "Passport Uploaded");
+  };
+
   const handleSave = () => {
-    const bsnClean = form.bsb.replace(/\s/g, "");
-    if (bsnClean && !/^\d{6}$/.test(bsnClean)) {
+    const bsbClean = form.bsb.replace(/\s/g, "");
+    if (bsbClean && !/^\d{6}$/.test(bsbClean)) {
       setBsbError("BSB must be exactly 6 digits");
       return;
     }
     setBsbError("");
-    updateMutation.mutate({ ...form, bsb: bsnClean || null } as any);
+    updateMutation.mutate({ ...form, bsb: bsbClean || null } as any);
   };
 
   const field = (key: keyof ProfileFormData) => ({
@@ -1099,6 +1122,8 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
     );
   }
 
+  const fullName = [employee?.firstName, employee?.lastName].filter(Boolean).join(" ");
+
   return (
     <div className="flex flex-col gap-0">
       {/* Sticky header */}
@@ -1114,6 +1139,69 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
       </div>
 
       <div className="flex flex-col gap-5 px-4 py-5">
+
+        {/* ── Identity (read-only) ──────────────────────────────── */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+              <BadgeCheck className="h-4 w-4 text-primary" />
+            </div>
+            <h3 className="font-semibold text-sm">My Information</h3>
+          </div>
+          <Card>
+            <CardContent className="pt-4 pb-4 flex flex-col gap-3">
+              <div className="flex items-center gap-3 py-1">
+                <User className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-muted-foreground">Name</p>
+                  <p className="text-sm font-medium truncate" data-testid="text-identity-name">{fullName || "—"}</p>
+                </div>
+              </div>
+              <div className="border-t" />
+              <div className="flex items-center gap-3 py-1">
+                <User className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-muted-foreground">Nickname</p>
+                  <p className="text-sm font-medium truncate" data-testid="text-identity-nickname">{employee?.nickname || "—"}</p>
+                </div>
+              </div>
+              <div className="border-t" />
+              <div className="flex items-center gap-3 py-1">
+                <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-muted-foreground">Phone</p>
+                  <p className="text-sm font-medium truncate" data-testid="text-identity-phone">{employee?.phone || "—"}</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground pt-1">Contact your manager to update name, nickname, or phone number.</p>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* ── Contact (email) ───────────────────────────────────── */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+              <Mail className="h-4 w-4 text-primary" />
+            </div>
+            <h3 className="font-semibold text-sm">Email Address</h3>
+          </div>
+          <Card>
+            <CardContent className="pt-4 pb-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Email</Label>
+                <Input
+                  type="email"
+                  placeholder="e.g. name@email.com"
+                  {...field("email")}
+                  data-testid="input-email"
+                  className="h-11 text-base"
+                  inputMode="email"
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </section>
 
         {/* ── Residential Address ──────────────────────────────── */}
         <section>
@@ -1160,39 +1248,177 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
           </Card>
         </section>
 
-        {/* ── Visa Information ─────────────────────────────────── */}
+        {/* ── Selfie ───────────────────────────────────────────── */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+              <User className="h-4 w-4 text-primary" />
+            </div>
+            <h3 className="font-semibold text-sm">Profile Photo (Selfie)</h3>
+          </div>
+          <Card>
+            <CardContent className="pt-4 pb-4 flex flex-col gap-3">
+              {/* Hidden inputs */}
+              <input
+                ref={selfieCamRef}
+                type="file"
+                accept="image/*"
+                capture="user"
+                className="hidden"
+                onChange={e => handleSelfieUpload(e, selfieCamRef)}
+                data-testid="input-selfie-camera"
+              />
+              <input
+                ref={selfieFileRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={e => handleSelfieUpload(e, selfieFileRef)}
+                data-testid="input-selfie-file"
+              />
+
+              {selfieUploading && (
+                <div className="flex items-center justify-center gap-2 py-4">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Uploading...</span>
+                </div>
+              )}
+
+              {!selfieUploading && form.selfieUrl && (
+                <div className="flex items-center gap-3">
+                  <img
+                    src={form.selfieUrl}
+                    alt="Profile selfie"
+                    className="h-20 w-20 rounded-full object-cover border"
+                    data-testid="img-selfie-preview"
+                  />
+                  <div className="flex flex-col gap-2 flex-1">
+                    <Button variant="outline" size="sm" onClick={() => selfieCamRef.current?.click()} data-testid="button-selfie-retake-camera">
+                      <Camera className="h-4 w-4 mr-1.5" />
+                      Retake Photo
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => selfieFileRef.current?.click()} data-testid="button-selfie-retake-file">
+                      <ImagePlus className="h-4 w-4 mr-1.5" />
+                      Choose from Library
+                    </Button>
+                    <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setForm(f => ({ ...f, selfieUrl: "" }))} data-testid="button-selfie-remove">
+                      <X className="h-4 w-4 mr-1.5" />
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {!selfieUploading && !form.selfieUrl && (
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    variant="outline"
+                    className="h-16 flex-col gap-1.5"
+                    onClick={() => selfieCamRef.current?.click()}
+                    data-testid="button-selfie-camera"
+                  >
+                    <Camera className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">Take Photo</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-16 flex-col gap-1.5"
+                    onClick={() => selfieFileRef.current?.click()}
+                    data-testid="button-selfie-library"
+                  >
+                    <ImagePlus className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">From Library</span>
+                  </Button>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">Used for identification on your staff profile.</p>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* ── Passport ─────────────────────────────────────────── */}
         <section>
           <div className="flex items-center gap-2 mb-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
               <Shield className="h-4 w-4 text-primary" />
             </div>
-            <h3 className="font-semibold text-sm">Visa Information</h3>
+            <h3 className="font-semibold text-sm">Passport / ID Document</h3>
           </div>
           <Card>
             <CardContent className="pt-4 pb-4 flex flex-col gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Visa Type</Label>
-                <Select value={form.visaType} onValueChange={v => setForm(f => ({ ...f, visaType: v }))}>
-                  <SelectTrigger className="h-11 text-base" data-testid="select-visa-type">
-                    <SelectValue placeholder="Select visa type..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="CTZ">Australian Citizen</SelectItem>
-                    <SelectItem value="PR">Permanent Resident</SelectItem>
-                    <SelectItem value="Student">Student Visa (500)</SelectItem>
-                    <SelectItem value="WHM">Working Holiday (417/462)</SelectItem>
-                    <SelectItem value="TSS">Skilled — Sponsored (482)</SelectItem>
-                    <SelectItem value="Bridging">Bridging Visa</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {form.visaType && form.visaType !== "CTZ" && form.visaType !== "PR" && (
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Visa Expiry Date</Label>
-                  <Input type="date" {...field("visaExpiry")} data-testid="input-visa-expiry" className="h-11 text-base" />
+              {/* Hidden inputs */}
+              <input
+                ref={passportCamRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={e => handlePassportUpload(e, passportCamRef)}
+                data-testid="input-passport-camera"
+              />
+              <input
+                ref={passportFileRef}
+                type="file"
+                accept="image/*,.pdf"
+                className="hidden"
+                onChange={e => handlePassportUpload(e, passportFileRef)}
+                data-testid="input-passport-file"
+              />
+
+              {passportUploading && (
+                <div className="flex items-center justify-center gap-2 py-4">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Uploading...</span>
                 </div>
               )}
+
+              {!passportUploading && form.passportUrl && (
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-3">
+                    <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <a href={form.passportUrl} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-sm text-blue-600 dark:text-blue-400">
+                      View Document
+                    </a>
+                    <Button size="icon" variant="ghost" className="shrink-0" onClick={() => setForm(f => ({ ...f, passportUrl: "" }))} data-testid="button-passport-remove">
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Button variant="outline" size="sm" onClick={() => passportCamRef.current?.click()} data-testid="button-passport-retake-camera">
+                      <Camera className="h-4 w-4 mr-1.5" />
+                      Take Photo
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => passportFileRef.current?.click()} data-testid="button-passport-retake-file">
+                      <ImagePlus className="h-4 w-4 mr-1.5" />
+                      From Library
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {!passportUploading && !form.passportUrl && (
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    variant="outline"
+                    className="h-16 flex-col gap-1.5"
+                    onClick={() => passportCamRef.current?.click()}
+                    data-testid="button-passport-camera"
+                  >
+                    <Camera className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">Take Photo</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-16 flex-col gap-1.5"
+                    onClick={() => passportFileRef.current?.click()}
+                    data-testid="button-passport-library"
+                  >
+                    <ImagePlus className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">From Library</span>
+                  </Button>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">Photo of your passport or government ID. Accepted: image or PDF.</p>
             </CardContent>
           </Card>
         </section>
@@ -1214,7 +1440,7 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
                   <a href={form.fhc} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-sm text-blue-600 dark:text-blue-400">
                     View Certificate
                   </a>
-                  <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={() => setForm(f => ({ ...f, fhc: "" }))} data-testid="button-remove-fhc">
+                  <Button size="icon" variant="ghost" className="shrink-0" onClick={() => setForm(f => ({ ...f, fhc: "" }))} data-testid="button-remove-fhc">
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
