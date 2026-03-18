@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Loader2, Save, User, ExternalLink, Camera, FileImage, Upload, X, ShieldCheck, AlertTriangle, ClipboardCopy, CheckCircle2, Shield, FileText, Download } from "lucide-react";
+import { ArrowLeft, Loader2, Save, User, ExternalLink, Camera, FileImage, Upload, X, ShieldCheck, AlertTriangle, ClipboardCopy, CheckCircle2, Shield, FileText, Download, Lock } from "lucide-react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -258,6 +258,9 @@ export function AdminEmployeeDetail() {
     if (daysLeft <= 60) return "expiring_soon"; // within 60 days → AMBER
     return "valid";
   };
+
+  // Returns true when a VEVO file is present AND this specific field was populated from it
+  const isVevoLocked = (vevoUrl: string | null | undefined, value: string | null | undefined) => !!vevoUrl && !!value;
 
   const copyToClipboard = async (text: string, field: string) => {
     if (!text) return;
@@ -580,18 +583,27 @@ export function AdminEmployeeDetail() {
                       <Input value={currentData.visaType ?? ""} onChange={(e) => handleFieldChange("visaType", e.target.value || null)} placeholder="e.g. Student, WHM, PR" data-testid="input-visa-type" />
                     </div>
                     <div className="space-y-2">
-                      <Label>Visa Subclass</Label>
-                      <Input value={currentData.visaSubclass ?? ""} onChange={(e) => handleFieldChange("visaSubclass", e.target.value || null)} placeholder="e.g. 500, 417, 485" data-testid="input-visa-subclass" />
+                      <Label className="flex items-center gap-1">
+                        Visa Subclass
+                        {isVevoLocked(currentData.vevoUrl, currentData.visaSubclass) && <Lock className="h-3 w-3 text-muted-foreground" />}
+                      </Label>
+                      <Input value={currentData.visaSubclass ?? ""} onChange={(e) => handleFieldChange("visaSubclass", e.target.value || null)} placeholder="e.g. 500, 417, 485" data-testid="input-visa-subclass" disabled={isVevoLocked(currentData.vevoUrl, currentData.visaSubclass)} />
                     </div>
                     <div className="space-y-2">
-                      <Label>Visa Expiry Date</Label>
-                      <Input type="date" value={currentData.visaExpiry ?? ""} onChange={(e) => handleFieldChange("visaExpiry", e.target.value || null)} data-testid="input-visa-expiry" />
+                      <Label className="flex items-center gap-1">
+                        Visa Expiry Date
+                        {isVevoLocked(currentData.vevoUrl, currentData.visaExpiry) && <Lock className="h-3 w-3 text-muted-foreground" />}
+                      </Label>
+                      <Input type="date" value={currentData.visaExpiry ?? ""} onChange={(e) => handleFieldChange("visaExpiry", e.target.value || null)} data-testid="input-visa-expiry" disabled={isVevoLocked(currentData.vevoUrl, currentData.visaExpiry)} />
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-2">
-                      <Label>Work Entitlements</Label>
-                      <Select value={currentData.workEntitlements ?? ""} onValueChange={(v) => handleFieldChange("workEntitlements", v || null)}>
+                      <Label className="flex items-center gap-1">
+                        Work Entitlements
+                        {isVevoLocked(currentData.vevoUrl, currentData.workEntitlements) && <Lock className="h-3 w-3 text-muted-foreground" />}
+                      </Label>
+                      <Select value={currentData.workEntitlements ?? ""} onValueChange={(v) => handleFieldChange("workEntitlements", v || null)} disabled={isVevoLocked(currentData.vevoUrl, currentData.workEntitlements)}>
                         <SelectTrigger data-testid="select-work-entitlements">
                           <SelectValue placeholder="Select..." />
                         </SelectTrigger>
@@ -603,14 +615,26 @@ export function AdminEmployeeDetail() {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label>Passport No</Label>
-                      <Input value={currentData.passportNo ?? ""} onChange={(e) => handleFieldChange("passportNo", e.target.value || null)} placeholder="Passport number" data-testid="input-passport-no" />
+                      <Label className="flex items-center gap-1">
+                        Passport No
+                        {isVevoLocked(currentData.vevoUrl, currentData.passportNo) && <Lock className="h-3 w-3 text-muted-foreground" />}
+                      </Label>
+                      <Input value={currentData.passportNo ?? ""} onChange={(e) => handleFieldChange("passportNo", e.target.value || null)} placeholder="Passport number" data-testid="input-passport-no" disabled={isVevoLocked(currentData.vevoUrl, currentData.passportNo)} />
                     </div>
                     <div className="space-y-2">
-                      <Label>Country of Passport</Label>
-                      <Input value={currentData.nationality ?? ""} onChange={(e) => handleFieldChange("nationality", e.target.value || null)} placeholder="e.g. Nepal, India" data-testid="input-nationality" />
+                      <Label className="flex items-center gap-1">
+                        Country of Passport
+                        {isVevoLocked(currentData.vevoUrl, currentData.nationality) && <Lock className="h-3 w-3 text-muted-foreground" />}
+                      </Label>
+                      <Input value={currentData.nationality ?? ""} onChange={(e) => handleFieldChange("nationality", e.target.value || null)} placeholder="e.g. Nepal, India" data-testid="input-nationality" disabled={isVevoLocked(currentData.vevoUrl, currentData.nationality)} />
                     </div>
                   </div>
+                  {currentData.vevoUrl && (
+                    <p className="text-xs text-muted-foreground">
+                      <Lock className="inline h-3 w-3 mr-1" />
+                      Fields filled from VEVO document are locked. Remove the document to edit them manually.
+                    </p>
+                  )}
 
                   {/* VEVO Helper */}
                   <div className="rounded-md border border-border/40 bg-muted/30 p-4 space-y-4">
