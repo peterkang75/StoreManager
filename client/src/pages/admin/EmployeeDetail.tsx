@@ -554,9 +554,6 @@ export function AdminEmployeeDetail() {
                         {currentData.workEntitlements === "Restricted" && (
                           <p className="text-xs text-green-600/80 dark:text-green-500/80 mt-0.5">Work allowed 48 hrs / fortnight (while course in session)</p>
                         )}
-                        {currentData.lastVevoCheckDate && (
-                          <p className="text-xs text-green-600/70 dark:text-green-500/70 mt-0.5">VEVO verified on {currentData.lastVevoCheckDate}</p>
-                        )}
                       </div>
                     </div>
                   )}
@@ -564,6 +561,15 @@ export function AdminEmployeeDetail() {
                     <div className="flex items-center gap-3 rounded-md border border-border/40 bg-muted/30 p-3" data-testid="alert-visa-no-vevo">
                       <AlertTriangle className="h-5 w-5 text-muted-foreground shrink-0" />
                       <p className="text-sm text-muted-foreground">Visa expiry on record — upload VEVO result to confirm work rights</p>
+                    </div>
+                  )}
+                  {currentData.workEntitlements === "No Work Rights" && (
+                    <div className="flex items-start gap-3 rounded-md border border-destructive/60 bg-destructive/10 p-3" data-testid="alert-no-work-rights">
+                      <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-semibold text-destructive">No Work Rights — This employee is NOT permitted to work</p>
+                        <p className="text-xs text-destructive/80 mt-0.5">Confirmed via VEVO. Do not roster or pay this employee for any work.</p>
+                      </div>
                     </div>
                   )}
 
