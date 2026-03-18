@@ -551,6 +551,9 @@ export function AdminEmployeeDetail() {
                       <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
                       <div>
                         <p className="text-sm text-green-700 dark:text-green-400">Work rights valid — visa expires {currentData.visaExpiry} ({daysLeft} days remaining)</p>
+                        {currentData.workEntitlements === "Restricted" && (
+                          <p className="text-xs text-green-600/80 dark:text-green-500/80 mt-0.5">Work allowed 48 hrs / fortnight (while course in session)</p>
+                        )}
                         {currentData.lastVevoCheckDate && (
                           <p className="text-xs text-green-600/70 dark:text-green-500/70 mt-0.5">VEVO verified on {currentData.lastVevoCheckDate}</p>
                         )}
