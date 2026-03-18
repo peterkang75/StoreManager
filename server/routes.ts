@@ -3186,7 +3186,6 @@ export async function registerRoutes(
   // Receives inbound email events from Resend inbound routing.
   // Filters by known supplier contactEmails (whitelist).
   app.post("/api/webhooks/inbound-invoices", async (req: Request, res: Response) => {
-    const fs = require('fs');
     try {
       const payloadString = JSON.stringify(req.body, null, 2);
       fs.writeFileSync('incoming_mail_debug.txt', payloadString);
