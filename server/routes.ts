@@ -3190,16 +3190,16 @@ export async function registerRoutes(
       const payload = req.body;
 
       // ── 1. Extract sender email (Cloudmailin format) ─────────────────────────
-      // envelope.from is the raw SMTP sender — plain email, no display name
-      // headers.from may be "Display Name <email>" format
-      const envelopeFrom: string = payload?.envelope?.from ?? "";
+      // Use ONLY headers.from — envelope.from contains Gmail forwarding artifacts
+      // (e.g. peter.kang+caf_=...@eatem.com.au) and must NOT be used for matching.
+      // headers.from format: `"Display Name" <email@domain.com>` or plain `email@domain.com`
       const rawHeaderFrom: string = payload?.headers?.from ?? "";
-      const rawFrom: string = envelopeFrom || rawHeaderFrom;
-
-      // Strip display name if present: "Name <email>" → "email"
-      const senderEmail = ((rawFrom.match(/<([^>]+)>/) ?? [null, rawFrom])[1] ?? "")
+      const angleMatch = rawHeaderFrom.match(/<([^>]+)>/);
+      const senderEmail = (angleMatch ? angleMatch[1] : rawHeaderFrom)
         .trim()
         .toLowerCase();
+
+      console.log("Cleaned Original Sender:", senderEmail);
 
       if (!senderEmail) {
         console.warn("[Webhook/inbound-invoices] Could not extract sender email from payload");
