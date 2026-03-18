@@ -3187,27 +3187,17 @@ export async function registerRoutes(
   // Filters by known supplier contactEmails (whitelist).
   app.post("/api/webhooks/inbound-invoices", async (req: Request, res: Response) => {
     try {
-      const payloadString = JSON.stringify(req.body, null, 2);
-      fs.writeFileSync('incoming_mail_debug.txt', payloadString);
-      console.log("=== FILE SAVED: incoming_mail_debug.txt ===");
-    } catch (e) {
-      console.error("File save error:", e);
-    }
-    return res.status(200).send("Debug file saved");
-
-    try {
       const payload = req.body;
 
-      // ── 1. Extract sender email ──────────────────────────────────────────────
-      // Resend inbound payload can be flat or nested under `data`
-      const rawFrom: string =
-        payload?.data?.from ??
-        payload?.from ??
-        payload?.record?.from ??
-        "";
+      // ── 1. Extract sender email (Cloudmailin format) ─────────────────────────
+      // envelope.from is the raw SMTP sender — plain email, no display name
+      // headers.from may be "Display Name <email>" format
+      const envelopeFrom: string = payload?.envelope?.from ?? "";
+      const rawHeaderFrom: string = payload?.headers?.from ?? "";
+      const rawFrom: string = envelopeFrom || rawHeaderFrom;
 
-      // "Display Name <email@domain.com>" → "email@domain.com"
-      const senderEmail = (rawFrom.match(/<([^>]+)>/) ?? [null, rawFrom])[1]
+      // Strip display name if present: "Name <email>" → "email"
+      const senderEmail = ((rawFrom.match(/<([^>]+)>/) ?? [null, rawFrom])[1] ?? "")
         .trim()
         .toLowerCase();
 
@@ -3216,23 +3206,13 @@ export async function registerRoutes(
         return res.status(200).json({ received: true, action: "ignored", reason: "no_sender" });
       }
 
-      // ── 2. Extract subject and attachments ───────────────────────────────────
-      const subject: string =
-        payload?.data?.subject ?? payload?.subject ?? payload?.record?.subject ?? "(no subject)";
+      // ── 2. Extract subject and attachments (Cloudmailin format) ──────────────
+      const subject: string = payload?.headers?.subject ?? "(no subject)";
 
-      const attachments: any[] =
-        payload?.data?.attachments ?? payload?.attachments ?? payload?.record?.attachments ?? [];
-
-      const hasAttachment = Array.isArray(attachments) && attachments.length > 0;
-
-      // ── TEMP: Gmail forwarding verification ─────────────────────────────────
-      const envelopeFrom: string = req.body?.envelope?.from ?? "";
-      const headersFrom: string = req.body?.headers?.from ?? "";
-      if (envelopeFrom.includes("forwarding-noreply@google.com") || headersFrom.includes("forwarding-noreply@google.com")) {
-        const content = req.body.plain || JSON.stringify(req.body);
-        require("fs").writeFileSync("google_verification.txt", content);
-        return res.status(200).send("OK");
-      }
+      // Cloudmailin attachments: array under payload.attachments
+      // Each item has: file_name, content_type, content (base64), size
+      const attachments: any[] = Array.isArray(payload?.attachments) ? payload.attachments : [];
+      const hasAttachment = attachments.length > 0;
 
       // ── 3. Whitelist check ───────────────────────────────────────────────────
       const matchedSupplier = await storage.findSupplierByEmail(senderEmail);
@@ -3263,9 +3243,10 @@ export async function registerRoutes(
       }
 
       // Find first PDF attachment
+      // Cloudmailin uses: file_name, content_type, content (base64)
       const pdfAttachment = attachments.find((a: any) => {
-        const name: string = a.filename ?? a.name ?? "";
-        const type: string = a.contentType ?? a.mimeType ?? a.type ?? "";
+        const name: string = a.file_name ?? a.filename ?? a.name ?? "";
+        const type: string = a.content_type ?? a.contentType ?? a.mimeType ?? a.type ?? "";
         return name.toLowerCase().endsWith(".pdf") || type.toLowerCase().includes("pdf");
       });
 

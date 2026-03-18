@@ -1,0 +1,42 @@
+{
+  "headers": {
+    "received": "by mail-lf1-f41.google.com with SMTP id 2adb3069b0e04-5a142464316so754188e87.1        for <c923c545e2cd747f1899@cloudmailin.net>; Wed, 18 Mar 2026 03:30:20 -0700",
+    "date": "Wed, 18 Mar 2026 21:30:19 +1100",
+    "from": "eatem Team <forwarding-noreply@google.com>",
+    "to": "c923c545e2cd747f1899@cloudmailin.net",
+    "message_id": "<CA+E_2kQ_UVgJWtPJ2-Yzn6LLVXJaxpWAqVNnHGsxcHquniuTTQ@mail.gmail.com>",
+    "subject": "(eatem Forwarding confirmation – Receive mail from peter.kang@eatem.com.au",
+    "mime_version": "1.0",
+    "content_type": "text/plain; charset=UTF-8",
+    "arc_seal": "i=1; a=rsa-sha256; t=1773829820; cv=none;        d=google.com; s=arc-20240605;        b=b7e6JCXesIg5wAXCJHPNp33q0R9eWNqcpAQNale8ediZviMudHhal8doWikjCttGo9         z5u+FGkEOKNq8FrVMpLbHWAKnOXUR+OObDbAvJ0t0hFHVyi7gJLGR/9Yscr03vpcKwqz         0DDM6yOKjiH7HmQD4QIzh8L6MZ6uxAh0Yj4L5bSxTJGDTfFhuFjFR75LWOCmCEFgLEPf         jhDQ1SJiQwTQVnKPJF08mdb6M6WYHwud6Ujit3/ofQmqiTD/a26VA9OLJsnmcdUTT4G7         a5fHYC+GlbHNWBcanMolkjwbsCNsEXh6ZP02pSiZyzGHT7FUI+JT9qq4RP/PI22g5C18         4P+A==",
+    "arc_message_signature": "i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20240605;        h=to:from:subject:message-id:date:mime-version:dkim-signature;        bh=cAb4ARCOqrtbYJRgt/s0e9oWaBDtHShQhWzhfPoLemI=;        fh=jbeDCEh0gGrKb7UCMN5eGCwvjpCb/hZ8rdRlVFdEh/o=;        b=HPLt5fjvxGVeTeE6er9GMxe4AqgBRqUPJnkIsi8egUcSlWlg5kY/EUvqbveBb7Ce3w         k7AZhEY0o+T3V8uyjtry/qm2yD2uYiIgpaWHiSo1Utx9CwlQrToycGA9jmzKbkPe4LXM         hzGXLeQC0U6SRy8F/I75RxlcbBnwoiXR3Hx7+/oP3O32BGqlcX7M6IMnecBrCi8MCiyu         aHYfXU9puNjqPGUV55aEwJHT8pKBWOiW3wNeAijp+t2aGTyhUqBNPHWhBNtH+bn4trdU         m+KK/wJTH8bji1ANf+MYBaUB65dNrtY7iY1EXzUGT5rz9d2qAKEMtL0hzkC4K59wI6sY         TD0w==;        darn=cloudmailin.net",
+    "arc_authentication_results": "i=1; mx.google.com; arc=none",
+    "dkim_signature": "v=1; a=rsa-sha256; c=relaxed/relaxed;        d=google.com; s=20251104; t=1773829820; x=1774434620; darn=cloudmailin.net;        h=to:from:subject:message-id:date:mime-version:from:to:cc:subject         :date:message-id:reply-to;        bh=cAb4ARCOqrtbYJRgt/s0e9oWaBDtHShQhWzhfPoLemI=;        b=fyRUQtZg6N0oPodwrYTmvbTFbmAVBi0BatLmHegLuIwJeJ0Rq6DuV/ta++V8ysUGBS         wgsXLW73goQQtlpIWLBI/c5X8RDFU3+anIcKQIdDgoeejc3a80OlwMlS4Cmh5wBYfP/y         m8aLK+k3nzUPy2naDyRY10GKgO/JmJlGQ62qOYqIfin+HrKE0++GRn63opTuz6wnRG6l         G79urLnNGuVg+VYE5Nru6htvUEAA3TKmkoMYOVG6JenkQ4wZ/b1RoMjyRSpL4G5alYkP         NeAxlBDsquMKL1hunNeC50VhCofQAsufKX8Ao8xBalWYoQJoTM7SgX5DOUd0zz+z/Cwm         Px4Q==",
+    "x_google_dkim_signature": "v=1; a=rsa-sha256; c=relaxed/relaxed;        d=1e100.net; s=20251104; t=1773829820; x=1774434620;        h=to:from:subject:message-id:date:mime-version:x-gm-gg         :x-gm-message-state:from:to:cc:subject:date:message-id:reply-to;        bh=cAb4ARCOqrtbYJRgt/s0e9oWaBDtHShQhWzhfPoLemI=;        b=onhGbCQ4cdWfBej5WTjlC4R2zWt/ay+tZDinwz9ygZgK7U2ZZUn4vdfxVlSNY9MGl7         ESssU96H69oenmwdcCUYg56/K0rWTMMiPZz7mSFIwIG8yKiJJbdl9Mn0p0Fx+QeKacuB         vkhaslw5bTOL+rkyIQWBLmBDwybl8sYctk65Gp8QgH7RmuYRhOCH4s5IkrVWOuf+pIZz         CBuMVKP5vepcHQQuM/G6lHNqX7Cx+2lkrjKl/VjXLenvxO/qfsNsHyE1xRu3qfWPrq18         tWutQiknI4SJNmaqDFaTj6MddR/RMc3EQBgh8UtIurPSzpugjjsM/dOyJpf/c4fB9teg         b89A==",
+    "x_gm_message_state": "AOJu0YzGanrGrDYOgBeDAYOckVONh9ZEGyEctJgfRnkwhCWbOiin0xXa\tORxYle/E2eRcrRXaqUg5mWBagpLJdcEguyfJl/HsDZQRaRwUdlLGM+wHsY/WYzV+C5ak6u+S1rB\tQ01WKkfjagCFxXpcfUHEgHaml5VJBahGnfOEppF9ENumcjd1dDhUOQn9yvOBHr33TyFjw",
+    "x_gm_gg": "ATEYQzyiIX974koRT43Q41wUPcwlOqF/9lFr/Oann9GYRxQ2ivSoc8dOA+ujdvUesS4\tNsIY+d00US5NfO9uwQtwHidSXtvPCevYPJbr3zYPhVwDHx63C/W8DGJYouVfoXGRxeU1gIEDdJ6\tvw6CNOJv7MMvng8o30j7m1taMnYtQR/Nm08D6a39llyIDr2NmvOSCAtFrhk/U0Ao9qcfRkE+xDg\t54UlS08cnsawi1spDarayZtWzNHLLbBuE9zr++TMwGL+IEsK1qsLmE/4K83BPCyu9N5Qpg2UB9J\tC1CNTXcfB+C5XmpOgQiv70yGaAQTRNuyWpPQTzaoxAU5Eot0sVqRty/GP8tRhwNkcZSGxJPc",
+    "x_received": "by 2002:a05:6512:3c98:b0:5a2:7aeb:e7b3 with SMTP id 2adb3069b0e04-5a27aebe849mr776682e87.29.1773829819338; Wed, 18 Mar 2026 03:30:19 -0700 (PDT)",
+    "x_google_address_confirmation": "BimzrpfS_6IlcN8rAt1ozqiUGEI",
+    "x_gm_features": "AaiRm504MBp1wmnN19CH113tHHwiePUMqCnfYxUlvhvLD13Eb2MCDCeX2vO8O_I"
+  },
+  "envelope": {
+    "to": "c923c545e2cd747f1899@cloudmailin.net",
+    "recipients": [
+      "c923c545e2cd747f1899@cloudmailin.net"
+    ],
+    "from": "forwarding-noreply@google.com",
+    "helo_domain": "mail-lf1-f41.google.com",
+    "remote_ip": "209.85.167.41",
+    "tls": true,
+    "tls_cipher": "TLSv1.3",
+    "md5": "50ead2251a340d1020e3c2f68079f0ae",
+    "spf": {
+      "result": "none",
+      "domain": "google.com"
+    }
+  },
+  "plain": "peter.kang@eatem.com.au has requested to automatically forward mail to\nyour email\naddress c923c545e2cd747f1899@cloudmailin.net.\n\nTo allow peter.kang@eatem.com.au to automatically forward mail to your address,\nplease click the link below to confirm the request:\n\nhttps://mail.google.com/mail/vf-%5BANGjdJ_QhGF5VwoHl6T5mC2Cwa2nysVEu2lctMr2x4GqSrjn_2W7JVpKN_bXYCw9N24COzV1l78fw2pq92Ya_PrK91l_E29KaMcC5ITfXg%5D-qLAqJV48NnjCv0IzLjL0wrG5YBQ\n\nIf you click the link and it appears to be broken, please copy and paste it\ninto a new browser window.\n\nThanks for using eatem.\n\nSincerely,\n\nThe eatem team\n\nIf you do not approve of this request, no further action is required.\npeter.kang@eatem.com.au cannot automatically forward messages to your\nemail address\nunless you confirm the request by clicking the link above. If you accidentally\nclicked the link, but you do not want to allow peter.kang@eatem.com.au to\nautomatically forward messages to your address, click this link to cancel this\nverification:\nhttps://mail.google.com/mail/uf-%5BANGjdJ9tqHcjDDyM-2Qmhr0u9aXxyNkyJ9TPiKIhncznHeqXmu2rqvGGQ8DVQ3v4z9Y2Gu12fNGsIqAVyFzESQIt06ecqJj3jPYmdvZa0Q%5D-qLAqJV48NnjCv0IzLjL0wrG5YBQ\n\nTo learn more about why you might have received this message, please\nvisit: http://support.google.com/mail/bin/answer.py?answer=184973.\n\nPlease do not respond to this message. If you'd like to contact the\nGoogle.com team, please log in to your account and click 'Help' at\nthe top of any page. Then, click 'Contact us' along the bottom of the\nHelp Centre.\n",
+  "html": null,
+  "reply_plain": null,
+  "attachments": []
+}
