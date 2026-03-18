@@ -30,83 +30,249 @@ import { Plus, Truck, Edit, FileText } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Supplier } from "@shared/schema";
 
+type FormState = {
+  name: string;
+  contactName: string;
+  abn: string;
+  contactEmails: string;
+  bsb: string;
+  accountNumber: string;
+  address: string;
+  notes: string;
+  active: boolean;
+};
+
+const BLANK_FORM: FormState = {
+  name: "",
+  contactName: "",
+  abn: "",
+  contactEmails: "",
+  bsb: "",
+  accountNumber: "",
+  address: "",
+  notes: "",
+  active: true,
+};
+
+function parseEmails(raw: string): string[] {
+  return raw
+    .split(",")
+    .map(e => e.trim().toLowerCase())
+    .filter(e => e.length > 0);
+}
+
+function emailsToString(arr: string[] | null | undefined): string {
+  return (arr ?? []).join(", ");
+}
+
+function SupplierForm({
+  form,
+  setForm,
+  isEdit,
+  isPending,
+  onSubmit,
+  onCancel,
+}: {
+  form: FormState;
+  setForm: (f: FormState) => void;
+  isEdit: boolean;
+  isPending: boolean;
+  onSubmit: () => void;
+  onCancel?: () => void;
+}) {
+  return (
+    <div className="space-y-4 py-2">
+      <div className="space-y-2">
+        <Label htmlFor="sup-name">Name *</Label>
+        <Input
+          id="sup-name"
+          value={form.name}
+          onChange={e => setForm({ ...form, name: e.target.value })}
+          placeholder="e.g. Sydney Fish Market"
+          data-testid="input-supplier-name"
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="sup-abn">ABN</Label>
+          <Input
+            id="sup-abn"
+            value={form.abn}
+            onChange={e => setForm({ ...form, abn: e.target.value })}
+            placeholder="12 345 678 901"
+            data-testid="input-abn"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="sup-contact">Contact Name</Label>
+          <Input
+            id="sup-contact"
+            value={form.contactName}
+            onChange={e => setForm({ ...form, contactName: e.target.value })}
+            data-testid="input-contact-name"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="sup-emails">Whitelisted Emails</Label>
+        <Input
+          id="sup-emails"
+          value={form.contactEmails}
+          onChange={e => setForm({ ...form, contactEmails: e.target.value })}
+          placeholder="billing@supplier.com, accounts@supplier.com"
+          data-testid="input-contact-emails"
+        />
+        <p className="text-xs text-muted-foreground">
+          Invoices sent from these email addresses will be automatically accepted and parsed by the AI.
+          Separate multiple addresses with commas.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="sup-bsb">BSB</Label>
+          <Input
+            id="sup-bsb"
+            value={form.bsb}
+            onChange={e => setForm({ ...form, bsb: e.target.value })}
+            placeholder="000-000"
+            data-testid="input-bsb"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="sup-acct">Account Number</Label>
+          <Input
+            id="sup-acct"
+            value={form.accountNumber}
+            onChange={e => setForm({ ...form, accountNumber: e.target.value })}
+            placeholder="123456789"
+            data-testid="input-account-number"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="sup-address">Address</Label>
+        <Input
+          id="sup-address"
+          value={form.address}
+          onChange={e => setForm({ ...form, address: e.target.value })}
+          data-testid="input-address"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="sup-notes">Notes</Label>
+        <Textarea
+          id="sup-notes"
+          value={form.notes}
+          onChange={e => setForm({ ...form, notes: e.target.value })}
+          data-testid="input-notes"
+        />
+      </div>
+
+      {isEdit && (
+        <div className="flex items-center justify-between pt-1">
+          <Label htmlFor="sup-active">Active</Label>
+          <Switch
+            id="sup-active"
+            checked={form.active}
+            onCheckedChange={checked => setForm({ ...form, active: checked })}
+            data-testid="switch-active"
+          />
+        </div>
+      )}
+
+      <div className={`flex gap-2 pt-1 ${isEdit ? "justify-end" : ""}`}>
+        {isEdit && (
+          <Button variant="outline" onClick={onCancel} type="button">
+            Cancel
+          </Button>
+        )}
+        <Button
+          onClick={onSubmit}
+          disabled={!form.name.trim() || isPending}
+          className={isEdit ? "" : "w-full"}
+          data-testid={isEdit ? "button-update-supplier" : "button-save-supplier"}
+        >
+          {isPending ? "Saving..." : isEdit ? "Save Changes" : "Create Supplier"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function AdminSuppliers() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const [showDialog, setShowDialog] = useState(false);
   const [editSupplier, setEditSupplier] = useState<Supplier | null>(null);
-  const [form, setForm] = useState({
-    name: "",
-    contactName: "",
-    email: "",
-    phone: "",
-    address: "",
-    notes: "",
-    active: true,
-  });
+  const [form, setForm] = useState<FormState>(BLANK_FORM);
 
   const { data: suppliers, isLoading } = useQuery<Supplier[]>({
     queryKey: ["/api/suppliers"],
   });
 
+  function buildPayload(f: FormState) {
+    return {
+      name: f.name.trim(),
+      contactName: f.contactName.trim() || null,
+      abn: f.abn.trim() || null,
+      contactEmails: parseEmails(f.contactEmails),
+      bsb: f.bsb.trim() || null,
+      accountNumber: f.accountNumber.trim() || null,
+      address: f.address.trim() || null,
+      notes: f.notes.trim() || null,
+      active: f.active,
+    };
+  }
+
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!form.name.trim()) {
-        throw new Error("Supplier name is required");
-      }
-      const res = await apiRequest("POST", "/api/suppliers", form);
+      if (!form.name.trim()) throw new Error("Supplier name is required");
+      const res = await apiRequest("POST", "/api/suppliers", buildPayload(form));
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/suppliers"] });
       setShowDialog(false);
-      resetForm();
+      setForm(BLANK_FORM);
       toast({ title: "Supplier created" });
     },
-    onError: (error: Error) => {
-      toast({ title: error.message || "Failed to create supplier", variant: "destructive" });
+    onError: (err: Error) => {
+      toast({ title: err.message || "Failed to create supplier", variant: "destructive" });
     },
   });
 
   const updateMutation = useMutation({
     mutationFn: async () => {
       if (!editSupplier) return;
-      if (!form.name.trim()) {
-        throw new Error("Supplier name is required");
-      }
-      const res = await apiRequest("PUT", `/api/suppliers/${editSupplier.id}`, form);
+      if (!form.name.trim()) throw new Error("Supplier name is required");
+      const res = await apiRequest("PUT", `/api/suppliers/${editSupplier.id}`, buildPayload(form));
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/suppliers"] });
       setEditSupplier(null);
-      resetForm();
+      setForm(BLANK_FORM);
       toast({ title: "Supplier updated" });
     },
-    onError: (error: Error) => {
-      toast({ title: error.message || "Failed to update supplier", variant: "destructive" });
+    onError: (err: Error) => {
+      toast({ title: err.message || "Failed to update supplier", variant: "destructive" });
     },
   });
-
-  const resetForm = () => {
-    setForm({
-      name: "",
-      contactName: "",
-      email: "",
-      phone: "",
-      address: "",
-      notes: "",
-      active: true,
-    });
-  };
 
   const openEdit = (supplier: Supplier) => {
     setEditSupplier(supplier);
     setForm({
       name: supplier.name,
       contactName: supplier.contactName || "",
-      email: supplier.email || "",
-      phone: supplier.phone || "",
+      abn: supplier.abn || "",
+      contactEmails: emailsToString(supplier.contactEmails),
+      bsb: supplier.bsb || "",
+      accountNumber: supplier.accountNumber || "",
       address: supplier.address || "",
       notes: supplier.notes || "",
       active: supplier.active,
@@ -129,96 +295,48 @@ export function AdminSuppliers() {
       <div className="space-y-6">
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
               <CardTitle className="text-base">Supplier List</CardTitle>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => navigate("/admin/suppliers/invoices")} data-testid="button-invoices">
+                <Button
+                  variant="outline"
+                  onClick={() => navigate("/admin/suppliers/invoices")}
+                  data-testid="button-invoices"
+                >
                   <FileText className="w-4 h-4 mr-2" />
                   Invoices
                 </Button>
-                <Dialog open={showDialog} onOpenChange={setShowDialog}>
+
+                <Dialog
+                  open={showDialog}
+                  onOpenChange={open => {
+                    setShowDialog(open);
+                    if (!open) setForm(BLANK_FORM);
+                  }}
+                >
                   <DialogTrigger asChild>
                     <Button data-testid="button-add-supplier">
                       <Plus className="w-4 h-4 mr-2" />
                       Add Supplier
                     </Button>
                   </DialogTrigger>
-                  <DialogContent>
+                  <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle>Add Supplier</DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-4 py-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="name">Name *</Label>
-                        <Input
-                          id="name"
-                          value={form.name}
-                          onChange={(e) => setForm({...form, name: e.target.value})}
-                          data-testid="input-supplier-name"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="contact">Contact Name</Label>
-                        <Input
-                          id="contact"
-                          value={form.contactName}
-                          onChange={(e) => setForm({...form, contactName: e.target.value})}
-                          data-testid="input-contact-name"
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="email">Email</Label>
-                          <Input
-                            id="email"
-                            type="email"
-                            value={form.email}
-                            onChange={(e) => setForm({...form, email: e.target.value})}
-                            data-testid="input-email"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="phone">Phone</Label>
-                          <Input
-                            id="phone"
-                            value={form.phone}
-                            onChange={(e) => setForm({...form, phone: e.target.value})}
-                            data-testid="input-phone"
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="address">Address</Label>
-                        <Input
-                          id="address"
-                          value={form.address}
-                          onChange={(e) => setForm({...form, address: e.target.value})}
-                          data-testid="input-address"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="notes">Notes</Label>
-                        <Textarea
-                          id="notes"
-                          value={form.notes}
-                          onChange={(e) => setForm({...form, notes: e.target.value})}
-                          data-testid="input-notes"
-                        />
-                      </div>
-                      <Button 
-                        onClick={() => createMutation.mutate()} 
-                        disabled={!form.name || createMutation.isPending}
-                        className="w-full"
-                        data-testid="button-save-supplier"
-                      >
-                        Create Supplier
-                      </Button>
-                    </div>
+                    <SupplierForm
+                      form={form}
+                      setForm={setForm}
+                      isEdit={false}
+                      isPending={createMutation.isPending}
+                      onSubmit={() => createMutation.mutate()}
+                    />
                   </DialogContent>
                 </Dialog>
               </div>
             </div>
           </CardHeader>
+
           <CardContent>
             {!suppliers?.length ? (
               <div className="text-center py-12 text-muted-foreground">
@@ -230,9 +348,9 @@ export function AdminSuppliers() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
-                    <TableHead>Contact</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Phone</TableHead>
+                    <TableHead>ABN</TableHead>
+                    <TableHead>Whitelisted Emails</TableHead>
+                    <TableHead>Banking Details</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -240,10 +358,54 @@ export function AdminSuppliers() {
                 <TableBody>
                   {suppliers.map(supplier => (
                     <TableRow key={supplier.id} data-testid={`row-supplier-${supplier.id}`}>
-                      <TableCell className="font-medium">{supplier.name}</TableCell>
-                      <TableCell>{supplier.contactName || "-"}</TableCell>
-                      <TableCell>{supplier.email || "-"}</TableCell>
-                      <TableCell>{supplier.phone || "-"}</TableCell>
+                      <TableCell>
+                        <div className="font-medium">{supplier.name}</div>
+                        {supplier.contactName && (
+                          <div className="text-xs text-muted-foreground">{supplier.contactName}</div>
+                        )}
+                      </TableCell>
+
+                      <TableCell className="text-sm text-muted-foreground font-mono">
+                        {supplier.abn || "—"}
+                      </TableCell>
+
+                      <TableCell>
+                        {supplier.contactEmails && supplier.contactEmails.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {supplier.contactEmails.map(email => (
+                              <span
+                                key={email}
+                                className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground border border-border"
+                                data-testid={`tag-email-${supplier.id}`}
+                              >
+                                {email}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground text-sm">—</span>
+                        )}
+                      </TableCell>
+
+                      <TableCell className="text-sm">
+                        {supplier.bsb || supplier.accountNumber ? (
+                          <div className="space-y-0.5">
+                            {supplier.bsb && (
+                              <div className="font-mono text-xs text-muted-foreground">
+                                BSB: {supplier.bsb}
+                              </div>
+                            )}
+                            {supplier.accountNumber && (
+                              <div className="font-mono text-xs">
+                                Acct: {supplier.accountNumber}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+
                       <TableCell>
                         {supplier.active ? (
                           <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Active</Badge>
@@ -251,9 +413,10 @@ export function AdminSuppliers() {
                           <Badge variant="secondary">Inactive</Badge>
                         )}
                       </TableCell>
+
                       <TableCell className="text-right">
-                        <Button 
-                          variant="ghost" 
+                        <Button
+                          variant="ghost"
                           size="icon"
                           onClick={() => openEdit(supplier)}
                           data-testid={`button-edit-${supplier.id}`}
@@ -270,84 +433,31 @@ export function AdminSuppliers() {
         </Card>
       </div>
 
-      <Dialog open={!!editSupplier} onOpenChange={() => { setEditSupplier(null); resetForm(); }}>
-        <DialogContent>
+      {/* ── Edit Supplier Dialog ─────────────────────────────── */}
+      <Dialog
+        open={!!editSupplier}
+        onOpenChange={open => {
+          if (!open) {
+            setEditSupplier(null);
+            setForm(BLANK_FORM);
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Supplier</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit-name">Name *</Label>
-              <Input
-                id="edit-name"
-                value={form.name}
-                onChange={(e) => setForm({...form, name: e.target.value})}
-                data-testid="input-edit-supplier-name"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-contact">Contact Name</Label>
-              <Input
-                id="edit-contact"
-                value={form.contactName}
-                onChange={(e) => setForm({...form, contactName: e.target.value})}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-email">Email</Label>
-                <Input
-                  id="edit-email"
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setForm({...form, email: e.target.value})}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-phone">Phone</Label>
-                <Input
-                  id="edit-phone"
-                  value={form.phone}
-                  onChange={(e) => setForm({...form, phone: e.target.value})}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-address">Address</Label>
-              <Input
-                id="edit-address"
-                value={form.address}
-                onChange={(e) => setForm({...form, address: e.target.value})}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-notes">Notes</Label>
-              <Textarea
-                id="edit-notes"
-                value={form.notes}
-                onChange={(e) => setForm({...form, notes: e.target.value})}
-              />
-            </div>
-            <div className="flex items-center justify-between">
-              <Label htmlFor="edit-active">Active</Label>
-              <Switch
-                id="edit-active"
-                checked={form.active}
-                onCheckedChange={(checked) => setForm({...form, active: checked})}
-                data-testid="switch-active"
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => { setEditSupplier(null); resetForm(); }}>Cancel</Button>
-              <Button 
-                onClick={() => updateMutation.mutate()} 
-                disabled={!form.name || updateMutation.isPending}
-                data-testid="button-update-supplier"
-              >
-                Save Changes
-              </Button>
-            </div>
-          </div>
+          <SupplierForm
+            form={form}
+            setForm={setForm}
+            isEdit={true}
+            isPending={updateMutation.isPending}
+            onSubmit={() => updateMutation.mutate()}
+            onCancel={() => {
+              setEditSupplier(null);
+              setForm(BLANK_FORM);
+            }}
+          />
         </DialogContent>
       </Dialog>
     </AdminLayout>
