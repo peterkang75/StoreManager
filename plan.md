@@ -385,3 +385,40 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **`vite.ts`, `drizzle.config.ts`, `package.json`**: never modify these files.
 - **Multi-store salary**: `salaryDistribute` field controls how fixed salary is split across multiple store assignments.
 - **Store filter for roster/portal**: only stores where `name.toLowerCase()` includes `"sushi"` or `"sandwich"` show in roster builder and employee portal.
+
+---
+
+## 6. Next Steps / Action Plan
+
+### Phase 1: Accounts Payable Fine-Tuning — ✅ COMPLETE
+
+- [x] **AI Parser Update (Statements & Routing):** `invoiceParser.ts` updated with OpenAI system prompt that handles both single invoices and statements. Always returns a JSON **array** of `ParsedInvoice[]`, never a lumped total. `storeCode` determined from "Bill To"/"Invoice To" text: `"SUSHI"` for Olitin/Sushime, `"SANDWICH"` for Eatem Pty Ltd/Eatem Sandwich, `"UNKNOWN"` otherwise. `max_tokens` set to 1000 to accommodate multi-invoice responses.
+
+- [x] **Webhook DB Logic:** `POST /api/webhooks/inbound-invoices` iterates over the parsed array, resolves `storeCode` → `storeId` via store name matching, performs per-invoice duplicate check on `(supplierId, invoiceNumber)`, and inserts each invoice individually. Returns `{ created: N, skipped: N }`.
+
+- [x] **AP Dashboard UI Upgrades:**
+  - Store filter dropdown added alongside Status and Supplier filters.
+  - Checkbox column added to invoice table; header checkbox selects all PENDING rows.
+  - Real-time **Selected Total** display (`$X,XXX.XX selected (N)`) shown when items are checked.
+  - Bulk **Mark N as Paid** button triggers parallel PATCH requests, invalidates cache, clears selection.
+
+---
+
+### Phase 2: Data & Reporting — Upcoming (High Priority)
+
+- [ ] **Manager Dashboard:** Combine payroll totals (labor cost) and AP invoice data (COGS) against daily sales totals per store. Calculate and display:
+  - Labor % = Total Payroll ÷ Total Sales × 100
+  - COGS % = Total Supplier Invoices ÷ Total Sales × 100
+  - Gross Profit % = (Sales − Labor − COGS) ÷ Sales × 100
+  - Weekly and monthly trend charts per store.
+
+---
+
+### Phase 3: Communication & Mobile — Upcoming (Medium Priority)
+
+- [ ] **Notice Board / Messaging:** In-app announcement system to replace external chat apps (LINE/WhatsApp). Admin creates notices with store targeting; employees see notices on portal home screen. Persist in DB with read receipts.
+
+- [ ] **PWA / Mobile Optimization:** Convert Employee Portal to a Progressive Web App:
+  - `manifest.json` for home-screen installation on iOS/Android.
+  - Service worker for offline support (view last-fetched roster offline).
+  - Push notifications for new roster publications and timesheet decisions.
