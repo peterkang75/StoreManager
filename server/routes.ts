@@ -3412,6 +3412,54 @@ export async function registerRoutes(
     }
   });
 
+  // ── Notices ───────────────────────────────────────────────────────────────────
+  app.get("/api/notices", async (req: Request, res: Response) => {
+    try {
+      const storeId   = req.query.storeId   as string | undefined;
+      const activeOnly = req.query.activeOnly === "true";
+      const list = await storage.getNotices({ storeId, activeOnly });
+      res.json(list);
+    } catch (err) {
+      console.error("Error fetching notices:", err);
+      res.status(500).json({ error: "Failed to fetch notices" });
+    }
+  });
+
+  app.post("/api/notices", async (req: Request, res: Response) => {
+    try {
+      const { insertNoticeSchema } = await import("@shared/schema");
+      const parsed = insertNoticeSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      const notice = await storage.createNotice(parsed.data);
+      res.status(201).json(notice);
+    } catch (err) {
+      console.error("Error creating notice:", err);
+      res.status(500).json({ error: "Failed to create notice" });
+    }
+  });
+
+  app.put("/api/notices/:id", async (req: Request, res: Response) => {
+    try {
+      const notice = await storage.updateNotice(req.params.id, req.body);
+      if (!notice) return res.status(404).json({ error: "Notice not found" });
+      res.json(notice);
+    } catch (err) {
+      console.error("Error updating notice:", err);
+      res.status(500).json({ error: "Failed to update notice" });
+    }
+  });
+
+  app.delete("/api/notices/:id", async (req: Request, res: Response) => {
+    try {
+      const ok = await storage.deleteNotice(req.params.id);
+      if (!ok) return res.status(404).json({ error: "Notice not found" });
+      res.json({ success: true });
+    } catch (err) {
+      console.error("Error deleting notice:", err);
+      res.status(500).json({ error: "Failed to delete notice" });
+    }
+  });
+
   // ── AP: Quarantined emails (admin read) ──────────────────────────────────────
   app.get("/api/webhooks/quarantined-emails", async (_req: Request, res: Response) => {
     try {

@@ -21,11 +21,12 @@ import {
   type Roster, type InsertRoster,
   type RosterPublication,
   type ShiftTimesheet, type InsertShiftTimesheet,
+  type Notice, type InsertNotice,
   stores, candidates, employees, employeeStoreAssignments, employeeOnboardingTokens, employeeDocuments,
   rosterPeriods, shifts, rosters, rosterPublications, timeLogs, timesheets, payrolls,
   dailyClosings, cashSalesDetails, dailyCloseForms, suppliers, supplierInvoices, supplierPayments,
   quarantinedEmails,
-  financialTransactions, shiftTimesheets,
+  financialTransactions, shiftTimesheets, notices,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import { db } from "./db";
@@ -116,6 +117,12 @@ export interface IStorage {
   getQuarantinedEmails(): Promise<QuarantinedEmail[]>;
   createQuarantinedEmail(email: InsertQuarantinedEmail): Promise<QuarantinedEmail>;
 
+  getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]>;
+  getNotice(id: string): Promise<Notice | undefined>;
+  createNotice(data: InsertNotice): Promise<Notice>;
+  updateNotice(id: string, data: Partial<InsertNotice>): Promise<Notice | undefined>;
+  deleteNotice(id: string): Promise<boolean>;
+
   getFinancialTransactions(limit?: number): Promise<FinancialTransaction[]>;
   createFinancialTransaction(tx: InsertFinancialTransaction): Promise<FinancialTransaction>;
   deleteFinancialTransaction(id: string): Promise<boolean>;
@@ -161,6 +168,7 @@ export class MemStorage implements IStorage {
   private supplierInvoices: Map<string, SupplierInvoice>;
   private supplierPayments: Map<string, SupplierPayment>;
   private quarantinedEmails: Map<string, QuarantinedEmail>;
+  private noticesMap: Map<string, Notice>;
   private employeeStoreAssignments: Map<string, EmployeeStoreAssignment>;
   private financialTransactions: Map<string, FinancialTransaction>;
   private rostersMap: Map<string, Roster>;
@@ -183,6 +191,7 @@ export class MemStorage implements IStorage {
     this.supplierInvoices = new Map();
     this.supplierPayments = new Map();
     this.quarantinedEmails = new Map();
+    this.noticesMap = new Map();
     this.financialTransactions = new Map();
     this.rostersMap = new Map();
   }
@@ -911,6 +920,46 @@ export class MemStorage implements IStorage {
     return email;
   }
 
+  async getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]> {
+    let list = Array.from(this.noticesMap.values());
+    if (filters?.activeOnly) list = list.filter(n => n.isActive);
+    if (filters?.storeId) {
+      list = list.filter(n => n.targetStoreId === null || n.targetStoreId === filters.storeId);
+    }
+    return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async getNotice(id: string): Promise<Notice | undefined> {
+    return this.noticesMap.get(id);
+  }
+
+  async createNotice(data: InsertNotice): Promise<Notice> {
+    const id = randomUUID();
+    const notice: Notice = {
+      id,
+      title: data.title,
+      content: data.content,
+      targetStoreId: data.targetStoreId ?? null,
+      authorId: data.authorId ?? null,
+      isActive: data.isActive ?? true,
+      createdAt: new Date(),
+    };
+    this.noticesMap.set(id, notice);
+    return notice;
+  }
+
+  async updateNotice(id: string, data: Partial<InsertNotice>): Promise<Notice | undefined> {
+    const existing = this.noticesMap.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...data };
+    this.noticesMap.set(id, updated);
+    return updated;
+  }
+
+  async deleteNotice(id: string): Promise<boolean> {
+    return this.noticesMap.delete(id);
+  }
+
   async getFinancialTransactions(limit: number = 30): Promise<FinancialTransaction[]> {
     return Array.from(this.financialTransactions.values())
       .sort((a, b) => new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime())
@@ -1532,6 +1581,38 @@ export class DatabaseStorage implements IStorage {
   async createQuarantinedEmail(data: InsertQuarantinedEmail): Promise<QuarantinedEmail> {
     const [q] = await db.insert(quarantinedEmails).values(data).returning();
     return q;
+  }
+
+  async getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]> {
+    const conditions = [];
+    if (filters?.activeOnly) conditions.push(eq(notices.isActive, true));
+    if (filters?.storeId) {
+      conditions.push(or(isNull(notices.targetStoreId), eq(notices.targetStoreId, filters.storeId)));
+    }
+    const query = conditions.length > 0
+      ? db.select().from(notices).where(and(...conditions))
+      : db.select().from(notices);
+    return (await query).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async getNotice(id: string): Promise<Notice | undefined> {
+    const [n] = await db.select().from(notices).where(eq(notices.id, id));
+    return n;
+  }
+
+  async createNotice(data: InsertNotice): Promise<Notice> {
+    const [n] = await db.insert(notices).values(data).returning();
+    return n;
+  }
+
+  async updateNotice(id: string, data: Partial<InsertNotice>): Promise<Notice | undefined> {
+    const [n] = await db.update(notices).set(data).where(eq(notices.id, id)).returning();
+    return n;
+  }
+
+  async deleteNotice(id: string): Promise<boolean> {
+    const result = await db.delete(notices).where(eq(notices.id, id));
+    return (result.rowCount ?? 0) > 0;
   }
 
   async getFinancialTransactions(limit: number = 30): Promise<FinancialTransaction[]> {

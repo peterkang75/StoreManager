@@ -14,6 +14,7 @@ import {
   ClipboardCheck,
   History,
   CreditCard,
+  Megaphone,
 } from "lucide-react";
 import {
   Sidebar,
@@ -72,6 +73,14 @@ const operationsNavItems = [
     title: "Payroll",
     url: "/admin/payrolls",
     icon: DollarSign,
+  },
+];
+
+const commsNavItems = [
+  {
+    title: "Notices",
+    url: "/admin/notices",
+    icon: Megaphone,
   },
 ];
 
@@ -180,6 +189,27 @@ function AdminSidebar() {
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton 
                     asChild 
+                    isActive={isActive(item.url)}
+                    tooltip={item.title}
+                  >
+                    <Link href={item.url} data-testid={`link-admin-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
+                      <item.icon className="w-4 h-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Communications</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {commsNavItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    asChild
                     isActive={isActive(item.url)}
                     tooltip={item.title}
                   >

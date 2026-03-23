@@ -549,6 +549,24 @@ export const insertShiftTimesheetSchema = createInsertSchema(shiftTimesheets).om
 export type InsertShiftTimesheet = z.infer<typeof insertShiftTimesheetSchema>;
 export type ShiftTimesheet = typeof shiftTimesheets.$inferSelect;
 
+export const notices = pgTable("notices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  targetStoreId: varchar("target_store_id").references(() => stores.id),
+  authorId: varchar("author_id"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertNoticeSchema = createInsertSchema(notices).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertNotice = z.infer<typeof insertNoticeSchema>;
+export type Notice = typeof notices.$inferSelect;
+
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),

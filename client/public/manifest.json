@@ -1,0 +1,26 @@
+{
+  "name": "Staff Manager — Employee Portal",
+  "short_name": "StaffMgr",
+  "description": "Employee portal for clocking in, viewing rosters, and submitting timesheets.",
+  "start_url": "/m/portal",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#16a34a",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity"],
+  "lang": "en-AU"
+}

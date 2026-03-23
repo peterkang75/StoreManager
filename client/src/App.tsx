@@ -21,6 +21,7 @@ import { AdminFinance } from "@/pages/admin/Finance";
 import { AdminPaySlips } from "@/pages/admin/PaySlips";
 import { AdminTimesheetApprovals } from "@/pages/admin/TimesheetApprovals";
 import { AdminWeeklyPayroll } from "@/pages/admin/WeeklyPayroll";
+import { AdminNotices } from "@/pages/admin/Notices";
 
 import { MobileInterview } from "@/pages/mobile/Interview";
 import { MobileOnboarding } from "@/pages/mobile/Onboarding";
@@ -53,6 +54,7 @@ function Router() {
       <Route path="/admin/suppliers/invoices" component={AdminSupplierInvoices} />
       <Route path="/admin/accounts-payable" component={AdminAccountsPayable} />
       <Route path="/admin/finance" component={AdminFinance} />
+      <Route path="/admin/notices" component={AdminNotices} />
       
       <Route path="/m/interview" component={MobileInterview} />
       <Route path="/m/onboarding/:token" component={MobileOnboarding} />

@@ -51,7 +51,10 @@ import {
   Mail,
   Phone,
   BadgeCheck,
+  Megaphone,
+  Globe,
 } from "lucide-react";
+import type { Notice } from "@shared/schema";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -684,6 +687,25 @@ function HomeTab({ session }: { session: Session }) {
     staleTime: 0,
   });
 
+  const { data: employeeProfile } = useQuery<{ storeId?: string }>({
+    queryKey: ["/api/employees", session.id],
+    queryFn: () => fetch(`/api/employees/${session.id}`).then(r => r.ok ? r.json() : {}),
+    staleTime: 60_000,
+  });
+
+  const { data: portalNotices = [] } = useQuery<Notice[]>({
+    queryKey: ["/api/notices", "portal", employeeProfile?.storeId],
+    queryFn: async () => {
+      const params = new URLSearchParams({ activeOnly: "true" });
+      if (employeeProfile?.storeId) params.set("storeId", employeeProfile.storeId);
+      const res = await fetch(`/api/notices?${params}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: true,
+    staleTime: 120_000,
+  });
+
   const todayShifts: TodayShiftItem[] = (todayData?.shifts ?? []).map(item => ({
     ...item,
     timesheet: localTimesheets[item.shift.storeId] ?? item.timesheet,
@@ -802,6 +824,37 @@ function HomeTab({ session }: { session: Session }) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Notices */}
+      {portalNotices.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <Megaphone className="h-3.5 w-3.5 text-muted-foreground" />
+            <h3 className="font-semibold text-xs uppercase tracking-widest text-muted-foreground">
+              Notices
+            </h3>
+          </div>
+          <div className="flex flex-col gap-3">
+            {portalNotices.map(n => (
+              <Card key={n.id} data-testid={`card-portal-notice-${n.id}`}>
+                <CardContent className="px-4 py-3.5">
+                  <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                    <p className="font-semibold text-sm leading-tight">{n.title}</p>
+                    {!n.targetStoreId && (
+                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                        <Globe className="w-3 h-3" /> All Stores
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-muted-foreground whitespace-pre-line leading-relaxed">
+                    {n.content}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
 
       <UnscheduledShiftDrawer
         open={unscheduledDrawerOpen}

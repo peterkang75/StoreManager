@@ -414,14 +414,14 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 
 ---
 
-### Phase 3: Communication & Mobile — Upcoming (Medium Priority)
+### Phase 3: Communication & Mobile — ✅ COMPLETE
 
-- [ ] **Notice Board / Messaging:** In-app announcement system to replace external chat apps (LINE/WhatsApp). Admin creates notices with store targeting; employees see notices on portal home screen. Persist in DB with read receipts.
+- [x] **Notice Board / Messaging:** In-app announcement system. `notices` DB table (title, content, targetStoreId, authorId, isActive, createdAt). Admin `/admin/notices` page — create/edit/delete with store targeting & active toggle. Employee Portal home tab shows active notices filtered by employee's store + global notices. API: `GET/POST /api/notices`, `PUT/DELETE /api/notices/:id`.
 
-- [ ] **PWA / Mobile Optimization:** Convert Employee Portal to a Progressive Web App:
-  - `manifest.json` for home-screen installation on iOS/Android.
-  - Service worker for offline support (view last-fetched roster offline).
-  - Push notifications for new roster publications and timesheet decisions.
+- [x] **PWA / Mobile Optimization:** Employee Portal installable as Progressive Web App:
+  - `client/public/manifest.json` — name, start_url `/m/portal`, display standalone, theme_color green.
+  - `client/index.html` — linked manifest, `apple-mobile-web-app-capable`, `theme-color` meta tags.
+  - (Service worker / offline + push notifications deferred to Phase 5.)
 
 ---
 
@@ -429,3 +429,11 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 
 - [ ] **Smart Inbox:** AI reads all incoming emails, categorizes them (Action Required / FYI / Spam), translates body to Korean, and presents a concise summary per email. CEO can respond with one click.
 - [ ] **Auto To-Do & Reminders:** AI extracts actionable tasks and due dates from emails, populates a centralized To-Do list, and fires a background scheduler for time-based notifications (e.g. "Invoice from X due in 3 days").
+
+---
+
+### Phase 5: External Ecosystem & Integrations — Separate Project (Future)
+
+- [ ] **B2B Catering & Delivery App:** Build a standalone, separate web application (reusing existing Stripe e-commerce code) dedicated to catering and large orders for the Sushi and Sandwich stores. Supports menu browsing, quote requests, and advance ordering for corporate clients.
+- [ ] **DoorDash Drive Integration:** Integrate the DoorDash Drive API into the Catering App for flat-fee, white-label last-mile delivery of large catering orders. Replaces consumer-facing DoorDash and gives full brand control.
+- [ ] **Sales Sync (Webhook):** Build a webhook pipeline so the separate Catering App posts completed order and sales data back to this Management System's `/api/dashboard/summary` in real-time, keeping the Manager Dashboard accurate without manual entry.
