@@ -2375,6 +2375,70 @@ export async function registerRoutes(
     }
   });
 
+  // ── Manager Dashboard Summary ─────────────────────────────────────────────
+  app.get("/api/dashboard/summary", async (req: Request, res: Response) => {
+    try {
+      const startDate = req.query.startDate as string | undefined;
+      const endDate   = req.query.endDate   as string | undefined;
+      const storeId   = req.query.storeId   as string | undefined;
+
+      const [closings, allPayrolls, allInvoices] = await Promise.all([
+        storage.getDailyClosings({ storeId, startDate, endDate }),
+        storage.getPayrolls({}),
+        storage.getSupplierInvoices({ storeId, startDate, endDate }),
+      ]);
+
+      // Payrolls that overlap the requested date range
+      const filteredPayrolls = allPayrolls.filter(p => {
+        if (storeId && p.storeId !== storeId) return false;
+        if (startDate && p.periodEnd < startDate) return false;
+        if (endDate   && p.periodStart > endDate)  return false;
+        return true;
+      });
+
+      // Exclude quarantined invoices
+      const filteredInvoices = allInvoices.filter(inv => inv.status !== "QUARANTINE");
+
+      const salesTotal  = closings.reduce((s, c) => s + (c.salesTotal  ?? 0), 0);
+      const laborTotal  = filteredPayrolls.reduce((s, p) => s + (p.grossAmount ?? 0), 0);
+      const cogsTotal   = filteredInvoices.reduce((s, i) => s + (i.amount ?? 0), 0);
+      const grossProfit = salesTotal - laborTotal - cogsTotal;
+
+      const pct = (v: number) =>
+        salesTotal > 0 ? Math.round((v / salesTotal) * 1000) / 10 : 0;
+
+      // Daily trend: merge daily-closings (sales) and invoices (cogs) by date
+      const dateMap = new Map<string, { date: string; sales: number; cogs: number }>();
+      for (const c of closings) {
+        const row = dateMap.get(c.date) ?? { date: c.date, sales: 0, cogs: 0 };
+        row.sales += c.salesTotal ?? 0;
+        dateMap.set(c.date, row);
+      }
+      for (const inv of filteredInvoices) {
+        const row = dateMap.get(inv.invoiceDate) ?? { date: inv.invoiceDate, sales: 0, cogs: 0 };
+        row.cogs += inv.amount ?? 0;
+        dateMap.set(inv.invoiceDate, row);
+      }
+      const dailyTrend = Array.from(dateMap.values()).sort((a, b) =>
+        a.date.localeCompare(b.date)
+      );
+
+      res.json({
+        salesTotal,
+        laborTotal,
+        cogsTotal,
+        grossProfit,
+        laborPercent:       pct(laborTotal),
+        cogsPercent:        pct(cogsTotal),
+        grossProfitPercent: pct(grossProfit),
+        dailyTrend,
+      });
+    } catch (err) {
+      console.error("Error fetching dashboard summary:", err);
+      res.status(500).json({ error: "Failed to fetch dashboard summary" });
+    }
+  });
+
   app.get("/api/supplier-invoices", async (req: Request, res: Response) => {
     try {
       const filters: { supplierId?: string; storeId?: string; status?: string; startDate?: string; endDate?: string } = {};

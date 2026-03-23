@@ -1,0 +1,29 @@
+The CEO loved the AI Smart Inbox idea but wisely decided to stick to the original plan to avoid scope creep. We will log the idea for the future and proceed with Phase 2 now.
+
+### Task 1: Update `plan.md`
+Please update `plan.md`. Add a new section under Next Steps:
+**Phase 4: AI Executive Assistant (Future)**
+- [ ] **Smart Inbox:** AI reads all incoming emails, categorizes them (Action Required, FYI, Spam), translates to Korean, and summarizes them.
+- [ ] **Auto To-Do & Reminders:** AI extracts tasks and due dates from emails to create a centralized To-Do list, with a background scheduler for notifications.
+
+### Task 2: Implement Phase 2 (Manager Dashboard)
+Now, immediately implement the Manager Dashboard to visualize Labor % and COGS %.
+
+1. **Backend (`server/routes.ts` & `server/storage.ts`):**
+   - Create a new endpoint: `GET /api/dashboard/summary` that accepts `startDate`, `endDate`, and optional `storeId` as query parameters.
+   - Calculate `Total Sales`: Sum of `salesTotal` from `dailyClosings` within the date range.
+   - Calculate `Total Labor`: Sum of `totalWithAdjustment` (or `grossAmount`) from `payrolls` where the period falls within the date range.
+   - Calculate `Total COGS (Invoices)`: Sum of `amount` from `supplierInvoices` where the `invoiceDate` falls within the date range.
+   - Return these totals along with the calculated percentages: `laborPercent` and `cogsPercent`.
+
+2. **Frontend (`client/src/pages/admin/dashboard.tsx`):**
+   - Create a clean Manager Dashboard page (accessible via the main sidebar menu as the home/default view).
+   - Add Date Range pickers and a Store filter dropdown.
+   - Display **4 main KPI Cards**: 
+     1) Total Sales 
+     2) Total Labor ($ and %)
+     3) Total COGS ($ and %) 
+     4) Gross Profit (Sales - Labor - COGS).
+   - Add a simple chart (using `recharts`) showing the daily/weekly trend of Sales vs Labor vs COGS.
+
+Please update `plan.md` first, then write the code for the dashboard. Let me know when it's ready to view!

@@ -422,3 +422,10 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
   - `manifest.json` for home-screen installation on iOS/Android.
   - Service worker for offline support (view last-fetched roster offline).
   - Push notifications for new roster publications and timesheet decisions.
+
+---
+
+### Phase 4: AI Executive Assistant — Future (Logged for Later)
+
+- [ ] **Smart Inbox:** AI reads all incoming emails, categorizes them (Action Required / FYI / Spam), translates body to Korean, and presents a concise summary per email. CEO can respond with one click.
+- [ ] **Auto To-Do & Reminders:** AI extracts actionable tasks and due dates from emails, populates a centralized To-Do list, and fires a background scheduler for time-based notifications (e.g. "Invoice from X due in 3 days").
