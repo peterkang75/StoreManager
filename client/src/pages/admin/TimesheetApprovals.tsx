@@ -28,6 +28,8 @@ import {
   Wand2,
   User,
   ArrowRight,
+  Plus,
+  Minus,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "@shared/payrollCycle";
@@ -127,6 +129,14 @@ function fmtDiffMinutes(diffMin: number): string {
   if (hh === 0) return `${sign}${mm}m`;
   if (mm === 0) return `${sign}${hh}h`;
   return `${sign}${hh}h ${mm}m`;
+}
+
+/** Adds deltaMinutes to a "HH:MM" string, wrapping around midnight */
+function adjustTime(time: string, deltaMinutes: number): string {
+  const [h, m] = time.split(":").map(Number);
+  let total = h * 60 + m + deltaMinutes;
+  total = ((total % 1440) + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
 const STORE_COLORS: Record<string, string> = {
@@ -233,19 +243,20 @@ function EmployeeReviewModal({
     return sum + (e ? calcHours(e.start, e.end) : 0);
   }, 0);
 
-  // Auto-save a single timesheet's times on blur
-  const autoSave = useCallback(async (tsId: string) => {
+  // Auto-save a single timesheet's times — accepts optional override to use fresh values
+  const autoSave = useCallback(async (tsId: string, overrideStart?: string, overrideEnd?: string) => {
     const e = edits[tsId];
-    if (!e) return;
+    const start = overrideStart ?? e?.start;
+    const end   = overrideEnd   ?? e?.end;
+    if (!start || !end) return;
     setSavingIds(prev => new Set(prev).add(tsId));
     try {
       await apiRequest("PUT", `/api/admin/approvals/${tsId}/update-times`, {
-        actualStartTime: e.start,
-        actualEndTime: e.end,
+        actualStartTime: start,
+        actualEndTime: end,
       });
       setSavingIds(prev => { const n = new Set(prev); n.delete(tsId); return n; });
       setSavedIds(prev => new Set(prev).add(tsId));
-      // Clear saved indicator after 2.5s
       if (savedTimers.current[tsId]) clearTimeout(savedTimers.current[tsId]);
       savedTimers.current[tsId] = setTimeout(() => {
         setSavedIds(prev => { const n = new Set(prev); n.delete(tsId); return n; });
@@ -255,6 +266,17 @@ function EmployeeReviewModal({
       toast({ title: "Save failed", description: "Could not update timesheet times.", variant: "destructive" });
     }
   }, [edits, toast]);
+
+  // ±15-min quick-adjust — updates state AND auto-saves immediately
+  const handleAdjust = useCallback((tsId: string, field: "start" | "end", delta: number) => {
+    const e = edits[tsId];
+    if (!e) return;
+    const newTime = adjustTime(e[field], delta);
+    const newStart = field === "start" ? newTime : e.start;
+    const newEnd   = field === "end"   ? newTime : e.end;
+    setEdits(prev => ({ ...prev, [tsId]: { start: newStart, end: newEnd } }));
+    autoSave(tsId, newStart, newEnd);
+  }, [edits, autoSave]);
 
   // Approve all pending shifts (times already auto-saved)
   const handleApproveAll = async () => {
@@ -276,8 +298,150 @@ function EmployeeReviewModal({
     }
   };
 
-  // Sort shifts by date
-  const sortedShifts = [...group.timesheets].sort((a, b) => a.date.localeCompare(b.date));
+  // Split into two 7-day weeks
+  const allSorted = [...group.timesheets].sort((a, b) => a.date.localeCompare(b.date));
+  const week1End = addDays(cycleStart, 6);
+  const week2Start = addDays(cycleStart, 7);
+  const week1Shifts = allSorted.filter(ts => ts.date <= week1End);
+  const week2Shifts = allSorted.filter(ts => ts.date >= week2Start);
+
+  // Per-week live totals
+  const week1Hours = week1Shifts.reduce((s, ts) => { const e = edits[ts.id]; return s + (e ? calcHours(e.start, e.end) : 0); }, 0);
+  const week2Hours = week2Shifts.reduce((s, ts) => { const e = edits[ts.id]; return s + (e ? calcHours(e.start, e.end) : 0); }, 0);
+
+  // Reusable row renderer
+  const renderShiftRow = (ts: EnrichedTimesheet) => {
+    const e = edits[ts.id];
+    const actualH = e ? calcHours(e.start, e.end) : 0;
+    const schedH = ts.scheduledStartTime && ts.scheduledEndTime
+      ? calcHours(ts.scheduledStartTime, ts.scheduledEndTime) : null;
+    const shiftDiffMin = schedH !== null ? Math.round((actualH - schedH) * 60) : 0;
+    const isPending = ts.status === "PENDING";
+    const isApproved = ts.status === "APPROVED";
+    const isSaving = savingIds.has(ts.id);
+    const justSaved = savedIds.has(ts.id);
+
+    const TimeAdjustCell = ({ field }: { field: "start" | "end" }) => (
+      <div className="flex items-center gap-0.5">
+        <button
+          type="button"
+          onClick={() => handleAdjust(ts.id, field, -15)}
+          className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0"
+          data-testid={`button-${field}-minus-${ts.id}`}
+        >
+          <Minus className="h-3 w-3" />
+        </button>
+        <Input
+          type="time"
+          value={e?.[field] ?? (field === "start" ? ts.actualStartTime : ts.actualEndTime)}
+          onChange={ev => setEdits(prev => ({
+            ...prev,
+            [ts.id]: { ...prev[ts.id], [field]: ev.target.value },
+          }))}
+          onBlur={() => autoSave(ts.id)}
+          className="font-mono h-7 text-xs px-1 w-[82px] shrink-0"
+          data-testid={`input-${field}-${ts.id}`}
+        />
+        <button
+          type="button"
+          onClick={() => handleAdjust(ts.id, field, 15)}
+          className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0"
+          data-testid={`button-${field}-plus-${ts.id}`}
+        >
+          <Plus className="h-3 w-3" />
+        </button>
+      </div>
+    );
+
+    return (
+      <tr
+        key={ts.id}
+        className={`border-b border-border/20 ${isApproved ? "opacity-55" : ""}`}
+        data-testid={`review-row-${ts.id}`}
+      >
+        {/* Date + optional store badge */}
+        <td className="py-1.5 px-2 whitespace-nowrap">
+          <div className="flex items-center gap-1.5">
+            <span className="font-medium text-sm">{fmtDate(ts.date)}</span>
+            {isMultiStore && (
+              <span
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white shrink-0"
+                style={{ backgroundColor: storeColor(ts.storeName) }}
+              >
+                {ts.storeName}
+              </span>
+            )}
+          </div>
+        </td>
+
+        {/* Scheduled */}
+        <td className="py-1.5 px-2 whitespace-nowrap text-muted-foreground text-xs">
+          {ts.scheduledStartTime && ts.scheduledEndTime
+            ? `${fmtTime(ts.scheduledStartTime)} – ${fmtTime(ts.scheduledEndTime)}`
+            : <span className="text-purple-600 dark:text-purple-400 font-medium">Unscheduled</span>
+          }
+        </td>
+
+        {/* Start */}
+        <td className="py-1 px-1">
+          {isPending
+            ? <TimeAdjustCell field="start" />
+            : <span className="font-mono text-sm text-muted-foreground px-1">{fmtTime(ts.actualStartTime)}</span>
+          }
+        </td>
+
+        {/* End */}
+        <td className="py-1 px-1">
+          {isPending
+            ? <TimeAdjustCell field="end" />
+            : <span className="font-mono text-sm text-muted-foreground px-1">{fmtTime(ts.actualEndTime)}</span>
+          }
+        </td>
+
+        {/* Diff */}
+        <td className="py-1.5 px-2 whitespace-nowrap">
+          {schedH !== null
+            ? <DiffCell diffMinutes={shiftDiffMin} />
+            : <span className="text-muted-foreground text-sm">—</span>
+          }
+        </td>
+
+        {/* Hours */}
+        <td className="py-1.5 px-2 whitespace-nowrap font-semibold text-sm">
+          {fmtHours(actualH)}
+        </td>
+
+        {/* Save indicator */}
+        <td className="py-1.5 px-1 w-6 text-center">
+          {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+          {!isSaving && justSaved && <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />}
+          {!isSaving && isApproved && !justSaved && <CheckCircle2 className="h-3.5 w-3.5 text-green-500/40" />}
+        </td>
+      </tr>
+    );
+  };
+
+  // Week section header row
+  const WeekHeader = ({ label, dateRange }: { label: string; dateRange: string }) => (
+    <tr>
+      <td colSpan={7} className="py-1.5 px-3 bg-muted/40 border-y border-border/30">
+        <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{label}</span>
+        <span className="text-xs text-muted-foreground ml-2 font-normal">{dateRange}</span>
+      </td>
+    </tr>
+  );
+
+  // Week total row
+  const WeekTotalRow = ({ label, hours }: { label: string; hours: number }) => (
+    <tr className="bg-muted/20">
+      <td colSpan={4} />
+      <td colSpan={2} className="py-2 px-2 text-right">
+        <span className="text-xs text-muted-foreground">{label}: </span>
+        <span className="text-sm font-bold">{fmtHours(hours)}</span>
+      </td>
+      <td />
+    </tr>
+  );
 
   return (
     <div
@@ -306,16 +470,16 @@ function EmployeeReviewModal({
               {" · "}
               {pendingShifts.length} pending shift{pendingShifts.length !== 1 ? "s" : ""}
             </p>
-            <div className="flex items-center gap-3 mt-1.5">
+            <div className="flex items-center gap-3 mt-1.5 flex-wrap">
               <span className="text-xs text-muted-foreground">
-                Actual: <span className="font-semibold text-foreground">{fmtHours(liveActualHours)}</span>
+                Total actual: <span className="font-semibold text-foreground">{fmtHours(liveActualHours)}</span>
               </span>
               {group.totalScheduledHours > 0 && (
                 <span className="text-xs text-muted-foreground">
                   Scheduled: <span className="font-semibold text-foreground">{fmtHours(group.totalScheduledHours)}</span>
                 </span>
               )}
-              <span className="text-[10px] text-muted-foreground italic">Times auto-save on blur</span>
+              <span className="text-[10px] text-muted-foreground italic">±15m buttons auto-save</span>
             </div>
           </div>
           <Button size="icon" variant="ghost" onClick={onClose} data-testid="button-modal-close">
@@ -331,119 +495,46 @@ function EmployeeReviewModal({
                 <tr className="border-b border-border/40">
                   <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Date</th>
                   <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Scheduled</th>
-                  <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Start</th>
-                  <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">End</th>
+                  <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap" colSpan={1}>Start</th>
+                  <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap" colSpan={1}>End</th>
                   <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Diff</th>
                   <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Hours</th>
                   <th className="py-2 px-2 w-6"></th>
                 </tr>
               </thead>
+
+              {/* ── Week 1 ── */}
               <tbody>
-                {sortedShifts.map(ts => {
-                  const e = edits[ts.id];
-                  const actualH = e ? calcHours(e.start, e.end) : 0;
-                  const schedH = ts.scheduledStartTime && ts.scheduledEndTime
-                    ? calcHours(ts.scheduledStartTime, ts.scheduledEndTime)
-                    : null;
-                  const shiftDiffMin = schedH !== null ? Math.round((actualH - schedH) * 60) : 0;
-                  const isPending = ts.status === "PENDING";
-                  const isApproved = ts.status === "APPROVED";
-                  const isSaving = savingIds.has(ts.id);
-                  const justSaved = savedIds.has(ts.id);
-
-                  return (
-                    <tr
-                      key={ts.id}
-                      className={`border-b border-border/20 ${isApproved ? "opacity-55" : ""}`}
-                      data-testid={`review-row-${ts.id}`}
-                    >
-                      {/* Date + optional store badge */}
-                      <td className="py-2 px-2 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-medium text-sm">{fmtDate(ts.date)}</span>
-                          {isMultiStore && (
-                            <span
-                              className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white shrink-0"
-                              style={{ backgroundColor: storeColor(ts.storeName) }}
-                            >
-                              {ts.storeName}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Scheduled */}
-                      <td className="py-2 px-2 whitespace-nowrap text-muted-foreground text-sm">
-                        {ts.scheduledStartTime && ts.scheduledEndTime
-                          ? `${fmtTime(ts.scheduledStartTime)} – ${fmtTime(ts.scheduledEndTime)}`
-                          : <span className="text-purple-600 dark:text-purple-400 text-xs font-medium">Unscheduled</span>
-                        }
-                      </td>
-
-                      {/* Start (editable if pending) */}
-                      <td className="py-1.5 px-2">
-                        {isPending ? (
-                          <Input
-                            type="time"
-                            value={e?.start ?? ts.actualStartTime}
-                            onChange={ev => setEdits(prev => ({
-                              ...prev,
-                              [ts.id]: { ...prev[ts.id], start: ev.target.value },
-                            }))}
-                            onBlur={() => autoSave(ts.id)}
-                            className="font-mono h-8 text-sm px-2 min-w-[90px] w-auto"
-                            data-testid={`input-start-${ts.id}`}
-                          />
-                        ) : (
-                          <span className="font-mono text-sm text-muted-foreground">{fmtTime(ts.actualStartTime)}</span>
-                        )}
-                      </td>
-
-                      {/* End (editable if pending) */}
-                      <td className="py-1.5 px-2">
-                        {isPending ? (
-                          <Input
-                            type="time"
-                            value={e?.end ?? ts.actualEndTime}
-                            onChange={ev => setEdits(prev => ({
-                              ...prev,
-                              [ts.id]: { ...prev[ts.id], end: ev.target.value },
-                            }))}
-                            onBlur={() => autoSave(ts.id)}
-                            className="font-mono h-8 text-sm px-2 min-w-[90px] w-auto"
-                            data-testid={`input-end-${ts.id}`}
-                          />
-                        ) : (
-                          <span className="font-mono text-sm text-muted-foreground">{fmtTime(ts.actualEndTime)}</span>
-                        )}
-                      </td>
-
-                      {/* Diff (live reactive) */}
-                      <td className="py-2 px-2 whitespace-nowrap">
-                        {schedH !== null
-                          ? <DiffCell diffMinutes={shiftDiffMin} />
-                          : <span className="text-muted-foreground text-sm">—</span>
-                        }
-                      </td>
-
-                      {/* Hours (live reactive) */}
-                      <td className="py-2 px-2 whitespace-nowrap font-semibold text-sm">
-                        {fmtHours(actualH)}
-                      </td>
-
-                      {/* Save indicator */}
-                      <td className="py-2 px-1 w-6 text-center">
-                        {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-                        {!isSaving && justSaved && (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                        )}
-                        {!isSaving && isApproved && !justSaved && (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-green-500/50" />
-                        )}
-                      </td>
+                <WeekHeader
+                  label="Week 1"
+                  dateRange={`${fmtCycleDate(cycleStart)} – ${fmtCycleDate(week1End)}`}
+                />
+                {week1Shifts.length > 0
+                  ? week1Shifts.map(ts => renderShiftRow(ts))
+                  : (
+                    <tr>
+                      <td colSpan={7} className="py-3 px-4 text-sm text-muted-foreground italic">No shifts this week</td>
                     </tr>
-                  );
-                })}
+                  )
+                }
+                <WeekTotalRow label="Week 1 Total" hours={week1Hours} />
+              </tbody>
+
+              {/* ── Week 2 ── */}
+              <tbody>
+                <WeekHeader
+                  label="Week 2"
+                  dateRange={`${fmtCycleDate(week2Start)} – ${fmtCycleDate(cycleEnd)}`}
+                />
+                {week2Shifts.length > 0
+                  ? week2Shifts.map(ts => renderShiftRow(ts))
+                  : (
+                    <tr>
+                      <td colSpan={7} className="py-3 px-4 text-sm text-muted-foreground italic">No shifts this week</td>
+                    </tr>
+                  )
+                }
+                <WeekTotalRow label="Week 2 Total" hours={week2Hours} />
               </tbody>
             </table>
           </div>
