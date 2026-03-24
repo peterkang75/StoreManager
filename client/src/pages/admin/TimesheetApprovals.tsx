@@ -218,6 +218,16 @@ function EmployeeReviewModal({
   const displayName = group.employeeNickname || group.employeeName.split(" ")[0];
   const isMultiStore = group.storeNames.length > 1;
 
+  // Local copy of timesheets so we can append manager-added shifts without refetching
+  const [localTimesheets, setLocalTimesheets] = useState<EnrichedTimesheet[]>(group.timesheets);
+
+  // Unique store options derived from existing timesheets
+  const storeOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    localTimesheets.forEach(ts => map.set(ts.storeId, ts.storeName));
+    return Array.from(map.entries()).map(([storeId, storeName]) => ({ storeId, storeName }));
+  }, [localTimesheets]);
+
   // Editable times per timesheet (keyed by timesheet ID)
   const [edits, setEdits] = useState<Record<string, { start: string; end: string }>>(() => {
     const init: Record<string, { start: string; end: string }> = {};
@@ -235,10 +245,20 @@ function EmployeeReviewModal({
   // Bulk approve state
   const [approving, setApproving] = useState(false);
 
-  const pendingShifts = group.timesheets.filter(ts => ts.status === "PENDING");
+  // Add missing shift form state
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addForm, setAddForm] = useState(() => ({
+    date: cycleStart,
+    storeId: group.timesheets[0]?.storeId ?? "",
+    start: "09:00",
+    end: "17:00",
+  }));
+  const [addingSaving, setAddingSaving] = useState(false);
+
+  const pendingShifts = localTimesheets.filter(ts => ts.status === "PENDING");
 
   // Live-computed totals from edits (reactive)
-  const liveActualHours = group.timesheets.reduce((sum, ts) => {
+  const liveActualHours = localTimesheets.reduce((sum, ts) => {
     const e = edits[ts.id];
     return sum + (e ? calcHours(e.start, e.end) : 0);
   }, 0);
@@ -298,8 +318,55 @@ function EmployeeReviewModal({
     }
   };
 
+  // Add a manager-added missing shift
+  const handleAddShift = async () => {
+    if (!addForm.date || !addForm.storeId || !addForm.start || !addForm.end) {
+      toast({ title: "Fill in all fields", variant: "destructive" }); return;
+    }
+    setAddingSaving(true);
+    try {
+      const res = await apiRequest("POST", "/api/admin/approvals/add-shift", {
+        storeId: addForm.storeId,
+        employeeId: group.employeeId,
+        date: addForm.date,
+        actualStartTime: addForm.start,
+        actualEndTime: addForm.end,
+      });
+      const data = await res.json();
+      const store = storeOptions.find(s => s.storeId === addForm.storeId);
+      const newTs: EnrichedTimesheet = {
+        id: data.id,
+        date: data.date,
+        storeId: data.storeId,
+        storeName: store?.storeName ?? "",
+        storeCode: "",
+        employeeId: group.employeeId,
+        employeeName: group.employeeName,
+        employeeNickname: group.employeeNickname,
+        actualStartTime: data.actualStartTime,
+        actualEndTime: data.actualEndTime,
+        scheduledStartTime: null,
+        scheduledEndTime: null,
+        status: "APPROVED",
+        adjustmentReason: "Added by manager",
+        isUnscheduled: true,
+        createdAt: data.createdAt,
+      };
+      setLocalTimesheets(prev => [...prev, newTs]);
+      setEdits(prev => ({ ...prev, [newTs.id]: { start: newTs.actualStartTime, end: newTs.actualEndTime } }));
+      setShowAddForm(false);
+      setAddForm(prev => ({ ...prev, date: cycleStart, start: "09:00", end: "17:00" }));
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/approvals"] });
+      toast({ title: "Shift Added", description: `New shift on ${fmtDate(data.date)} has been recorded.` });
+    } catch {
+      toast({ title: "Failed to add shift", description: "Please try again.", variant: "destructive" });
+    } finally {
+      setAddingSaving(false);
+    }
+  };
+
   // Split into two 7-day weeks
-  const allSorted = [...group.timesheets].sort((a, b) => a.date.localeCompare(b.date));
+  const allSorted = [...localTimesheets].sort((a, b) => a.date.localeCompare(b.date));
   const week1End = addDays(cycleStart, 6);
   const week2Start = addDays(cycleStart, 7);
   const week1Shifts = allSorted.filter(ts => ts.date <= week1End);
@@ -536,6 +603,133 @@ function EmployeeReviewModal({
                 }
                 <WeekTotalRow label="Week 2 Total" hours={week2Hours} />
               </tbody>
+
+              {/* ── Add Missing Shift Form ── */}
+              {showAddForm && (() => {
+                const previewHours = calcHours(addForm.start, addForm.end);
+                return (
+                  <tbody>
+                    <tr>
+                      <td colSpan={7} className="py-1.5 px-3 bg-blue-50/60 dark:bg-blue-950/25 border-y border-blue-200/60 dark:border-blue-800/40">
+                        <span className="text-xs font-bold uppercase tracking-widest text-blue-700 dark:text-blue-400">
+                          New Shift
+                        </span>
+                      </td>
+                    </tr>
+                    <tr className="bg-blue-50/30 dark:bg-blue-950/10 border-b border-border/20">
+                      {/* Date */}
+                      <td className="py-1.5 px-2">
+                        <Input
+                          type="date"
+                          min={cycleStart}
+                          max={cycleEnd}
+                          value={addForm.date}
+                          onChange={e => setAddForm(prev => ({ ...prev, date: e.target.value }))}
+                          className="h-7 text-xs px-1.5 w-[130px]"
+                          data-testid="input-addshift-date"
+                        />
+                      </td>
+                      {/* Store */}
+                      <td className="py-1.5 px-2">
+                        {storeOptions.length > 1 ? (
+                          <Select
+                            value={addForm.storeId}
+                            onValueChange={v => setAddForm(prev => ({ ...prev, storeId: v }))}
+                          >
+                            <SelectTrigger className="h-7 text-xs w-[100px]" data-testid="select-addshift-store">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {storeOptions.map(s => (
+                                <SelectItem key={s.storeId} value={s.storeId}>{s.storeName}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-xs text-muted-foreground px-1">{storeOptions[0]?.storeName}</span>
+                        )}
+                      </td>
+                      {/* Start with ±15 */}
+                      <td className="py-1 px-1">
+                        <div className="flex items-center gap-0.5">
+                          <button type="button" onClick={() => setAddForm(prev => ({ ...prev, start: adjustTime(prev.start, -15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0">
+                            <Minus className="h-3 w-3" />
+                          </button>
+                          <Input type="time" value={addForm.start} onChange={e => setAddForm(prev => ({ ...prev, start: e.target.value }))} className="font-mono h-7 text-xs px-1 w-[120px] shrink-0" data-testid="input-addshift-start" />
+                          <button type="button" onClick={() => setAddForm(prev => ({ ...prev, start: adjustTime(prev.start, 15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0">
+                            <Plus className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </td>
+                      {/* End with ±15 */}
+                      <td className="py-1 px-1">
+                        <div className="flex items-center gap-0.5">
+                          <button type="button" onClick={() => setAddForm(prev => ({ ...prev, end: adjustTime(prev.end, -15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0">
+                            <Minus className="h-3 w-3" />
+                          </button>
+                          <Input type="time" value={addForm.end} onChange={e => setAddForm(prev => ({ ...prev, end: e.target.value }))} className="font-mono h-7 text-xs px-1 w-[120px] shrink-0" data-testid="input-addshift-end" />
+                          <button type="button" onClick={() => setAddForm(prev => ({ ...prev, end: adjustTime(prev.end, 15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0">
+                            <Plus className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </td>
+                      {/* Diff preview */}
+                      <td className="py-1.5 px-2 text-xs text-muted-foreground">—</td>
+                      {/* Hours preview */}
+                      <td className="py-1.5 px-2 font-semibold text-sm">{fmtHours(previewHours)}</td>
+                      <td />
+                    </tr>
+                    {/* Save / Cancel row */}
+                    <tr className="bg-blue-50/20 dark:bg-blue-950/10">
+                      <td colSpan={7} className="py-2 px-3">
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            className="h-8 gap-1.5 bg-blue-600 text-white hover:bg-blue-700"
+                            onClick={handleAddShift}
+                            disabled={addingSaving}
+                            data-testid="button-addshift-save"
+                          >
+                            {addingSaving
+                              ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</>
+                              : <><CheckCircle2 className="h-3.5 w-3.5" />Save Shift</>
+                            }
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8"
+                            onClick={() => setShowAddForm(false)}
+                            data-testid="button-addshift-cancel"
+                          >
+                            Cancel
+                          </Button>
+                          <span className="text-xs text-muted-foreground ml-1">Status: Approved · Unscheduled</span>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                );
+              })()}
+
+              {/* ── "Add Missing Shift" trigger row ── */}
+              {!showAddForm && (
+                <tbody>
+                  <tr>
+                    <td colSpan={7} className="py-2 px-3">
+                      <button
+                        type="button"
+                        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors hover-elevate rounded px-2 py-1"
+                        onClick={() => setShowAddForm(true)}
+                        data-testid="button-add-missing-shift"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Add Missing Shift
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              )}
             </table>
           </div>
         </div>

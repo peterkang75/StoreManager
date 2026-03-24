@@ -3338,6 +3338,30 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/admin/approvals/add-shift — manager manually adds a missing approved shift
+  app.post("/api/admin/approvals/add-shift", async (req: Request, res: Response) => {
+    try {
+      const { storeId, employeeId, date, actualStartTime, actualEndTime } = req.body;
+      if (!storeId || !employeeId || !date || !actualStartTime || !actualEndTime) {
+        return res.status(400).json({ error: "storeId, employeeId, date, actualStartTime, and actualEndTime are required" });
+      }
+      const ts = await storage.createShiftTimesheet({
+        storeId,
+        employeeId,
+        date,
+        actualStartTime,
+        actualEndTime,
+        status: "APPROVED",
+        isUnscheduled: true,
+        adjustmentReason: "Added by manager",
+      });
+      res.status(201).json(ts);
+    } catch (err) {
+      console.error("Error adding missing shift:", err);
+      res.status(500).json({ error: "Failed to add shift" });
+    }
+  });
+
   // POST /api/admin/approvals/bulk-approve — bulk approve by IDs
   app.post("/api/admin/approvals/bulk-approve", async (req: Request, res: Response) => {
     try {
