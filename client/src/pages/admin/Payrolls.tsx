@@ -212,9 +212,12 @@ export function AdminPayrolls() {
   const [periodStart, setPeriodStart] = useState(fortnight.start);
   const [periodEnd, setPeriodEnd] = useState(fortnight.end);
   const [selectedStoreId, setSelectedStoreId] = useState("");
-  const [rows, setRows] = useState<PayrollRow[]>([]);
+  // Global draft state: keyed by employeeId — never reset by background refetches
+  const [payrollDrafts, setPayrollDrafts] = useState<Record<string, PayrollRow>>({});
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>("");
+  // Tracks which store+period the drafts were initialised for
+  const draftContextKey = useRef<string>("");
   const [convertOpen, setConvertOpen] = useState(false);
-  const [selectedIdx, setSelectedIdx] = useState<number>(0);
   const [searchQuery, setSearchQuery] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
   const [globalNote, setGlobalNote] = useState("");
@@ -257,7 +260,9 @@ export function AdminPayrolls() {
     setSelectedStoreId(storeId);
     const store = stores?.find((s) => s.id === storeId);
     setGlobalNote(store?.globalPayrollNote || "");
-    setRows([]);
+    setPayrollDrafts({});
+    setSelectedEmployeeId("");
+    draftContextKey.current = "";
   };
 
   const { data: currentData, isLoading: dataLoading } = useQuery<
@@ -314,75 +319,38 @@ export function AdminPayrolls() {
     return map;
   }, [approvedShifts, periodStart, periodEnd]);
 
-  useEffect(() => {
-    if (!currentData) return;
-    const newRows: PayrollRow[] = currentData.map(({ employee, payroll }) => {
-      const empRate = parseFloat(employee.rate || "0");
-      const empFixed = parseFloat((employee as any).fixedAmount || "0");
-      const empIsCover = !!(employee as any).isCover;
-      const isFixedSalaryHere = !!(employee as any).isFixedSalaryAtThisStore;
+  // Build a single PayrollRow from API data + hours maps
+  const buildPayrollRow = useCallback((employee: any, payroll: any | null): PayrollRow => {
+    const empRate = parseFloat(employee.rate || "0");
+    const empFixed = parseFloat(employee.fixedAmount || "0");
+    const empIsCover = !!employee.isCover;
+    const isFixedSalaryHere = !!employee.isFixedSalaryAtThisStore;
+    const currentHours = approvedHoursMap[employee.id] ?? 0;
+    const totalHours = totalAllStoreHoursMap[employee.id] ?? 0;
+    const hasOtherStoreHours = totalHours > currentHours + 0.01;
+    const isIntercompany = !isFixedSalaryHere && empFixed > 0 && hasOtherStoreHours;
+    const intercompanyAmount = isIntercompany && totalHours > 0
+      ? Math.round(empFixed * (currentHours / totalHours) * 100) / 100
+      : 0;
 
-      // Intercompany detection: employee has a fixed salary, but this store is NOT the primary payer,
-      // AND the employee has approved hours at other stores during this period.
-      const currentHours = approvedHoursMap[employee.id] ?? 0;
-      const totalHours = totalAllStoreHoursMap[employee.id] ?? 0;
-      const hasOtherStoreHours = totalHours > currentHours + 0.01;
-      const isIntercompany = !isFixedSalaryHere && empFixed > 0 && hasOtherStoreHours;
-
-      // Apportioned cost = (this store's hours / total hours) * fixed salary
-      const intercompanyAmount = isIntercompany && totalHours > 0
-        ? Math.round(empFixed * (currentHours / totalHours) * 100) / 100
-        : 0;
-
-      if (payroll) {
-        const isIntercompanyPayroll = !isFixedSalaryHere && empFixed > 0 && hasOtherStoreHours;
-        const icAmtPayroll = isIntercompanyPayroll && totalHours > 0
-          ? Math.round(empFixed * (currentHours / totalHours) * 100) / 100
-          : 0;
-        return {
-          employeeId: employee.id,
-          employeeName: (employee as any).nickname || `${(employee as any).firstName} ${(employee as any).lastName}`,
-          payrollId: payroll.id,
-          hours: payroll.hours,
-          rate: payroll.rate || empRate,
-          fixedAmount: isIntercompanyPayroll ? 0 : (payroll.fixedAmount || empFixed),
-          calculatedAmount: payroll.calculatedAmount,
-          adjustment: payroll.adjustment,
-          adjustmentReason: payroll.adjustmentReason || "",
-          totalWithAdjustment: payroll.totalWithAdjustment,
-          grossAmount: payroll.grossAmount,
-          cashAmount: payroll.cashAmount,
-          taxAmount: payroll.taxAmount,
-          superAmount: payroll.superAmount,
-          bankDepositAmount: payroll.bankDepositAmount,
-          persistentMemo: (employee as any).persistentMemo || "",
-          lastEditedField: null,
-          taxOverridden: false,
-          isCover: empIsCover,
-          isIntercompany: isIntercompanyPayroll,
-          intercompanyAmount: icAmtPayroll,
-          totalAllStoreHours: totalHours,
-        };
-      }
-
-      const base: PayrollRow = {
+    if (payroll) {
+      return {
         employeeId: employee.id,
-        employeeName: (employee as any).nickname || `${(employee as any).firstName} ${(employee as any).lastName}`,
-        payrollId: null,
-        hours: currentHours,
-        rate: empRate,
-        // For intercompany employees at secondary stores, fixedAmount=0 so they aren't paid directly
-        fixedAmount: isIntercompany ? 0 : empFixed,
-        calculatedAmount: 0,
-        adjustment: 0,
-        adjustmentReason: "",
-        totalWithAdjustment: 0,
-        grossAmount: 0,
-        cashAmount: 0,
-        taxAmount: 0,
-        superAmount: 0,
-        bankDepositAmount: 0,
-        persistentMemo: (employee as any).persistentMemo || "",
+        employeeName: employee.nickname || `${employee.firstName} ${employee.lastName}`,
+        payrollId: payroll.id,
+        hours: payroll.hours,
+        rate: payroll.rate || empRate,
+        fixedAmount: isIntercompany ? 0 : (payroll.fixedAmount || empFixed),
+        calculatedAmount: payroll.calculatedAmount,
+        adjustment: payroll.adjustment,
+        adjustmentReason: payroll.adjustmentReason || "",
+        totalWithAdjustment: payroll.totalWithAdjustment,
+        grossAmount: payroll.grossAmount,
+        cashAmount: payroll.cashAmount,
+        taxAmount: payroll.taxAmount,
+        superAmount: payroll.superAmount,
+        bankDepositAmount: payroll.bankDepositAmount,
+        persistentMemo: employee.persistentMemo || "",
         lastEditedField: null,
         taxOverridden: false,
         isCover: empIsCover,
@@ -390,22 +358,85 @@ export function AdminPayrolls() {
         intercompanyAmount,
         totalAllStoreHours: totalHours,
       };
-      return recalcRow(base);
-    });
-    setRows(newRows);
-  }, [currentData, approvedHoursMap, totalAllStoreHoursMap]);
+    }
 
-  const updateRow = useCallback(
-    (index: number, field: keyof PayrollRow, value: number | string) => {
-      setRows((prev) => {
-        const updated = [...prev];
-        const row = { ...updated[index], [field]: value };
-        updated[index] = recalcRow(row, field);
-        return updated;
+    const base: PayrollRow = {
+      employeeId: employee.id,
+      employeeName: employee.nickname || `${employee.firstName} ${employee.lastName}`,
+      payrollId: null,
+      hours: currentHours,
+      rate: empRate,
+      fixedAmount: isIntercompany ? 0 : empFixed,
+      calculatedAmount: 0,
+      adjustment: 0,
+      adjustmentReason: "",
+      totalWithAdjustment: 0,
+      grossAmount: 0,
+      cashAmount: 0,
+      taxAmount: 0,
+      superAmount: 0,
+      bankDepositAmount: 0,
+      persistentMemo: employee.persistentMemo || "",
+      lastEditedField: null,
+      taxOverridden: false,
+      isCover: empIsCover,
+      isIntercompany,
+      intercompanyAmount,
+      totalAllStoreHours: totalHours,
+    };
+    return recalcRow(base);
+  }, [approvedHoursMap, totalAllStoreHoursMap]);
+
+  useEffect(() => {
+    if (!currentData || !selectedStoreId) return;
+    const ctxKey = `${selectedStoreId}|${periodStart}|${periodEnd}`;
+    const isNewContext = draftContextKey.current !== ctxKey;
+
+    if (isNewContext) {
+      // New store or period — full reset of drafts
+      draftContextKey.current = ctxKey;
+      const newDrafts: Record<string, PayrollRow> = {};
+      for (const { employee, payroll } of currentData) {
+        newDrafts[employee.id] = buildPayrollRow(employee, payroll);
+      }
+      setPayrollDrafts(newDrafts);
+      setSelectedEmployeeId(currentData[0]?.employee.id || "");
+    } else {
+      // Same context (background refetch) — only initialise employees not yet drafted
+      setPayrollDrafts(prev => {
+        const updated = { ...prev };
+        let changed = false;
+        for (const { employee, payroll } of currentData) {
+          if (!updated[employee.id]) {
+            updated[employee.id] = buildPayrollRow(employee, payroll);
+            changed = true;
+          }
+        }
+        return changed ? updated : prev;
+      });
+    }
+  }, [currentData, buildPayrollRow, selectedStoreId, periodStart, periodEnd]);
+
+  // Update a single field in a draft row — triggers instant recalculation, no API call
+  const updateDraft = useCallback(
+    (employeeId: string, field: keyof PayrollRow, value: number | string) => {
+      setPayrollDrafts((prev) => {
+        if (!prev[employeeId]) return prev;
+        const row = { ...prev[employeeId], [field]: value };
+        return { ...prev, [employeeId]: recalcRow(row, field) };
       });
     },
     []
   );
+
+  // Ordered list of rows (preserves server-defined employee order)
+  const rows = useMemo(
+    () => (currentData || []).map(({ employee }) => payrollDrafts[employee.id]).filter((r): r is PayrollRow => !!r),
+    [currentData, payrollDrafts]
+  );
+
+  // Currently selected draft row
+  const selectedRow = selectedEmployeeId ? (payrollDrafts[selectedEmployeeId] ?? null) : null;
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -453,6 +484,9 @@ export function AdminPayrolls() {
     },
     onSuccess: () => {
       toast({ title: "Payroll saved successfully" });
+      // Force re-initialise drafts from saved DB data on next fetch
+      draftContextKey.current = "";
+      setPayrollDrafts({});
       queryClient.invalidateQueries({
         queryKey: ["/api/payrolls/current", selectedStoreId, periodStart, periodEnd],
       });
@@ -516,6 +550,10 @@ export function AdminPayrolls() {
       const day = String(d.getDate()).padStart(2, "0");
       return `${y}-${m}-${day}`;
     };
+    // Reset drafts so the new period re-initialises cleanly
+    draftContextKey.current = "";
+    setPayrollDrafts({});
+    setSelectedEmployeeId("");
     setPeriodStart(shift(periodStart));
     setPeriodEnd(shift(periodEnd));
   };
@@ -733,23 +771,20 @@ export function AdminPayrolls() {
         ) : (
           <>
             {(() => {
-              const filtered = rows.map((r, i) => ({ row: r, originalIdx: i })).filter(({ row }) =>
+              const filtered = rows.filter(row =>
                 searchQuery === "" || row.employeeName.toLowerCase().includes(searchQuery.toLowerCase())
               );
-              const clampedIdx = Math.min(selectedIdx, rows.length - 1);
-              const selectedRow = rows[clampedIdx];
 
               const handleListKeyDown = (e: React.KeyboardEvent) => {
+                const currentPos = filtered.findIndex(r => r.employeeId === selectedEmployeeId);
                 if (e.key === "ArrowDown") {
                   e.preventDefault();
-                  const currentFilterPos = filtered.findIndex(f => f.originalIdx === clampedIdx);
-                  const nextPos = Math.min(currentFilterPos + 1, filtered.length - 1);
-                  if (filtered[nextPos]) setSelectedIdx(filtered[nextPos].originalIdx);
+                  const next = filtered[Math.min(currentPos + 1, filtered.length - 1)];
+                  if (next) setSelectedEmployeeId(next.employeeId);
                 } else if (e.key === "ArrowUp") {
                   e.preventDefault();
-                  const currentFilterPos = filtered.findIndex(f => f.originalIdx === clampedIdx);
-                  const prevPos = Math.max(currentFilterPos - 1, 0);
-                  if (filtered[prevPos]) setSelectedIdx(filtered[prevPos].originalIdx);
+                  const prev = filtered[Math.max(currentPos - 1, 0)];
+                  if (prev) setSelectedEmployeeId(prev.employeeId);
                 }
               };
 
@@ -778,8 +813,8 @@ export function AdminPayrolls() {
                           role="listbox"
                           data-testid="list-employees"
                         >
-                          {filtered.map(({ row, originalIdx }) => {
-                            const isSelected = originalIdx === clampedIdx;
+                          {filtered.map((row) => {
+                            const isSelected = row.employeeId === selectedEmployeeId;
                             const hasData = row.hours > 0 || row.totalWithAdjustment > 0;
                             return (
                               <div
@@ -789,7 +824,7 @@ export function AdminPayrolls() {
                                 className={`flex items-center justify-between px-3 py-2 cursor-pointer transition-colors ${
                                   isSelected ? "bg-muted" : "hover-elevate"
                                 }`}
-                                onClick={() => setSelectedIdx(originalIdx)}
+                                onClick={() => setSelectedEmployeeId(row.employeeId)}
                                 data-testid={`list-item-employee-${row.employeeId}`}
                               >
                                 <div className="flex items-center gap-2 min-w-0">
@@ -917,7 +952,7 @@ export function AdminPayrolls() {
                                   min="0"
                                   className="text-sm"
                                   value={selectedRow.hours || ""}
-                                  onChange={(e) => updateRow(clampedIdx, "hours", parseFloat(e.target.value) || 0)}
+                                  onChange={(e) => updateDraft(selectedEmployeeId, "hours", parseFloat(e.target.value) || 0)}
                                   disabled={selectedRow.isIntercompany}
                                   data-testid={`input-hours-${selectedRow.employeeId}`}
                                 />
@@ -929,7 +964,7 @@ export function AdminPayrolls() {
                                   step="0.01"
                                   className="text-sm"
                                   value={selectedRow.adjustment || ""}
-                                  onChange={(e) => updateRow(clampedIdx, "adjustment", parseFloat(e.target.value) || 0)}
+                                  onChange={(e) => updateDraft(selectedEmployeeId, "adjustment", parseFloat(e.target.value) || 0)}
                                   disabled={selectedRow.isIntercompany}
                                   data-testid={`input-adjustment-${selectedRow.employeeId}`}
                                 />
@@ -940,7 +975,7 @@ export function AdminPayrolls() {
                                   className="text-sm"
                                   placeholder="Reason"
                                   value={selectedRow.adjustmentReason}
-                                  onChange={(e) => updateRow(clampedIdx, "adjustmentReason", e.target.value)}
+                                  onChange={(e) => updateDraft(selectedEmployeeId, "adjustmentReason", e.target.value)}
                                   disabled={selectedRow.isIntercompany}
                                   data-testid={`input-adj-reason-${selectedRow.employeeId}`}
                                 />
@@ -959,7 +994,7 @@ export function AdminPayrolls() {
                                   min="0"
                                   className="text-sm"
                                   value={selectedRow.grossAmount || ""}
-                                  onChange={(e) => updateRow(clampedIdx, "grossAmount", parseFloat(e.target.value) || 0)}
+                                  onChange={(e) => updateDraft(selectedEmployeeId, "grossAmount", parseFloat(e.target.value) || 0)}
                                   disabled={selectedRow.isIntercompany}
                                   data-testid={`input-gross-${selectedRow.employeeId}`}
                                 />
@@ -972,7 +1007,7 @@ export function AdminPayrolls() {
                                   min="0"
                                   className="text-sm"
                                   value={selectedRow.cashAmount || ""}
-                                  onChange={(e) => updateRow(clampedIdx, "cashAmount", parseFloat(e.target.value) || 0)}
+                                  onChange={(e) => updateDraft(selectedEmployeeId, "cashAmount", parseFloat(e.target.value) || 0)}
                                   disabled={selectedRow.isIntercompany}
                                   data-testid={`input-cash-${selectedRow.employeeId}`}
                                 />
@@ -991,7 +1026,7 @@ export function AdminPayrolls() {
                                     min="0"
                                     className={`text-sm ${selectedRow.taxOverridden ? "border-orange-400 dark:border-orange-600" : ""}`}
                                     value={selectedRow.taxAmount || ""}
-                                    onChange={(e) => updateRow(clampedIdx, "taxAmount", parseFloat(e.target.value) || 0)}
+                                    onChange={(e) => updateDraft(selectedEmployeeId, "taxAmount", parseFloat(e.target.value) || 0)}
                                     disabled={selectedRow.isIntercompany}
                                     data-testid={`input-tax-${selectedRow.employeeId}`}
                                   />
@@ -1000,11 +1035,10 @@ export function AdminPayrolls() {
                                       size="icon"
                                       variant="ghost"
                                       onClick={() => {
-                                        setRows(prev => {
-                                          const updated = [...prev];
-                                          const row = { ...updated[clampedIdx], taxOverridden: false };
-                                          updated[clampedIdx] = recalcRow(row);
-                                          return updated;
+                                        setPayrollDrafts(prev => {
+                                          if (!prev[selectedEmployeeId]) return prev;
+                                          const row = { ...prev[selectedEmployeeId], taxOverridden: false };
+                                          return { ...prev, [selectedEmployeeId]: recalcRow(row) };
                                         });
                                       }}
                                       data-testid={`button-reset-tax-${selectedRow.employeeId}`}
@@ -1058,7 +1092,7 @@ export function AdminPayrolls() {
                               className="text-sm resize-none"
                               placeholder="Employee memo (삭제할 때까지 유지됩니다)"
                               value={selectedRow.persistentMemo}
-                              onChange={(e) => updateRow(clampedIdx, "persistentMemo", e.target.value)}
+                              onChange={(e) => updateDraft(selectedEmployeeId, "persistentMemo", e.target.value)}
                               rows={2}
                               data-testid={`textarea-memo-${selectedRow.employeeId}`}
                             />
