@@ -1587,13 +1587,15 @@ export async function registerRoutes(
         return res.status(400).json({ error: "rows array is required" });
       }
 
-      // ── Intercompany guard: build a set of (employeeId, storeId) pairs that must
-      // be zeroed out.  A pair qualifies when the employee has a fixed salary AND
-      // the store being saved is NOT the primary (fixed-amount) store.
-      // This prevents accidentally saving cash/gross/bank amounts for secondary stores.
+      // ── Intercompany guard: zero out direct-pay fields for true intercompany rows.
+      // A row is TRUE intercompany only when ALL three conditions hold:
+      //   1. The employee has a fixed salary at some other store (primaryStores.size > 0)
+      //   2. The store being saved is NOT that primary store
+      //   3. The employee has NO direct hourly rate at this store (not a Dual Role employee)
+      // Dual Role employees (rate > 0 at this store) must be saved normally.
       const uniqueEmpIds = [...new Set(rows.map((r: any) => r.employeeId).filter(Boolean))];
-      // Map: employeeId → Set of storeIds that are the PRIMARY store (have fixedAmount > 0)
-      const primaryStoreByEmp = new Map<string, Set<string>>();
+      // Per employee: track primary stores (fixedAmount > 0) and direct-rate stores (rate > 0)
+      const assignmentsByEmp = new Map<string, { primaryStores: Set<string>; directRateStores: Set<string> }>();
       for (const empId of uniqueEmpIds) {
         const assignments = await storage.getEmployeeStoreAssignments({ employeeId: empId });
         const primaryStores = new Set(
@@ -1601,13 +1603,20 @@ export async function registerRoutes(
             .filter(a => parseFloat(String(a.fixedAmount ?? "0") || "0") > 0)
             .map(a => a.storeId)
         );
-        primaryStoreByEmp.set(empId, primaryStores);
+        const directRateStores = new Set(
+          assignments
+            .filter(a => parseFloat(String(a.rate ?? "0") || "0") > 0)
+            .map(a => a.storeId)
+        );
+        assignmentsByEmp.set(empId, { primaryStores, directRateStores });
       }
-      // Helper: returns true if this row is an intercompany entry that must be zeroed
+      // Helper: returns true ONLY for true intercompany rows (not Dual Role)
       const isIntercompanyRow = (row: any): boolean => {
-        const primaries = primaryStoreByEmp.get(row.employeeId);
-        if (!primaries || primaries.size === 0) return false; // no fixed salary, not intercompany
-        return !primaries.has(row.storeId); // fixed salary employee at a non-primary store
+        const info = assignmentsByEmp.get(row.employeeId);
+        if (!info || info.primaryStores.size === 0) return false; // no fixed salary → not intercompany
+        if (info.primaryStores.has(row.storeId)) return false;    // this IS the primary store → not intercompany
+        if (info.directRateStores.has(row.storeId)) return false; // Dual Role: has hourly rate here → save normally
+        return true; // fixed salary elsewhere, no direct rate here → true intercompany
       };
       // Zero-out enforcer for intercompany rows
       const enforceIntercompanyZero = (row: any) => ({
