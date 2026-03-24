@@ -3388,6 +3388,20 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/admin/approvals/bulk-revert — revert APPROVED timesheets back to PENDING
+  app.post("/api/admin/approvals/bulk-revert", async (req: Request, res: Response) => {
+    try {
+      const { ids } = req.body;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: "ids array is required" });
+      }
+      const results = await Promise.all(ids.map(id => storage.updateShiftTimesheet(id, { status: "PENDING" })));
+      res.json({ reverted: results.filter(Boolean).length });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to revert timesheets" });
+    }
+  });
+
   // POST /api/admin/approvals/auto-fill — create PENDING timesheets for roster entries missing timesheets
   app.post("/api/admin/approvals/auto-fill", async (req: Request, res: Response) => {
     try {
