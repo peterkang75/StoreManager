@@ -1039,14 +1039,16 @@ function PastShiftTimesheetDrawer({
   );
 }
 
-function WeekRow({ day, today, employeeId, onSubmitted }: { day: DayData; today: string; employeeId: string; onSubmitted: () => void }) {
+function WeekRow({ day, today, employeeId, onSubmitted, isCurrentWeek }: { day: DayData; today: string; employeeId: string; onSubmitted: () => void; isCurrentWeek: boolean }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { abbr, num } = fmtDay(day.date);
   const isToday = day.date === today;
   const isPast  = day.date < today;
   const ts = day.timesheet;
   const st = ts ? STATUS_STYLE[ts.status] ?? STATUS_STYLE.PENDING : null;
-  const canLogPast = isPast && !!day.shift && !ts;
+  // Only allow logging past shifts within the current week (Mon–Sun).
+  // Once the week ends (Sunday midnight), the window is closed.
+  const canLogPast = isPast && !!day.shift && !ts && isCurrentWeek;
 
   return (
     <>
@@ -1211,6 +1213,7 @@ function ScheduleTab({ session }: { session: Session }) {
                   today={today}
                   employeeId={session.id}
                   onSubmitted={() => qc.invalidateQueries({ queryKey: weekQK })}
+                  isCurrentWeek={isCurrentWeek}
                 />
               ))}
             </div>
