@@ -208,7 +208,9 @@ function recalcRow(row: PayrollRow, changedField?: string): PayrollRow {
   return r;
 }
 
-const DRAFT_STORAGE_KEY = "payroll_drafts_v1";
+// Each store+period combination gets its own sessionStorage key.
+// Format: payrollDraft_${storeId}_${periodStart}_${periodEnd}
+const ssKeyFor = (ctxKey: string) => `payrollDraft_${ctxKey.replace(/\|/g, "_")}`;
 
 export function AdminPayrolls() {
   const { toast } = useToast();
@@ -217,13 +219,9 @@ export function AdminPayrolls() {
   const [periodEnd, setPeriodEnd] = useState(fortnight.end);
   const [selectedStoreId, setSelectedStoreId] = useState("");
   // Global draft state: keyed by ctxKey (`${storeId}|${periodStart}|${periodEnd}`) then employeeId.
-  // Persisted in sessionStorage so drafts survive store switching and page refreshes.
-  const [payrollDrafts, setPayrollDrafts] = useState<Record<string, Record<string, PayrollRow>>>(() => {
-    try {
-      const stored = sessionStorage.getItem(DRAFT_STORAGE_KEY);
-      return stored ? JSON.parse(stored) : {};
-    } catch { return {}; }
-  });
+  // Each ctxKey is lazily hydrated from its own sessionStorage key on first navigation.
+  // Start with empty — individual keys are loaded on demand in the isNewContext effect.
+  const [payrollDrafts, setPayrollDrafts] = useState<Record<string, Record<string, PayrollRow>>>({});
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>("");
   // Tracks which store+period the drafts were initialised for
   const draftContextKey = useRef<string>("");
@@ -244,9 +242,21 @@ export function AdminPayrolls() {
     queryKey: ["/api/finance/balances"],
   });
 
-  // Sync drafts to sessionStorage whenever they change
+  // One-time migration: nuke ALL old draft data so ghost drafts from the previous
+  // single-key architecture never influence balances again.
   useEffect(() => {
-    try { sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(payrollDrafts)); } catch {}
+    if (!sessionStorage.getItem("payroll_draft_v2_init")) {
+      sessionStorage.clear();
+      sessionStorage.setItem("payroll_draft_v2_init", "1");
+    }
+  }, []);
+
+  // Sync drafts to sessionStorage — each ctxKey gets its OWN key so periods are
+  // perfectly isolated and switching stores never overwrites another period's data.
+  useEffect(() => {
+    for (const [ctxKey, drafts] of Object.entries(payrollDrafts)) {
+      try { sessionStorage.setItem(ssKeyFor(ctxKey), JSON.stringify(drafts)); } catch {}
+    }
   }, [payrollDrafts]);
 
   // Stable context key for the current store+period combination
@@ -436,44 +446,34 @@ export function AdminPayrolls() {
     if (isNewContext) {
       draftContextKey.current = currentCtxKey;
 
-      // Auto-purge stale drafts: if the DB already has saved payroll records for
-      // this store+period, any lingering sessionStorage drafts are stale and must
-      // be discarded so the widget shows the real DB balance (not a ghost deduction).
+      // If the DB already has saved payroll records for this store+period,
+      // discard any stored draft and re-init entirely from DB values.
       const hasSavedPayrolls = currentData.some(({ payroll }) => payroll !== null);
-      const existingDrafts = payrollDrafts[currentCtxKey];
 
-      if (hasSavedPayrolls && existingDrafts) {
-        // 1. Wipe sessionStorage entry immediately (belt-and-braces)
-        try {
-          const raw = sessionStorage.getItem(DRAFT_STORAGE_KEY);
-          if (raw) {
-            const all = JSON.parse(raw) as Record<string, unknown>;
-            delete all[currentCtxKey];
-            sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(all));
-          }
-        } catch {}
-        // 2. Re-initialise entirely from DB (no stale cash values)
+      if (hasSavedPayrolls) {
+        // Wipe the individual sessionStorage key for this ctx
+        sessionStorage.removeItem(ssKeyFor(currentCtxKey));
+        // Re-initialise entirely from DB
         const fresh: Record<string, PayrollRow> = {};
         for (const { employee, payroll } of currentData) {
           fresh[employee.id] = buildPayrollRow(employee, payroll);
         }
         setPayrollDrafts(prev => ({ ...prev, [currentCtxKey]: fresh }));
       } else {
-        setPayrollDrafts(prev => {
-          // If sessionStorage already has drafts for this ctx (e.g. returning to a store),
-          // preserve them — only initialise employees not yet in the draft.
-          const existing = prev[currentCtxKey] ?? {};
-          const merged = { ...existing };
-          let changed = false;
-          for (const { employee, payroll } of currentData) {
-            if (!merged[employee.id]) {
-              merged[employee.id] = buildPayrollRow(employee, payroll);
-              changed = true;
-            }
+        // Period not yet saved — hydrate from the individual sessionStorage key,
+        // then fill in any employees not yet represented.
+        let storedDraft: Record<string, PayrollRow> = {};
+        try {
+          const raw = sessionStorage.getItem(ssKeyFor(currentCtxKey));
+          if (raw) storedDraft = JSON.parse(raw) as Record<string, PayrollRow>;
+        } catch {}
+        const merged = { ...storedDraft };
+        for (const { employee, payroll } of currentData) {
+          if (!merged[employee.id]) {
+            merged[employee.id] = buildPayrollRow(employee, payroll);
           }
-          if (!changed && Object.keys(existing).length > 0) return prev;
-          return { ...prev, [currentCtxKey]: merged };
-        });
+        }
+        setPayrollDrafts(prev => ({ ...prev, [currentCtxKey]: merged }));
       }
       // Auto-select first employee if none selected (or pick persisted selection)
       setSelectedEmployeeId(id => id || (currentData[0]?.employee.id ?? ""));
@@ -565,20 +565,13 @@ export function AdminPayrolls() {
     onSuccess: () => {
       toast({ title: "Payroll saved successfully" });
       const savedKey = savingCtxKeyRef.current;
-      // 1. Clear from React state (this also triggers the sessionStorage sync effect)
+      // 1. Clear from React state
       setPayrollDrafts(prev => {
         const { [savedKey]: _, ...rest } = prev;
         return rest;
       });
-      // 2. Also clear sessionStorage directly — guards against stale-closure / timing issues
-      try {
-        const raw = sessionStorage.getItem(DRAFT_STORAGE_KEY);
-        if (raw) {
-          const all = JSON.parse(raw) as Record<string, unknown>;
-          delete all[savedKey];
-          sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(all));
-        }
-      } catch {}
+      // 2. Remove the individual sessionStorage key directly (belt-and-braces)
+      sessionStorage.removeItem(ssKeyFor(savedKey));
       // Force re-initialise drafts from saved DB data on next fetch
       draftContextKey.current = "";
       savingCtxKeyRef.current = "";
@@ -661,14 +654,7 @@ export function AdminPayrolls() {
 
   // Wipe the current store+period draft and force a fresh re-init from DB
   const clearCurrentDraft = () => {
-    try {
-      const raw = sessionStorage.getItem(DRAFT_STORAGE_KEY);
-      if (raw) {
-        const all = JSON.parse(raw) as Record<string, unknown>;
-        delete all[currentCtxKey];
-        sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(all));
-      }
-    } catch {}
+    sessionStorage.removeItem(ssKeyFor(currentCtxKey));
     setPayrollDrafts(prev => {
       const { [currentCtxKey]: _, ...rest } = prev;
       return rest;
