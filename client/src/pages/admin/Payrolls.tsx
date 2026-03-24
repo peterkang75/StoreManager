@@ -879,6 +879,13 @@ export function AdminPayrolls() {
                               </div>
                             </div>
                           )}
+
+                          {selectedRow.isIntercompany && (
+                            <p className="text-xs text-muted-foreground" data-testid={`text-intercompany-note-${selectedRow.employeeId}`}>
+                              Note: The Cash/Bank split for this intercompany transfer will be handled on the main Dashboard after you generate this payroll.
+                            </p>
+                          )}
+
                           <div className="space-y-1">
                             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Basis</p>
                             <div className="grid grid-cols-2 gap-3">
@@ -897,6 +904,8 @@ export function AdminPayrolls() {
                             </div>
                           </div>
 
+                          {!selectedRow.isIntercompany && (
+                          <div className="space-y-5">
                           <div className="space-y-1">
                             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Inputs</p>
                             <div className="grid grid-cols-3 gap-3">
@@ -1041,6 +1050,7 @@ export function AdminPayrolls() {
                               </div>
                             </div>
                           </div>
+                          </div>)}
 
                           <div className="space-y-1">
                             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Memo</p>
