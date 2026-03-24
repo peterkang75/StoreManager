@@ -1,5 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
+import { registerRoutes, autoSubmitExpiredCycleShifts } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedDatabaseIfEmpty } from "./seed";
@@ -64,6 +64,10 @@ app.use((req, res, next) => {
 (async () => {
   await registerRoutes(httpServer, app);
   await seedDatabaseIfEmpty();
+
+  // Auto-submit expired payroll cycle shifts on startup and every hour
+  setTimeout(() => autoSubmitExpiredCycleShifts().catch(e => console.error("[payroll-cycle]", e)), 3000);
+  setInterval(() => autoSubmitExpiredCycleShifts().catch(e => console.error("[payroll-cycle]", e)), 60 * 60 * 1000);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

@@ -55,6 +55,7 @@ import {
   Globe,
 } from "lucide-react";
 import type { Notice } from "@shared/schema";
+import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "@shared/payrollCycle";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -707,23 +708,23 @@ function HomeTab({ session }: { session: Session }) {
     staleTime: 120_000,
   });
 
-  // Fetch current week to surface missed (past, unsubmitted) shifts on Home tab
-  const weekStart = getMondayStr(today);
-  const weekQK = ["/api/portal/week-all", session.id, weekStart];
-  const { data: weekData } = useQuery<WeekData>({
-    queryKey: weekQK,
+  // Fetch missed (unsubmitted) shifts within the CURRENT OPEN payroll cycle
+  const openCycleStart = getPayrollCycleStart(today);
+  const yesterday      = shiftDate(today, -1);
+  const missedQK = ["/api/portal/missed-shifts", session.id, openCycleStart];
+  const weekQK = missedQK; // alias used by missedDrawerDay onSubmitted
+  const { data: missedData } = useQuery<DayData[]>({
+    queryKey: missedQK,
     queryFn: async () => {
-      const res = await fetch(`/api/portal/week?employeeId=${session.id}&weekStart=${weekStart}`, { credentials: "include" });
+      const params = new URLSearchParams({ employeeId: session.id, startDate: openCycleStart, endDate: yesterday });
+      const res = await fetch(`/api/portal/missed-shifts?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
     staleTime: 0,
+    enabled: yesterday >= openCycleStart, // only fetch if there are past days in cycle
   });
-
-  // Past days this week that have a shift but no timesheet
-  const missedShifts: DayData[] = (weekData?.days ?? []).filter(
-    d => d.date < today && d.shift !== null && d.timesheet === null
-  );
+  const missedShifts: DayData[] = missedData ?? [];
 
   const todayShifts: TodayShiftItem[] = (todayData?.shifts ?? []).map(item => ({
     ...item,
@@ -1039,16 +1040,16 @@ function PastShiftTimesheetDrawer({
   );
 }
 
-function WeekRow({ day, today, employeeId, onSubmitted, isCurrentWeek }: { day: DayData; today: string; employeeId: string; onSubmitted: () => void; isCurrentWeek: boolean }) {
+function WeekRow({ day, today, employeeId, onSubmitted, openCycleStart }: { day: DayData; today: string; employeeId: string; onSubmitted: () => void; openCycleStart: string }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { abbr, num } = fmtDay(day.date);
   const isToday = day.date === today;
   const isPast  = day.date < today;
   const ts = day.timesheet;
   const st = ts ? STATUS_STYLE[ts.status] ?? STATUS_STYLE.PENDING : null;
-  // Only allow logging past shifts within the current week (Mon–Sun).
-  // Once the week ends (Sunday midnight), the window is closed.
-  const canLogPast = isPast && !!day.shift && !ts && isCurrentWeek;
+  // Allow logging only for past days within the current open payroll cycle.
+  // Once the cycle ends (every 2 Sundays), the window closes.
+  const canLogPast = isPast && !!day.shift && !ts && day.date >= openCycleStart;
 
   return (
     <>
@@ -1120,6 +1121,7 @@ function ScheduleTab({ session }: { session: Session }) {
   const today = getTodayStr();
   const [weekStart, setWeekStart] = useState(() => getMondayStr(today));
   const isCurrentWeek = weekStart === getMondayStr(today);
+  const openCycleStart = getPayrollCycleStart(today); // start of current open payroll cycle
   const qc = useQueryClient();
 
   const weekQK = ["/api/portal/week-all", session.id, weekStart];
@@ -1213,7 +1215,7 @@ function ScheduleTab({ session }: { session: Session }) {
                   today={today}
                   employeeId={session.id}
                   onSubmitted={() => qc.invalidateQueries({ queryKey: weekQK })}
-                  isCurrentWeek={isCurrentWeek}
+                  openCycleStart={openCycleStart}
                 />
               ))}
             </div>

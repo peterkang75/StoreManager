@@ -2,6 +2,7 @@ import express from "express";
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage, generateSecureToken } from "./storage";
+import { PAYROLL_CYCLE_ANCHOR, getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "../shared/payrollCycle";
 import { extractPdfText, parseInvoiceWithAI } from "./invoiceParser";
 import { 
   insertStoreSchema, 
@@ -2997,25 +2998,20 @@ export async function registerRoutes(
     }
   });
 
-  // GET /api/portal/missed-shifts?employeeId=X&daysBack=N
-  // Returns past published roster entries (up to daysBack days ago) that have no timesheet.
+  // GET /api/portal/missed-shifts?employeeId=X&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+  // Returns past published roster entries in the date range that have no timesheet.
   app.get("/api/portal/missed-shifts", async (req: Request, res: Response) => {
     try {
-      const { employeeId, daysBack: daysBackRaw } = req.query;
+      const { employeeId, startDate: startDateRaw, endDate: endDateRaw } = req.query;
       if (!employeeId) return res.status(400).json({ error: "employeeId required" });
 
-      const daysBack = Math.min(parseInt((daysBackRaw as string) ?? "28", 10) || 28, 90);
-
-      // Date range: from (today - daysBack) to yesterday
+      const toYMD = (d: Date) => d.toISOString().split("T")[0];
       const todayD = new Date();
       const yesterday = new Date(todayD);
       yesterday.setDate(yesterday.getDate() - 1);
-      const startD = new Date(todayD);
-      startD.setDate(startD.getDate() - daysBack);
 
-      const toYMD = (d: Date) => d.toISOString().split("T")[0];
-      const startDate = toYMD(startD);
-      const endDate = toYMD(yesterday);
+      const startDate = (startDateRaw as string) || PAYROLL_CYCLE_ANCHOR;
+      const endDate   = (endDateRaw as string)   || toYMD(yesterday);
 
       // 1. Fetch all rosters for employee in date range
       const allRosters = await storage.getRosters({ employeeId: employeeId as string, startDate, endDate });
@@ -3575,4 +3571,71 @@ export async function registerRoutes(
   });
 
   return httpServer;
+}
+
+// ── Payroll Cycle Auto-Submit ─────────────────────────────────────────────────
+// Called on server startup + periodically.
+// For all roster entries in CLOSED payroll cycles (before current cycle start)
+// that are published but have no timesheet → auto-create PENDING timesheets.
+export async function autoSubmitExpiredCycleShifts(): Promise<void> {
+  const today = new Date().toISOString().split("T")[0];
+  const currentCycleStart = getPayrollCycleStart(today);
+  const expiredEnd = shiftDate(currentCycleStart, -1);   // last day of previous cycle
+
+  if (expiredEnd < PAYROLL_CYCLE_ANCHOR) return; // nothing to process yet
+
+  const expiredStart = PAYROLL_CYCLE_ANCHOR;
+
+  // 1. All rosters in expired range
+  const rosters = await storage.getRosters({ startDate: expiredStart, endDate: expiredEnd });
+  if (rosters.length === 0) return;
+
+  // 2. Check published status per (store, week)
+  const weekMonday = (dateStr: string) => {
+    const d = new Date(dateStr + "T00:00:00");
+    const dow = d.getDay();
+    const diff = dow === 0 ? -6 : 1 - dow;
+    d.setDate(d.getDate() + diff);
+    return d.toISOString().split("T")[0];
+  };
+
+  const storeWeekKeys = [...new Set(rosters.map(r => `${r.storeId}|${weekMonday(r.date)}`))];
+  const pubResults = await Promise.all(
+    storeWeekKeys.map(async key => {
+      const [sid, ws] = key.split("|");
+      const pub = await storage.isRosterWeekPublished(sid, ws);
+      return { key, pub };
+    })
+  );
+  const publishedSet = new Set(pubResults.filter(r => r.pub).map(r => r.key));
+
+  const publishedRosters = rosters.filter(r =>
+    publishedSet.has(`${r.storeId}|${weekMonday(r.date)}`)
+  );
+  if (publishedRosters.length === 0) return;
+
+  // 3. Existing timesheets in expired range
+  const existingTs = await storage.getShiftTimesheets({ startDate: expiredStart, endDate: expiredEnd });
+  const existingSet = new Set(existingTs.map(ts => `${ts.employeeId}|${ts.date}`));
+
+  // 4. Auto-submit missing ones
+  const missing = publishedRosters.filter(r => !existingSet.has(`${r.employeeId}|${r.date}`));
+  if (missing.length === 0) return;
+
+  console.log(`[payroll-cycle] Auto-submitting ${missing.length} shift(s) from closed cycle(s)...`);
+  await Promise.all(
+    missing.map(r =>
+      storage.createShiftTimesheet({
+        storeId: r.storeId,
+        employeeId: r.employeeId,
+        date: r.date,
+        actualStartTime: r.startTime,
+        actualEndTime: r.endTime,
+        status: "PENDING",
+        isUnscheduled: false,
+        adjustmentReason: "Auto-submitted (payroll cycle closed)",
+      })
+    )
+  );
+  console.log(`[payroll-cycle] Done — ${missing.length} timesheet(s) auto-submitted.`);
 }
