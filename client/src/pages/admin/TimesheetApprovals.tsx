@@ -339,7 +339,7 @@ function EmployeeReviewModal({
             [ts.id]: { ...prev[ts.id], [field]: ev.target.value },
           }))}
           onBlur={() => autoSave(ts.id)}
-          className="font-mono h-7 text-xs px-1 w-[82px] shrink-0"
+          className="font-mono h-7 text-xs px-1 w-[120px] shrink-0"
           data-testid={`input-${field}-${ts.id}`}
         />
         <button
