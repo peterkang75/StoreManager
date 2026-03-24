@@ -694,18 +694,23 @@ export function AdminPayrolls() {
   );
   const hasIntercompany = rows.some(r => r.isIntercompany);
 
-  // Real-time draft cash totals per store name — used by CashBalances widget
+  // Real-time draft cash totals per store name — used by CashBalances widget.
+  // IMPORTANT: only include drafts whose period matches the CURRENTLY SELECTED period.
+  // Ghost drafts from previous periods (not yet auto-purged because the user hasn't
+  // navigated to them this session) must not inflate/deflate the balance widget.
   const draftCashByStoreName = useMemo(() => {
     const result: Record<string, number> = {};
     for (const [ctxKey, empDrafts] of Object.entries(payrollDrafts)) {
-      const storeId = ctxKey.split("|")[0];
+      const [storeId, ctxStart, ctxEnd] = ctxKey.split("|");
+      // Skip drafts that belong to a different period
+      if (ctxStart !== periodStart || ctxEnd !== periodEnd) continue;
       const store = stores?.find((s) => s.id === storeId);
       if (!store) continue;
       const cashSum = Object.values(empDrafts).reduce((sum, row) => sum + (row.cashAmount || 0), 0);
       if (cashSum > 0) result[store.name] = (result[store.name] ?? 0) + cashSum;
     }
     return result;
-  }, [payrollDrafts, stores]);
+  }, [payrollDrafts, stores, periodStart, periodEnd]);
 
   const fmtMoney = (v: number) =>
     `$${v.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
