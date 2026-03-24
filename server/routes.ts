@@ -1224,11 +1224,41 @@ export async function registerRoutes(
         }
       }
 
+      // Build a map of which store is the PRIMARY payer for each fixed-salary employee.
+      // Pass 1: explicit — the assignment that has fixedAmount > 0 is primary.
+      // Pass 2: fallback — if no assignment has fixedAmount set but the employee's
+      //         global fixedAmount > 0, treat the FIRST assignment as primary.
+      //         This handles legacy data where fixedAmount was only on the employee record.
+      const empPrimaryStoreIdMap = new Map<string, string>();
+      for (const a of allAssignments) {
+        if (!empMap.has(a.employeeId)) continue;
+        const fixed = parseFloat(a.fixedAmount || "0");
+        if (fixed > 0 && !empPrimaryStoreIdMap.has(a.employeeId)) {
+          empPrimaryStoreIdMap.set(a.employeeId, a.storeId);
+        }
+      }
+      for (const [empId, { employee }] of empMap) {
+        if (empPrimaryStoreIdMap.has(empId)) continue;
+        const globalFixed = parseFloat(employee.fixedAmount || "0");
+        if (globalFixed > 0) {
+          // No per-assignment fixed set — fall back to first assignment for this employee
+          const firstAssignment = allAssignments.find(a => a.employeeId === empId);
+          if (firstAssignment) {
+            empPrimaryStoreIdMap.set(empId, firstAssignment.storeId);
+          }
+        }
+      }
+
       const rows = Array.from(empMap.values()).map(({ employee, assignmentRate, assignmentFixed }) => {
         const currentStoreFixed = parseFloat(String(assignmentFixed ?? "0") || "0");
         const currentStoreRate  = parseFloat(String(assignmentRate  ?? "0") || "0");
         const totalFixed = empTotalFixedMap.get(employee.id) ?? 0;
-        const isPrimaryStore = currentStoreFixed > 0;
+        // isPrimaryStore: true if THIS store's assignment has fixedAmount > 0,
+        // OR as a fallback, if no assignment has fixedAmount but this store is the
+        // designated primary (first assignment) for the employee.
+        const isPrimaryStore = currentStoreFixed > 0
+          || (totalFixed > 0 && currentStoreFixed === 0
+              && empPrimaryStoreIdMap.get(employee.id) === storeId);
         return {
           employee: {
             ...employee,
