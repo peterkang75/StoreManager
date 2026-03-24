@@ -3339,6 +3339,18 @@ export async function registerRoutes(
   });
 
   // DELETE /api/admin/approvals/:id — permanently remove a shift timesheet record
+  // PATCH /api/admin/approvals/:id/reject — soft-delete: mark as REJECTED (tombstone)
+  app.patch("/api/admin/approvals/:id/reject", async (req: Request, res: Response) => {
+    try {
+      const ts = await storage.updateShiftTimesheet(req.params.id, { status: "REJECTED" });
+      if (!ts) return res.status(404).json({ error: "Timesheet not found" });
+      res.json(ts);
+    } catch (err) {
+      console.error("Error rejecting timesheet:", err);
+      res.status(500).json({ error: "Failed to reject timesheet" });
+    }
+  });
+
   app.delete("/api/admin/approvals/:id", async (req: Request, res: Response) => {
     try {
       const success = await storage.deleteShiftTimesheet(req.params.id);
@@ -3411,7 +3423,8 @@ export async function registerRoutes(
       // 1. Fetch rosters for the date range (optionally filtered by store)
       const rostersInRange = await storage.getRosters({ storeId: storeId || undefined, startDate, endDate });
 
-      // 2. Fetch existing timesheets for the same range
+      // 2. Fetch ALL existing timesheets for the same range (no status filter — includes REJECTED
+      //    tombstones so we never resurrect a shift the manager already dismissed).
       const existingTs = await storage.getShiftTimesheets({ storeId: storeId || undefined, startDate, endDate });
       const existingSet = new Set(existingTs.map(ts => `${ts.employeeId}|${ts.date}`));
 

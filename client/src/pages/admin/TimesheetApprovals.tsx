@@ -262,8 +262,9 @@ function EmployeeReviewModal({
 
   const pendingShifts = localTimesheets.filter(ts => ts.status === "PENDING");
 
-  // Live-computed totals from edits (reactive)
+  // Live-computed totals from edits — exclude REJECTED tombstones
   const liveActualHours = localTimesheets.reduce((sum, ts) => {
+    if (ts.status === "REJECTED") return sum;
     const e = edits[ts.id];
     return sum + (e ? calcHours(e.start, e.end) : 0);
   }, 0);
@@ -372,23 +373,25 @@ function EmployeeReviewModal({
 
   // Delete a single shift — asks for confirmation, removes from DB and local state
   const handleDeleteShift = useCallback(async (tsId: string, date: string) => {
-    if (!window.confirm(`Remove the shift on ${fmtDate(date)}?\n\nThis will permanently delete this timesheet record and result in 0 hours paid for this shift.`)) return;
+    if (!window.confirm(`Mark shift on ${fmtDate(date)} as absent (no hours paid)?\n\nThe record will be kept as a tombstone so Auto-Fill won't recreate it.`)) return;
     setDeletingIds(prev => new Set(prev).add(tsId));
     try {
-      await apiRequest("DELETE", `/api/admin/approvals/${tsId}`);
-      setLocalTimesheets(prev => prev.filter(ts => ts.id !== tsId));
+      await apiRequest("PATCH", `/api/admin/approvals/${tsId}/reject`);
+      // Soft delete: update status to REJECTED in local state (keeps the tombstone)
+      setLocalTimesheets(prev => prev.map(ts => ts.id === tsId ? { ...ts, status: "REJECTED" } : ts));
       setEdits(prev => { const n = { ...prev }; delete n[tsId]; return n; });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/approvals"] });
-      toast({ title: "Shift removed", description: `Shift on ${fmtDate(date)} has been deleted.` });
+      toast({ title: "Marked as absent", description: `Shift on ${fmtDate(date)} — 0 hours will be paid.` });
     } catch {
-      toast({ title: "Failed to delete", description: "Could not remove this shift.", variant: "destructive" });
+      toast({ title: "Failed", description: "Could not mark this shift as absent.", variant: "destructive" });
     } finally {
       setDeletingIds(prev => { const n = new Set(prev); n.delete(tsId); return n; });
     }
   }, [queryClient, toast]);
 
-  // Split into two 7-day weeks
-  const allSorted = [...localTimesheets].sort((a, b) => a.date.localeCompare(b.date));
+  // Split into two 7-day weeks — exclude REJECTED tombstones from display
+  const activeTimesheets = localTimesheets.filter(ts => ts.status !== "REJECTED");
+  const allSorted = [...activeTimesheets].sort((a, b) => a.date.localeCompare(b.date));
   const week1End = addDays(cycleStart, 6);
   const week2Start = addDays(cycleStart, 7);
   const week1Shifts = allSorted.filter(ts => ts.date <= week1End);
