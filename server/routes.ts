@@ -1159,12 +1159,13 @@ export async function registerRoutes(
       }
 
       const assignedEmps = await storage.getEmployeesByStoreAssignment(store_id, "ACTIVE");
-      const empMap = new Map<string, { employee: any; assignmentRate?: string; assignmentFixed?: string }>();
+      const empMap = new Map<string, { employee: any; assignmentRate?: string; assignmentFixed?: string; assignmentIsFixedSalary?: boolean }>();
       for (const { employee, assignment } of assignedEmps) {
         empMap.set(employee.id, {
           employee,
           assignmentRate: assignment.rate || undefined,
           assignmentFixed: assignment.fixedAmount || undefined,
+          assignmentIsFixedSalary: assignment.isFixedSalary ?? false,
         });
       }
 
@@ -1203,11 +1204,14 @@ export async function registerRoutes(
         }
       }
 
-      const rows = Array.from(empMap.values()).map(({ employee, assignmentRate, assignmentFixed }) => ({
+      const rows = Array.from(empMap.values()).map(({ employee, assignmentRate, assignmentFixed, assignmentIsFixedSalary }) => ({
         employee: {
           ...employee,
           rate: assignmentRate || employee.rate,
           fixedAmount: assignmentFixed || employee.fixedAmount,
+          // true  = this store is the one that pays the fixed salary (primary payer)
+          // false = this store is a secondary beneficiary (intercompany)
+          isFixedSalaryAtThisStore: assignmentIsFixedSalary ?? false,
         },
         payroll: empPayrollMap.get(employee.id) || null,
       }));

@@ -22,7 +22,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { DollarSign, Save, Printer, FileSpreadsheet, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Search, User, RotateCcw, Landmark, CheckCircle2, Circle } from "lucide-react";
+import { DollarSign, Save, Printer, FileSpreadsheet, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Search, User, RotateCcw, Landmark, CheckCircle2, Circle, ArrowRightLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { CashBalances } from "@/components/CashBalances";
@@ -154,6 +154,10 @@ interface PayrollRow {
   lastEditedField: "gross" | "cash" | null;
   taxOverridden: boolean;
   isCover: boolean;
+  // Intercompany settlement fields
+  isIntercompany: boolean;
+  intercompanyAmount: number;  // apportioned share of the fixed salary this store owes
+  totalAllStoreHours: number;  // for display (ratio denominator)
 }
 
 interface ApprovedShift {
@@ -295,20 +299,53 @@ export function AdminPayrolls() {
     return map;
   }, [approvedShifts, selectedStoreId, periodStart, periodEnd]);
 
+  // Total approved hours across ALL stores for each employee (used for intercompany ratio)
+  const totalAllStoreHoursMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const ts of approvedShifts) {
+      if (ts.status !== "APPROVED") continue;
+      if (ts.date < periodStart || ts.date > periodEnd) continue;
+      const [sh, sm] = ts.actualStartTime.split(":").map(Number);
+      const [eh, em] = ts.actualEndTime.split(":").map(Number);
+      const diffMins = eh * 60 + em - (sh * 60 + sm);
+      const hrs = (diffMins < 0 ? diffMins + 1440 : diffMins) / 60;
+      map[ts.employeeId] = Math.round(((map[ts.employeeId] || 0) + hrs) * 100) / 100;
+    }
+    return map;
+  }, [approvedShifts, periodStart, periodEnd]);
+
   useEffect(() => {
     if (!currentData) return;
     const newRows: PayrollRow[] = currentData.map(({ employee, payroll }) => {
       const empRate = parseFloat(employee.rate || "0");
-      const empFixed = parseFloat(employee.fixedAmount || "0");
+      const empFixed = parseFloat((employee as any).fixedAmount || "0");
       const empIsCover = !!(employee as any).isCover;
+      const isFixedSalaryHere = !!(employee as any).isFixedSalaryAtThisStore;
+
+      // Intercompany detection: employee has a fixed salary, but this store is NOT the primary payer,
+      // AND the employee has approved hours at other stores during this period.
+      const currentHours = approvedHoursMap[employee.id] ?? 0;
+      const totalHours = totalAllStoreHoursMap[employee.id] ?? 0;
+      const hasOtherStoreHours = totalHours > currentHours + 0.01;
+      const isIntercompany = !isFixedSalaryHere && empFixed > 0 && hasOtherStoreHours;
+
+      // Apportioned cost = (this store's hours / total hours) * fixed salary
+      const intercompanyAmount = isIntercompany && totalHours > 0
+        ? Math.round(empFixed * (currentHours / totalHours) * 100) / 100
+        : 0;
+
       if (payroll) {
+        const isIntercompanyPayroll = !isFixedSalaryHere && empFixed > 0 && hasOtherStoreHours;
+        const icAmtPayroll = isIntercompanyPayroll && totalHours > 0
+          ? Math.round(empFixed * (currentHours / totalHours) * 100) / 100
+          : 0;
         return {
           employeeId: employee.id,
-          employeeName: employee.nickname || `${employee.firstName} ${employee.lastName}`,
+          employeeName: (employee as any).nickname || `${(employee as any).firstName} ${(employee as any).lastName}`,
           payrollId: payroll.id,
           hours: payroll.hours,
           rate: payroll.rate || empRate,
-          fixedAmount: payroll.fixedAmount || empFixed,
+          fixedAmount: isIntercompanyPayroll ? 0 : (payroll.fixedAmount || empFixed),
           calculatedAmount: payroll.calculatedAmount,
           adjustment: payroll.adjustment,
           adjustmentReason: payroll.adjustmentReason || "",
@@ -318,19 +355,24 @@ export function AdminPayrolls() {
           taxAmount: payroll.taxAmount,
           superAmount: payroll.superAmount,
           bankDepositAmount: payroll.bankDepositAmount,
-          persistentMemo: employee.persistentMemo || "",
+          persistentMemo: (employee as any).persistentMemo || "",
           lastEditedField: null,
           taxOverridden: false,
           isCover: empIsCover,
+          isIntercompany: isIntercompanyPayroll,
+          intercompanyAmount: icAmtPayroll,
+          totalAllStoreHours: totalHours,
         };
       }
+
       const base: PayrollRow = {
         employeeId: employee.id,
-        employeeName: employee.nickname || `${employee.firstName} ${employee.lastName}`,
+        employeeName: (employee as any).nickname || `${(employee as any).firstName} ${(employee as any).lastName}`,
         payrollId: null,
-        hours: approvedHoursMap[employee.id] ?? 0,
+        hours: currentHours,
         rate: empRate,
-        fixedAmount: empFixed,
+        // For intercompany employees at secondary stores, fixedAmount=0 so they aren't paid directly
+        fixedAmount: isIntercompany ? 0 : empFixed,
         calculatedAmount: 0,
         adjustment: 0,
         adjustmentReason: "",
@@ -340,15 +382,18 @@ export function AdminPayrolls() {
         taxAmount: 0,
         superAmount: 0,
         bankDepositAmount: 0,
-        persistentMemo: employee.persistentMemo || "",
+        persistentMemo: (employee as any).persistentMemo || "",
         lastEditedField: null,
         taxOverridden: false,
         isCover: empIsCover,
+        isIntercompany,
+        intercompanyAmount,
+        totalAllStoreHours: totalHours,
       };
       return recalcRow(base);
     });
     setRows(newRows);
-  }, [currentData, approvedHoursMap]);
+  }, [currentData, approvedHoursMap, totalAllStoreHoursMap]);
 
   const updateRow = useCallback(
     (index: number, field: keyof PayrollRow, value: number | string) => {
@@ -486,9 +531,12 @@ export function AdminPayrolls() {
       tax: acc.tax + r.taxAmount,
       super: acc.super + r.superAmount,
       bank: acc.bank + r.bankDepositAmount,
+      directWages: acc.directWages + (!r.isIntercompany ? r.totalWithAdjustment : 0),
+      intercompanyTransfers: acc.intercompanyTransfers + (r.isIntercompany ? r.intercompanyAmount : 0),
     }),
-    { hours: 0, calculated: 0, adjustment: 0, total: 0, gross: 0, cash: 0, tax: 0, super: 0, bank: 0 }
+    { hours: 0, calculated: 0, adjustment: 0, total: 0, gross: 0, cash: 0, tax: 0, super: 0, bank: 0, directWages: 0, intercompanyTransfers: 0 }
   );
+  const hasIntercompany = rows.some(r => r.isIntercompany);
 
   const fmtMoney = (v: number) =>
     `$${v.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -605,7 +653,8 @@ export function AdminPayrolls() {
         </div>
 
         {rows.length > 0 && selectedStore && (
-          <div className="bg-card border rounded-md px-4 py-3">
+          <div className="bg-card border rounded-md px-4 py-3 space-y-2">
+            {/* Standard totals row */}
             <div className="flex items-center gap-6 flex-wrap text-sm">
               <span className="font-semibold text-muted-foreground uppercase text-xs tracking-wide">Store Totals</span>
               <div className="flex items-center gap-1">
@@ -640,6 +689,29 @@ export function AdminPayrolls() {
                 </div>
               )}
             </div>
+            {/* Intercompany breakdown row — shown only when intercompany employees exist */}
+            {hasIntercompany && (
+              <div className="flex items-center gap-4 flex-wrap border-t pt-2 text-sm">
+                <span className="text-muted-foreground uppercase text-xs tracking-wide flex items-center gap-1">
+                  <ArrowRightLeft className="h-3 w-3" />
+                  Funds Required
+                </span>
+                <div className="flex items-center gap-1">
+                  <span className="text-muted-foreground text-xs">Direct Wages:</span>
+                  <span className="font-mono font-medium text-xs" data-testid="text-direct-wages">{fmtMoney(grandTotals.directWages)}</span>
+                </div>
+                <span className="text-muted-foreground text-xs">+</span>
+                <div className="flex items-center gap-1">
+                  <span className="text-muted-foreground text-xs">Intercompany Transfers:</span>
+                  <span className="font-mono font-medium text-xs text-blue-600 dark:text-blue-400" data-testid="text-intercompany-total">{fmtMoney(grandTotals.intercompanyTransfers)}</span>
+                </div>
+                <span className="text-muted-foreground text-xs">=</span>
+                <div className="flex items-center gap-1">
+                  <span className="text-muted-foreground text-xs font-semibold">Total Required:</span>
+                  <span className="font-mono font-semibold text-sm" data-testid="text-total-required">{fmtMoney(grandTotals.directWages + grandTotals.intercompanyTransfers)}</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -730,15 +802,21 @@ export function AdminPayrolls() {
                                       (Cover)
                                     </span>
                                   )}
+                                  {row.isIntercompany && (
+                                    <ArrowRightLeft className="h-3 w-3 text-blue-500 flex-shrink-0" data-testid={`icon-intercompany-${row.employeeId}`} />
+                                  )}
                                 </div>
                                 <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                                  {hasData && (
+                                  {row.isIntercompany ? (
+                                    <span className="text-xs font-mono font-medium tabular-nums text-blue-600 dark:text-blue-400" data-testid={`text-intercompany-amount-list-${row.employeeId}`}>
+                                      {fmtMoney(row.intercompanyAmount)}
+                                    </span>
+                                  ) : hasData ? (
                                     <>
                                       <span className="text-xs text-muted-foreground tabular-nums">{row.hours}h</span>
                                       <span className="text-xs font-mono font-medium tabular-nums">{fmtMoney(row.totalWithAdjustment)}</span>
                                     </>
-                                  )}
-                                  {!hasData && (
+                                  ) : (
                                     <span className="text-xs text-muted-foreground">—</span>
                                   )}
                                 </div>
@@ -757,10 +835,50 @@ export function AdminPayrolls() {
                           <CardTitle className="text-base flex items-center gap-2 flex-wrap">
                             <User className="h-4 w-4" />
                             {selectedRow.employeeName}
-                            {selectedRow.fixedAmount > 0 && <Badge variant="secondary" className="text-xs">Fixed</Badge>}
+                            {selectedRow.isIntercompany
+                              ? <Badge className="bg-blue-500 text-white text-xs">Intercompany Transfer</Badge>
+                              : selectedRow.fixedAmount > 0 && <Badge variant="secondary" className="text-xs">Fixed</Badge>
+                            }
                           </CardTitle>
                         </CardHeader>
                         <CardContent className="px-4 pb-4 space-y-5">
+                          {/* Intercompany banner — shown when this employee's salary is paid by another store */}
+                          {selectedRow.isIntercompany && (
+                            <div className="rounded-md border border-blue-400/40 bg-blue-400/8 px-4 py-3 space-y-2" data-testid={`banner-intercompany-${selectedRow.employeeId}`}>
+                              <div className="flex items-center gap-2">
+                                <ArrowRightLeft className="h-4 w-4 text-blue-500 shrink-0" />
+                                <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">Intercompany Cost Allocation</span>
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                이 직원의 고정급은 다른 매장에서 지급됩니다. 아래 금액은 이 매장의 근무 비율에 따라 산출된 정산 금액이며, 페이롤 저장 시 자동으로 인터컴퍼니 정산 내역에 기록됩니다.
+                              </p>
+                              <div className="grid grid-cols-3 gap-3 pt-1">
+                                <div className="space-y-0.5">
+                                  <p className="text-xs text-muted-foreground">This Store Hours</p>
+                                  <p className="text-sm font-mono font-medium" data-testid={`text-ic-current-hours-${selectedRow.employeeId}`}>{selectedRow.hours.toFixed(1)}h</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-xs text-muted-foreground">All Stores Total</p>
+                                  <p className="text-sm font-mono font-medium" data-testid={`text-ic-total-hours-${selectedRow.employeeId}`}>{selectedRow.totalAllStoreHours.toFixed(1)}h</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-xs text-muted-foreground">Ratio</p>
+                                  <p className="text-sm font-mono font-medium">
+                                    {selectedRow.totalAllStoreHours > 0
+                                      ? `${Math.round((selectedRow.hours / selectedRow.totalAllStoreHours) * 100)}%`
+                                      : "—"}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="pt-1 border-t border-blue-400/20">
+                                <p className="text-xs text-muted-foreground">Apportioned Amount Owed</p>
+                                <p className="text-xl font-mono font-bold text-blue-700 dark:text-blue-400" data-testid={`text-intercompany-amount-${selectedRow.employeeId}`}>
+                                  {fmtMoney(selectedRow.intercompanyAmount)}
+                                </p>
+                                <p className="text-[11px] text-muted-foreground mt-0.5">직접 지급액: $0.00 (이 매장은 해당 직원에게 직접 지급하지 않습니다)</p>
+                              </div>
+                            </div>
+                          )}
                           <div className="space-y-1">
                             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Basis</p>
                             <div className="grid grid-cols-2 gap-3">
@@ -791,6 +909,7 @@ export function AdminPayrolls() {
                                   className="text-sm"
                                   value={selectedRow.hours || ""}
                                   onChange={(e) => updateRow(clampedIdx, "hours", parseFloat(e.target.value) || 0)}
+                                  disabled={selectedRow.isIntercompany}
                                   data-testid={`input-hours-${selectedRow.employeeId}`}
                                 />
                               </div>
@@ -802,6 +921,7 @@ export function AdminPayrolls() {
                                   className="text-sm"
                                   value={selectedRow.adjustment || ""}
                                   onChange={(e) => updateRow(clampedIdx, "adjustment", parseFloat(e.target.value) || 0)}
+                                  disabled={selectedRow.isIntercompany}
                                   data-testid={`input-adjustment-${selectedRow.employeeId}`}
                                 />
                               </div>
@@ -812,6 +932,7 @@ export function AdminPayrolls() {
                                   placeholder="Reason"
                                   value={selectedRow.adjustmentReason}
                                   onChange={(e) => updateRow(clampedIdx, "adjustmentReason", e.target.value)}
+                                  disabled={selectedRow.isIntercompany}
                                   data-testid={`input-adj-reason-${selectedRow.employeeId}`}
                                 />
                               </div>
@@ -830,6 +951,7 @@ export function AdminPayrolls() {
                                   className="text-sm"
                                   value={selectedRow.grossAmount || ""}
                                   onChange={(e) => updateRow(clampedIdx, "grossAmount", parseFloat(e.target.value) || 0)}
+                                  disabled={selectedRow.isIntercompany}
                                   data-testid={`input-gross-${selectedRow.employeeId}`}
                                 />
                               </div>
@@ -842,6 +964,7 @@ export function AdminPayrolls() {
                                   className="text-sm"
                                   value={selectedRow.cashAmount || ""}
                                   onChange={(e) => updateRow(clampedIdx, "cashAmount", parseFloat(e.target.value) || 0)}
+                                  disabled={selectedRow.isIntercompany}
                                   data-testid={`input-cash-${selectedRow.employeeId}`}
                                 />
                               </div>
@@ -860,6 +983,7 @@ export function AdminPayrolls() {
                                     className={`text-sm ${selectedRow.taxOverridden ? "border-orange-400 dark:border-orange-600" : ""}`}
                                     value={selectedRow.taxAmount || ""}
                                     onChange={(e) => updateRow(clampedIdx, "taxAmount", parseFloat(e.target.value) || 0)}
+                                    disabled={selectedRow.isIntercompany}
                                     data-testid={`input-tax-${selectedRow.employeeId}`}
                                   />
                                   {selectedRow.taxOverridden && (
