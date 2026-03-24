@@ -1,0 +1,28 @@
+The user wants to import a CSV file containing historical shift data (Mar 9 - Mar 22) to process real payroll this week. 
+
+Please create a bulk CSV import feature for `shiftTimesheets`.
+
+### 1. Backend: `POST /api/timesheets/import-csv`
+- Use `multer` to handle the file upload (memory storage).
+- Parse the CSV using a robust method or plain string splitting. 
+- The CSV headers look exactly like this:
+  `Users,Shift title,Job,Sub item,Notes,Shift tags,Date,Set times,Paid breaks,Unpaid breaks,shift total hrs,Timezone offset,Tasks,Total planned`
+- **Parsing Logic per row:**
+  - `Users`: Employee name. Search the `employees` table by checking if `firstName || ' ' || lastName` OR `nickname` matches this string (case-insensitive). Skip if employee not found.
+  - `Job`: Determine the store. If it contains "Sushi" (case-insensitive), find the store containing "Sushi" in its name. If "Sandwich", find the Sandwich store.
+  - `Date`: Format is `MM/DD/YYYY` (e.g., `03/12/2026`). Convert this to standard `YYYY-MM-DD` string.
+  - `Set times`: E.g., `7:30am > 4:00pm (08:30 total)`. Extract the start time (`7:30am`) and end time (`4:00pm`), and convert them to 24-hour `HH:mm` format (e.g., `07:30` and `16:00`).
+  - **Insert:** Create a new `shiftTimesheets` record with:
+    - `employeeId`, `storeId`, `date`
+    - `actualStartTime`: parsed start time
+    - `actualEndTime`: parsed end time
+    - `status`: `"APPROVED"` (so it's immediately ready for payroll)
+    - `isUnscheduled`: `true` (to handle without strict roster matching)
+
+### 2. Frontend: Upload Button on `/admin/timesheet-approvals`
+- On the Timesheet Approvals page, add an `[ Import CSV ]` button near the header/filters.
+- Clicking this button should open a hidden file input `<input type="file" accept=".csv" />`.
+- When a file is selected, upload it via `POST` to `/api/timesheets/import-csv`.
+- Show a success toast (e.g., "Imported X timesheets") and invalidate the `shiftTimesheets` React Query cache to refresh the table.
+
+Please implement this and ensure the time extraction regex can properly handle cases like "8:00am > 6:30pm" to "08:00" and "18:30".
