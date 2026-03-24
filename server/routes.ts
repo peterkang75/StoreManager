@@ -1758,10 +1758,15 @@ export async function registerRoutes(
             status: "APPROVED",
           });
 
-          // Group hours by storeId
+          // Group hours by storeId — compute from actualStartTime/actualEndTime
+          // (ShiftTimesheet schema has no pre-computed totalHours field)
           const hoursByStore: Record<string, number> = {};
           for (const sheet of allSheets) {
-            hoursByStore[sheet.storeId] = (hoursByStore[sheet.storeId] || 0) + (sheet.totalHours || 0);
+            const [sh, sm] = (sheet.actualStartTime || "0:0").split(":").map(Number);
+            const [eh, em] = (sheet.actualEndTime || "0:0").split(":").map(Number);
+            const diffMins = eh * 60 + em - (sh * 60 + sm);
+            const hrs = (diffMins < 0 ? diffMins + 1440 : diffMins) / 60;
+            hoursByStore[sheet.storeId] = Math.round(((hoursByStore[sheet.storeId] || 0) + hrs) * 100) / 100;
           }
 
           const totalHours = Object.values(hoursByStore).reduce((a, b) => a + b, 0);
@@ -4020,6 +4025,89 @@ export async function registerRoutes(
     } catch (err) {
       console.error("Error fetching quarantined emails:", err);
       res.status(500).json({ error: "Failed to fetch quarantined emails" });
+    }
+  });
+
+  // ─── Backfill Intercompany Settlements (one-time fix for all past periods) ─
+  app.post("/api/admin/backfill-settlements", async (req: Request, res: Response) => {
+    try {
+      // Fetch ALL saved payrolls that have fixedAmount > 0 (these are the ones that pay intercompany)
+      const allPayrolls = await storage.getPayrolls();
+      const fixedPayrolls = allPayrolls.filter(
+        (p) => p.fixedAmount && parseFloat(String(p.fixedAmount)) > 0
+      );
+
+      let created = 0;
+      let skipped = 0;
+
+      for (const savedPayroll of fixedPayrolls) {
+        const { employeeId, storeId: payingStoreId, periodStart, periodEnd } = savedPayroll;
+        const fixedAmt = parseFloat(String(savedPayroll.fixedAmount));
+        if (!periodStart || !periodEnd) { skipped++; continue; }
+
+        // Get ALL approved shiftTimesheets for this employee in this period (across all stores)
+        const allSheets = await storage.getShiftTimesheets({
+          employeeId,
+          startDate: periodStart,
+          endDate: periodEnd,
+          status: "APPROVED",
+        });
+
+        // Compute hours per store from actualStartTime/actualEndTime
+        const hoursByStore: Record<string, number> = {};
+        for (const sheet of allSheets) {
+          const [sh, sm] = (sheet.actualStartTime || "0:0").split(":").map(Number);
+          const [eh, em] = (sheet.actualEndTime || "0:0").split(":").map(Number);
+          const diffMins = eh * 60 + em - (sh * 60 + sm);
+          const hrs = (diffMins < 0 ? diffMins + 1440 : diffMins) / 60;
+          hoursByStore[sheet.storeId] = Math.round(((hoursByStore[sheet.storeId] || 0) + hrs) * 100) / 100;
+        }
+
+        const totalHours = Object.values(hoursByStore).reduce((a, b) => a + b, 0);
+        if (totalHours <= 0) { skipped++; continue; }
+
+        // Cancel any existing settlements for this payroll to regenerate fresh
+        const existing = await storage.getIntercompanySettlements({ payrollId: savedPayroll.id });
+        for (const old of existing) {
+          await storage.updateIntercompanySettlement(old.id, { status: "CANCELLED" });
+        }
+
+        // Detect Dual Role stores (employee has hourly rate > 0 there, no fixedAmount)
+        const allAssignments = await storage.getEmployeeStoreAssignments({ employeeId });
+        const dualRoleStoreIds = new Set(
+          allAssignments
+            .filter((a) => {
+              const aRate  = parseFloat(String(a.rate  ?? "0") || "0");
+              const aFixed = parseFloat(String(a.fixedAmount ?? "0") || "0");
+              return aRate > 0 && aFixed === 0 && a.storeId !== payingStoreId;
+            })
+            .map((a) => a.storeId)
+        );
+
+        for (const [storeId, hours] of Object.entries(hoursByStore)) {
+          if (storeId === payingStoreId) continue;
+          if (hours <= 0) continue;
+          if (dualRoleStoreIds.has(storeId)) continue;
+          const portion = hours / totalHours;
+          const amountDue = Math.round(fixedAmt * portion * 100) / 100;
+          await storage.createIntercompanySettlement({
+            payrollId: savedPayroll.id,
+            employeeId,
+            fromStoreId: storeId,
+            toStoreId: payingStoreId,
+            totalAmountDue: amountDue,
+            paidInCash: 0,
+            paidInBank: 0,
+            status: "PENDING",
+          });
+          created++;
+        }
+      }
+
+      res.json({ message: "Backfill complete", created, skipped });
+    } catch (err) {
+      console.error("Error backfilling settlements:", err);
+      res.status(500).json({ error: "Backfill failed" });
     }
   });
 
