@@ -22,11 +22,12 @@ import {
   type RosterPublication,
   type ShiftTimesheet, type InsertShiftTimesheet,
   type Notice, type InsertNotice,
+  type IntercompanySettlement, type InsertIntercompanySettlement,
   stores, candidates, employees, employeeStoreAssignments, employeeOnboardingTokens, employeeDocuments,
   rosterPeriods, shifts, rosters, rosterPublications, timeLogs, timesheets, payrolls,
   dailyClosings, cashSalesDetails, dailyCloseForms, suppliers, supplierInvoices, supplierPayments,
   quarantinedEmails,
-  financialTransactions, shiftTimesheets, notices,
+  financialTransactions, shiftTimesheets, notices, intercompanySettlements,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import { db } from "./db";
@@ -150,6 +151,11 @@ export interface IStorage {
   getShiftTimesheets(filters?: { storeId?: string; employeeId?: string; date?: string; startDate?: string; endDate?: string; status?: string; isUnscheduled?: boolean }): Promise<ShiftTimesheet[]>;
   updateShiftTimesheet(id: string, data: Partial<InsertShiftTimesheet>): Promise<ShiftTimesheet | undefined>;
   deleteShiftTimesheet(id: string): Promise<boolean>;
+
+  // Intercompany Settlements
+  getIntercompanySettlements(filters?: { status?: string; payrollId?: string }): Promise<IntercompanySettlement[]>;
+  createIntercompanySettlement(data: InsertIntercompanySettlement): Promise<IntercompanySettlement>;
+  updateIntercompanySettlement(id: string, data: Partial<IntercompanySettlement>): Promise<IntercompanySettlement | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -1153,6 +1159,17 @@ export class MemStorage implements IStorage {
   async deleteShiftTimesheet(id: string): Promise<boolean> {
     return this.shiftTimesheetsMap.delete(id);
   }
+
+  async getIntercompanySettlements(_filters?: { status?: string; payrollId?: string }): Promise<IntercompanySettlement[]> {
+    return [];
+  }
+  async createIntercompanySettlement(data: InsertIntercompanySettlement): Promise<IntercompanySettlement> {
+    const row = { ...data, id: randomUUID(), createdAt: new Date(), settledAt: null } as IntercompanySettlement;
+    return row;
+  }
+  async updateIntercompanySettlement(_id: string, _data: Partial<IntercompanySettlement>): Promise<IntercompanySettlement | undefined> {
+    return undefined;
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1822,6 +1839,27 @@ export class DatabaseStorage implements IStorage {
   async deleteShiftTimesheet(id: string): Promise<boolean> {
     const result = await db.delete(shiftTimesheets).where(eq(shiftTimesheets.id, id)).returning({ id: shiftTimesheets.id });
     return result.length > 0;
+  }
+
+  // ─── Intercompany Settlements ─────────────────────────────────────────────
+  async getIntercompanySettlements(filters?: { status?: string; payrollId?: string }): Promise<IntercompanySettlement[]> {
+    const conditions = [];
+    if (filters?.status) conditions.push(eq(intercompanySettlements.status, filters.status));
+    if (filters?.payrollId) conditions.push(eq(intercompanySettlements.payrollId, filters.payrollId));
+    if (conditions.length > 0) {
+      return await db.select().from(intercompanySettlements).where(and(...conditions)).orderBy(desc(intercompanySettlements.createdAt));
+    }
+    return await db.select().from(intercompanySettlements).orderBy(desc(intercompanySettlements.createdAt));
+  }
+
+  async createIntercompanySettlement(data: InsertIntercompanySettlement): Promise<IntercompanySettlement> {
+    const [row] = await db.insert(intercompanySettlements).values(data).returning();
+    return row;
+  }
+
+  async updateIntercompanySettlement(id: string, data: Partial<IntercompanySettlement>): Promise<IntercompanySettlement | undefined> {
+    const [row] = await db.update(intercompanySettlements).set(data).where(eq(intercompanySettlements.id, id)).returning();
+    return row;
   }
 }
 

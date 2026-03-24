@@ -567,6 +567,32 @@ export const insertNoticeSchema = createInsertSchema(notices).omit({
 export type InsertNotice = z.infer<typeof insertNoticeSchema>;
 export type Notice = typeof notices.$inferSelect;
 
+// ─── Intercompany Settlements ──────────────────────────────────────────────
+// Tracks cost-sharing obligations when a fixed-salary employee works across
+// multiple stores. The "to" store paid the employee; the "from" store owes.
+export const intercompanySettlements = pgTable("intercompany_settlements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  payrollId: varchar("payroll_id").references(() => payrolls.id).notNull(),
+  employeeId: varchar("employee_id").references(() => employees.id).notNull(),
+  fromStoreId: varchar("from_store_id").references(() => stores.id).notNull(),
+  toStoreId: varchar("to_store_id").references(() => stores.id).notNull(),
+  totalAmountDue: real("total_amount_due").default(0).notNull(),
+  paidInCash: real("paid_in_cash").default(0).notNull(),
+  paidInBank: real("paid_in_bank").default(0).notNull(),
+  status: varchar("status", { length: 20 }).default("PENDING").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  settledAt: timestamp("settled_at"),
+});
+
+export const insertIntercompanySettlementSchema = createInsertSchema(intercompanySettlements).omit({
+  id: true,
+  createdAt: true,
+  settledAt: true,
+});
+
+export type InsertIntercompanySettlement = z.infer<typeof insertIntercompanySettlementSchema>;
+export type IntercompanySettlement = typeof intercompanySettlements.$inferSelect;
+
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),

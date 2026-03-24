@@ -4,6 +4,8 @@ import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { SettlementModal, type EnrichedSettlement } from "@/components/admin/SettlementModal";
 import {
   Select,
   SelectContent,
@@ -38,6 +40,7 @@ import {
   DollarSign,
   ShoppingCart,
   Briefcase,
+  ArrowRightLeft,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { Store as StoreType, Candidate, Employee } from "@shared/schema";
@@ -213,6 +216,7 @@ export function AdminDashboard() {
   const [startDate, setStartDate] = useState(firstOfMonthYMD);
   const [endDate, setEndDate]     = useState(todayYMD);
   const [storeId, setStoreId]     = useState("ALL");
+  const [settlementTarget, setSettlementTarget] = useState<EnrichedSettlement | null>(null);
 
   // ── Data queries ──────────────────────────────────────────────────────────
   const { data: stores, isLoading: storesLoading } = useQuery<StoreType[]>({
@@ -223,6 +227,14 @@ export function AdminDashboard() {
   });
   const { data: employees, isLoading: employeesLoading } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
+  });
+  const { data: pendingSettlements, isLoading: settlementsLoading } = useQuery<EnrichedSettlement[]>({
+    queryKey: ["/api/settlements", "PENDING"],
+    queryFn: async () => {
+      const res = await fetch("/api/settlements?status=PENDING");
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
   });
 
   const params = useMemo(() => {
@@ -497,6 +509,61 @@ export function AdminDashboard() {
           )}
         </section>
 
+        {/* ── Section: Intercompany Settlements ───────────────────────── */}
+        {!settlementsLoading && pendingSettlements && pendingSettlements.length > 0 && (
+          <section className="space-y-4">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight">Intercompany Settlements</h2>
+              <p className="text-sm text-muted-foreground">매장 간 인건비 정산 대기 목록</p>
+            </div>
+            <Card className="border-blue-400/50" data-testid="widget-settlements">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ArrowRightLeft className="h-4 w-4 text-blue-500" />
+                  Pending Settlements
+                  <Badge className="bg-blue-500 text-white ml-1" data-testid="badge-settlement-count">
+                    {pendingSettlements.length}
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {pendingSettlements.map(s => (
+                  <div
+                    key={s.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-blue-400/30 bg-blue-400/5 px-3 py-2.5"
+                    data-testid={`settlement-row-${s.id}`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <ArrowRightLeft className="h-4 w-4 shrink-0 text-blue-500" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground">
+                          {s.employeeName}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {s.fromStoreName} → {s.toStoreName}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="text-sm font-semibold text-blue-700 dark:text-blue-400" data-testid={`text-settlement-due-${s.id}`}>
+                        ${s.totalAmountDue.toFixed(2)}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setSettlementTarget(s)}
+                        data-testid={`button-settle-${s.id}`}
+                      >
+                        Settle
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </section>
+        )}
+
         {/* ── Section: Quick Links ─────────────────────────────────────── */}
         <section>
           <div className="grid gap-4 md:grid-cols-2">
@@ -584,6 +651,12 @@ export function AdminDashboard() {
         </section>
 
       </div>
+
+      <SettlementModal
+        settlement={settlementTarget}
+        open={!!settlementTarget}
+        onClose={() => setSettlementTarget(null)}
+      />
     </AdminLayout>
   );
 }

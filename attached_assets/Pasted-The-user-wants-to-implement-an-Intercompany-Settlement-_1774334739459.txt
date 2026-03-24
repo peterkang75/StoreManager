@@ -1,0 +1,47 @@
+The user wants to implement an "Intercompany Settlement" system for employees who work across multiple stores (which have different ABNs) but receive a "Fixed" salary. 
+
+We need to pay the employee from a single "Primary Store" to avoid tax complications, but internally calculate the cost allocation based on hours worked and create a settlement alert so the stores can reimburse each other using split payments (Cash/Bank).
+
+Please implement this full feature:
+
+### 1. Database Schema Update
+- Create a new table called `intercompanySettlements` using Drizzle.
+- Fields:
+  - `id` (uuid, pk)
+  - `payrollId` (uuid, reference to the generated payroll)
+  - `employeeId` (uuid, reference to employee)
+  - `fromStoreId` (uuid, the store that owes money)
+  - `toStoreId` (uuid, the primary store that paid the employee)
+  - `totalAmountDue` (decimal/numeric)
+  - `paidInCash` (decimal/numeric, default 0)
+  - `paidInBank` (decimal/numeric, default 0)
+  - `status` (varchar, default 'PENDING' - can be 'PENDING' or 'SETTLED')
+  - `createdAt`, `settledAt` (timestamps)
+
+### 2. Payroll Generation Logic Update
+- When finalizing a payroll for a "Fixed" salary employee:
+  1. Identify the **Primary Store** (the store where the employee's `fixedAmount` is defined/greater than 0). The Payslip is generated entirely under this Primary Store.
+  2. Calculate the **Hours Ratio**: Sum the actual hours worked in the Primary Store vs. the Secondary Store(s) during this period.
+  3. Calculate the **Cost Allocation**: E.g., If total fixed pay is $2400, and 50% of hours were at the Secondary Store, the Secondary Store's cost is $1200.
+  4. If a Secondary Store owes money, automatically `INSERT` a new `PENDING` record into the `intercompanySettlements` table (fromStore = Secondary, toStore = Primary, amountDue = calculated cost).
+
+### 3. Dashboard Alerts (Frontend)
+- On the main Admin Dashboard (or a dedicated "Settlements" widget), fetch and display all `PENDING` `intercompanySettlements`.
+- Show a clear alert card: e.g., *"Action Required: [Sushi Store] owes [Sandwich Store] $1,200 for [Employee Name]'s payroll."*
+
+### 4. Settlement Modal (Split Payment UI)
+- When the manager clicks the alert, open a "Settle Balance" Modal.
+- Display: Total Due, and the remaining balance.
+- **Inputs:** Provide two number inputs:
+  - `Cash Amount` (maps to `paidInCash`)
+  - `Bank Transfer Amount` (maps to `paidInBank`)
+- **Validation:** The sum of Cash + Bank must equal the `totalAmountDue`. 
+- Show a dynamically updating `Remaining Balance`. 
+- **Action Button:** Only enable the `[ Mark as Settled ]` button when Remaining Balance is exactly $0.
+
+### 5. Settlement Action (Backend)
+- When `[ Mark as Settled ]` is clicked, send a `PUT/PATCH` request to update the settlement record:
+  - Update `paidInCash` and `paidInBank` with the entered values.
+  - Change `status` to `'SETTLED'`.
+  - Set `settledAt` to `now()`.
+- Close the modal, show a success toast, and remove the alert from the pending dashboard.

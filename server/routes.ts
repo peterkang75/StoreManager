@@ -1574,6 +1574,65 @@ export async function registerRoutes(
         }
       }
 
+      // ── Intercompany Settlement Generation ───────────────────────────────
+      // For any payroll row that has a fixedAmount > 0, check if this employee
+      // also logged hours at OTHER stores in this period. If so, create/update
+      // settlements so the secondary store reimburses the primary (paying) store.
+      const primaryStoreId = rows.length > 0 ? rows[0].storeId : null;
+      const periodStart = rows.length > 0 ? rows[0].periodStart : null;
+      const periodEnd = rows.length > 0 ? rows[0].periodEnd : null;
+
+      if (primaryStoreId && periodStart && periodEnd) {
+        for (const savedPayroll of results) {
+          if (!savedPayroll.fixedAmount || parseFloat(String(savedPayroll.fixedAmount)) <= 0) continue;
+
+          const employeeId = savedPayroll.employeeId;
+          const payingStoreId = savedPayroll.storeId;
+          const fixedAmt = parseFloat(String(savedPayroll.fixedAmount));
+
+          // Get ALL approved shiftTimesheets for this employee in this period (across all stores)
+          const allSheets = await storage.getShiftTimesheets({
+            employeeId,
+            startDate: periodStart,
+            endDate: periodEnd,
+            status: "APPROVED",
+          });
+
+          // Group hours by storeId
+          const hoursByStore: Record<string, number> = {};
+          for (const sheet of allSheets) {
+            hoursByStore[sheet.storeId] = (hoursByStore[sheet.storeId] || 0) + (sheet.totalHours || 0);
+          }
+
+          const totalHours = Object.values(hoursByStore).reduce((a, b) => a + b, 0);
+          if (totalHours <= 0) continue;
+
+          // Remove existing settlements for this payroll (regenerate fresh)
+          const existing = await storage.getIntercompanySettlements({ payrollId: savedPayroll.id });
+          for (const old of existing) {
+            await storage.updateIntercompanySettlement(old.id, { status: "CANCELLED" });
+          }
+
+          // Create a settlement for each OTHER store that benefited from the employee
+          for (const [storeId, hours] of Object.entries(hoursByStore)) {
+            if (storeId === payingStoreId) continue;
+            if (hours <= 0) continue;
+            const portion = hours / totalHours;
+            const amountDue = Math.round(fixedAmt * portion * 100) / 100;
+            await storage.createIntercompanySettlement({
+              payrollId: savedPayroll.id,
+              employeeId,
+              fromStoreId: storeId,        // store that benefited (owes)
+              toStoreId: payingStoreId,     // store that paid the salary
+              totalAmountDue: amountDue,
+              paidInCash: 0,
+              paidInBank: 0,
+              status: "PENDING",
+            });
+          }
+        }
+      }
+
       res.json(results);
     } catch (error) {
       console.error("Error bulk saving payrolls:", error);
@@ -3783,6 +3842,50 @@ export async function registerRoutes(
     } catch (err) {
       console.error("Error fetching quarantined emails:", err);
       res.status(500).json({ error: "Failed to fetch quarantined emails" });
+    }
+  });
+
+  // ─── Intercompany Settlements ──────────────────────────────────────────────
+  app.get("/api/settlements", async (req: Request, res: Response) => {
+    try {
+      const { status } = req.query as Record<string, string>;
+      const settlements = await storage.getIntercompanySettlements(status ? { status } : undefined);
+
+      // Enrich with employee and store names
+      const employees = await storage.getEmployees();
+      const allStores = await storage.getStores();
+      const empMap = new Map(employees.map((e) => [e.id, e]));
+      const storeMap = new Map(allStores.map((s) => [s.id, s]));
+
+      const enriched = settlements.map((s) => ({
+        ...s,
+        employeeName: empMap.get(s.employeeId)?.preferredName || empMap.get(s.employeeId)?.legalFirstName || "?",
+        fromStoreName: storeMap.get(s.fromStoreId)?.name || "?",
+        toStoreName: storeMap.get(s.toStoreId)?.name || "?",
+      }));
+
+      res.json(enriched);
+    } catch (err) {
+      console.error("Error fetching settlements:", err);
+      res.status(500).json({ error: "Failed to fetch settlements" });
+    }
+  });
+
+  app.patch("/api/settlements/:id/settle", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { paidInCash, paidInBank } = req.body as { paidInCash: number; paidInBank: number };
+      const updated = await storage.updateIntercompanySettlement(id, {
+        paidInCash: paidInCash || 0,
+        paidInBank: paidInBank || 0,
+        status: "SETTLED",
+        settledAt: new Date(),
+      });
+      if (!updated) return res.status(404).json({ error: "Settlement not found" });
+      res.json(updated);
+    } catch (err) {
+      console.error("Error settling:", err);
+      res.status(500).json({ error: "Failed to settle" });
     }
   });
 
