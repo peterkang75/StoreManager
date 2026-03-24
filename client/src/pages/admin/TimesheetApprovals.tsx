@@ -31,6 +31,7 @@ import {
   Plus,
   Minus,
   Trash2,
+  Check,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "@shared/payrollCycle";
@@ -585,9 +586,32 @@ function EmployeeReviewModal({
               <span className="text-[10px] text-muted-foreground italic">±15m buttons auto-save</span>
             </div>
           </div>
-          <Button size="icon" variant="ghost" onClick={onClose} data-testid="button-modal-close">
-            <X className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            {pendingShifts.length > 0 ? (
+              <Button
+                size="sm"
+                variant="default"
+                onClick={handleApproveAll}
+                disabled={approving || savingIds.size > 0}
+                data-testid="button-approve-all"
+              >
+                {approving
+                  ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Approving…</>
+                  : savingIds.size > 0
+                  ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Saving…</>
+                  : <><Check className="h-3.5 w-3.5 mr-1.5" />Approve All</>
+                }
+              </Button>
+            ) : (
+              <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1 font-medium whitespace-nowrap">
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                All approved
+              </span>
+            )}
+            <Button size="icon" variant="ghost" onClick={onClose} data-testid="button-modal-close">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
 
         {/* Scrollable table body */}
@@ -771,30 +795,10 @@ function EmployeeReviewModal({
         </div>
 
         {/* Pinned footer */}
-        <div className="flex gap-2 px-5 py-4 border-t border-border/40 shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+        <div className="flex px-5 py-3 border-t border-border/40 shrink-0 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           <Button variant="outline" className="min-h-[44px]" onClick={onClose} data-testid="button-modal-cancel">
-            Cancel
+            Close
           </Button>
-          {pendingShifts.length > 0 ? (
-            <Button
-              className="flex-1 min-h-[44px] bg-green-600 text-white font-semibold"
-              onClick={handleApproveAll}
-              disabled={approving || savingIds.size > 0}
-              data-testid="button-approve-all"
-            >
-              {approving
-                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Approving…</>
-                : savingIds.size > 0
-                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving changes…</>
-                : <><CheckCircle2 className="h-4 w-4 mr-2" />Approve All for {displayName}</>
-              }
-            </Button>
-          ) : (
-            <div className="flex-1 flex items-center justify-center gap-2 text-sm text-green-600 dark:text-green-400 font-medium">
-              <CheckCircle2 className="h-4 w-4" />
-              All shifts already approved
-            </div>
-          )}
         </div>
       </div>
     </div>
