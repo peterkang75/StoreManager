@@ -673,6 +673,7 @@ function HomeTab({ session }: { session: Session }) {
   const [localTimesheets, setLocalTimesheets] = useState<Record<string, TimesheetInfo>>({});
   const [localUnscheduled, setLocalUnscheduled] = useState<UnscheduledTimesheetItem[]>([]);
   const [unscheduledDrawerOpen, setUnscheduledDrawerOpen] = useState(false);
+  const [missedDrawerDay, setMissedDrawerDay] = useState<DayData | null>(null);
   const qc = useQueryClient();
   const displayName = session.nickname || session.firstName;
 
@@ -705,6 +706,24 @@ function HomeTab({ session }: { session: Session }) {
     enabled: true,
     staleTime: 120_000,
   });
+
+  // Fetch current week to surface missed (past, unsubmitted) shifts on Home tab
+  const weekStart = getMondayStr(today);
+  const weekQK = ["/api/portal/week-all", session.id, weekStart];
+  const { data: weekData } = useQuery<WeekData>({
+    queryKey: weekQK,
+    queryFn: async () => {
+      const res = await fetch(`/api/portal/week?employeeId=${session.id}&weekStart=${weekStart}`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    staleTime: 0,
+  });
+
+  // Past days this week that have a shift but no timesheet
+  const missedShifts: DayData[] = (weekData?.days ?? []).filter(
+    d => d.date < today && d.shift !== null && d.timesheet === null
+  );
 
   const todayShifts: TodayShiftItem[] = (todayData?.shifts ?? []).map(item => ({
     ...item,
@@ -799,6 +818,45 @@ function HomeTab({ session }: { session: Session }) {
         )}
       </div>
 
+      {/* Missed Shifts — past days this week with a shift but no timesheet */}
+      {missedShifts.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="h-2 w-2 rounded-full bg-amber-500" />
+            <h3 className="font-semibold text-xs uppercase tracking-widest text-muted-foreground">
+              Unsubmitted Shifts
+            </h3>
+          </div>
+          <Card>
+            <CardContent className="p-0">
+              {missedShifts.map((day, idx) => {
+                const { abbr, num } = fmtDay(day.date);
+                const hrs = calcHours(day.shift!.startTime, day.shift!.endTime).toFixed(1);
+                return (
+                  <button
+                    key={day.date}
+                    type="button"
+                    data-testid={`button-log-missed-${day.date}`}
+                    onClick={() => setMissedDrawerDay(day)}
+                    className={`w-full flex items-center gap-3 px-4 py-3.5 hover-elevate active-elevate-2 text-left ${idx < missedShifts.length - 1 ? "border-b border-border/40" : ""}`}
+                  >
+                    <div className="flex flex-col items-center w-10 shrink-0">
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{abbr}</span>
+                      <span className="text-lg font-bold leading-tight text-amber-500">{num}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm">{day.shift!.startTime} – {day.shift!.endTime}</p>
+                      <p className="text-xs text-muted-foreground">{hrs}h · Tap to submit</p>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                  </button>
+                );
+              })}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Quick Actions */}
       <div>
         <h3 className="font-semibold text-xs uppercase tracking-widest text-muted-foreground mb-3">
@@ -854,6 +912,18 @@ function HomeTab({ session }: { session: Session }) {
             ))}
           </div>
         </div>
+      )}
+
+      {missedDrawerDay && (
+        <PastShiftTimesheetDrawer
+          open={!!missedDrawerDay}
+          employeeId={session.id}
+          day={missedDrawerDay}
+          onClose={() => setMissedDrawerDay(null)}
+          onSubmitted={() => {
+            qc.invalidateQueries({ queryKey: weekQK });
+          }}
+        />
       )}
 
       <UnscheduledShiftDrawer
