@@ -3338,6 +3338,18 @@ export async function registerRoutes(
     }
   });
 
+  // DELETE /api/admin/approvals/:id — permanently remove a shift timesheet record
+  app.delete("/api/admin/approvals/:id", async (req: Request, res: Response) => {
+    try {
+      const success = await storage.deleteShiftTimesheet(req.params.id);
+      if (!success) return res.status(404).json({ error: "Timesheet not found" });
+      res.json({ success: true });
+    } catch (err) {
+      console.error("Error deleting timesheet:", err);
+      res.status(500).json({ error: "Failed to delete timesheet" });
+    }
+  });
+
   // POST /api/admin/approvals/add-shift — manager manually adds a missing approved shift
   app.post("/api/admin/approvals/add-shift", async (req: Request, res: Response) => {
     try {

@@ -30,6 +30,7 @@ import {
   ArrowRight,
   Plus,
   Minus,
+  Trash2,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "@shared/payrollCycle";
@@ -245,6 +246,9 @@ function EmployeeReviewModal({
   // Bulk approve state
   const [approving, setApproving] = useState(false);
 
+  // Delete-in-progress set
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+
   // Add missing shift form state
   const [showAddForm, setShowAddForm] = useState(false);
   const [addForm, setAddForm] = useState(() => ({
@@ -365,6 +369,23 @@ function EmployeeReviewModal({
     }
   };
 
+  // Delete a single shift — asks for confirmation, removes from DB and local state
+  const handleDeleteShift = useCallback(async (tsId: string, date: string) => {
+    if (!window.confirm(`Remove the shift on ${fmtDate(date)}?\n\nThis will permanently delete this timesheet record and result in 0 hours paid for this shift.`)) return;
+    setDeletingIds(prev => new Set(prev).add(tsId));
+    try {
+      await apiRequest("DELETE", `/api/admin/approvals/${tsId}`);
+      setLocalTimesheets(prev => prev.filter(ts => ts.id !== tsId));
+      setEdits(prev => { const n = { ...prev }; delete n[tsId]; return n; });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/approvals"] });
+      toast({ title: "Shift removed", description: `Shift on ${fmtDate(date)} has been deleted.` });
+    } catch {
+      toast({ title: "Failed to delete", description: "Could not remove this shift.", variant: "destructive" });
+    } finally {
+      setDeletingIds(prev => { const n = new Set(prev); n.delete(tsId); return n; });
+    }
+  }, [queryClient, toast]);
+
   // Split into two 7-day weeks
   const allSorted = [...localTimesheets].sort((a, b) => a.date.localeCompare(b.date));
   const week1End = addDays(cycleStart, 6);
@@ -387,6 +408,7 @@ function EmployeeReviewModal({
     const isApproved = ts.status === "APPROVED";
     const isSaving = savingIds.has(ts.id);
     const justSaved = savedIds.has(ts.id);
+    const isDeleting = deletingIds.has(ts.id);
 
     const TimeAdjustCell = ({ field }: { field: "start" | "end" }) => (
       <div className="flex items-center gap-0.5">
@@ -478,11 +500,25 @@ function EmployeeReviewModal({
           {fmtHours(actualH)}
         </td>
 
-        {/* Save indicator */}
-        <td className="py-1.5 px-1 w-6 text-center">
-          {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-          {!isSaving && justSaved && <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />}
-          {!isSaving && isApproved && !justSaved && <CheckCircle2 className="h-3.5 w-3.5 text-green-500/40" />}
+        {/* Actions: save indicator + delete */}
+        <td className="py-1.5 px-1 w-16">
+          <div className="flex items-center justify-end gap-0.5">
+            {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />}
+            {!isSaving && justSaved && <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />}
+            {!isSaving && isApproved && !justSaved && <CheckCircle2 className="h-3.5 w-3.5 text-green-500/40 shrink-0" />}
+            <button
+              type="button"
+              onClick={() => handleDeleteShift(ts.id, ts.date)}
+              disabled={isDeleting || isSaving}
+              className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/30 hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0 ml-0.5"
+              data-testid={`button-delete-${ts.id}`}
+            >
+              {isDeleting
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <Trash2 className="h-3 w-3" />
+              }
+            </button>
+          </div>
         </td>
       </tr>
     );

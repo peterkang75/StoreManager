@@ -149,6 +149,7 @@ export interface IStorage {
   createShiftTimesheet(data: InsertShiftTimesheet): Promise<ShiftTimesheet>;
   getShiftTimesheets(filters?: { storeId?: string; employeeId?: string; date?: string; startDate?: string; endDate?: string; status?: string; isUnscheduled?: boolean }): Promise<ShiftTimesheet[]>;
   updateShiftTimesheet(id: string, data: Partial<InsertShiftTimesheet>): Promise<ShiftTimesheet | undefined>;
+  deleteShiftTimesheet(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -1148,6 +1149,10 @@ export class MemStorage implements IStorage {
     this.shiftTimesheetsMap.set(id, updated);
     return updated;
   }
+
+  async deleteShiftTimesheet(id: string): Promise<boolean> {
+    return this.shiftTimesheetsMap.delete(id);
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1812,6 +1817,11 @@ export class DatabaseStorage implements IStorage {
       .where(eq(shiftTimesheets.id, id))
       .returning();
     return updated;
+  }
+
+  async deleteShiftTimesheet(id: string): Promise<boolean> {
+    const result = await db.delete(shiftTimesheets).where(eq(shiftTimesheets.id, id)).returning({ id: shiftTimesheets.id });
+    return result.length > 0;
   }
 }
 
