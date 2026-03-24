@@ -583,7 +583,8 @@ function EmployeeSummaryCard({
   const displayName = group.employeeNickname || group.employeeName.split(" ")[0];
   return (
     <div
-      className="bg-card rounded-xl border border-border/40 shadow-sm p-4 flex flex-col gap-3"
+      className="bg-card rounded-xl border border-border/40 shadow-sm p-4 flex flex-col gap-3 cursor-pointer hover-elevate transition-colors"
+      onClick={onReview}
       data-testid={`employee-card-${group.employeeId}`}
     >
       {/* Top row */}
@@ -605,9 +606,12 @@ function EmployeeSummaryCard({
             </span>
           </div>
         </div>
-        <span className="shrink-0 text-xs font-medium text-muted-foreground bg-muted/60 px-2 py-1 rounded-md">
-          {group.pendingCount} pending
-        </span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-xs font-medium text-muted-foreground bg-muted/60 px-2 py-1 rounded-md">
+            {group.pendingCount} pending
+          </span>
+          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+        </div>
       </div>
 
       {/* Hours row */}
@@ -625,16 +629,6 @@ function EmployeeSummaryCard({
           <DiffCell diffMinutes={group.diffMinutes} />
         </div>
       </div>
-
-      {/* Action */}
-      <Button
-        className="w-full gap-2 h-9"
-        onClick={onReview}
-        data-testid={`button-review-${group.employeeId}`}
-      >
-        Review &amp; Approve
-        <ArrowRight className="h-3.5 w-3.5" />
-      </Button>
     </div>
   );
 }
@@ -916,7 +910,7 @@ export function AdminTimesheetApprovals() {
                           <th className="py-3 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Actual</th>
                           <th className="py-3 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Difference</th>
                           <th className="py-3 pl-2 pr-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Shifts</th>
-                          <th className="py-3 pl-2 pr-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Action</th>
+                          <th className="py-3 pl-2 pr-4 w-8"></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -925,7 +919,8 @@ export function AdminTimesheetApprovals() {
                           return (
                             <tr
                               key={g.employeeId}
-                              className="border-b border-border/20 hover-elevate"
+                              className="border-b border-border/20 hover-elevate cursor-pointer transition-colors"
+                              onClick={() => setReviewingGroup(g)}
                               data-testid={`employee-row-${g.employeeId}`}
                             >
                               <td className="py-3 px-4">
@@ -961,16 +956,8 @@ export function AdminTimesheetApprovals() {
                               <td className="py-3 px-4 text-sm text-muted-foreground">
                                 {g.timesheets.length}
                               </td>
-                              <td className="py-3 pl-2 pr-4">
-                                <Button
-                                  size="sm"
-                                  className="gap-1.5"
-                                  onClick={() => setReviewingGroup(g)}
-                                  data-testid={`button-review-${g.employeeId}`}
-                                >
-                                  Review &amp; Approve
-                                  <ArrowRight className="h-3.5 w-3.5" />
-                                </Button>
+                              <td className="py-3 pl-2 pr-4 text-center">
+                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
                               </td>
                             </tr>
                           );
