@@ -322,16 +322,27 @@ export function AdminPayrolls() {
   // Build a single PayrollRow from API data + hours maps
   const buildPayrollRow = useCallback((employee: any, payroll: any | null): PayrollRow => {
     const empRate = parseFloat(employee.rate || "0");
-    const empFixed = parseFloat(employee.fixedAmount || "0");
     const empIsCover = !!employee.isCover;
-    const isFixedSalaryHere = !!employee.isFixedSalaryAtThisStore;
     const currentHours = approvedHoursMap[employee.id] ?? 0;
     const totalHours = totalAllStoreHoursMap[employee.id] ?? 0;
-    const hasOtherStoreHours = totalHours > currentHours + 0.01;
-    const isIntercompany = !isFixedSalaryHere && empFixed > 0 && hasOtherStoreHours;
+
+    // Primary store = the store whose assignment has fixedAmount > 0.
+    // Secondary store = any other store the fixed-salary employee works at.
+    // totalFixed is looked up across ALL store assignments, so secondary stores
+    // can still detect the full fixed salary even though their assignment has 0.
+    const isPrimaryStore = !!employee.isPrimaryStore;
+    const totalFixed = (employee.totalEmployeeFixed as number) || parseFloat(employee.fixedAmount || "0");
+
+    // Secondary-store intercompany: not the primary payer, is a fixed-salary employee,
+    // AND actually worked hours here this period (avoids badge when nobody was at this store).
+    const isIntercompany = !isPrimaryStore && totalFixed > 0 && currentHours > 0;
     const intercompanyAmount = isIntercompany && totalHours > 0
-      ? Math.round(empFixed * (currentHours / totalHours) * 100) / 100
+      ? Math.round(totalFixed * (currentHours / totalHours) * 100) / 100
       : 0;
+
+    // For primary store, the fixed amount applies regardless of hours worked here.
+    // For secondary (intercompany) rows, fixedAmount is 0 (they do not pay directly).
+    const effectiveFixed = isIntercompany ? 0 : (isPrimaryStore ? totalFixed : 0);
 
     if (payroll) {
       return {
@@ -340,7 +351,7 @@ export function AdminPayrolls() {
         payrollId: payroll.id,
         hours: payroll.hours,
         rate: payroll.rate || empRate,
-        fixedAmount: isIntercompany ? 0 : (payroll.fixedAmount || empFixed),
+        fixedAmount: isIntercompany ? 0 : (payroll.fixedAmount || effectiveFixed),
         calculatedAmount: payroll.calculatedAmount,
         adjustment: payroll.adjustment,
         adjustmentReason: payroll.adjustmentReason || "",
@@ -366,7 +377,7 @@ export function AdminPayrolls() {
       payrollId: null,
       hours: currentHours,
       rate: empRate,
-      fixedAmount: isIntercompany ? 0 : empFixed,
+      fixedAmount: effectiveFixed,
       calculatedAmount: 0,
       adjustment: 0,
       adjustmentReason: "",

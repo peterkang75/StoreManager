@@ -1204,17 +1204,42 @@ export async function registerRoutes(
         }
       }
 
-      const rows = Array.from(empMap.values()).map(({ employee, assignmentRate, assignmentFixed, assignmentIsFixedSalary }) => ({
-        employee: {
-          ...employee,
-          rate: assignmentRate || employee.rate,
-          fixedAmount: assignmentFixed || employee.fixedAmount,
-          // true  = this store is the one that pays the fixed salary (primary payer)
-          // false = this store is a secondary beneficiary (intercompany)
-          isFixedSalaryAtThisStore: assignmentIsFixedSalary ?? false,
-        },
-        payroll: empPayrollMap.get(employee.id) || null,
-      }));
+      // Build a map of totalEmployeeFixed: the maximum fixedAmount found across ALL store
+      // assignments for each employee. This is needed so secondary stores (where
+      // assignmentFixed = 0) can still detect the employee as a fixed-salary worker.
+      const allAssignments = await storage.getEmployeeStoreAssignments();
+      const empTotalFixedMap = new Map<string, number>();
+      for (const a of allAssignments) {
+        if (!empMap.has(a.employeeId)) continue;
+        const fixed = parseFloat(a.fixedAmount || "0");
+        if (fixed > 0) {
+          empTotalFixedMap.set(a.employeeId, Math.max(empTotalFixedMap.get(a.employeeId) ?? 0, fixed));
+        }
+      }
+      // Also include the global employee.fixedAmount as a fallback
+      for (const [empId, { employee }] of empMap) {
+        const globalFixed = parseFloat(employee.fixedAmount || "0");
+        if (globalFixed > 0) {
+          empTotalFixedMap.set(empId, Math.max(empTotalFixedMap.get(empId) ?? 0, globalFixed));
+        }
+      }
+
+      const rows = Array.from(empMap.values()).map(({ employee, assignmentRate, assignmentFixed }) => {
+        const currentStoreFixed = parseFloat(assignmentFixed || "0");
+        return {
+          employee: {
+            ...employee,
+            rate: assignmentRate || employee.rate,
+            fixedAmount: assignmentFixed || employee.fixedAmount,
+            // isPrimaryStore: true  = this store has the fixedAmount on its assignment (primary payer)
+            // isPrimaryStore: false = this store is a secondary beneficiary (intercompany)
+            isPrimaryStore: currentStoreFixed > 0,
+            // totalEmployeeFixed: the actual fixed salary amount regardless of which store we're viewing
+            totalEmployeeFixed: empTotalFixedMap.get(employee.id) ?? 0,
+          },
+          payroll: empPayrollMap.get(employee.id) || null,
+        };
+      });
       res.json(rows);
     } catch (error) {
       console.error("Error fetching current payroll:", error);
