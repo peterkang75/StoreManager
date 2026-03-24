@@ -1,0 +1,34 @@
+The user wants a massive UX overhaul of the Timesheet Approvals screen (`/admin/timesheet-approvals`). We need to shift to an "Employee-Centric" workflow and strictly align the UI with the Fortnightly (2-week) payroll cycle.
+
+Please implement ALL of the following UI/UX changes:
+
+### 1. Fortnightly (14-day) Date Navigation
+- Change the default date range for the Approvals screen from 1 week (7 days) to 2 weeks (14 days). 
+- Modify the `<` (Previous) and `>` (Next) buttons on the date picker to jump by **14 days** at a time, instead of 7 days. All calculations below must be based on this 14-day period.
+
+### 2. Top-Level View (Grouped by Employee)
+- Group the fetched pending `shiftTimesheets` within the selected 14-day period by `employeeId`.
+- Display a Data Table or Card List showing each Employee.
+- Columns/Info to show here: 
+  - Employee Name
+  - Total Scheduled Hours (Sum of roster hours for this 14-day period)
+  - Total Actual Hours (Sum of actual hours for this 14-day period)
+  - Difference (e.g., "+2h" or "-30m". Color it Red for overtime, Blue for undertime)
+  - Action: `[ Review & Approve ]` button.
+
+### 3. Employee Detail View (Modal or Side Sheet)
+- When `[ Review & Approve ]` is clicked, open a Modal showing that specific employee's shifts for the entire 14-day period.
+- **Detailed Table Columns inside the Modal:**
+  - `Date`: e.g., "Mon, 16 Mar". (Show a tiny Store badge next to the date if the employee works across multiple stores, to avoid confusion).
+  - `Scheduled`: e.g., "09:00 - 17:00". (Show "Unscheduled" if no roster exists).
+  - `Start`: Editable `<input type="time">` showing `actualStartTime`.
+  - `End`: Editable `<input type="time">` showing `actualEndTime`.
+  - `Difference`: Calculated difference per shift (Highlight overtime in Red, undertime in Blue).
+  - `Hours`: Total actual hours worked for that shift.
+- Remove the Store (as a separate column), Name, and Status columns from this table to save space.
+
+### 4. Bulk Edit & Approve Action
+- At the bottom of the Modal, add a primary button: `[ Save & Approve All ]`.
+- **Logic:** When clicked, gather all the edited `actualStartTime` and `actualEndTime` values from the table.
+- Send a bulk request (or parallel PUT requests to `/api/admin/approvals/:id/edit-approve`) to update the times and set the status to `APPROVED` for ALL shifts in the modal simultaneously.
+- Close the modal, show a success toast, and invalidate the query to refresh the pending list.
