@@ -336,7 +336,7 @@ export function AdminPayrolls() {
     const isPrimaryStore     = !!employee.isPrimaryStore;
     const currentStoreRate   = (employee.currentStoreRate as number) ?? 0;
     const totalFixed         = (employee.totalEmployeeFixed as number) || parseFloat(employee.fixedAmount || "0");
-    const isDualRole         = !isPrimaryStore && currentStoreRate > 0;
+    const isDualRole         = !isPrimaryStore && currentStoreRate > 0 && totalFixed > 0;
 
     // Secondary-store intercompany: NOT primary, NO local rate, IS fixed-salary overall,
     // AND actually worked hours here this period.
