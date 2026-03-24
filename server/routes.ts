@@ -1225,7 +1225,9 @@ export async function registerRoutes(
       }
 
       const rows = Array.from(empMap.values()).map(({ employee, assignmentRate, assignmentFixed }) => {
-        const currentStoreFixed = parseFloat(assignmentFixed || "0");
+        const currentStoreFixed = parseFloat(String(assignmentFixed ?? "0") || "0");
+        const totalFixed = empTotalFixedMap.get(employee.id) ?? 0;
+        const isPrimaryStore = currentStoreFixed > 0;
         return {
           employee: {
             ...employee,
@@ -1233,9 +1235,9 @@ export async function registerRoutes(
             fixedAmount: assignmentFixed || employee.fixedAmount,
             // isPrimaryStore: true  = this store has the fixedAmount on its assignment (primary payer)
             // isPrimaryStore: false = this store is a secondary beneficiary (intercompany)
-            isPrimaryStore: currentStoreFixed > 0,
+            isPrimaryStore,
             // totalEmployeeFixed: the actual fixed salary amount regardless of which store we're viewing
-            totalEmployeeFixed: empTotalFixedMap.get(employee.id) ?? 0,
+            totalEmployeeFixed: totalFixed,
           },
           payroll: empPayrollMap.get(employee.id) || null,
         };
