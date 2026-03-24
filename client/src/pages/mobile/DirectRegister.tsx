@@ -537,6 +537,53 @@ export function MobileDirectRegister() {
               testId="upload-dr-passport"
             />
 
+            <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 p-4 space-y-3 text-sm">
+              <p className="font-semibold text-amber-900 dark:text-amber-300 uppercase tracking-wide text-xs">
+                Employment Terms &amp; Conditions — Please Read Before Signing
+              </p>
+
+              <div className="space-y-3 text-foreground">
+                <div>
+                  <p className="font-semibold">1. Notice of Resignation</p>
+                  <p className="text-muted-foreground mt-0.5">Employees must provide notice of their resignation in accordance with the relevant Fair Work Award. If an employee over 18 years old fails to provide the required notice, the company reserves the right to deduct up to one week's wages from their final pay, strictly as permitted by the applicable Award.</p>
+                </div>
+
+                <div>
+                  <p className="font-semibold">2. Return of Company Property</p>
+                  <p className="text-muted-foreground mt-0.5">Upon termination of employment, employees must return all company property in their possession, including but not limited to uniforms, hats, masks, and keys, in a clean and reasonable condition.</p>
+                </div>
+
+                <div>
+                  <p className="font-semibold">3. Confidentiality</p>
+                  <p className="text-muted-foreground mt-0.5">Employees must keep all confidential information obtained during their employment strictly private. This includes, but is not limited to, financial data, sales figures, employee personal details, rosters, recipes, and supplier information.</p>
+                </div>
+
+                <div>
+                  <p className="font-semibold">4. Zero Tolerance for Theft and Fraud</p>
+                  <p className="text-muted-foreground mt-0.5">The company has a strict zero-tolerance policy regarding theft, fraud, or the mishandling of company funds or property. Any such incidents will result in immediate termination of employment and will be reported to the police for legal action.</p>
+                </div>
+
+                <div>
+                  <p className="font-semibold">5. Workplace Surveillance</p>
+                  <p className="text-muted-foreground mt-0.5">Employees are advised that the premises are equipped with continuous video and audio surveillance cameras for the purpose of health, safety, and crime deterrence. By signing this agreement, you acknowledge and consent to being monitored by these cameras while on the premises.</p>
+                </div>
+
+                <div>
+                  <p className="font-semibold">6. Attendance and Rostering</p>
+                  <p className="text-muted-foreground mt-0.5">Employees are expected to arrive on time and follow their assigned roster. In the event of illness or an unavoidable emergency requiring a schedule change, the employee must notify the Store Manager directly by phone call as soon as practicably possible prior to the shift.</p>
+                </div>
+
+                <div>
+                  <p className="font-semibold">7. Probationary Period</p>
+                  <p className="text-muted-foreground mt-0.5">All new employees are subject to a standard probation period. During this time, both the employer and employee may evaluate the working relationship. During the probation period, employment may be terminated by either party with the appropriate notice as per the relevant Fair Work Award.</p>
+                </div>
+              </div>
+
+              <p className="text-xs text-amber-800 dark:text-amber-400 font-medium pt-1">
+                By uploading your signature below, you confirm that you have read, understood, and agree to all of the above terms and conditions.
+              </p>
+            </div>
+
             <FileUploadArea
               label="Signature"
               icon={PenTool}
