@@ -3140,6 +3140,44 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/admin/approvals/auto-fill — create PENDING timesheets for roster entries missing timesheets
+  app.post("/api/admin/approvals/auto-fill", async (req: Request, res: Response) => {
+    try {
+      const { storeId, startDate, endDate } = req.body as { storeId?: string; startDate: string; endDate: string };
+      if (!startDate || !endDate) return res.status(400).json({ error: "startDate and endDate are required" });
+
+      // 1. Fetch rosters for the date range (optionally filtered by store)
+      const rostersInRange = await storage.getRosters({ storeId: storeId || undefined, startDate, endDate });
+
+      // 2. Fetch existing timesheets for the same range
+      const existingTs = await storage.getShiftTimesheets({ storeId: storeId || undefined, startDate, endDate });
+      const existingSet = new Set(existingTs.map(ts => `${ts.employeeId}|${ts.date}`));
+
+      // 3. Find missing ones and create them
+      const missing = rostersInRange.filter(r => !existingSet.has(`${r.employeeId}|${r.date}`));
+
+      const created = await Promise.all(
+        missing.map(r =>
+          storage.createShiftTimesheet({
+            storeId: r.storeId,
+            employeeId: r.employeeId,
+            date: r.date,
+            actualStartTime: r.startTime,
+            actualEndTime: r.endTime,
+            status: "PENDING",
+            isUnscheduled: false,
+            adjustmentReason: null,
+          })
+        )
+      );
+
+      res.json({ filled: created.length });
+    } catch (err) {
+      console.error("Error auto-filling timesheets:", err);
+      res.status(500).json({ error: "Failed to auto-fill timesheets" });
+    }
+  });
+
   // ===== END TIMESHEET APPROVAL ROUTES =====
 
   // ── Weekly Payroll Summary ──────────────────────────────────────────────────

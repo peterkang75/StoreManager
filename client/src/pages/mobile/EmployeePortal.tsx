@@ -872,55 +872,173 @@ function HomeTab({ session }: { session: Session }) {
 
 // ── Week Row ──────────────────────────────────────────────────────────────────
 
-function WeekRow({ day, today }: { day: DayData; today: string }) {
+function PastShiftTimesheetDrawer({
+  open, employeeId, day, onClose, onSubmitted,
+}: {
+  open: boolean;
+  employeeId: string;
+  day: DayData;
+  onClose: () => void;
+  onSubmitted: () => void;
+}) {
+  const { toast } = useToast();
+  const shift = day.shift!;
+  const [startTime, setStartTime] = useState(shift.startTime);
+  const [endTime, setEndTime] = useState(shift.endTime);
+  const [reason, setReason] = useState("");
+  const isModified = startTime !== shift.startTime || endTime !== shift.endTime;
+  const hours = calcHours(startTime, endTime);
+
+  useEffect(() => {
+    if (open) { setStartTime(shift.startTime); setEndTime(shift.endTime); setReason(""); }
+  }, [open, shift.startTime, shift.endTime]);
+
+  const submitMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/portal/timesheet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          storeId: shift.storeId,
+          employeeId,
+          date: day.date,
+          actualStartTime: startTime,
+          actualEndTime: endTime,
+          adjustmentReason: isModified ? reason : null,
+        }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? "Failed"); }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Submitted", description: `Timesheet for ${day.date} recorded.` });
+      onSubmitted();
+      onClose();
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const canSubmit = hours > 0 && (!isModified || reason.trim().length > 0);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-background rounded-t-2xl shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border/40 shrink-0">
+          <div>
+            <h3 className="font-semibold text-base">Submit Timesheet</h3>
+            <p className="text-xs text-muted-foreground">{day.date} · Rostered {shift.startTime} – {shift.endTime}</p>
+          </div>
+          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground p-1">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">Start Time</label>
+              <Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="h-11 text-sm" data-testid="input-past-start" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">End Time</label>
+              <Input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="h-11 text-sm" data-testid="input-past-end" />
+            </div>
+          </div>
+          {isModified && (
+            <div>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">Reason for change <span className="text-destructive">*</span></label>
+              <Textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Left early with manager approval" rows={3} className="resize-none text-sm" data-testid="textarea-past-reason" />
+            </div>
+          )}
+          <div className="bg-muted/40 rounded-md px-4 py-3 flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Total hours</span>
+            <span className="font-bold text-lg">{hours.toFixed(1)}h</span>
+          </div>
+        </div>
+        <div className="flex gap-2 px-5 py-4 border-t border-border/40 shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+          <Button variant="outline" className="flex-1" onClick={onClose} disabled={submitMutation.isPending}>Cancel</Button>
+          <Button className="flex-[2]" onClick={() => submitMutation.mutate()} disabled={!canSubmit || submitMutation.isPending} data-testid="button-past-submit">
+            {submitMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <PenLine className="h-4 w-4 mr-2" />}
+            Submit
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WeekRow({ day, today, employeeId, onSubmitted }: { day: DayData; today: string; employeeId: string; onSubmitted: () => void }) {
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const { abbr, num } = fmtDay(day.date);
   const isToday = day.date === today;
   const isPast  = day.date < today;
   const ts = day.timesheet;
   const st = ts ? STATUS_STYLE[ts.status] ?? STATUS_STYLE.PENDING : null;
+  const canLogPast = isPast && !!day.shift && !ts;
 
   return (
-    <div className={`flex items-center gap-3 px-3 py-3 ${isToday ? "bg-primary/5 dark:bg-primary/10 rounded-md" : ""}`}>
-      {/* Day label */}
-      <div className={`flex flex-col items-center w-10 shrink-0 ${
-        isToday ? "text-primary" : isPast ? "text-muted-foreground" : "text-muted-foreground/40"
-      }`}>
-        <span className="text-[10px] font-medium uppercase tracking-wide">{abbr}</span>
-        <span className={`text-lg font-bold leading-tight ${isToday ? "text-primary" : ""}`}>{num}</span>
+    <>
+      <div
+        className={`flex items-center gap-3 px-3 py-3 ${isToday ? "bg-primary/5 dark:bg-primary/10 rounded-md" : ""} ${canLogPast ? "cursor-pointer hover-elevate rounded-md" : ""}`}
+        onClick={canLogPast ? () => setDrawerOpen(true) : undefined}
+        data-testid={canLogPast ? `row-log-past-${day.date}` : undefined}
+      >
+        {/* Day label */}
+        <div className={`flex flex-col items-center w-10 shrink-0 ${
+          isToday ? "text-primary" : isPast ? "text-muted-foreground" : "text-muted-foreground/40"
+        }`}>
+          <span className="text-[10px] font-medium uppercase tracking-wide">{abbr}</span>
+          <span className={`text-lg font-bold leading-tight ${isToday ? "text-primary" : ""}`}>{num}</span>
+        </div>
+
+        {/* Shift info */}
+        <div className="flex-1 min-w-0">
+          {day.shift ? (
+            <>
+              <p className={`font-semibold text-sm tabular-nums ${
+                !isToday && isPast ? "text-muted-foreground" :
+                !isToday && !isPast ? "text-muted-foreground/50" : ""
+              }`}>
+                {day.shift.startTime} – {day.shift.endTime}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {calcHours(day.shift.startTime, day.shift.endTime).toFixed(1)}h
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground/40 italic">Day off</p>
+          )}
+        </div>
+
+        {/* Timesheet badge / Log prompt */}
+        <div className="shrink-0">
+          {st && ts && (
+            <div className={`flex items-center gap-1 rounded-md px-2 py-1 ${st.bg}`}>
+              <CheckCircle2 className={`h-3 w-3 ${st.text}`} />
+              <span className={`text-xs font-medium ${st.text}`}>{st.label.split(" ")[0]}</span>
+            </div>
+          )}
+          {canLogPast && (
+            <span className="text-xs text-primary font-medium">Log</span>
+          )}
+          {day.shift && !ts && !isPast && (
+            <span className="text-xs text-muted-foreground/40">–</span>
+          )}
+        </div>
       </div>
 
-      {/* Shift info */}
-      <div className="flex-1 min-w-0">
-        {day.shift ? (
-          <>
-            <p className={`font-semibold text-sm tabular-nums ${
-              !isToday && isPast ? "text-muted-foreground" :
-              !isToday && !isPast ? "text-muted-foreground/50" : ""
-            }`}>
-              {day.shift.startTime} – {day.shift.endTime}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {calcHours(day.shift.startTime, day.shift.endTime).toFixed(1)}h
-            </p>
-          </>
-        ) : (
-          <p className="text-sm text-muted-foreground/40 italic">Day off</p>
-        )}
-      </div>
-
-      {/* Timesheet badge */}
-      <div className="shrink-0">
-        {st && ts && (
-          <div className={`flex items-center gap-1 rounded-md px-2 py-1 ${st.bg}`}>
-            <CheckCircle2 className={`h-3 w-3 ${st.text}`} />
-            <span className={`text-xs font-medium ${st.text}`}>{st.label.split(" ")[0]}</span>
-          </div>
-        )}
-        {day.shift && !ts && !isPast && (
-          <span className="text-xs text-muted-foreground/40">–</span>
-        )}
-      </div>
-    </div>
+      {canLogPast && (
+        <PastShiftTimesheetDrawer
+          open={drawerOpen}
+          employeeId={employeeId}
+          day={day}
+          onClose={() => setDrawerOpen(false)}
+          onSubmitted={onSubmitted}
+        />
+      )}
+    </>
   );
 }
 
@@ -930,6 +1048,7 @@ function ScheduleTab({ session }: { session: Session }) {
   const today = getTodayStr();
   const [weekStart, setWeekStart] = useState(() => getMondayStr(today));
   const isCurrentWeek = weekStart === getMondayStr(today);
+  const qc = useQueryClient();
 
   const weekQK = ["/api/portal/week-all", session.id, weekStart];
   const { data: weekData, isLoading } = useQuery<WeekData>({
@@ -1015,7 +1134,15 @@ function ScheduleTab({ session }: { session: Session }) {
         <Card>
           <CardContent className="py-2 px-1">
             <div className="divide-y">
-              {days.map(day => <WeekRow key={day.date} day={day} today={today} />)}
+              {days.map(day => (
+                <WeekRow
+                  key={day.date}
+                  day={day}
+                  today={today}
+                  employeeId={session.id}
+                  onSubmitted={() => qc.invalidateQueries({ queryKey: weekQK })}
+                />
+              ))}
             </div>
           </CardContent>
         </Card>

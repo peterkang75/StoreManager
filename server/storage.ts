@@ -147,7 +147,7 @@ export interface IStorage {
 
   getShiftTimesheet(employeeId: string, date: string): Promise<ShiftTimesheet | undefined>;
   createShiftTimesheet(data: InsertShiftTimesheet): Promise<ShiftTimesheet>;
-  getShiftTimesheets(filters?: { storeId?: string; employeeId?: string; date?: string; status?: string }): Promise<ShiftTimesheet[]>;
+  getShiftTimesheets(filters?: { storeId?: string; employeeId?: string; date?: string; startDate?: string; endDate?: string; status?: string; isUnscheduled?: boolean }): Promise<ShiftTimesheet[]>;
   updateShiftTimesheet(id: string, data: Partial<InsertShiftTimesheet>): Promise<ShiftTimesheet | undefined>;
 }
 
@@ -1128,12 +1128,15 @@ export class MemStorage implements IStorage {
     return ts;
   }
 
-  async getShiftTimesheets(filters?: { storeId?: string; employeeId?: string; date?: string; status?: string }): Promise<ShiftTimesheet[]> {
+  async getShiftTimesheets(filters?: { storeId?: string; employeeId?: string; date?: string; startDate?: string; endDate?: string; status?: string; isUnscheduled?: boolean }): Promise<ShiftTimesheet[]> {
     return Array.from(this.shiftTimesheetsMap.values()).filter(ts => {
       if (filters?.storeId && ts.storeId !== filters.storeId) return false;
       if (filters?.employeeId && ts.employeeId !== filters.employeeId) return false;
       if (filters?.date && ts.date !== filters.date) return false;
+      if (filters?.startDate && ts.date < filters.startDate) return false;
+      if (filters?.endDate && ts.date > filters.endDate) return false;
       if (filters?.status && ts.status !== filters.status) return false;
+      if (filters?.isUnscheduled !== undefined && ts.isUnscheduled !== filters.isUnscheduled) return false;
       return true;
     });
   }
@@ -1789,11 +1792,13 @@ export class DatabaseStorage implements IStorage {
     return ts;
   }
 
-  async getShiftTimesheets(filters?: { storeId?: string; employeeId?: string; date?: string; status?: string; isUnscheduled?: boolean }): Promise<ShiftTimesheet[]> {
+  async getShiftTimesheets(filters?: { storeId?: string; employeeId?: string; date?: string; startDate?: string; endDate?: string; status?: string; isUnscheduled?: boolean }): Promise<ShiftTimesheet[]> {
     const conditions = [];
     if (filters?.storeId) conditions.push(eq(shiftTimesheets.storeId, filters.storeId));
     if (filters?.employeeId) conditions.push(eq(shiftTimesheets.employeeId, filters.employeeId));
     if (filters?.date) conditions.push(eq(shiftTimesheets.date, filters.date));
+    if (filters?.startDate) conditions.push(gte(shiftTimesheets.date, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(shiftTimesheets.date, filters.endDate));
     if (filters?.status) conditions.push(eq(shiftTimesheets.status, filters.status));
     if (filters?.isUnscheduled !== undefined) conditions.push(eq(shiftTimesheets.isUnscheduled, filters.isUnscheduled));
     return db.select().from(shiftTimesheets)

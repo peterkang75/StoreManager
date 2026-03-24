@@ -31,6 +31,7 @@ import {
   ChevronLeft,
   ChevronRight,
   DollarSign,
+  Wand2,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -715,6 +716,24 @@ export function AdminTimesheetApprovals() {
     onError: () => toast({ title: "Error", description: "Bulk approval failed.", variant: "destructive" }),
   });
 
+  const autoFillMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/approvals/auto-fill", {
+      storeId: storeFilter === "ALL" ? undefined : storeFilter,
+      startDate: weekStart,
+      endDate: weekEnd,
+    }),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/approvals"] });
+      const n = data?.filled ?? 0;
+      if (n === 0) {
+        toast({ title: "All Caught Up", description: "No missing timesheets found for this week." });
+      } else {
+        toast({ title: `Auto-filled ${n} Timesheet${n !== 1 ? "s" : ""}`, description: "Roster entries without a timesheet are now PENDING." });
+      }
+    },
+    onError: () => toast({ title: "Error", description: "Auto-fill failed.", variant: "destructive" }),
+  });
+
   const pendingFiltered = filtered.filter(t => t.status === "PENDING");
   const allIds = pendingFiltered.map(t => t.id);
   const allSelected = allIds.length > 0 && allIds.every(id => selected.has(id));
@@ -761,16 +780,31 @@ export function AdminTimesheetApprovals() {
             </h2>
             <p className="text-muted-foreground text-xs mt-0.5">타임시트 검토 및 승인</p>
           </div>
-          <Button
-            variant="outline"
-            className="h-9 gap-2 text-sm shrink-0"
-            onClick={() => navigate(`/admin/weekly-payroll?weekStart=${weekStart}`)}
-            data-testid="button-goto-payroll"
-          >
-            <DollarSign className="h-4 w-4 text-primary" />
-            <span className="hidden sm:inline">Weekly Payroll</span>
-            <span className="sm:hidden">Payroll</span>
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="outline"
+              className="h-9 gap-2 text-sm"
+              onClick={() => autoFillMutation.mutate()}
+              disabled={autoFillMutation.isPending}
+              data-testid="button-auto-fill"
+            >
+              {autoFillMutation.isPending
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <Wand2 className="h-4 w-4 text-primary" />}
+              <span className="hidden sm:inline">Auto-Fill from Roster</span>
+              <span className="sm:hidden">Auto-Fill</span>
+            </Button>
+            <Button
+              variant="outline"
+              className="h-9 gap-2 text-sm"
+              onClick={() => navigate(`/admin/weekly-payroll?weekStart=${weekStart}`)}
+              data-testid="button-goto-payroll"
+            >
+              <DollarSign className="h-4 w-4 text-primary" />
+              <span className="hidden sm:inline">Weekly Payroll</span>
+              <span className="sm:hidden">Payroll</span>
+            </Button>
+          </div>
         </div>
 
         {/* ── Week Navigator ────────────────────────────────────────────────── */}
