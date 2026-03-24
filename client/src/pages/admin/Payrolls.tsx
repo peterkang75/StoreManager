@@ -435,21 +435,46 @@ export function AdminPayrolls() {
 
     if (isNewContext) {
       draftContextKey.current = currentCtxKey;
-      setPayrollDrafts(prev => {
-        // If sessionStorage already has drafts for this ctx (e.g. returning to a store),
-        // preserve them — only initialise employees not yet in the draft.
-        const existing = prev[currentCtxKey] ?? {};
-        const merged = { ...existing };
-        let changed = false;
-        for (const { employee, payroll } of currentData) {
-          if (!merged[employee.id]) {
-            merged[employee.id] = buildPayrollRow(employee, payroll);
-            changed = true;
+
+      // Auto-purge stale drafts: if the DB already has saved payroll records for
+      // this store+period, any lingering sessionStorage drafts are stale and must
+      // be discarded so the widget shows the real DB balance (not a ghost deduction).
+      const hasSavedPayrolls = currentData.some(({ payroll }) => payroll !== null);
+      const existingDrafts = payrollDrafts[currentCtxKey];
+
+      if (hasSavedPayrolls && existingDrafts) {
+        // 1. Wipe sessionStorage entry immediately (belt-and-braces)
+        try {
+          const raw = sessionStorage.getItem(DRAFT_STORAGE_KEY);
+          if (raw) {
+            const all = JSON.parse(raw) as Record<string, unknown>;
+            delete all[currentCtxKey];
+            sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(all));
           }
+        } catch {}
+        // 2. Re-initialise entirely from DB (no stale cash values)
+        const fresh: Record<string, PayrollRow> = {};
+        for (const { employee, payroll } of currentData) {
+          fresh[employee.id] = buildPayrollRow(employee, payroll);
         }
-        if (!changed && Object.keys(existing).length > 0) return prev;
-        return { ...prev, [currentCtxKey]: merged };
-      });
+        setPayrollDrafts(prev => ({ ...prev, [currentCtxKey]: fresh }));
+      } else {
+        setPayrollDrafts(prev => {
+          // If sessionStorage already has drafts for this ctx (e.g. returning to a store),
+          // preserve them — only initialise employees not yet in the draft.
+          const existing = prev[currentCtxKey] ?? {};
+          const merged = { ...existing };
+          let changed = false;
+          for (const { employee, payroll } of currentData) {
+            if (!merged[employee.id]) {
+              merged[employee.id] = buildPayrollRow(employee, payroll);
+              changed = true;
+            }
+          }
+          if (!changed && Object.keys(existing).length > 0) return prev;
+          return { ...prev, [currentCtxKey]: merged };
+        });
+      }
       // Auto-select first employee if none selected (or pick persisted selection)
       setSelectedEmployeeId(id => id || (currentData[0]?.employee.id ?? ""));
     } else {
@@ -629,6 +654,26 @@ export function AdminPayrolls() {
     setSelectedEmployeeId("");
     setPeriodStart(shift(periodStart));
     setPeriodEnd(shift(periodEnd));
+  };
+
+  // Show "Clear Draft" whenever there are unsaved rows loaded
+  const currentCtxHasDraft = rows.length > 0 && !currentData?.some(({ payroll }) => payroll !== null);
+
+  // Wipe the current store+period draft and force a fresh re-init from DB
+  const clearCurrentDraft = () => {
+    try {
+      const raw = sessionStorage.getItem(DRAFT_STORAGE_KEY);
+      if (raw) {
+        const all = JSON.parse(raw) as Record<string, unknown>;
+        delete all[currentCtxKey];
+        sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(all));
+      }
+    } catch {}
+    setPayrollDrafts(prev => {
+      const { [currentCtxKey]: _, ...rest } = prev;
+      return rest;
+    });
+    draftContextKey.current = ""; // triggers re-init on next render
   };
 
   const grandTotals = rows.reduce(
@@ -1230,6 +1275,18 @@ export function AdminPayrolls() {
             )}
 
             <div className="flex justify-end gap-2">
+              {currentCtxHasDraft && (
+                <Button
+                  variant="outline"
+                  onClick={clearCurrentDraft}
+                  disabled={saveMutation.isPending}
+                  data-testid="button-clear-draft"
+                  title="Reset all fields to the last saved DB values"
+                >
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  Clear Draft
+                </Button>
+              )}
               <Button
                 onClick={() => saveMutation.mutate()}
                 disabled={saveMutation.isPending || rows.length === 0}
