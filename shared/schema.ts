@@ -512,6 +512,7 @@ export const financialTransactions = pgTable("financial_transactions", {
   cashAmount: real("cash_amount").default(0).notNull(),
   bankAmount: real("bank_amount").default(0).notNull(),
   referenceNote: text("reference_note"),
+  category: text("category"),
   executedAt: timestamp("executed_at").defaultNow().notNull(),
   executedBy: text("executed_by"),
   isBankSettled: boolean("is_bank_settled").default(false).notNull(),

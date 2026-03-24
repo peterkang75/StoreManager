@@ -30,13 +30,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ArrowLeftRight, Send, PenLine, AlertTriangle, Trash2, Bell, CheckCircle2, Check, Banknote, Eye } from "lucide-react";
+import { ArrowLeftRight, Send, PenLine, AlertTriangle, Trash2, Bell, CheckCircle2, Check, Banknote, Eye, SlidersHorizontal, TrendingUp, TrendingDown } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { CashBalances } from "@/components/CashBalances";
 import { ConvertForm } from "@/components/ConvertForm";
 import { CashSalesEntry } from "@/components/CashSalesEntry";
 import type { Store, FinancialTransaction, CashSalesDetail } from "@shared/schema";
+
+const CASH_ADJUSTMENT_CATEGORIES = [
+  "Petty Cash",
+  "Till Shortage",
+  "Till Overage",
+  "Owner Deposit",
+  "Bank Drop",
+  "Other",
+] as const;
 
 const DENOM_COLS = [
   { key: "note100Count", label: "$100", value: 100 },
@@ -149,10 +158,11 @@ function RemittanceForm({ stores }: { stores: Store[] }) {
   );
 }
 
-function ManualEntryForm({ stores }: { stores: Store[] }) {
+function ManualEntryForm({ stores, onSuccess }: { stores: Store[]; onSuccess?: () => void }) {
   const [txType, setTxType] = useState<string>("");
   const [storeId, setStoreId] = useState("");
   const [amount, setAmount] = useState("");
+  const [category, setCategory] = useState("");
   const [referenceNote, setReferenceNote] = useState("");
   const amountRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -165,6 +175,7 @@ function ManualEntryForm({ stores }: { stores: Store[] }) {
         transactionType: txType,
         storeId,
         amount: parseFloat(amount),
+        category: category || null,
         referenceNote,
       });
       return res.json();
@@ -174,10 +185,12 @@ function ManualEntryForm({ stores }: { stores: Store[] }) {
       setTxType("");
       setStoreId("");
       setAmount("");
+      setCategory("");
       setReferenceNote("");
       queryClient.invalidateQueries({ queryKey: ["/api/finance/transactions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/finance/balances"] });
       setTimeout(() => amountRef.current?.focus(), 100);
+      onSuccess?.();
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -192,15 +205,28 @@ function ManualEntryForm({ stores }: { stores: Store[] }) {
       </div>
       <div className="space-y-2">
         <Label>Type</Label>
-        <Select value={txType} onValueChange={setTxType}>
-          <SelectTrigger data-testid="select-manual-type">
-            <SelectValue placeholder="Select type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="MANUAL_INCOME">Income (Cash In)</SelectItem>
-            <SelectItem value="MANUAL_EXPENSE">Expense (Cash Out)</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex gap-2" data-testid="toggle-manual-type">
+          <Button
+            type="button"
+            variant={txType === "MANUAL_INCOME" ? "default" : "outline"}
+            className="flex-1 gap-1.5"
+            onClick={() => setTxType("MANUAL_INCOME")}
+            data-testid="button-type-income"
+          >
+            <TrendingUp className="h-4 w-4" />
+            Cash In
+          </Button>
+          <Button
+            type="button"
+            variant={txType === "MANUAL_EXPENSE" ? "default" : "outline"}
+            className="flex-1 gap-1.5"
+            onClick={() => setTxType("MANUAL_EXPENSE")}
+            data-testid="button-type-expense"
+          >
+            <TrendingDown className="h-4 w-4" />
+            Cash Out
+          </Button>
+        </div>
       </div>
       <div className="space-y-2">
         <Label>Store</Label>
@@ -211,6 +237,19 @@ function ManualEntryForm({ stores }: { stores: Store[] }) {
           <SelectContent>
             {activeStores.map((s) => (
               <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <Label>Category</Label>
+        <Select value={category} onValueChange={setCategory}>
+          <SelectTrigger data-testid="select-manual-category">
+            <SelectValue placeholder="Select category" />
+          </SelectTrigger>
+          <SelectContent>
+            {CASH_ADJUSTMENT_CATEGORIES.map((c) => (
+              <SelectItem key={c} value={c}>{c}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -229,9 +268,9 @@ function ManualEntryForm({ stores }: { stores: Store[] }) {
         />
       </div>
       <div className="space-y-2">
-        <Label>Reference Note</Label>
+        <Label>Note / Description</Label>
         <Textarea
-          placeholder="Describe the income or expense"
+          placeholder="Describe the reason for this adjustment (e.g. Safe count discrepancy from morning shift)"
           value={referenceNote}
           onChange={(e) => setReferenceNote(e.target.value)}
           data-testid="input-manual-note"
@@ -245,6 +284,152 @@ function ManualEntryForm({ stores }: { stores: Store[] }) {
         {mutation.isPending ? "Processing..." : "Record Entry"}
       </Button>
     </div>
+  );
+}
+
+function CashAdjustModal({ stores, open, onOpenChange }: { stores: Store[]; open: boolean; onOpenChange: (v: boolean) => void }) {
+  const [txType, setTxType] = useState<"MANUAL_INCOME" | "MANUAL_EXPENSE">("MANUAL_INCOME");
+  const [storeId, setStoreId] = useState("");
+  const [amount, setAmount] = useState("");
+  const [category, setCategory] = useState("");
+  const [referenceNote, setReferenceNote] = useState("");
+  const { toast } = useToast();
+
+  const activeStores = stores.filter((s) => s.active);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/finance/manual", {
+        transactionType: txType,
+        storeId,
+        amount: parseFloat(amount),
+        category: category || null,
+        referenceNote,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Cash balance adjusted", description: `${txType === "MANUAL_INCOME" ? "Cash In" : "Cash Out"} of $${parseFloat(amount).toFixed(2)} recorded.` });
+      setAmount("");
+      setCategory("");
+      setReferenceNote("");
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/balances"] });
+      onOpenChange(false);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const isValid = storeId && amount && parseFloat(amount) > 0;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <SlidersHorizontal className="h-4 w-4" />
+            Adjust Cash Balance
+          </DialogTitle>
+          <p className="text-sm text-muted-foreground">
+            수기 조정 항목은 감사 내역으로 기록됩니다. 금고 실물 현금과 시스템 잔액을 맞출 때 사용하세요.
+          </p>
+        </DialogHeader>
+        <div className="space-y-4 pt-2">
+          <div className="space-y-2">
+            <Label>Type</Label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={txType === "MANUAL_INCOME" ? "default" : "outline"}
+                className="flex-1 gap-1.5"
+                onClick={() => setTxType("MANUAL_INCOME")}
+                data-testid="modal-button-type-income"
+              >
+                <TrendingUp className="h-4 w-4" />
+                Cash In
+              </Button>
+              <Button
+                type="button"
+                variant={txType === "MANUAL_EXPENSE" ? "default" : "outline"}
+                className="flex-1 gap-1.5"
+                onClick={() => setTxType("MANUAL_EXPENSE")}
+                data-testid="modal-button-type-expense"
+              >
+                <TrendingDown className="h-4 w-4" />
+                Cash Out
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Store</Label>
+            <Select value={storeId} onValueChange={setStoreId}>
+              <SelectTrigger data-testid="modal-select-store">
+                <SelectValue placeholder="Select store" />
+              </SelectTrigger>
+              <SelectContent>
+                {activeStores.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Category</Label>
+            <Select value={category} onValueChange={setCategory}>
+              <SelectTrigger data-testid="modal-select-category">
+                <SelectValue placeholder="Select category" />
+              </SelectTrigger>
+              <SelectContent>
+                {CASH_ADJUSTMENT_CATEGORIES.map((c) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Amount ($)</Label>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="0.00"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              data-testid="modal-input-amount"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Note / Description</Label>
+            <Textarea
+              placeholder="Reason for adjustment (e.g. Safe count matched, petty cash top-up)"
+              value={referenceNote}
+              onChange={(e) => setReferenceNote(e.target.value)}
+              data-testid="modal-input-note"
+            />
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)} data-testid="modal-button-cancel">
+              Cancel
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={() => mutation.mutate()}
+              disabled={!isValid || mutation.isPending}
+              data-testid="modal-button-submit"
+            >
+              {mutation.isPending ? "Saving..." : "Save Adjustment"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -278,6 +463,7 @@ export function AdminFinance() {
 
   const { toast } = useToast();
 
+  const [adjustModalOpen, setAdjustModalOpen] = useState(false);
   const [cashSalesModalOpen, setCashSalesModalOpen] = useState(false);
   const [cashSalesModalDetails, setCashSalesModalDetails] = useState<CashSalesDetail[]>([]);
   const [cashSalesModalLabel, setCashSalesModalLabel] = useState("");
@@ -355,7 +541,22 @@ export function AdminFinance() {
   return (
     <AdminLayout title="Finance / Cash Flow">
       <div className="space-y-6">
-        {!storesLoading && <CashBalances stores={stores || []} />}
+        {!storesLoading && (
+          <div className="space-y-3">
+            <CashBalances stores={stores || []} />
+            <div className="flex justify-end">
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => setAdjustModalOpen(true)}
+                data-testid="button-open-adjust-modal"
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                Adjust Cash Balance
+              </Button>
+            </div>
+          </div>
+        )}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Transaction Entry</CardTitle>
@@ -467,11 +668,12 @@ export function AdminFinance() {
                     <TableRow>
                       <TableHead>Date/Time</TableHead>
                       <TableHead>Type</TableHead>
+                      <TableHead>Category</TableHead>
                       <TableHead>From</TableHead>
                       <TableHead>To</TableHead>
                       <TableHead className="text-right">Cash</TableHead>
                       <TableHead className="text-right">Bank</TableHead>
-                      <TableHead className="min-w-[250px]">Reference Note</TableHead>
+                      <TableHead className="min-w-[220px]">Note</TableHead>
                       <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -483,6 +685,15 @@ export function AdminFinance() {
                         </TableCell>
                         <TableCell>
                           <TransactionTypeBadge type={tx.transactionType} />
+                        </TableCell>
+                        <TableCell>
+                          {(tx as any).category ? (
+                            <Badge variant="outline" className="text-xs whitespace-nowrap" data-testid={`badge-category-${tx.id}`}>
+                              {(tx as any).category}
+                            </Badge>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">-</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-sm">{getStoreName(tx.fromStoreId)}</TableCell>
                         <TableCell className="text-sm">{getStoreName(tx.toStoreId)}</TableCell>
@@ -537,6 +748,7 @@ export function AdminFinance() {
             )}
           </CardContent>
         </Card>
+        <CashAdjustModal stores={stores || []} open={adjustModalOpen} onOpenChange={setAdjustModalOpen} />
         <Dialog open={cashSalesModalOpen} onOpenChange={setCashSalesModalOpen}>
           <DialogContent className="max-w-[95vw] max-h-[90vh] overflow-auto">
             <DialogHeader>

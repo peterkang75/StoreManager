@@ -983,8 +983,10 @@ export class MemStorage implements IStorage {
       cashAmount: insertTx.cashAmount ?? 0,
       bankAmount: insertTx.bankAmount ?? 0,
       referenceNote: insertTx.referenceNote ?? null,
+      category: insertTx.category ?? null,
       executedAt: new Date(),
       executedBy: insertTx.executedBy ?? null,
+      isBankSettled: insertTx.isBankSettled ?? false,
     };
     this.financialTransactions.set(id, tx);
     return tx;
@@ -1011,6 +1013,7 @@ export class MemStorage implements IStorage {
       cashAmount: insertTx.cashAmount ?? 0,
       bankAmount: insertTx.bankAmount ?? 0,
       referenceNote: insertTx.referenceNote ?? null,
+      category: insertTx.category ?? null,
       executedAt,
       executedBy: insertTx.executedBy ?? null,
       isBankSettled: insertTx.isBankSettled ?? false,

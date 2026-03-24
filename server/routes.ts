@@ -2948,7 +2948,7 @@ export async function registerRoutes(
 
   app.post("/api/finance/manual", async (req: Request, res: Response) => {
     try {
-      const { transactionType, storeId, amount, referenceNote } = req.body;
+      const { transactionType, storeId, amount, referenceNote, category } = req.body;
 
       if (!transactionType || !storeId || amount === undefined || amount === null) {
         return res.status(400).json({ error: "transactionType, storeId, and amount are required" });
@@ -2975,6 +2975,7 @@ export async function registerRoutes(
         cashAmount: parsedAmount,
         bankAmount: 0,
         referenceNote: referenceNote || null,
+        category: category || null,
         executedBy: null,
       });
 
