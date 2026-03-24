@@ -3323,6 +3323,21 @@ export async function registerRoutes(
     }
   });
 
+  // PUT /api/admin/approvals/:id/update-times — update times only (no status change)
+  app.put("/api/admin/approvals/:id/update-times", async (req: Request, res: Response) => {
+    try {
+      const { actualStartTime, actualEndTime } = req.body;
+      if (!actualStartTime || !actualEndTime) {
+        return res.status(400).json({ error: "actualStartTime and actualEndTime are required" });
+      }
+      const ts = await storage.updateShiftTimesheet(req.params.id, { actualStartTime, actualEndTime });
+      if (!ts) return res.status(404).json({ error: "Timesheet not found" });
+      res.json(ts);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update timesheet times" });
+    }
+  });
+
   // POST /api/admin/approvals/bulk-approve — bulk approve by IDs
   app.post("/api/admin/approvals/bulk-approve", async (req: Request, res: Response) => {
     try {

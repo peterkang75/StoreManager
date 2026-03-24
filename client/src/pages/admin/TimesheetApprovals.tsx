@@ -1,12 +1,10 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -21,7 +19,6 @@ import {
   Clock,
   X,
   Loader2,
-  Calendar,
   ClipboardCheck,
   TrendingUp,
   TrendingDown,
@@ -211,7 +208,7 @@ function EmployeeReviewModal({
   const displayName = group.employeeNickname || group.employeeName.split(" ")[0];
   const isMultiStore = group.storeNames.length > 1;
 
-  // Editable times per timesheet
+  // Editable times per timesheet (keyed by timesheet ID)
   const [edits, setEdits] = useState<Record<string, { start: string; end: string }>>(() => {
     const init: Record<string, { start: string; end: string }> = {};
     group.timesheets.forEach(ts => {
@@ -219,45 +216,63 @@ function EmployeeReviewModal({
     });
     return init;
   });
-  const [note, setNote] = useState("");
-  const [saving, setSaving] = useState(false);
+
+  // Auto-save state per row
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const savedTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  // Bulk approve state
+  const [approving, setApproving] = useState(false);
 
   const pendingShifts = group.timesheets.filter(ts => ts.status === "PENDING");
 
-  // Live-computed totals from edits
+  // Live-computed totals from edits (reactive)
   const liveActualHours = group.timesheets.reduce((sum, ts) => {
     const e = edits[ts.id];
     return sum + (e ? calcHours(e.start, e.end) : 0);
   }, 0);
 
-  const handleSaveApproveAll = async () => {
-    setSaving(true);
+  // Auto-save a single timesheet's times on blur
+  const autoSave = useCallback(async (tsId: string) => {
+    const e = edits[tsId];
+    if (!e) return;
+    setSavingIds(prev => new Set(prev).add(tsId));
     try {
-      await Promise.all(
-        pendingShifts.map(ts => {
-          const e = edits[ts.id];
-          const startChanged = e.start !== ts.actualStartTime;
-          const endChanged = e.end !== ts.actualEndTime;
-          if (startChanged || endChanged) {
-            return apiRequest("PUT", `/api/admin/approvals/${ts.id}/edit-approve`, {
-              actualStartTime: e.start,
-              actualEndTime: e.end,
-              adjustmentReason: note.trim() || "Manager adjusted via bulk review",
-            });
-          }
-          return apiRequest("PUT", `/api/admin/approvals/${ts.id}/approve`);
-        })
-      );
+      await apiRequest("PUT", `/api/admin/approvals/${tsId}/update-times`, {
+        actualStartTime: e.start,
+        actualEndTime: e.end,
+      });
+      setSavingIds(prev => { const n = new Set(prev); n.delete(tsId); return n; });
+      setSavedIds(prev => new Set(prev).add(tsId));
+      // Clear saved indicator after 2.5s
+      if (savedTimers.current[tsId]) clearTimeout(savedTimers.current[tsId]);
+      savedTimers.current[tsId] = setTimeout(() => {
+        setSavedIds(prev => { const n = new Set(prev); n.delete(tsId); return n; });
+      }, 2500);
+    } catch {
+      setSavingIds(prev => { const n = new Set(prev); n.delete(tsId); return n; });
+      toast({ title: "Save failed", description: "Could not update timesheet times.", variant: "destructive" });
+    }
+  }, [edits, toast]);
+
+  // Approve all pending shifts (times already auto-saved)
+  const handleApproveAll = async () => {
+    setApproving(true);
+    try {
+      await Promise.all(pendingShifts.map(ts =>
+        apiRequest("PUT", `/api/admin/approvals/${ts.id}/approve`)
+      ));
       queryClient.invalidateQueries({ queryKey: ["/api/admin/approvals"] });
       toast({
         title: `${pendingShifts.length} Shift${pendingShifts.length !== 1 ? "s" : ""} Approved`,
-        description: `${displayName}'s timesheets for this cycle have been approved.`,
+        description: `${displayName}'s timesheets for this cycle are now approved.`,
       });
       onSaved();
     } catch {
       toast({ title: "Error", description: "Some timesheets failed to approve.", variant: "destructive" });
     } finally {
-      setSaving(false);
+      setApproving(false);
     }
   };
 
@@ -291,7 +306,6 @@ function EmployeeReviewModal({
               {" · "}
               {pendingShifts.length} pending shift{pendingShifts.length !== 1 ? "s" : ""}
             </p>
-            {/* Cycle totals summary */}
             <div className="flex items-center gap-3 mt-1.5">
               <span className="text-xs text-muted-foreground">
                 Actual: <span className="font-semibold text-foreground">{fmtHours(liveActualHours)}</span>
@@ -301,6 +315,7 @@ function EmployeeReviewModal({
                   Scheduled: <span className="font-semibold text-foreground">{fmtHours(group.totalScheduledHours)}</span>
                 </span>
               )}
+              <span className="text-[10px] text-muted-foreground italic">Times auto-save on blur</span>
             </div>
           </div>
           <Button size="icon" variant="ghost" onClick={onClose} data-testid="button-modal-close">
@@ -314,12 +329,13 @@ function EmployeeReviewModal({
             <table className="w-full text-left text-sm" data-testid="review-shifts-table">
               <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm z-10">
                 <tr className="border-b border-border/40">
-                  <th className="py-2.5 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Date</th>
-                  <th className="py-2.5 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Scheduled</th>
-                  <th className="py-2.5 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Start</th>
-                  <th className="py-2.5 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">End</th>
-                  <th className="py-2.5 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Diff</th>
-                  <th className="py-2.5 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Hours</th>
+                  <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Date</th>
+                  <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Scheduled</th>
+                  <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Start</th>
+                  <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">End</th>
+                  <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Diff</th>
+                  <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Hours</th>
+                  <th className="py-2 px-2 w-6"></th>
                 </tr>
               </thead>
               <tbody>
@@ -332,33 +348,32 @@ function EmployeeReviewModal({
                   const shiftDiffMin = schedH !== null ? Math.round((actualH - schedH) * 60) : 0;
                   const isPending = ts.status === "PENDING";
                   const isApproved = ts.status === "APPROVED";
+                  const isSaving = savingIds.has(ts.id);
+                  const justSaved = savedIds.has(ts.id);
 
                   return (
                     <tr
                       key={ts.id}
-                      className={`border-b border-border/20 ${isApproved ? "opacity-60" : ""}`}
+                      className={`border-b border-border/20 ${isApproved ? "opacity-55" : ""}`}
                       data-testid={`review-row-${ts.id}`}
                     >
-                      {/* Date (+ store badge if multi-store) */}
-                      <td className="py-2.5 px-3 whitespace-nowrap">
+                      {/* Date + optional store badge */}
+                      <td className="py-2 px-2 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-medium">{fmtDate(ts.date)}</span>
+                          <span className="font-medium text-sm">{fmtDate(ts.date)}</span>
                           {isMultiStore && (
                             <span
-                              className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white"
+                              className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white shrink-0"
                               style={{ backgroundColor: storeColor(ts.storeName) }}
                             >
                               {ts.storeName}
                             </span>
                           )}
-                          {isApproved && (
-                            <span className="text-[10px] font-semibold text-green-600 dark:text-green-400">✓</span>
-                          )}
                         </div>
                       </td>
 
                       {/* Scheduled */}
-                      <td className="py-2.5 px-3 whitespace-nowrap text-muted-foreground">
+                      <td className="py-2 px-2 whitespace-nowrap text-muted-foreground text-sm">
                         {ts.scheduledStartTime && ts.scheduledEndTime
                           ? `${fmtTime(ts.scheduledStartTime)} – ${fmtTime(ts.scheduledEndTime)}`
                           : <span className="text-purple-600 dark:text-purple-400 text-xs font-medium">Unscheduled</span>
@@ -366,13 +381,17 @@ function EmployeeReviewModal({
                       </td>
 
                       {/* Start (editable if pending) */}
-                      <td className="py-2 px-3">
+                      <td className="py-1.5 px-2">
                         {isPending ? (
                           <Input
                             type="time"
                             value={e?.start ?? ts.actualStartTime}
-                            onChange={ev => setEdits(prev => ({ ...prev, [ts.id]: { ...prev[ts.id], start: ev.target.value } }))}
-                            className="font-mono h-8 w-28 text-sm"
+                            onChange={ev => setEdits(prev => ({
+                              ...prev,
+                              [ts.id]: { ...prev[ts.id], start: ev.target.value },
+                            }))}
+                            onBlur={() => autoSave(ts.id)}
+                            className="font-mono h-8 text-sm px-2 min-w-[90px] w-auto"
                             data-testid={`input-start-${ts.id}`}
                           />
                         ) : (
@@ -381,13 +400,17 @@ function EmployeeReviewModal({
                       </td>
 
                       {/* End (editable if pending) */}
-                      <td className="py-2 px-3">
+                      <td className="py-1.5 px-2">
                         {isPending ? (
                           <Input
                             type="time"
                             value={e?.end ?? ts.actualEndTime}
-                            onChange={ev => setEdits(prev => ({ ...prev, [ts.id]: { ...prev[ts.id], end: ev.target.value } }))}
-                            className="font-mono h-8 w-28 text-sm"
+                            onChange={ev => setEdits(prev => ({
+                              ...prev,
+                              [ts.id]: { ...prev[ts.id], end: ev.target.value },
+                            }))}
+                            onBlur={() => autoSave(ts.id)}
+                            className="font-mono h-8 text-sm px-2 min-w-[90px] w-auto"
                             data-testid={`input-end-${ts.id}`}
                           />
                         ) : (
@@ -395,17 +418,28 @@ function EmployeeReviewModal({
                         )}
                       </td>
 
-                      {/* Diff per shift */}
-                      <td className="py-2.5 px-3 whitespace-nowrap">
+                      {/* Diff (live reactive) */}
+                      <td className="py-2 px-2 whitespace-nowrap">
                         {schedH !== null
                           ? <DiffCell diffMinutes={shiftDiffMin} />
                           : <span className="text-muted-foreground text-sm">—</span>
                         }
                       </td>
 
-                      {/* Hours */}
-                      <td className="py-2.5 px-3 whitespace-nowrap font-medium">
+                      {/* Hours (live reactive) */}
+                      <td className="py-2 px-2 whitespace-nowrap font-semibold text-sm">
                         {fmtHours(actualH)}
+                      </td>
+
+                      {/* Save indicator */}
+                      <td className="py-2 px-1 w-6 text-center">
+                        {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                        {!isSaving && justSaved && (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                        )}
+                        {!isSaving && isApproved && !justSaved && (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-green-500/50" />
+                        )}
                       </td>
                     </tr>
                   );
@@ -413,21 +447,6 @@ function EmployeeReviewModal({
               </tbody>
             </table>
           </div>
-
-          {/* Optional note */}
-          {pendingShifts.length > 0 && (
-            <div className="px-4 py-3 border-t border-border/20">
-              <Label className="text-xs text-muted-foreground font-medium">Adjustment Note (optional)</Label>
-              <Textarea
-                value={note}
-                onChange={e => setNote(e.target.value)}
-                placeholder="e.g. Confirmed with employee, roster mismatch corrected"
-                className="resize-none mt-1.5 text-sm"
-                rows={2}
-                data-testid="textarea-review-note"
-              />
-            </div>
-          )}
         </div>
 
         {/* Pinned footer */}
@@ -438,16 +457,21 @@ function EmployeeReviewModal({
           {pendingShifts.length > 0 ? (
             <Button
               className="flex-1 min-h-[44px] bg-green-600 text-white font-semibold"
-              onClick={handleSaveApproveAll}
-              disabled={saving}
-              data-testid="button-save-approve-all"
+              onClick={handleApproveAll}
+              disabled={approving || savingIds.size > 0}
+              data-testid="button-approve-all"
             >
-              {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
-              Save &amp; Approve All ({pendingShifts.length})
+              {approving
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Approving…</>
+                : savingIds.size > 0
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving changes…</>
+                : <><CheckCircle2 className="h-4 w-4 mr-2" />Approve All for {displayName}</>
+              }
             </Button>
           ) : (
-            <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-              All shifts for this employee are already approved.
+            <div className="flex-1 flex items-center justify-center gap-2 text-sm text-green-600 dark:text-green-400 font-medium">
+              <CheckCircle2 className="h-4 w-4" />
+              All shifts already approved
             </div>
           )}
         </div>
