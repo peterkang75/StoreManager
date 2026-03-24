@@ -618,9 +618,162 @@ function EmployeeReviewModal({
           </div>
         </div>
 
-        {/* Scrollable table body */}
+        {/* Scrollable body */}
         <div className="overflow-y-auto flex-1">
-          <div className="overflow-x-auto">
+
+          {/* ── Mobile: card-per-shift layout ── */}
+          <div className="md:hidden">
+            {[
+              { label: "Week 1", shifts: week1Shifts, hours: week1Hours, start: cycleStart, end: week1End },
+              { label: "Week 2", shifts: week2Shifts, hours: week2Hours, start: week2Start, end: cycleEnd },
+            ].map(week => (
+              <div key={week.label}>
+                <div className="px-4 py-2 bg-muted/40 border-y border-border/30 flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{week.label}</span>
+                  <span className="text-xs text-muted-foreground">{fmtCycleDate(week.start)} – {fmtCycleDate(week.end)}</span>
+                </div>
+                {week.shifts.length > 0 ? week.shifts.map(ts => {
+                  const e = edits[ts.id];
+                  const actualH = e ? calcHours(e.start, e.end) : 0;
+                  const schedH = ts.scheduledStartTime && ts.scheduledEndTime
+                    ? calcHours(ts.scheduledStartTime, ts.scheduledEndTime) : null;
+                  const shiftDiffMin = schedH !== null ? Math.round((actualH - schedH) * 60) : 0;
+                  const isPending = ts.status === "PENDING";
+                  const isApproved = ts.status === "APPROVED";
+                  const isSaving = savingIds.has(ts.id);
+                  const justSaved = savedIds.has(ts.id);
+                  const isDeleting = deletingIds.has(ts.id);
+                  return (
+                    <div key={ts.id} className={`px-4 py-3 border-b border-border/10 ${isApproved ? "opacity-60" : ""}`} data-testid={`review-card-${ts.id}`}>
+                      <div className="flex items-start justify-between mb-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-sm">{fmtDate(ts.date)}</span>
+                          {isMultiStore && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white shrink-0" style={{ backgroundColor: storeColor(ts.storeName) }}>{ts.storeName}</span>
+                          )}
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${isPending ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"}`}>
+                            {isPending ? "Pending" : "Approved"}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                          {!isSaving && justSaved && <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />}
+                          {!isSaving && isApproved && !justSaved && <CheckCircle2 className="h-3.5 w-3.5 text-green-500/40" />}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteShift(ts.id, ts.date)}
+                            disabled={isDeleting || isSaving}
+                            className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground/30 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                            data-testid={`button-delete-${ts.id}`}
+                          >
+                            {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-2">
+                        {ts.scheduledStartTime && ts.scheduledEndTime
+                          ? <>Sched: {fmtTime(ts.scheduledStartTime)} – {fmtTime(ts.scheduledEndTime)}</>
+                          : <span className="text-purple-600 dark:text-purple-400 font-medium">Unscheduled</span>}
+                      </p>
+                      {isPending ? (
+                        <div className="grid grid-cols-2 gap-2 mb-2">
+                          {(["start", "end"] as const).map(field => (
+                            <div key={field}>
+                              <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">{field === "start" ? "Start" : "End"}</p>
+                              <div className="flex items-center gap-0.5">
+                                <button type="button" onClick={() => handleAdjust(ts.id, field, -15)} className="h-8 w-7 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0" data-testid={`button-${field}-minus-${ts.id}`}>
+                                  <Minus className="h-3 w-3" />
+                                </button>
+                                <Input
+                                  type="time"
+                                  value={e?.[field] ?? (field === "start" ? ts.actualStartTime : ts.actualEndTime)}
+                                  onChange={ev => setEdits(prev => ({ ...prev, [ts.id]: { ...prev[ts.id], [field]: ev.target.value } }))}
+                                  onBlur={() => autoSave(ts.id)}
+                                  className="font-mono h-8 text-xs px-1 flex-1 min-w-0"
+                                  data-testid={`input-${field}-${ts.id}`}
+                                />
+                                <button type="button" onClick={() => handleAdjust(ts.id, field, 15)} className="h-8 w-7 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0" data-testid={`button-${field}-plus-${ts.id}`}>
+                                  <Plus className="h-3 w-3" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm font-mono text-muted-foreground mb-2">{fmtTime(ts.actualStartTime)} – {fmtTime(ts.actualEndTime)}</p>
+                      )}
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold text-sm">{fmtHours(actualH)}</span>
+                        {schedH !== null && <DiffCell diffMinutes={shiftDiffMin} />}
+                      </div>
+                    </div>
+                  );
+                }) : (
+                  <p className="px-4 py-3 text-sm text-muted-foreground italic">No shifts this week</p>
+                )}
+                <div className="px-4 py-2 bg-muted/20 border-b border-border/20 flex items-center justify-end gap-2">
+                  <span className="text-xs text-muted-foreground">{week.label} Total:</span>
+                  <span className="text-sm font-bold">{fmtHours(week.hours)}</span>
+                </div>
+              </div>
+            ))}
+
+            {/* Mobile: Add Missing Shift */}
+            {showAddForm ? (() => {
+              const previewHours = calcHours(addForm.start, addForm.end);
+              return (
+                <div className="px-4 py-4 bg-blue-50/30 dark:bg-blue-950/10 border-t border-blue-200/60 dark:border-blue-800/40">
+                  <p className="text-xs font-bold uppercase tracking-widest text-blue-700 dark:text-blue-400 mb-3">New Shift</p>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Date</p>
+                      <Input type="date" min={cycleStart} max={cycleEnd} value={addForm.date} onChange={e => setAddForm(prev => ({ ...prev, date: e.target.value }))} className="h-9 text-sm" data-testid="input-addshift-date-mobile" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Store</p>
+                      {storeOptions.length > 1 ? (
+                        <Select value={addForm.storeId} onValueChange={v => setAddForm(prev => ({ ...prev, storeId: v }))}>
+                          <SelectTrigger className="h-9 text-sm" data-testid="select-addshift-store-mobile"><SelectValue /></SelectTrigger>
+                          <SelectContent>{storeOptions.map(s => <SelectItem key={s.storeId} value={s.storeId}>{s.storeName}</SelectItem>)}</SelectContent>
+                        </Select>
+                      ) : (
+                        <p className="text-sm font-medium py-2">{storeOptions[0]?.storeName}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    {(["start", "end"] as const).map(field => (
+                      <div key={field}>
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">{field === "start" ? "Start" : "End"}</p>
+                        <div className="flex items-center gap-0.5">
+                          <button type="button" onClick={() => setAddForm(prev => ({ ...prev, [field]: adjustTime(prev[field], -15) }))} className="h-9 w-8 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0"><Minus className="h-3.5 w-3.5" /></button>
+                          <Input type="time" value={addForm[field]} onChange={e => setAddForm(prev => ({ ...prev, [field]: e.target.value }))} className="font-mono h-9 text-sm px-1 flex-1 min-w-0" data-testid={`input-addshift-${field}-mobile`} />
+                          <button type="button" onClick={() => setAddForm(prev => ({ ...prev, [field]: adjustTime(prev[field], 15) }))} className="h-9 w-8 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0"><Plus className="h-3.5 w-3.5" /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button size="sm" className="gap-1.5 bg-blue-600 text-white" onClick={handleAddShift} disabled={addingSaving} data-testid="button-addshift-save">
+                      {addingSaving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</> : <><CheckCircle2 className="h-3.5 w-3.5" />Save Shift</>}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setShowAddForm(false)} data-testid="button-addshift-cancel">Cancel</Button>
+                    <span className="text-xs text-muted-foreground">{fmtHours(previewHours)} · Approved</span>
+                  </div>
+                </div>
+              );
+            })() : (
+              <div className="px-4 py-2 border-t border-border/10">
+                <button type="button" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors hover-elevate rounded px-2 py-1" onClick={() => setShowAddForm(true)} data-testid="button-add-missing-shift">
+                  <Plus className="h-3.5 w-3.5" />
+                  Add Missing Shift
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* ── Desktop: existing scrollable table ── */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left text-sm" data-testid="review-shifts-table">
               <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm z-10">
                 <tr className="border-b border-border/40">
@@ -681,93 +834,44 @@ function EmployeeReviewModal({
                       </td>
                     </tr>
                     <tr className="bg-blue-50/30 dark:bg-blue-950/10 border-b border-border/20">
-                      {/* Date */}
                       <td className="py-1.5 px-2">
-                        <Input
-                          type="date"
-                          min={cycleStart}
-                          max={cycleEnd}
-                          value={addForm.date}
-                          onChange={e => setAddForm(prev => ({ ...prev, date: e.target.value }))}
-                          className="h-7 text-xs px-1.5 w-[130px]"
-                          data-testid="input-addshift-date"
-                        />
+                        <Input type="date" min={cycleStart} max={cycleEnd} value={addForm.date} onChange={e => setAddForm(prev => ({ ...prev, date: e.target.value }))} className="h-7 text-xs px-1.5 w-[130px]" data-testid="input-addshift-date" />
                       </td>
-                      {/* Store */}
                       <td className="py-1.5 px-2">
                         {storeOptions.length > 1 ? (
-                          <Select
-                            value={addForm.storeId}
-                            onValueChange={v => setAddForm(prev => ({ ...prev, storeId: v }))}
-                          >
-                            <SelectTrigger className="h-7 text-xs w-[100px]" data-testid="select-addshift-store">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {storeOptions.map(s => (
-                                <SelectItem key={s.storeId} value={s.storeId}>{s.storeName}</SelectItem>
-                              ))}
-                            </SelectContent>
+                          <Select value={addForm.storeId} onValueChange={v => setAddForm(prev => ({ ...prev, storeId: v }))}>
+                            <SelectTrigger className="h-7 text-xs w-[100px]" data-testid="select-addshift-store"><SelectValue /></SelectTrigger>
+                            <SelectContent>{storeOptions.map(s => <SelectItem key={s.storeId} value={s.storeId}>{s.storeName}</SelectItem>)}</SelectContent>
                           </Select>
                         ) : (
                           <span className="text-xs text-muted-foreground px-1">{storeOptions[0]?.storeName}</span>
                         )}
                       </td>
-                      {/* Start with ±15 */}
                       <td className="py-1 px-1">
                         <div className="flex items-center gap-0.5">
-                          <button type="button" onClick={() => setAddForm(prev => ({ ...prev, start: adjustTime(prev.start, -15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0">
-                            <Minus className="h-3 w-3" />
-                          </button>
+                          <button type="button" onClick={() => setAddForm(prev => ({ ...prev, start: adjustTime(prev.start, -15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0"><Minus className="h-3 w-3" /></button>
                           <Input type="time" value={addForm.start} onChange={e => setAddForm(prev => ({ ...prev, start: e.target.value }))} className="font-mono h-7 text-xs px-1 w-[120px] shrink-0" data-testid="input-addshift-start" />
-                          <button type="button" onClick={() => setAddForm(prev => ({ ...prev, start: adjustTime(prev.start, 15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0">
-                            <Plus className="h-3 w-3" />
-                          </button>
+                          <button type="button" onClick={() => setAddForm(prev => ({ ...prev, start: adjustTime(prev.start, 15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0"><Plus className="h-3 w-3" /></button>
                         </div>
                       </td>
-                      {/* End with ±15 */}
                       <td className="py-1 px-1">
                         <div className="flex items-center gap-0.5">
-                          <button type="button" onClick={() => setAddForm(prev => ({ ...prev, end: adjustTime(prev.end, -15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0">
-                            <Minus className="h-3 w-3" />
-                          </button>
+                          <button type="button" onClick={() => setAddForm(prev => ({ ...prev, end: adjustTime(prev.end, -15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0"><Minus className="h-3 w-3" /></button>
                           <Input type="time" value={addForm.end} onChange={e => setAddForm(prev => ({ ...prev, end: e.target.value }))} className="font-mono h-7 text-xs px-1 w-[120px] shrink-0" data-testid="input-addshift-end" />
-                          <button type="button" onClick={() => setAddForm(prev => ({ ...prev, end: adjustTime(prev.end, 15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0">
-                            <Plus className="h-3 w-3" />
-                          </button>
+                          <button type="button" onClick={() => setAddForm(prev => ({ ...prev, end: adjustTime(prev.end, 15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0"><Plus className="h-3 w-3" /></button>
                         </div>
                       </td>
-                      {/* Diff preview */}
                       <td className="py-1.5 px-2 text-xs text-muted-foreground">—</td>
-                      {/* Hours preview */}
                       <td className="py-1.5 px-2 font-semibold text-sm">{fmtHours(previewHours)}</td>
                       <td />
                     </tr>
-                    {/* Save / Cancel row */}
                     <tr className="bg-blue-50/20 dark:bg-blue-950/10">
                       <td colSpan={7} className="py-2 px-3">
                         <div className="flex items-center gap-2">
-                          <Button
-                            size="sm"
-                            className="h-8 gap-1.5 bg-blue-600 text-white hover:bg-blue-700"
-                            onClick={handleAddShift}
-                            disabled={addingSaving}
-                            data-testid="button-addshift-save"
-                          >
-                            {addingSaving
-                              ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</>
-                              : <><CheckCircle2 className="h-3.5 w-3.5" />Save Shift</>
-                            }
+                          <Button size="sm" className="h-8 gap-1.5 bg-blue-600 text-white" onClick={handleAddShift} disabled={addingSaving} data-testid="button-addshift-save">
+                            {addingSaving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</> : <><CheckCircle2 className="h-3.5 w-3.5" />Save Shift</>}
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-8"
-                            onClick={() => setShowAddForm(false)}
-                            data-testid="button-addshift-cancel"
-                          >
-                            Cancel
-                          </Button>
+                          <Button size="sm" variant="ghost" className="h-8" onClick={() => setShowAddForm(false)} data-testid="button-addshift-cancel">Cancel</Button>
                           <span className="text-xs text-muted-foreground ml-1">Status: Approved · Unscheduled</span>
                         </div>
                       </td>
@@ -781,12 +885,7 @@ function EmployeeReviewModal({
                 <tbody>
                   <tr>
                     <td colSpan={7} className="py-2 px-3">
-                      <button
-                        type="button"
-                        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors hover-elevate rounded px-2 py-1"
-                        onClick={() => setShowAddForm(true)}
-                        data-testid="button-add-missing-shift"
-                      >
+                      <button type="button" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors hover-elevate rounded px-2 py-1" onClick={() => setShowAddForm(true)} data-testid="button-add-missing-shift">
                         <Plus className="h-3.5 w-3.5" />
                         Add Missing Shift
                       </button>
