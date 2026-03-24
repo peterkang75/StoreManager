@@ -602,6 +602,8 @@ export function AdminPayrolls() {
     bankDepositAmount: number;
     isBankTransferDone: boolean;
     bankTransferDate: string | null;
+    isIntercompany: boolean;
+    destinationStoreName: string | null;
   }
 
   const { data: bankDeposits, isLoading: bankDepositsLoading, refetch: refetchBankDeposits } = useQuery<BankDepositEntry[]>({
@@ -622,6 +624,20 @@ export function AdminPayrolls() {
     onSuccess: () => {
       refetchBankDeposits();
       queryClient.invalidateQueries({ queryKey: ["/api/payrolls/bank-deposits", periodStart, periodEnd] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const settlementTransferMutation = useMutation({
+    mutationFn: async ({ settlementId, isBankTransferDone }: { settlementId: string; isBankTransferDone: boolean }) => {
+      return apiRequest("PATCH", `/api/settlements/${settlementId}/bank-transfer-status`, { isBankTransferDone });
+    },
+    onSuccess: () => {
+      refetchBankDeposits();
+      queryClient.invalidateQueries({ queryKey: ["/api/payrolls/bank-deposits", periodStart, periodEnd] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settlements"] });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -1306,40 +1322,62 @@ export function AdminPayrolls() {
                   <span className="text-center">Done</span>
                 </div>
                 {bankDeposits.map((entry) => {
-                  const isPending = bankTransferMutation.isPending;
+                  const isPending = bankTransferMutation.isPending || settlementTransferMutation.isPending;
+                  const dimText = entry.isBankTransferDone ? "text-muted-foreground line-through" : "";
                   return (
                     <div
                       key={entry.payrollId}
                       className={`grid grid-cols-[1fr_1fr_110px_64px] gap-0 px-4 py-2.5 text-sm border-b last:border-b-0 items-center transition-colors ${
-                        entry.isBankTransferDone ? "bg-muted/30" : ""
+                        entry.isBankTransferDone ? "bg-muted/30" : entry.isIntercompany ? "bg-blue-50/40 dark:bg-blue-950/20" : ""
                       }`}
                       data-testid={`row-bank-transfer-${entry.payrollId}`}
                     >
-                      <span className={`font-medium truncate ${entry.isBankTransferDone ? "text-muted-foreground line-through" : ""}`} data-testid={`text-bank-store-${entry.payrollId}`}>
-                        {entry.storeName}
-                      </span>
+                      {/* Store column */}
                       <div className="min-w-0">
-                        <span className={`truncate block ${entry.isBankTransferDone ? "text-muted-foreground line-through" : ""}`} data-testid={`text-bank-employee-${entry.payrollId}`}>
-                          {entry.employeeName}
+                        <span className={`font-medium truncate block ${dimText}`} data-testid={`text-bank-store-${entry.payrollId}`}>
+                          {entry.storeName}
                         </span>
-                        {entry.bsb && entry.accountNo && (
-                          <span className="text-xs text-muted-foreground block truncate">
-                            {entry.bsb} / {entry.accountNo}
+                        {entry.isIntercompany && (
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+                            Intercompany
                           </span>
                         )}
                       </div>
-                      <span className={`font-mono text-right font-medium ${entry.isBankTransferDone ? "text-muted-foreground line-through" : ""}`} data-testid={`text-bank-amount-${entry.payrollId}`}>
+
+                      {/* Employee / details column */}
+                      <div className="min-w-0">
+                        <span className={`truncate block ${dimText}`} data-testid={`text-bank-employee-${entry.payrollId}`}>
+                          {entry.employeeName}
+                        </span>
+                        {entry.isIntercompany ? (
+                          <span className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1 truncate">
+                            <ArrowRightLeft className="h-3 w-3 flex-shrink-0" />
+                            Transfer to {entry.destinationStoreName}
+                          </span>
+                        ) : entry.bsb && entry.accountNo ? (
+                          <span className="text-xs text-muted-foreground block truncate">
+                            {entry.bsb} / {entry.accountNo}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {/* Amount */}
+                      <span className={`font-mono text-right font-medium ${dimText}`} data-testid={`text-bank-amount-${entry.payrollId}`}>
                         {`$${entry.bankDepositAmount.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                       </span>
+
+                      {/* Done checkbox */}
                       <div className="flex flex-col items-center gap-0.5">
                         <Checkbox
                           checked={entry.isBankTransferDone}
                           disabled={isPending}
                           onCheckedChange={(checked) => {
-                            bankTransferMutation.mutate({
-                              payrollId: entry.payrollId,
-                              isBankTransferDone: !!checked,
-                            });
+                            if (entry.isIntercompany) {
+                              const settlementId = entry.payrollId.replace(/^ics_/, "");
+                              settlementTransferMutation.mutate({ settlementId, isBankTransferDone: !!checked });
+                            } else {
+                              bankTransferMutation.mutate({ payrollId: entry.payrollId, isBankTransferDone: !!checked });
+                            }
                           }}
                           data-testid={`checkbox-bank-done-${entry.payrollId}`}
                         />

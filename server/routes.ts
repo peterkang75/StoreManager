@@ -1356,7 +1356,9 @@ export async function registerRoutes(
       const allStores = await storage.getStores();
       const storeMap = new Map(allStores.map(s => [s.id, s]));
 
-      const result = [];
+      const result: any[] = [];
+
+      // List A: Direct employee bank deposits
       for (const p of allPayrolls) {
         if (!p.bankDepositAmount || p.bankDepositAmount <= 0) continue;
         const emp = await storage.getEmployee(p.employeeId);
@@ -1371,13 +1373,61 @@ export async function registerRoutes(
           bankDepositAmount: p.bankDepositAmount,
           isBankTransferDone: (p as any).isBankTransferDone ?? false,
           bankTransferDate: (p as any).bankTransferDate ?? null,
+          isIntercompany: false,
+          destinationStoreName: null,
         });
       }
+
+      // List B: Intercompany settlements where fromStore has a payroll in this period
+      const periodPayrollIds = new Set(allPayrolls.map(p => p.id));
+      const allSettlements = await storage.getIntercompanySettlements();
+      const periodSettlements = allSettlements.filter(s => periodPayrollIds.has(s.payrollId));
+      for (const s of periodSettlements) {
+        if (s.totalAmountDue <= 0) continue;
+        const emp = await storage.getEmployee(s.employeeId);
+        const fromStore = storeMap.get(s.fromStoreId);
+        const toStore = storeMap.get(s.toStoreId);
+        result.push({
+          payrollId: `ics_${s.id}`,
+          employeeName: emp ? (emp.nickname || `${emp.firstName} ${emp.lastName}`) : "Unknown",
+          bsb: "",
+          accountNo: "",
+          storeName: fromStore?.name ?? "Unknown",
+          storeId: s.fromStoreId,
+          bankDepositAmount: s.totalAmountDue,
+          isBankTransferDone: s.status === "SETTLED",
+          bankTransferDate: s.settledAt ? new Date(s.settledAt).toISOString().split("T")[0] : null,
+          isIntercompany: true,
+          destinationStoreName: toStore?.name ?? "Unknown",
+        });
+      }
+
       result.sort((a, b) => a.storeName.localeCompare(b.storeName) || a.employeeName.localeCompare(b.employeeName));
       res.json(result);
     } catch (error) {
       console.error("Error fetching bank deposits:", error);
       res.status(500).json({ error: "Failed to fetch bank deposits" });
+    }
+  });
+
+  // Toggle intercompany settlement bank-transfer done status
+  app.patch("/api/settlements/:id/bank-transfer-status", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { isBankTransferDone } = req.body as { isBankTransferDone: boolean };
+      const allSettlements = await storage.getIntercompanySettlements();
+      const settlement = allSettlements.find(s => s.id === id);
+      if (!settlement) return res.status(404).json({ error: "Settlement not found" });
+      const updated = await storage.updateIntercompanySettlement(id,
+        isBankTransferDone
+          ? { status: "SETTLED", settledAt: new Date(), paidInBank: settlement.totalAmountDue }
+          : { status: "PENDING", settledAt: null, paidInBank: 0 }
+      );
+      if (!updated) return res.status(404).json({ error: "Settlement not found" });
+      res.json(updated);
+    } catch (err) {
+      console.error("Error updating settlement bank-transfer status:", err);
+      res.status(500).json({ error: "Failed to update settlement status" });
     }
   });
 
