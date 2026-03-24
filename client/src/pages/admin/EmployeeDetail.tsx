@@ -374,7 +374,17 @@ export function AdminEmployeeDetail() {
   }
 
   const currentData = { ...employee, ...formData };
-  const hasChanges = Object.keys(formData).length > 0 || storesDirty;
+
+  // Check if any per-store rate/fixed overrides have changed
+  const assignmentsDirty = (storeAssignments ?? []).some(a => {
+    const override = assignmentOverrides[a.id];
+    return override && (
+      override.rate !== (a.rate || "") ||
+      override.fixedAmount !== (a.fixedAmount || "")
+    );
+  });
+
+  const hasChanges = Object.keys(formData).length > 0 || storesDirty || assignmentsDirty;
   const isSaving = updateMutation.isPending || storeAssignmentMutation.isPending;
 
   return (
