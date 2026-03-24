@@ -484,12 +484,12 @@ function HistoryModal({
 
 export function AdminTimesheets() {
   const today = getAEDTToday();
-  const [cycleOffset, setCycleOffset] = useState(0);
+  const currentCycleStart = getPayrollCycleStart(today);
+  const [cycleStart, setCycleStart] = useState(currentCycleStart);
   const [selectedGroup, setSelectedGroup] = useState<EmployeeGroup | null>(null);
 
-  const cycleStart = getPayrollCycleStart(today, cycleOffset);
-  const cycleEnd = getPayrollCycleEnd(today, cycleOffset);
-  const isCurrentCycle = cycleOffset === 0;
+  const cycleEnd = getPayrollCycleEnd(cycleStart);
+  const isCurrentCycle = cycleStart === currentCycleStart;
 
   // Fetch all timesheets (any status) — we filter APPROVED client-side
   const { data: allRows = [], isLoading } = useQuery<EnrichedTimesheet[]>({
@@ -560,10 +560,10 @@ export function AdminTimesheets() {
           <CycleNavigator
             cycleStart={cycleStart}
             cycleEnd={cycleEnd}
-            onPrev={() => setCycleOffset(o => o - 1)}
-            onNext={() => setCycleOffset(o => o + 1)}
+            onPrev={() => setCycleStart(s => addDays(s, -14))}
+            onNext={() => setCycleStart(s => addDays(s, 14))}
             isCurrentCycle={isCurrentCycle}
-            onCurrent={() => setCycleOffset(0)}
+            onCurrent={() => setCycleStart(currentCycleStart)}
           />
         </div>
 
