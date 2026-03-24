@@ -2997,6 +2997,71 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/portal/missed-shifts?employeeId=X&daysBack=N
+  // Returns past published roster entries (up to daysBack days ago) that have no timesheet.
+  app.get("/api/portal/missed-shifts", async (req: Request, res: Response) => {
+    try {
+      const { employeeId, daysBack: daysBackRaw } = req.query;
+      if (!employeeId) return res.status(400).json({ error: "employeeId required" });
+
+      const daysBack = Math.min(parseInt((daysBackRaw as string) ?? "28", 10) || 28, 90);
+
+      // Date range: from (today - daysBack) to yesterday
+      const todayD = new Date();
+      const yesterday = new Date(todayD);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const startD = new Date(todayD);
+      startD.setDate(startD.getDate() - daysBack);
+
+      const toYMD = (d: Date) => d.toISOString().split("T")[0];
+      const startDate = toYMD(startD);
+      const endDate = toYMD(yesterday);
+
+      // 1. Fetch all rosters for employee in date range
+      const allRosters = await storage.getRosters({ employeeId: employeeId as string, startDate, endDate });
+
+      // 2. For each unique (storeId, weekStart) pair, check published status
+      const weekStartOf = (dateStr: string) => {
+        const d = new Date(dateStr + "T00:00:00");
+        const day = d.getDay(); // 0=Sun
+        const diff = day === 0 ? -6 : 1 - day;
+        d.setDate(d.getDate() + diff);
+        return d.toISOString().split("T")[0];
+      };
+
+      const storeWeekKeys = [...new Set(allRosters.map(r => `${r.storeId}|${weekStartOf(r.date)}`))];
+      const pubResults = await Promise.all(
+        storeWeekKeys.map(key => {
+          const [sid, ws] = key.split("|");
+          return storage.isRosterWeekPublished(sid, ws).then(pub => ({ key, pub }));
+        })
+      );
+      const publishedSet = new Set(pubResults.filter(r => r.pub).map(r => r.key));
+
+      // 3. Keep only published rosters
+      const publishedRosters = allRosters.filter(r =>
+        publishedSet.has(`${r.storeId}|${weekStartOf(r.date)}`)
+      );
+
+      // 4. Fetch existing timesheets for employee in range
+      const existingTs = await storage.getShiftTimesheets({ employeeId: employeeId as string, startDate, endDate });
+      const tsDateSet = new Set(existingTs.map(ts => ts.date));
+
+      // 5. Return rosters without a matching timesheet
+      const missed = publishedRosters.filter(r => !tsDateSet.has(r.date));
+      missed.sort((a, b) => a.date.localeCompare(b.date));
+
+      res.json(missed.map(r => ({
+        date: r.date,
+        shift: { id: r.id, storeId: r.storeId, startTime: r.startTime, endTime: r.endTime, date: r.date },
+        timesheet: null,
+      })));
+    } catch (err) {
+      console.error("Error fetching missed shifts:", err);
+      res.status(500).json({ error: "Failed to fetch missed shifts" });
+    }
+  });
+
   // GET /api/portal/timesheet?employeeId=X&date=YYYY-MM-DD
   app.get("/api/portal/timesheet", async (req: Request, res: Response) => {
     try {
