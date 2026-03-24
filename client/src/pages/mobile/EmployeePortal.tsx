@@ -54,7 +54,7 @@ import {
   Megaphone,
   Globe,
 } from "lucide-react";
-import type { Notice } from "@shared/schema";
+import type { Notice, ShiftTimesheet } from "@shared/schema";
 import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "@shared/payrollCycle";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -726,6 +726,39 @@ function HomeTab({ session }: { session: Session }) {
   });
   const missedShifts: DayData[] = missedData ?? [];
 
+  // Stores lookup for color dots
+  const { data: storeList = [] } = useQuery<StoreOption[]>({
+    queryKey: ["/api/portal/stores"],
+    queryFn: async () => {
+      const res = await fetch("/api/portal/stores", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch stores");
+      return res.json();
+    },
+    staleTime: 300_000,
+  });
+  const storeColorOf = (storeId: string): string => {
+    const name = storeList.find(s => s.id === storeId)?.name ?? "";
+    return name === "Sushi" ? "#16a34a" : name === "Sandwich" ? "#dc2626" : "#888";
+  };
+
+  // Submitted timesheets for the current open cycle (shown until payroll is processed)
+  const openCycleEnd = getPayrollCycleEnd(today);
+  const cycleTsQK = ["/api/portal/cycle-timesheets", session.id, openCycleStart];
+  const { data: cycleData } = useQuery<{ timesheets: ShiftTimesheet[]; payrollProcessed: boolean }>({
+    queryKey: cycleTsQK,
+    queryFn: async () => {
+      const params = new URLSearchParams({ employeeId: session.id, cycleStart: openCycleStart, cycleEnd: openCycleEnd });
+      const res = await fetch(`/api/portal/cycle-timesheets?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    staleTime: 0,
+  });
+  const cycleTimesheets: ShiftTimesheet[] = cycleData?.timesheets ?? [];
+  const payrollProcessed = cycleData?.payrollProcessed ?? false;
+  // Only show submitted timesheets when payroll not yet processed
+  const submittedTimesheets = payrollProcessed ? [] : cycleTimesheets;
+
   const todayShifts: TodayShiftItem[] = (todayData?.shifts ?? []).map(item => ({
     ...item,
     timesheet: localTimesheets[item.shift.storeId] ?? item.timesheet,
@@ -858,6 +891,47 @@ function HomeTab({ session }: { session: Session }) {
         </div>
       )}
 
+      {/* Submitted Timesheets — current cycle, hidden once payroll is processed */}
+      {submittedTimesheets.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="h-2 w-2 rounded-full bg-blue-500" />
+            <h3 className="font-semibold text-xs uppercase tracking-widest text-muted-foreground">
+              Submitted This Cycle
+            </h3>
+          </div>
+          <Card>
+            <CardContent className="p-0">
+              {submittedTimesheets.map((ts, idx) => {
+                const { abbr, num } = fmtDay(ts.date);
+                const hrs = calcHours(ts.actualStartTime, ts.actualEndTime).toFixed(1);
+                const st = STATUS_STYLE[ts.status] ?? STATUS_STYLE.PENDING;
+                const color = storeColorOf(ts.storeId);
+                return (
+                  <div
+                    key={ts.id}
+                    data-testid={`row-submitted-ts-${ts.id}`}
+                    className={`flex items-center gap-3 px-4 py-3.5 ${idx < submittedTimesheets.length - 1 ? "border-b border-border/40" : ""}`}
+                  >
+                    <div className="flex flex-col items-center w-10 shrink-0">
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{abbr}</span>
+                      <span className="text-lg font-bold leading-tight" style={{ color }}>{num}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm">{ts.actualStartTime} – {ts.actualEndTime}</p>
+                      <p className="text-xs text-muted-foreground">{hrs}h{ts.isUnscheduled ? " · Unscheduled" : ""}</p>
+                    </div>
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${st.bg} ${st.text}`}>
+                      {st.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Quick Actions */}
       <div>
         <h3 className="font-semibold text-xs uppercase tracking-widest text-muted-foreground mb-3">
@@ -923,6 +997,7 @@ function HomeTab({ session }: { session: Session }) {
           onClose={() => setMissedDrawerDay(null)}
           onSubmitted={() => {
             qc.invalidateQueries({ queryKey: weekQK });
+            qc.invalidateQueries({ queryKey: cycleTsQK });
           }}
         />
       )}

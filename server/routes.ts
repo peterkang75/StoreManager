@@ -3058,6 +3058,39 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/portal/cycle-timesheets?employeeId=X&cycleStart=YYYY-MM-DD&cycleEnd=YYYY-MM-DD
+  // Returns submitted shift timesheets for the given cycle period.
+  // Also returns payrollProcessed: true if a payroll record covers this cycle.
+  app.get("/api/portal/cycle-timesheets", async (req: Request, res: Response) => {
+    try {
+      const { employeeId, cycleStart, cycleEnd } = req.query;
+      if (!employeeId || !cycleStart || !cycleEnd) {
+        return res.status(400).json({ error: "employeeId, cycleStart, cycleEnd required" });
+      }
+
+      const [timesheets, payrolls] = await Promise.all([
+        storage.getShiftTimesheets({
+          employeeId: employeeId as string,
+          startDate: cycleStart as string,
+          endDate: cycleEnd as string,
+        }),
+        storage.getPayrolls({
+          employeeId: employeeId as string,
+          periodStart: cycleStart as string,
+          periodEnd: cycleEnd as string,
+        }),
+      ]);
+
+      // payroll is "processed" if any payroll record exists for this exact cycle
+      const payrollProcessed = payrolls.length > 0;
+
+      res.json({ timesheets, payrollProcessed });
+    } catch (err) {
+      console.error("Error fetching cycle timesheets:", err);
+      res.status(500).json({ error: "Failed to fetch cycle timesheets" });
+    }
+  });
+
   // GET /api/portal/timesheet?employeeId=X&date=YYYY-MM-DD
   app.get("/api/portal/timesheet", async (req: Request, res: Response) => {
     try {
