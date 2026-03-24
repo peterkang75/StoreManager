@@ -65,10 +65,6 @@ app.use((req, res, next) => {
   await registerRoutes(httpServer, app);
   await seedDatabaseIfEmpty();
 
-  // Auto-submit expired payroll cycle shifts on startup and every hour
-  setTimeout(() => autoSubmitExpiredCycleShifts().catch(e => console.error("[payroll-cycle]", e)), 3000);
-  setInterval(() => autoSubmitExpiredCycleShifts().catch(e => console.error("[payroll-cycle]", e)), 60 * 60 * 1000);
-
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";

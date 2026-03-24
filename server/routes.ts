@@ -3091,6 +3091,109 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/portal/history?employeeId=X
+  // Returns all payroll cycles (from ANCHOR to current cycle end) with timesheet + payroll status.
+  app.get("/api/portal/history", async (req: Request, res: Response) => {
+    try {
+      const { employeeId } = req.query;
+      if (!employeeId) return res.status(400).json({ error: "employeeId required" });
+
+      const today = new Date().toISOString().split("T")[0];
+      const currentCycleStart = getPayrollCycleStart(today);
+      const currentCycleEnd   = getPayrollCycleEnd(currentCycleStart);
+
+      // Build list of all cycles from anchor to current cycle end
+      const cycles: { cycleStart: string; cycleEnd: string }[] = [];
+      let cs = PAYROLL_CYCLE_ANCHOR;
+      while (cs <= currentCycleStart) {
+        const ce = getPayrollCycleEnd(cs);
+        cycles.push({ cycleStart: cs, cycleEnd: ce });
+        cs = shiftDate(ce, 1);
+      }
+
+      // Bulk-fetch all data from anchor to current cycle end
+      const [allRosters, allTimesheets, allPayrolls] = await Promise.all([
+        storage.getRosters({ employeeId: employeeId as string, startDate: PAYROLL_CYCLE_ANCHOR, endDate: currentCycleEnd }),
+        storage.getShiftTimesheets({ employeeId: employeeId as string, startDate: PAYROLL_CYCLE_ANCHOR, endDate: currentCycleEnd }),
+        storage.getPayrolls({ employeeId: employeeId as string }),
+      ]);
+
+      // Get published-week flags for each (storeId, weekStart) combination in rosters
+      const weekMonday = (dateStr: string) => {
+        const d = new Date(dateStr + "T00:00:00");
+        const dow = d.getDay();
+        const diff = dow === 0 ? -6 : 1 - dow;
+        d.setDate(d.getDate() + diff);
+        return d.toISOString().split("T")[0];
+      };
+      const storeWeekKeys = [...new Set(allRosters.map(r => `${r.storeId}|${weekMonday(r.date)}`))];
+      const pubResults = await Promise.all(
+        storeWeekKeys.map(async key => {
+          const [sid, ws] = key.split("|");
+          const pub = await storage.isRosterWeekPublished(sid, ws);
+          return { key, pub };
+        })
+      );
+      const publishedSet = new Set(pubResults.filter(r => r.pub).map(r => r.key));
+
+      // Index timesheets by date
+      const tsMap = new Map<string, typeof allTimesheets[0]>();
+      allTimesheets.forEach(ts => tsMap.set(ts.date, ts));
+
+      // Index published rosters by date
+      const rosterMap = new Map<string, typeof allRosters[0]>();
+      allRosters
+        .filter(r => publishedSet.has(`${r.storeId}|${weekMonday(r.date)}`))
+        .forEach(r => rosterMap.set(r.date, r));
+
+      // Index payrolls by period
+      const payrollMap = new Map<string, typeof allPayrolls[0]>();
+      allPayrolls.forEach(p => payrollMap.set(p.periodStart, p));
+
+      // Build result cycles (newest first)
+      const result = [...cycles].reverse().map(({ cycleStart, cycleEnd }) => {
+        const payroll = payrollMap.get(cycleStart) ??
+          allPayrolls.find(p => p.periodStart <= cycleStart && p.periodEnd >= cycleStart);
+
+        let cycleStatus: "PAID" | "APPROVED" | "PENDING";
+        if (payroll && payroll.isBankTransferDone) cycleStatus = "PAID";
+        else if (payroll) cycleStatus = "APPROVED";
+        else cycleStatus = "PENDING";
+
+        // Build per-day entries
+        const entries: Array<{
+          date: string;
+          shift: { storeId: string; startTime: string; endTime: string } | null;
+          timesheet: typeof allTimesheets[0] | null;
+        }> = [];
+
+        // Only include days up to yesterday (can't log today or future from history)
+        const lastDate = cycleEnd < today ? cycleEnd : shiftDate(today, -1);
+
+        let d = cycleStart;
+        while (d <= lastDate) {
+          const roster = rosterMap.get(d);
+          const ts = tsMap.get(d);
+          if (roster || ts) {
+            entries.push({
+              date: d,
+              shift: roster ? { storeId: roster.storeId, startTime: roster.startTime, endTime: roster.endTime } : null,
+              timesheet: ts ?? null,
+            });
+          }
+          d = shiftDate(d, 1);
+        }
+
+        return { cycleStart, cycleEnd, cycleStatus, payrollId: payroll?.id ?? null, entries };
+      }).filter(c => c.entries.length > 0 || c.cycleStatus !== "PENDING");
+
+      res.json(result);
+    } catch (err) {
+      console.error("Error fetching portal history:", err);
+      res.status(500).json({ error: "Failed to fetch history" });
+    }
+  });
+
   // GET /api/portal/timesheet?employeeId=X&date=YYYY-MM-DD
   app.get("/api/portal/timesheet", async (req: Request, res: Response) => {
     try {

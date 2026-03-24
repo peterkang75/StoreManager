@@ -53,13 +53,15 @@ import {
   BadgeCheck,
   Megaphone,
   Globe,
+  ListChecks,
+  Banknote,
 } from "lucide-react";
 import type { Notice, ShiftTimesheet } from "@shared/schema";
 import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "@shared/payrollCycle";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type Tab = "home" | "schedule" | "settings";
+type Tab = "home" | "schedule" | "timesheets" | "settings";
 
 interface Session { id: string; nickname: string | null; firstName: string; selfieUrl?: string | null }
 
@@ -674,7 +676,6 @@ function HomeTab({ session }: { session: Session }) {
   const [localTimesheets, setLocalTimesheets] = useState<Record<string, TimesheetInfo>>({});
   const [localUnscheduled, setLocalUnscheduled] = useState<UnscheduledTimesheetItem[]>([]);
   const [unscheduledDrawerOpen, setUnscheduledDrawerOpen] = useState(false);
-  const [missedDrawerDay, setMissedDrawerDay] = useState<DayData | null>(null);
   const qc = useQueryClient();
   const displayName = session.nickname || session.firstName;
 
@@ -707,57 +708,6 @@ function HomeTab({ session }: { session: Session }) {
     enabled: true,
     staleTime: 120_000,
   });
-
-  // Fetch missed (unsubmitted) shifts within the CURRENT OPEN payroll cycle
-  const openCycleStart = getPayrollCycleStart(today);
-  const yesterday      = shiftDate(today, -1);
-  const missedQK = ["/api/portal/missed-shifts", session.id, openCycleStart];
-  const weekQK = missedQK; // alias used by missedDrawerDay onSubmitted
-  const { data: missedData } = useQuery<DayData[]>({
-    queryKey: missedQK,
-    queryFn: async () => {
-      const params = new URLSearchParams({ employeeId: session.id, startDate: openCycleStart, endDate: yesterday });
-      const res = await fetch(`/api/portal/missed-shifts?${params}`, { credentials: "include" });
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    },
-    staleTime: 0,
-    enabled: yesterday >= openCycleStart, // only fetch if there are past days in cycle
-  });
-  const missedShifts: DayData[] = missedData ?? [];
-
-  // Stores lookup for color dots
-  const { data: storeList = [] } = useQuery<StoreOption[]>({
-    queryKey: ["/api/portal/stores"],
-    queryFn: async () => {
-      const res = await fetch("/api/portal/stores", { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch stores");
-      return res.json();
-    },
-    staleTime: 300_000,
-  });
-  const storeColorOf = (storeId: string): string => {
-    const name = storeList.find(s => s.id === storeId)?.name ?? "";
-    return name === "Sushi" ? "#16a34a" : name === "Sandwich" ? "#dc2626" : "#888";
-  };
-
-  // Submitted timesheets for the current open cycle (shown until payroll is processed)
-  const openCycleEnd = getPayrollCycleEnd(today);
-  const cycleTsQK = ["/api/portal/cycle-timesheets", session.id, openCycleStart];
-  const { data: cycleData } = useQuery<{ timesheets: ShiftTimesheet[]; payrollProcessed: boolean }>({
-    queryKey: cycleTsQK,
-    queryFn: async () => {
-      const params = new URLSearchParams({ employeeId: session.id, cycleStart: openCycleStart, cycleEnd: openCycleEnd });
-      const res = await fetch(`/api/portal/cycle-timesheets?${params}`, { credentials: "include" });
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    },
-    staleTime: 0,
-  });
-  const cycleTimesheets: ShiftTimesheet[] = cycleData?.timesheets ?? [];
-  const payrollProcessed = cycleData?.payrollProcessed ?? false;
-  // Only show submitted timesheets when payroll not yet processed
-  const submittedTimesheets = payrollProcessed ? [] : cycleTimesheets;
 
   const todayShifts: TodayShiftItem[] = (todayData?.shifts ?? []).map(item => ({
     ...item,
@@ -852,86 +802,6 @@ function HomeTab({ session }: { session: Session }) {
         )}
       </div>
 
-      {/* Missed Shifts — past days this week with a shift but no timesheet */}
-      {missedShifts.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <div className="h-2 w-2 rounded-full bg-amber-500" />
-            <h3 className="font-semibold text-xs uppercase tracking-widest text-muted-foreground">
-              Unsubmitted Shifts
-            </h3>
-          </div>
-          <Card>
-            <CardContent className="p-0">
-              {missedShifts.map((day, idx) => {
-                const { abbr, num } = fmtDay(day.date);
-                const hrs = calcHours(day.shift!.startTime, day.shift!.endTime).toFixed(1);
-                return (
-                  <button
-                    key={day.date}
-                    type="button"
-                    data-testid={`button-log-missed-${day.date}`}
-                    onClick={() => setMissedDrawerDay(day)}
-                    className={`w-full flex items-center gap-3 px-4 py-3.5 hover-elevate active-elevate-2 text-left ${idx < missedShifts.length - 1 ? "border-b border-border/40" : ""}`}
-                  >
-                    <div className="flex flex-col items-center w-10 shrink-0">
-                      <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{abbr}</span>
-                      <span className="text-lg font-bold leading-tight text-amber-500">{num}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm">{day.shift!.startTime} – {day.shift!.endTime}</p>
-                      <p className="text-xs text-muted-foreground">{hrs}h · Tap to submit</p>
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                  </button>
-                );
-              })}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Submitted Timesheets — current cycle, hidden once payroll is processed */}
-      {submittedTimesheets.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <div className="h-2 w-2 rounded-full bg-blue-500" />
-            <h3 className="font-semibold text-xs uppercase tracking-widest text-muted-foreground">
-              Submitted This Cycle
-            </h3>
-          </div>
-          <Card>
-            <CardContent className="p-0">
-              {submittedTimesheets.map((ts, idx) => {
-                const { abbr, num } = fmtDay(ts.date);
-                const hrs = calcHours(ts.actualStartTime, ts.actualEndTime).toFixed(1);
-                const st = STATUS_STYLE[ts.status] ?? STATUS_STYLE.PENDING;
-                const color = storeColorOf(ts.storeId);
-                return (
-                  <div
-                    key={ts.id}
-                    data-testid={`row-submitted-ts-${ts.id}`}
-                    className={`flex items-center gap-3 px-4 py-3.5 ${idx < submittedTimesheets.length - 1 ? "border-b border-border/40" : ""}`}
-                  >
-                    <div className="flex flex-col items-center w-10 shrink-0">
-                      <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{abbr}</span>
-                      <span className="text-lg font-bold leading-tight" style={{ color }}>{num}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm">{ts.actualStartTime} – {ts.actualEndTime}</p>
-                      <p className="text-xs text-muted-foreground">{hrs}h{ts.isUnscheduled ? " · Unscheduled" : ""}</p>
-                    </div>
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${st.bg} ${st.text}`}>
-                      {st.label}
-                    </span>
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
       {/* Quick Actions */}
       <div>
         <h3 className="font-semibold text-xs uppercase tracking-widest text-muted-foreground mb-3">
@@ -987,19 +857,6 @@ function HomeTab({ session }: { session: Session }) {
             ))}
           </div>
         </div>
-      )}
-
-      {missedDrawerDay && (
-        <PastShiftTimesheetDrawer
-          open={!!missedDrawerDay}
-          employeeId={session.id}
-          day={missedDrawerDay}
-          onClose={() => setMissedDrawerDay(null)}
-          onSubmitted={() => {
-            qc.invalidateQueries({ queryKey: weekQK });
-            qc.invalidateQueries({ queryKey: cycleTsQK });
-          }}
-        />
       )}
 
       <UnscheduledShiftDrawer
@@ -1296,6 +1153,226 @@ function ScheduleTab({ session }: { session: Session }) {
             </div>
           </CardContent>
         </Card>
+      )}
+    </div>
+  );
+}
+
+// ── Tab: Timesheets ────────────────────────────────────────────────────────────
+
+type HistoryEntry = {
+  date: string;
+  shift: { storeId: string; startTime: string; endTime: string } | null;
+  timesheet: ShiftTimesheet | null;
+};
+type HistoryCycle = {
+  cycleStart: string;
+  cycleEnd: string;
+  cycleStatus: "PAID" | "APPROVED" | "PENDING";
+  payrollId: string | null;
+  entries: HistoryEntry[];
+};
+
+const CYCLE_STATUS_STYLE = {
+  PENDING:  { bg: "bg-amber-100 dark:bg-amber-950",  text: "text-amber-800 dark:text-amber-300",  label: "Pending" },
+  APPROVED: { bg: "bg-blue-100 dark:bg-blue-950",    text: "text-blue-800 dark:text-blue-300",    label: "Approved" },
+  PAID:     { bg: "bg-green-100 dark:bg-green-950",  text: "text-green-800 dark:text-green-300",  label: "Paid" },
+};
+
+function fmtCycleRange(start: string, end: string): string {
+  const fmt = (d: string) => new Date(d + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+  return `${fmt(start)} – ${fmt(end)}`;
+}
+
+function TimesheetsTab({ session }: { session: Session }) {
+  const today = getTodayStr();
+  const qc = useQueryClient();
+  const [drawerDay, setDrawerDay] = useState<DayData | null>(null);
+
+  const historyQK = ["/api/portal/history", session.id];
+  const { data: cycles = [], isLoading } = useQuery<HistoryCycle[]>({
+    queryKey: historyQK,
+    queryFn: async () => {
+      const res = await fetch(`/api/portal/history?employeeId=${session.id}`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    staleTime: 0,
+  });
+
+  // Stores for color lookup
+  const { data: storeList = [] } = useQuery<StoreOption[]>({
+    queryKey: ["/api/portal/stores"],
+    queryFn: async () => {
+      const res = await fetch("/api/portal/stores", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch stores");
+      return res.json();
+    },
+    staleTime: 300_000,
+  });
+  const storeColorOf = (storeId: string): string => {
+    const name = storeList.find(s => s.id === storeId)?.name ?? "";
+    return name === "Sushi" ? "#16a34a" : name === "Sandwich" ? "#dc2626" : "#888";
+  };
+
+  return (
+    <div className="flex flex-col gap-5 px-4 pt-5 pb-8">
+      <div>
+        <h2 className="text-xl font-bold">My Timesheets</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">History by pay cycle</p>
+      </div>
+
+      {isLoading && (
+        <div className="flex flex-col gap-3">
+          {[0, 1].map(i => (
+            <Card key={i}><CardContent className="py-4 px-4">
+              <div className="h-4 bg-muted rounded animate-pulse w-2/3 mb-2" />
+              <div className="h-3 bg-muted rounded animate-pulse w-1/3" />
+            </CardContent></Card>
+          ))}
+        </div>
+      )}
+
+      {!isLoading && cycles.length === 0 && (
+        <Card><CardContent className="py-8 flex flex-col items-center gap-2 text-center">
+          <ListChecks className="h-8 w-8 text-muted-foreground/40" />
+          <p className="text-sm text-muted-foreground">No timesheet history yet.</p>
+        </CardContent></Card>
+      )}
+
+      {cycles.map(cycle => {
+        const ss = CYCLE_STATUS_STYLE[cycle.cycleStatus];
+        const rangeStr = fmtCycleRange(cycle.cycleStart, cycle.cycleEnd);
+
+        // PAID: show compact summary only
+        if (cycle.cycleStatus === "PAID") {
+          return (
+            <Card key={cycle.cycleStart} data-testid={`card-cycle-paid-${cycle.cycleStart}`}>
+              <CardContent className="px-4 py-4">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <Banknote className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+                    <p className="font-semibold text-sm">{rangeStr}</p>
+                  </div>
+                  <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${ss.bg} ${ss.text}`}>
+                    {ss.label}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Payroll for this period has been finalized and paid.
+                </p>
+              </CardContent>
+            </Card>
+          );
+        }
+
+        // PENDING / APPROVED: show per-day entries
+        const canSubmit = cycle.cycleStatus === "PENDING";
+        const totalShifts = cycle.entries.filter(e => e.shift).length;
+        const submitted = cycle.entries.filter(e => e.timesheet).length;
+
+        return (
+          <Card key={cycle.cycleStart} data-testid={`card-cycle-${cycle.cycleStart}`}>
+            <CardContent className="p-0">
+              {/* Cycle header */}
+              <div className="flex items-center justify-between gap-2 flex-wrap px-4 py-3.5 border-b border-border/50">
+                <div>
+                  <p className="font-semibold text-sm">{rangeStr}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {submitted}/{totalShifts} submitted
+                  </p>
+                </div>
+                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full shrink-0 ${ss.bg} ${ss.text}`}>
+                  {ss.label}
+                </span>
+              </div>
+
+              {/* Per-day entries */}
+              <div className="divide-y divide-border/40">
+                {cycle.entries.map(entry => {
+                  const { abbr, num } = fmtDay(entry.date);
+                  const color = entry.shift ? storeColorOf(entry.shift.storeId) : "#888";
+                  const ts = entry.timesheet;
+                  const tsSt = ts ? (STATUS_STYLE[ts.status] ?? STATUS_STYLE.PENDING) : null;
+                  const unsubmitted = canSubmit && !!entry.shift && !ts && entry.date < today;
+
+                  const rowContent = (
+                    <>
+                      {/* Date */}
+                      <div className="flex flex-col items-center w-9 shrink-0">
+                        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{abbr}</span>
+                        <span className="text-base font-bold leading-tight" style={{ color }}>{num}</span>
+                      </div>
+
+                      {/* Shift info */}
+                      <div className="flex-1 min-w-0">
+                        {entry.shift && (
+                          <p className="text-xs text-muted-foreground">
+                            Rostered: {entry.shift.startTime} – {entry.shift.endTime}
+                          </p>
+                        )}
+                        {ts ? (
+                          <p className="font-semibold text-sm">{ts.actualStartTime} – {ts.actualEndTime}
+                            <span className="text-muted-foreground font-normal ml-1">
+                              ({calcHours(ts.actualStartTime, ts.actualEndTime).toFixed(1)}h)
+                            </span>
+                          </p>
+                        ) : (
+                          <p className="text-sm font-medium text-muted-foreground">
+                            {unsubmitted ? "Tap to submit" : entry.shift ? "Not submitted" : "Unscheduled"}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Status */}
+                      {tsSt && (
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${tsSt.bg} ${tsSt.text}`}>
+                          {tsSt.label}
+                        </span>
+                      )}
+                      {unsubmitted && <ChevronRight className="h-4 w-4 text-amber-500 shrink-0" />}
+                    </>
+                  );
+
+                  if (unsubmitted) {
+                    const dayData: DayData = {
+                      date: entry.date,
+                      shift: { id: entry.date, storeId: entry.shift!.storeId, startTime: entry.shift!.startTime, endTime: entry.shift!.endTime, date: entry.date },
+                      timesheet: null,
+                    };
+                    return (
+                      <button
+                        key={entry.date}
+                        type="button"
+                        data-testid={`button-submit-entry-${entry.date}`}
+                        className="w-full flex items-center gap-3 px-4 py-3 hover-elevate active-elevate-2 text-left"
+                        onClick={() => setDrawerDay(dayData)}
+                      >
+                        {rowContent}
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <div key={entry.date} className="flex items-center gap-3 px-4 py-3">
+                      {rowContent}
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
+
+      {drawerDay && (
+        <PastShiftTimesheetDrawer
+          open={!!drawerDay}
+          employeeId={session.id}
+          day={drawerDay}
+          onClose={() => setDrawerDay(null)}
+          onSubmitted={() => qc.invalidateQueries({ queryKey: historyQK })}
+        />
       )}
     </div>
   );
@@ -1960,9 +2037,10 @@ function SettingsTab({ session, onLogout, onEditProfile }: { session: Session; o
 // ── Bottom Navigation Bar ─────────────────────────────────────────────────────
 
 const NAV_ITEMS: { tab: Tab; label: string; Icon: typeof Home }[] = [
-  { tab: "home",     label: "Home",     Icon: Home },
-  { tab: "schedule", label: "Schedule", Icon: CalendarDays },
-  { tab: "settings", label: "Settings", Icon: Settings },
+  { tab: "home",       label: "Home",       Icon: Home },
+  { tab: "schedule",   label: "Schedule",   Icon: CalendarDays },
+  { tab: "timesheets", label: "Timesheets", Icon: ListChecks },
+  { tab: "settings",   label: "Settings",   Icon: Settings },
 ];
 
 function BottomNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
@@ -2014,9 +2092,10 @@ function AppShell({ session, onLogout }: { session: Session; onLogout: () => voi
     <div className="flex-1 flex flex-col min-h-0">
       {/* Scrollable content area — fills available space between header and bottom nav */}
       <div className="flex-1 overflow-y-auto">
-        {activeTab === "home"     && <HomeTab session={session} />}
-        {activeTab === "schedule" && <ScheduleTab session={session} />}
-        {activeTab === "settings" && (
+        {activeTab === "home"       && <HomeTab session={session} />}
+        {activeTab === "schedule"   && <ScheduleTab session={session} />}
+        {activeTab === "timesheets" && <TimesheetsTab session={session} />}
+        {activeTab === "settings"   && (
           <SettingsTab
             session={session}
             onLogout={onLogout}
