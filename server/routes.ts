@@ -1586,8 +1586,44 @@ export async function registerRoutes(
       if (!Array.isArray(rows)) {
         return res.status(400).json({ error: "rows array is required" });
       }
+
+      // ── Intercompany guard: build a set of (employeeId, storeId) pairs that must
+      // be zeroed out.  A pair qualifies when the employee has a fixed salary AND
+      // the store being saved is NOT the primary (fixed-amount) store.
+      // This prevents accidentally saving cash/gross/bank amounts for secondary stores.
+      const uniqueEmpIds = [...new Set(rows.map((r: any) => r.employeeId).filter(Boolean))];
+      // Map: employeeId → Set of storeIds that are the PRIMARY store (have fixedAmount > 0)
+      const primaryStoreByEmp = new Map<string, Set<string>>();
+      for (const empId of uniqueEmpIds) {
+        const assignments = await storage.getEmployeeStoreAssignments({ employeeId: empId });
+        const primaryStores = new Set(
+          assignments
+            .filter(a => parseFloat(String(a.fixedAmount ?? "0") || "0") > 0)
+            .map(a => a.storeId)
+        );
+        primaryStoreByEmp.set(empId, primaryStores);
+      }
+      // Helper: returns true if this row is an intercompany entry that must be zeroed
+      const isIntercompanyRow = (row: any): boolean => {
+        const primaries = primaryStoreByEmp.get(row.employeeId);
+        if (!primaries || primaries.size === 0) return false; // no fixed salary, not intercompany
+        return !primaries.has(row.storeId); // fixed salary employee at a non-primary store
+      };
+      // Zero-out enforcer for intercompany rows
+      const enforceIntercompanyZero = (row: any) => ({
+        ...row,
+        calculatedAmount: 0,
+        grossAmount: 0,
+        cashAmount: 0,
+        bankDepositAmount: 0,
+        taxAmount: 0,
+        superAmount: 0,
+        totalWithAdjustment: row.totalWithAdjustment, // keep the intercompany transfer amount
+      });
+
       const results = [];
-      for (const row of rows) {
+      for (const rawRow of rows) {
+        const row = isIntercompanyRow(rawRow) ? enforceIntercompanyZero(rawRow) : rawRow;
         if (row.id) {
           const { id, ...updateData } = row;
           const updated = await storage.updatePayroll(id, updateData);
