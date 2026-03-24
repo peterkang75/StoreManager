@@ -153,7 +153,8 @@ function storeColor(n: string): string {
 
 function groupByEmployee(timesheets: EnrichedTimesheet[]): EmployeeGroup[] {
   const map = new Map<string, EmployeeGroup>();
-  timesheets.forEach(ts => {
+  // REJECTED are tombstones — exclude them from all list calculations
+  timesheets.filter(ts => ts.status !== "REJECTED").forEach(ts => {
     if (!map.has(ts.employeeId)) {
       map.set(ts.employeeId, {
         employeeId: ts.employeeId,

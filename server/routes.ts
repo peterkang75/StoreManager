@@ -3261,7 +3261,9 @@ export async function registerRoutes(
   app.get("/api/admin/approvals", async (req: Request, res: Response) => {
     try {
       const statusFilter = (req.query.status as string) || "PENDING";
-      const timesheets = await storage.getShiftTimesheets(statusFilter !== "ALL" ? { status: statusFilter } : {});
+      // REJECTED is an internal tombstone — never surface it in the approvals list
+      const rawTimesheets = await storage.getShiftTimesheets(statusFilter !== "ALL" ? { status: statusFilter } : {});
+      const timesheets = rawTimesheets.filter((ts: any) => ts.status !== "REJECTED");
       const [allEmployees, allStores, allShifts] = await Promise.all([
         storage.getEmployees(),
         storage.getStores(),
