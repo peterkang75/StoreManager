@@ -14,7 +14,10 @@ export const PAYROLL_CYCLE_ANCHOR = "2026-03-09"; // Monday — first cycle star
 export const PAYROLL_CYCLE_DAYS  = 14;
 
 function toYMD(d: Date): string {
-  return d.toISOString().split("T")[0];
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 /** Start date (Monday) of the payroll cycle that contains dateStr. */
