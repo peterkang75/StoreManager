@@ -6,10 +6,9 @@ const balanceDisplayOrder = ["Sushi", "Sandwich", "Trading", "HO"];
 
 interface CashBalancesProps {
   stores: Store[];
-  draftCashByStoreName?: Record<string, number>;
 }
 
-export function CashBalances({ stores, draftCashByStoreName }: CashBalancesProps) {
+export function CashBalances({ stores }: CashBalancesProps) {
   const { data: serverBalances } = useQuery<Record<string, number>>({
     queryKey: ["/api/finance/balances"],
   });
@@ -21,13 +20,11 @@ export function CashBalances({ stores, draftCashByStoreName }: CashBalancesProps
       if (!serverBalances) return null;
       const store = internalStores.find((s) => s.name === name);
       if (!store) return null;
-      const serverCash = serverBalances[name];
-      if (serverCash === undefined) return null;
-      const draftCash = draftCashByStoreName?.[name] ?? 0;
-      const displayCash = serverCash - draftCash;
-      return { name, code: store.code, displayCash, hasDraft: draftCash > 0 };
+      const balance = serverBalances[name];
+      if (balance === undefined) return null;
+      return { name, code: store.code, balance };
     })
-    .filter(Boolean) as { name: string; code: string; displayCash: number; hasDraft: boolean }[];
+    .filter(Boolean) as { name: string; code: string; balance: number }[];
 
   if (balances.length === 0) return null;
 
@@ -38,15 +35,12 @@ export function CashBalances({ stores, draftCashByStoreName }: CashBalancesProps
           <CardContent className="px-3 py-2">
             <span className="text-xs font-medium text-muted-foreground" data-testid={`text-balance-name-${b.code}`}>
               {b.name}
-              {b.hasDraft && (
-                <span className="ml-1 text-[10px] text-amber-600 dark:text-amber-400">(draft)</span>
-              )}
             </span>
             <span
-              className={`block text-sm font-bold font-mono ${b.displayCash < 0 ? "text-red-600 dark:text-red-400" : ""}`}
+              className={`block text-sm font-bold font-mono ${b.balance < 0 ? "text-red-600 dark:text-red-400" : ""}`}
               data-testid={`text-balance-cash-${b.code}`}
             >
-              ${b.displayCash.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ${b.balance.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </CardContent>
         </Card>
