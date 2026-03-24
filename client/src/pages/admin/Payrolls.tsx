@@ -221,20 +221,7 @@ export function AdminPayrolls() {
   const [payrollDrafts, setPayrollDrafts] = useState<Record<string, Record<string, PayrollRow>>>(() => {
     try {
       const stored = sessionStorage.getItem(DRAFT_STORAGE_KEY);
-      if (!stored) return {};
-      const all = JSON.parse(stored) as Record<string, Record<string, PayrollRow>>;
-      // Drop any draft whose pay period has already ended — these are definitively stale.
-      // ctxKey format: storeId|periodStart|periodEnd
-      const today = new Date().toISOString().split("T")[0];
-      const cleaned: Record<string, Record<string, PayrollRow>> = {};
-      let hadExpired = false;
-      for (const [ctxKey, drafts] of Object.entries(all)) {
-        const periodEnd = ctxKey.split("|")[2];
-        if (periodEnd && periodEnd < today) { hadExpired = true; continue; }
-        cleaned[ctxKey] = drafts;
-      }
-      if (hadExpired) sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(cleaned));
-      return cleaned;
+      return stored ? JSON.parse(stored) : {};
     } catch { return {}; }
   });
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>("");
@@ -256,20 +243,6 @@ export function AdminPayrolls() {
   const { data: cashBalances } = useQuery<Record<string, number>>({
     queryKey: ["/api/finance/balances"],
   });
-
-  // On mount: purge any in-memory expired drafts (periodEnd < today).
-  // This catches stale drafts that were already loaded into state before the TTL fix was deployed.
-  useEffect(() => {
-    const today = new Date().toISOString().split("T")[0];
-    setPayrollDrafts(prev => {
-      const expired = Object.keys(prev).filter(k => { const pe = k.split("|")[2]; return pe && pe < today; });
-      if (expired.length === 0) return prev;
-      const cleaned = { ...prev };
-      expired.forEach(k => delete cleaned[k]);
-      try { sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(cleaned)); } catch {}
-      return cleaned;
-    });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync drafts to sessionStorage whenever they change
   useEffect(() => {
