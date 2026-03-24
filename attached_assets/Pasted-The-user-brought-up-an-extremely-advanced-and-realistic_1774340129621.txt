@@ -1,0 +1,25 @@
+The user brought up an extremely advanced and realistic payroll scenario: "Dual Role" vs "Apportioned" employees. 
+
+- **Karma (Apportioned):** Has a Fixed salary at Sandwich, and NO Rate at Sushi. Her work at Sushi is covered by the Sandwich fixed salary, so it creates an Intercompany Transfer.
+- **Peter (Dual Role):** Has a Fixed salary at HO ($3400). BUT he also has a specific Hourly Rate of $30 set at Sushi. His work at Sushi is NOT an intercompany transfer; he should be paid directly hourly at Sushi on top of his HO fixed salary.
+
+Currently, the system incorrectly groups Peter into the Intercompany Transfer logic for Sushi just because he has a totalFixed > 0 globally.
+
+Please refine the logic in the Payroll generation (both backend mapping and frontend UI) to support this:
+
+### Payroll Row Logic for a specific `currentStore`:
+
+1. **Direct Fixed Pay (e.g., Peter at HO, Karma at Sandwich):**
+   - Condition: `currentAssignment.fixedAmount > 0`
+   - Action: Standard direct payout. `Calculated = currentAssignment.fixedAmount`. No Intercompany UI.
+
+2. **Direct Hourly Pay (Dual Role Override - e.g., Peter at Sushi):**
+   - Condition: `currentAssignment.fixedAmount == 0` AND `currentAssignment.rate > 0`
+   - Action: Standard direct payout. Calculate purely by `hours * currentAssignment.rate`. 
+   - **CRITICAL:** Completely IGNORE the fact that he might have `totalFixed > 0` elsewhere. DO NOT flag this as an Intercompany Transfer. Show normal payment inputs and results.
+
+3. **Intercompany Apportionment (e.g., Karma at Sushi):**
+   - Condition: `currentAssignment.fixedAmount == 0` AND (`currentAssignment.rate == 0` or null) AND `totalEmployeeFixed > 0`
+   - Action: THIS is the true Intercompany Transfer. Show the blue badge, hide inputs, and calculate the apportioned debt owed to the primary store.
+
+Refactor the `buildPayrollRow` (or equivalent data prep function) and the frontend component to strictly follow these 3 distinct rules based on the `currentAssignment`'s specific Rate and Fixed values.

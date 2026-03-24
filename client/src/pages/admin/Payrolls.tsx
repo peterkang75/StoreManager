@@ -158,6 +158,8 @@ interface PayrollRow {
   isIntercompany: boolean;
   intercompanyAmount: number;  // apportioned share of the fixed salary this store owes
   totalAllStoreHours: number;  // for display (ratio denominator)
+  // Dual-role: employee has a global fixed salary but is paid hourly at THIS store
+  isDualRole: boolean;
 }
 
 interface ApprovedShift {
@@ -321,27 +323,33 @@ export function AdminPayrolls() {
 
   // Build a single PayrollRow from API data + hours maps
   const buildPayrollRow = useCallback((employee: any, payroll: any | null): PayrollRow => {
-    const empRate = parseFloat(employee.rate || "0");
     const empIsCover = !!employee.isCover;
     const currentHours = approvedHoursMap[employee.id] ?? 0;
     const totalHours = totalAllStoreHoursMap[employee.id] ?? 0;
 
-    // Primary store = the store whose assignment has fixedAmount > 0.
-    // Secondary store = any other store the fixed-salary employee works at.
-    // totalFixed is looked up across ALL store assignments, so secondary stores
-    // can still detect the full fixed salary even though their assignment has 0.
-    const isPrimaryStore = !!employee.isPrimaryStore;
-    const totalFixed = (employee.totalEmployeeFixed as number) || parseFloat(employee.fixedAmount || "0");
+    // ── Three mutually-exclusive payment modes ──────────────────────────────
+    // 1. Direct Fixed Pay   : this store's assignment has fixedAmount > 0
+    // 2. Dual Role Hourly   : this store's assignment has rate > 0 (but no fixed)
+    //                         → paid directly by hours×rate; ignore global fixed
+    // 3. Intercompany       : no local rate/fixed, but employee has totalFixed > 0
+    //                         → apportioned debt owed to the primary store
+    const isPrimaryStore     = !!employee.isPrimaryStore;
+    const currentStoreRate   = (employee.currentStoreRate as number) ?? 0;
+    const totalFixed         = (employee.totalEmployeeFixed as number) || parseFloat(employee.fixedAmount || "0");
+    const isDualRole         = !isPrimaryStore && currentStoreRate > 0;
 
-    // Secondary-store intercompany: not the primary payer, is a fixed-salary employee,
-    // AND actually worked hours here this period (avoids badge when nobody was at this store).
-    const isIntercompany = !isPrimaryStore && totalFixed > 0 && currentHours > 0;
+    // Secondary-store intercompany: NOT primary, NO local rate, IS fixed-salary overall,
+    // AND actually worked hours here this period.
+    const isIntercompany = !isPrimaryStore && !isDualRole && totalFixed > 0 && currentHours > 0;
     const intercompanyAmount = isIntercompany && totalHours > 0
       ? Math.round(totalFixed * (currentHours / totalHours) * 100) / 100
       : 0;
 
-    // For primary store, the fixed amount applies regardless of hours worked here.
-    // For secondary (intercompany) rows, fixedAmount is 0 (they do not pay directly).
+    // Effective rate/fixed for this row:
+    // – Primary:    fixedAmount = totalFixed, rate = employee rate (may be 0)
+    // – Dual Role:  fixedAmount = 0, rate = currentStoreRate (hourly only)
+    // – Intercompany: both 0 (no direct payment)
+    const empRate       = isDualRole ? currentStoreRate : parseFloat(employee.rate || "0");
     const effectiveFixed = isIntercompany ? 0 : (isPrimaryStore ? totalFixed : 0);
 
     if (payroll) {
@@ -366,6 +374,7 @@ export function AdminPayrolls() {
         taxOverridden: false,
         isCover: empIsCover,
         isIntercompany,
+        isDualRole,
         intercompanyAmount,
         totalAllStoreHours: totalHours,
       };
@@ -392,6 +401,7 @@ export function AdminPayrolls() {
       taxOverridden: false,
       isCover: empIsCover,
       isIntercompany,
+      isDualRole,
       intercompanyAmount,
       totalAllStoreHours: totalHours,
     };
@@ -851,6 +861,9 @@ export function AdminPayrolls() {
                                   {row.isIntercompany && (
                                     <ArrowRightLeft className="h-3 w-3 text-blue-500 flex-shrink-0" data-testid={`icon-intercompany-${row.employeeId}`} />
                                   )}
+                                  {row.isDualRole && (
+                                    <span className="text-[10px] font-medium text-purple-600 dark:text-purple-400 flex-shrink-0" data-testid={`badge-dualrole-${row.employeeId}`}>Dual</span>
+                                  )}
                                 </div>
                                 <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                                   {row.isIntercompany ? (
@@ -883,6 +896,8 @@ export function AdminPayrolls() {
                             {selectedRow.employeeName}
                             {selectedRow.isIntercompany
                               ? <Badge className="bg-blue-500 text-white text-xs">Intercompany Transfer</Badge>
+                              : selectedRow.isDualRole
+                              ? <Badge className="bg-purple-500 text-white text-xs">Dual Role</Badge>
                               : selectedRow.fixedAmount > 0 && <Badge variant="secondary" className="text-xs">Fixed</Badge>
                             }
                           </CardTitle>
@@ -930,6 +945,19 @@ export function AdminPayrolls() {
                             <p className="text-xs text-muted-foreground" data-testid={`text-intercompany-note-${selectedRow.employeeId}`}>
                               Note: The Cash/Bank split for this intercompany transfer will be handled on the main Dashboard after you generate this payroll.
                             </p>
+                          )}
+
+                          {/* Dual Role info — employee has global fixed salary but is paid hourly at this store */}
+                          {selectedRow.isDualRole && (
+                            <div className="rounded-md border border-purple-400/40 bg-purple-400/8 px-4 py-3 space-y-1" data-testid={`banner-dualrole-${selectedRow.employeeId}`}>
+                              <div className="flex items-center gap-2">
+                                <User className="h-4 w-4 text-purple-500 shrink-0" />
+                                <span className="text-sm font-semibold text-purple-700 dark:text-purple-400">Dual Role — Direct Hourly Pay</span>
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                이 직원은 다른 매장에 고정급이 있지만, 이 매장에서는 별도의 시급 계약으로 직접 지급됩니다. 인터컴퍼니 정산 대상이 아닙니다.
+                              </p>
+                            </div>
                           )}
 
                           <div className="space-y-1">

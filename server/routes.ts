@@ -1226,6 +1226,7 @@ export async function registerRoutes(
 
       const rows = Array.from(empMap.values()).map(({ employee, assignmentRate, assignmentFixed }) => {
         const currentStoreFixed = parseFloat(String(assignmentFixed ?? "0") || "0");
+        const currentStoreRate  = parseFloat(String(assignmentRate  ?? "0") || "0");
         const totalFixed = empTotalFixedMap.get(employee.id) ?? 0;
         const isPrimaryStore = currentStoreFixed > 0;
         return {
@@ -1233,11 +1234,14 @@ export async function registerRoutes(
             ...employee,
             rate: assignmentRate || employee.rate,
             fixedAmount: assignmentFixed || employee.fixedAmount,
-            // isPrimaryStore: true  = this store has the fixedAmount on its assignment (primary payer)
-            // isPrimaryStore: false = this store is a secondary beneficiary (intercompany)
+            // isPrimaryStore: true  = this store has fixedAmount on its assignment (primary payer)
+            // isPrimaryStore: false = secondary store
             isPrimaryStore,
-            // totalEmployeeFixed: the actual fixed salary amount regardless of which store we're viewing
+            // totalEmployeeFixed: max fixedAmount across all assignments (for intercompany calc)
             totalEmployeeFixed: totalFixed,
+            // currentStoreRate: the assignment-specific rate for THIS store.
+            // > 0 means "Dual Role" — paid directly hourly here, NOT intercompany.
+            currentStoreRate,
           },
           payroll: empPayrollMap.get(employee.id) || null,
         };
@@ -1644,10 +1648,28 @@ export async function registerRoutes(
             await storage.updateIntercompanySettlement(old.id, { status: "CANCELLED" });
           }
 
-          // Create a settlement for each OTHER store that benefited from the employee
+          // Load all store assignments for this employee once (for dual-role detection)
+          const allAssignments = await storage.getEmployeeStoreAssignments({ employeeId });
+          // Build a set of storeIds where the employee has a direct hourly rate (Dual Role).
+          // Dual Role = secondary store assignment that has rate > 0 but no fixedAmount.
+          // These stores pay the employee directly; they do NOT owe an intercompany settlement.
+          const dualRoleStoreIds = new Set(
+            allAssignments
+              .filter((a) => {
+                const aRate  = parseFloat(String(a.rate  ?? "0") || "0");
+                const aFixed = parseFloat(String(a.fixedAmount ?? "0") || "0");
+                return aRate > 0 && aFixed === 0 && a.storeId !== payingStoreId;
+              })
+              .map((a) => a.storeId)
+          );
+
+          // Create a settlement for each OTHER store that benefited from the employee,
+          // EXCEPT stores where the employee is paid directly by hourly rate (Dual Role).
           for (const [storeId, hours] of Object.entries(hoursByStore)) {
             if (storeId === payingStoreId) continue;
             if (hours <= 0) continue;
+            // Dual Role override: this store pays the employee directly — no intercompany owed
+            if (dualRoleStoreIds.has(storeId)) continue;
             const portion = hours / totalHours;
             const amountDue = Math.round(fixedAmt * portion * 100) / 100;
             await storage.createIntercompanySettlement({
