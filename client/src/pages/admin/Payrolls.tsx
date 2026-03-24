@@ -208,14 +208,22 @@ function recalcRow(row: PayrollRow, changedField?: string): PayrollRow {
   return r;
 }
 
+const DRAFT_STORAGE_KEY = "payroll_drafts_v1";
+
 export function AdminPayrolls() {
   const { toast } = useToast();
   const fortnight = getLastFortnight();
   const [periodStart, setPeriodStart] = useState(fortnight.start);
   const [periodEnd, setPeriodEnd] = useState(fortnight.end);
   const [selectedStoreId, setSelectedStoreId] = useState("");
-  // Global draft state: keyed by employeeId — never reset by background refetches
-  const [payrollDrafts, setPayrollDrafts] = useState<Record<string, PayrollRow>>({});
+  // Global draft state: keyed by ctxKey (`${storeId}|${periodStart}|${periodEnd}`) then employeeId.
+  // Persisted in sessionStorage so drafts survive store switching and page refreshes.
+  const [payrollDrafts, setPayrollDrafts] = useState<Record<string, Record<string, PayrollRow>>>(() => {
+    try {
+      const stored = sessionStorage.getItem(DRAFT_STORAGE_KEY);
+      return stored ? JSON.parse(stored) : {};
+    } catch { return {}; }
+  });
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>("");
   // Tracks which store+period the drafts were initialised for
   const draftContextKey = useRef<string>("");
@@ -233,6 +241,18 @@ export function AdminPayrolls() {
   const { data: cashBalances } = useQuery<Record<string, number>>({
     queryKey: ["/api/finance/balances"],
   });
+
+  // Sync drafts to sessionStorage whenever they change
+  useEffect(() => {
+    try { sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(payrollDrafts)); } catch {}
+  }, [payrollDrafts]);
+
+  // Stable context key for the current store+period combination
+  const currentCtxKey = selectedStoreId && periodStart && periodEnd
+    ? `${selectedStoreId}|${periodStart}|${periodEnd}`
+    : "";
+  // The slice of payrollDrafts that belongs to the currently viewed store+period
+  const currentDrafts = payrollDrafts[currentCtxKey] ?? {};
 
   const storeOrder = ["sushi", "sandwich", "ho"];
   const activeInternalStores = (stores || [])
@@ -262,9 +282,8 @@ export function AdminPayrolls() {
     setSelectedStoreId(storeId);
     const store = stores?.find((s) => s.id === storeId);
     setGlobalNote(store?.globalPayrollNote || "");
-    setPayrollDrafts({});
     setSelectedEmployeeId("");
-    draftContextKey.current = "";
+    draftContextKey.current = ""; // force re-init check for new store's ctx
   };
 
   const { data: currentData, isLoading: dataLoading } = useQuery<
@@ -409,55 +428,66 @@ export function AdminPayrolls() {
   }, [approvedHoursMap, totalAllStoreHoursMap]);
 
   useEffect(() => {
-    if (!currentData || !selectedStoreId) return;
-    const ctxKey = `${selectedStoreId}|${periodStart}|${periodEnd}`;
-    const isNewContext = draftContextKey.current !== ctxKey;
+    if (!currentData || !currentCtxKey) return;
+    const isNewContext = draftContextKey.current !== currentCtxKey;
 
     if (isNewContext) {
-      // New store or period — full reset of drafts
-      draftContextKey.current = ctxKey;
-      const newDrafts: Record<string, PayrollRow> = {};
-      for (const { employee, payroll } of currentData) {
-        newDrafts[employee.id] = buildPayrollRow(employee, payroll);
-      }
-      setPayrollDrafts(newDrafts);
-      setSelectedEmployeeId(currentData[0]?.employee.id || "");
-    } else {
-      // Same context (background refetch) — only initialise employees not yet drafted
+      draftContextKey.current = currentCtxKey;
       setPayrollDrafts(prev => {
-        const updated = { ...prev };
+        // If sessionStorage already has drafts for this ctx (e.g. returning to a store),
+        // preserve them — only initialise employees not yet in the draft.
+        const existing = prev[currentCtxKey] ?? {};
+        const merged = { ...existing };
         let changed = false;
         for (const { employee, payroll } of currentData) {
-          if (!updated[employee.id]) {
-            updated[employee.id] = buildPayrollRow(employee, payroll);
+          if (!merged[employee.id]) {
+            merged[employee.id] = buildPayrollRow(employee, payroll);
             changed = true;
           }
         }
-        return changed ? updated : prev;
+        if (!changed && Object.keys(existing).length > 0) return prev;
+        return { ...prev, [currentCtxKey]: merged };
+      });
+      // Auto-select first employee if none selected (or pick persisted selection)
+      setSelectedEmployeeId(id => id || (currentData[0]?.employee.id ?? ""));
+    } else {
+      // Same context (background refetch) — only add employees not yet in draft
+      setPayrollDrafts(prev => {
+        const existing = prev[currentCtxKey] ?? {};
+        const merged = { ...existing };
+        let changed = false;
+        for (const { employee, payroll } of currentData) {
+          if (!merged[employee.id]) {
+            merged[employee.id] = buildPayrollRow(employee, payroll);
+            changed = true;
+          }
+        }
+        return changed ? { ...prev, [currentCtxKey]: merged } : prev;
       });
     }
-  }, [currentData, buildPayrollRow, selectedStoreId, periodStart, periodEnd]);
+  }, [currentData, buildPayrollRow, currentCtxKey]);
 
   // Update a single field in a draft row — triggers instant recalculation, no API call
   const updateDraft = useCallback(
     (employeeId: string, field: keyof PayrollRow, value: number | string) => {
       setPayrollDrafts((prev) => {
-        if (!prev[employeeId]) return prev;
-        const row = { ...prev[employeeId], [field]: value };
-        return { ...prev, [employeeId]: recalcRow(row, field) };
+        const ctxDrafts = prev[currentCtxKey];
+        if (!ctxDrafts?.[employeeId]) return prev;
+        const row = { ...ctxDrafts[employeeId], [field]: value };
+        return { ...prev, [currentCtxKey]: { ...ctxDrafts, [employeeId]: recalcRow(row, field) } };
       });
     },
-    []
+    [currentCtxKey]
   );
 
   // Ordered list of rows (preserves server-defined employee order)
   const rows = useMemo(
-    () => (currentData || []).map(({ employee }) => payrollDrafts[employee.id]).filter((r): r is PayrollRow => !!r),
-    [currentData, payrollDrafts]
+    () => (currentData || []).map(({ employee }) => currentDrafts[employee.id]).filter((r): r is PayrollRow => !!r),
+    [currentData, currentDrafts]
   );
 
   // Currently selected draft row
-  const selectedRow = selectedEmployeeId ? (payrollDrafts[selectedEmployeeId] ?? null) : null;
+  const selectedRow = selectedEmployeeId ? (currentDrafts[selectedEmployeeId] ?? null) : null;
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -505,9 +535,13 @@ export function AdminPayrolls() {
     },
     onSuccess: () => {
       toast({ title: "Payroll saved successfully" });
+      // Clear ONLY this store+period's drafts — other stores' drafts are preserved
+      setPayrollDrafts(prev => {
+        const { [currentCtxKey]: _, ...rest } = prev;
+        return rest;
+      });
       // Force re-initialise drafts from saved DB data on next fetch
       draftContextKey.current = "";
-      setPayrollDrafts({});
       queryClient.invalidateQueries({
         queryKey: ["/api/payrolls/current", selectedStoreId, periodStart, periodEnd],
       });
@@ -571,9 +605,12 @@ export function AdminPayrolls() {
       const day = String(d.getDate()).padStart(2, "0");
       return `${y}-${m}-${day}`;
     };
-    // Reset drafts so the new period re-initialises cleanly
+    // Clear current period's drafts — new period will re-initialise cleanly
+    setPayrollDrafts(prev => {
+      const { [currentCtxKey]: _, ...rest } = prev;
+      return rest;
+    });
     draftContextKey.current = "";
-    setPayrollDrafts({});
     setSelectedEmployeeId("");
     setPeriodStart(shift(periodStart));
     setPeriodEnd(shift(periodEnd));
@@ -597,6 +634,19 @@ export function AdminPayrolls() {
   );
   const hasIntercompany = rows.some(r => r.isIntercompany);
 
+  // Real-time draft cash totals per store name — used by CashBalances widget
+  const draftCashByStoreName = useMemo(() => {
+    const result: Record<string, number> = {};
+    for (const [ctxKey, empDrafts] of Object.entries(payrollDrafts)) {
+      const storeId = ctxKey.split("|")[0];
+      const store = stores?.find((s) => s.id === storeId);
+      if (!store) continue;
+      const cashSum = Object.values(empDrafts).reduce((sum, row) => sum + (row.cashAmount || 0), 0);
+      if (cashSum > 0) result[store.name] = (result[store.name] ?? 0) + cashSum;
+    }
+    return result;
+  }, [payrollDrafts, stores]);
+
   const fmtMoney = (v: number) =>
     `$${v.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -604,7 +654,7 @@ export function AdminPayrolls() {
     <AdminLayout title="Timesheet & Payroll">
       <div className="space-y-6">
         <div className="sticky top-0 z-30 bg-background pb-2 space-y-2 border-b">
-          {!storesLoading && <CashBalances stores={stores || []} />}
+          {!storesLoading && <CashBalances stores={stores || []} draftCashByStoreName={draftCashByStoreName} />}
 
           <CashCounter />
 
@@ -1075,9 +1125,10 @@ export function AdminPayrolls() {
                                       variant="ghost"
                                       onClick={() => {
                                         setPayrollDrafts(prev => {
-                                          if (!prev[selectedEmployeeId]) return prev;
-                                          const row = { ...prev[selectedEmployeeId], taxOverridden: false };
-                                          return { ...prev, [selectedEmployeeId]: recalcRow(row) };
+                                          const ctxDrafts = prev[currentCtxKey];
+                                          if (!ctxDrafts?.[selectedEmployeeId]) return prev;
+                                          const row = { ...ctxDrafts[selectedEmployeeId], taxOverridden: false };
+                                          return { ...prev, [currentCtxKey]: { ...ctxDrafts, [selectedEmployeeId]: recalcRow(row) } };
                                         });
                                       }}
                                       data-testid={`button-reset-tax-${selectedRow.employeeId}`}
