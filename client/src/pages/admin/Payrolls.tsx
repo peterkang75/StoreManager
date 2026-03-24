@@ -233,6 +233,8 @@ export function AdminPayrolls() {
   const [globalNote, setGlobalNote] = useState("");
   const [noteLoaded, setNoteLoaded] = useState(false);
   const [bankTrackerOpen, setBankTrackerOpen] = useState(false);
+  // Captures currentCtxKey at the moment save is triggered — prevents stale-closure issues in onSuccess
+  const savingCtxKeyRef = useRef<string>("");
 
   const { data: stores, isLoading: storesLoading } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
@@ -491,6 +493,8 @@ export function AdminPayrolls() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      // Capture the ctxKey NOW (at call time) — onSuccess closure may see a stale value
+      savingCtxKeyRef.current = currentCtxKey;
       const payloadRows = rows.map((r) => ({
         id: r.payrollId || undefined,
         employeeId: r.employeeId,
@@ -535,13 +539,24 @@ export function AdminPayrolls() {
     },
     onSuccess: () => {
       toast({ title: "Payroll saved successfully" });
-      // Clear ONLY this store+period's drafts — other stores' drafts are preserved
+      const savedKey = savingCtxKeyRef.current;
+      // 1. Clear from React state (this also triggers the sessionStorage sync effect)
       setPayrollDrafts(prev => {
-        const { [currentCtxKey]: _, ...rest } = prev;
+        const { [savedKey]: _, ...rest } = prev;
         return rest;
       });
+      // 2. Also clear sessionStorage directly — guards against stale-closure / timing issues
+      try {
+        const raw = sessionStorage.getItem(DRAFT_STORAGE_KEY);
+        if (raw) {
+          const all = JSON.parse(raw) as Record<string, unknown>;
+          delete all[savedKey];
+          sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(all));
+        }
+      } catch {}
       // Force re-initialise drafts from saved DB data on next fetch
       draftContextKey.current = "";
+      savingCtxKeyRef.current = "";
       queryClient.invalidateQueries({
         queryKey: ["/api/payrolls/current", selectedStoreId, periodStart, periodEnd],
       });
