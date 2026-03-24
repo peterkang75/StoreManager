@@ -1380,8 +1380,76 @@ export async function registerRoutes(
 
       // List B: Intercompany settlements where fromStore has a payroll in this period
       const periodPayrollIds = new Set(allPayrolls.map(p => p.id));
-      const allSettlements = await storage.getIntercompanySettlements();
-      const periodSettlements = allSettlements.filter(s => periodPayrollIds.has(s.payrollId));
+      let allSettlements = await storage.getIntercompanySettlements();
+      let periodSettlements = allSettlements.filter(
+        s => periodPayrollIds.has(s.payrollId) && s.status !== "CANCELLED"
+      );
+
+      // ── Auto-generate settlements if they are missing for this period ─────
+      // This handles payrolls that were saved before the settlement generation fix.
+      const fixedPayrollsInPeriod = allPayrolls.filter(
+        p => p.fixedAmount && parseFloat(String(p.fixedAmount)) > 0
+      );
+      if (periodSettlements.length === 0 && fixedPayrollsInPeriod.length > 0) {
+        for (const savedPayroll of fixedPayrollsInPeriod) {
+          const { employeeId, storeId: payingStoreId } = savedPayroll;
+          const fixedAmt = parseFloat(String(savedPayroll.fixedAmount));
+
+          const allSheets = await storage.getShiftTimesheets({
+            employeeId,
+            startDate: period_start,
+            endDate: period_end,
+            status: "APPROVED",
+          });
+
+          const hoursByStore: Record<string, number> = {};
+          for (const sheet of allSheets) {
+            const [sh, sm] = (sheet.actualStartTime || "0:0").split(":").map(Number);
+            const [eh, em] = (sheet.actualEndTime || "0:0").split(":").map(Number);
+            const diffMins = eh * 60 + em - (sh * 60 + sm);
+            const hrs = (diffMins < 0 ? diffMins + 1440 : diffMins) / 60;
+            hoursByStore[sheet.storeId] = Math.round(((hoursByStore[sheet.storeId] || 0) + hrs) * 100) / 100;
+          }
+
+          const totalHours = Object.values(hoursByStore).reduce((a, b) => a + b, 0);
+          if (totalHours <= 0) continue;
+
+          const allAssignments = await storage.getEmployeeStoreAssignments({ employeeId });
+          const dualRoleStoreIds = new Set(
+            allAssignments
+              .filter((a) => {
+                const aRate  = parseFloat(String(a.rate  ?? "0") || "0");
+                const aFixed = parseFloat(String(a.fixedAmount ?? "0") || "0");
+                return aRate > 0 && aFixed === 0 && a.storeId !== payingStoreId;
+              })
+              .map((a) => a.storeId)
+          );
+
+          for (const [storeId, hours] of Object.entries(hoursByStore)) {
+            if (storeId === payingStoreId) continue;
+            if (hours <= 0) continue;
+            if (dualRoleStoreIds.has(storeId)) continue;
+            const portion = hours / totalHours;
+            const amountDue = Math.round(fixedAmt * portion * 100) / 100;
+            await storage.createIntercompanySettlement({
+              payrollId: savedPayroll.id,
+              employeeId,
+              fromStoreId: storeId,
+              toStoreId: payingStoreId,
+              totalAmountDue: amountDue,
+              paidInCash: 0,
+              paidInBank: 0,
+              status: "PENDING",
+            });
+          }
+        }
+        // Reload after auto-generation
+        allSettlements = await storage.getIntercompanySettlements();
+        periodSettlements = allSettlements.filter(
+          s => periodPayrollIds.has(s.payrollId) && s.status !== "CANCELLED"
+        );
+      }
+
       for (const s of periodSettlements) {
         if (s.totalAmountDue <= 0) continue;
         const emp = await storage.getEmployee(s.employeeId);
