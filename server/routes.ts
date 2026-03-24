@@ -1258,7 +1258,7 @@ export async function registerRoutes(
         // designated primary (first assignment) for the employee.
         const isPrimaryStore = currentStoreFixed > 0
           || (totalFixed > 0 && currentStoreFixed === 0
-              && empPrimaryStoreIdMap.get(employee.id) === storeId);
+              && empPrimaryStoreIdMap.get(employee.id) === store_id);
         return {
           employee: {
             ...employee,
