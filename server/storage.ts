@@ -113,6 +113,7 @@ export interface IStorage {
   getSupplierInvoice(id: string): Promise<SupplierInvoice | undefined>;
   createSupplierInvoice(invoice: InsertSupplierInvoice): Promise<SupplierInvoice>;
   updateSupplierInvoice(id: string, invoice: Partial<InsertSupplierInvoice>): Promise<SupplierInvoice | undefined>;
+  deleteSupplierInvoice(id: string): Promise<boolean>;
 
   getSupplierPayments(filters?: { supplierId?: string; invoiceId?: string; startDate?: string; endDate?: string }): Promise<SupplierPayment[]>;
   getSupplierPayment(id: string): Promise<SupplierPayment | undefined>;
@@ -896,6 +897,10 @@ export class MemStorage implements IStorage {
     const updated: SupplierInvoice = { ...invoice, ...updates as any, updatedAt: new Date() };
     this.supplierInvoices.set(id, updated);
     return updated;
+  }
+
+  async deleteSupplierInvoice(id: string): Promise<boolean> {
+    return this.supplierInvoices.delete(id);
   }
 
   async getSupplierPayments(filters?: { supplierId?: string; invoiceId?: string; startDate?: string; endDate?: string }): Promise<SupplierPayment[]> {
@@ -1703,6 +1708,11 @@ export class DatabaseStorage implements IStorage {
   async updateSupplierInvoice(id: string, data: Partial<InsertSupplierInvoice>): Promise<SupplierInvoice | undefined> {
     const [i] = await db.update(supplierInvoices).set({ ...data, updatedAt: new Date() }).where(eq(supplierInvoices.id, id)).returning();
     return i;
+  }
+
+  async deleteSupplierInvoice(id: string): Promise<boolean> {
+    const result = await db.delete(supplierInvoices).where(eq(supplierInvoices.id, id));
+    return (result as any).rowCount > 0;
   }
 
   async getSupplierPayments(filters?: { supplierId?: string; invoiceId?: string; startDate?: string; endDate?: string }): Promise<SupplierPayment[]> {

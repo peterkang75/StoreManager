@@ -48,6 +48,7 @@ import {
   ShieldCheck,
   Ban,
   CheckCheck,
+  Trash2,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -723,11 +724,13 @@ function ReviewTodoCard({
   todo,
   onIgnore,
   onAllow,
+  onDelete,
   isActing,
 }: {
   todo: Todo;
   onIgnore: (todo: Todo) => void;
   onAllow: (todo: Todo) => void;
+  onDelete: (todo: Todo) => void;
   isActing: boolean;
 }) {
   const dueFmt = formatDueDate(todo.dueDate);
@@ -807,6 +810,21 @@ function ReviewTodoCard({
               )}
               <span className="ml-1.5">Allow & Add to To-Do</span>
             </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => onDelete(todo)}
+              disabled={isActing}
+              data-testid={`button-review-delete-${todo.id}`}
+              title="Delete"
+              className="text-muted-foreground hover:text-destructive"
+            >
+              {isActing ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Trash2 className="w-3.5 h-3.5" />
+              )}
+            </Button>
           </div>
         </div>
       </CardContent>
@@ -883,6 +901,19 @@ export function AdminExecutiveDashboard() {
       toast({ title: "Task approved", description: "Sender allowed and task moved to Active Tasks." });
     } catch {
       toast({ title: "Failed to approve task", variant: "destructive" });
+    } finally {
+      setActingReviewId(null);
+    }
+  }
+
+  async function handleDeleteReview(todo: Todo) {
+    setActingReviewId(todo.id);
+    try {
+      await apiRequest("DELETE", `/api/todos/${todo.id}`);
+      queryClient.invalidateQueries({ queryKey: ["/api/todos"] });
+      toast({ title: "Deleted", description: "The item has been removed from your inbox." });
+    } catch {
+      toast({ title: "Failed to delete", variant: "destructive" });
     } finally {
       setActingReviewId(null);
     }
@@ -1154,6 +1185,7 @@ export function AdminExecutiveDashboard() {
                     todo={todo}
                     onIgnore={handleIgnore}
                     onAllow={handleAllow}
+                    onDelete={handleDeleteReview}
                     isActing={actingReviewId === todo.id}
                   />
                 ))}

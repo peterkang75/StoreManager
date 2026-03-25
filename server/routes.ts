@@ -2891,6 +2891,20 @@ export async function registerRoutes(
     }
   });
 
+  app.delete("/api/supplier-invoices/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const deleted = await storage.deleteSupplierInvoice(id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Supplier invoice not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting supplier invoice:", error);
+      res.status(500).json({ error: "Failed to delete supplier invoice" });
+    }
+  });
+
   app.get("/api/supplier-payments", async (req: Request, res: Response) => {
     try {
       const filters: { supplierId?: string; invoiceId?: string; startDate?: string; endDate?: string } = {};

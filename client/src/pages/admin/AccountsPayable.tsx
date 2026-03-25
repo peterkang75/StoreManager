@@ -495,6 +495,17 @@ export function AdminAccountsPayable() {
     onError: () => toast({ title: "Failed to ignore supplier", variant: "destructive" }),
   });
 
+  const deleteInvoiceMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/supplier-invoices/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
+      toast({ title: "Invoice deleted", description: "The invoice has been removed." });
+    },
+    onError: () => toast({ title: "Failed to delete invoice", variant: "destructive" }),
+  });
+
   const deleteRuleMutation = useMutation({
     mutationFn: async (email: string) => {
       await apiRequest("DELETE", `/api/email-routing-rules/${encodeURIComponent(email)}`);
@@ -998,6 +1009,7 @@ export function AdminAccountsPayable() {
                         <div className="px-4 pb-3 space-y-1">
                           {group.invoices.map(inv => {
                             const ir = inv.rawExtractedData as ReviewRawData | null;
+                            const isDeleting = deleteInvoiceMutation.isPending && deleteInvoiceMutation.variables === inv.id;
                             return (
                               <div key={inv.id} className="flex items-center justify-between text-xs py-1 border-t border-border/20 first:border-t-0">
                                 <span className="text-muted-foreground font-mono">
@@ -1008,6 +1020,21 @@ export function AdminAccountsPayable() {
                                   {ir?.totalAmount !== undefined && ir.totalAmount > 0 && (
                                     <span className="font-medium tabular-nums">{fmtAUD(ir.totalAmount)}</span>
                                   )}
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                                    disabled={isDeleting}
+                                    onClick={() => deleteInvoiceMutation.mutate(inv.id)}
+                                    data-testid={`button-delete-invoice-${inv.id}`}
+                                    title="Delete invoice"
+                                  >
+                                    {isDeleting ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="h-3 w-3" />
+                                    )}
+                                  </Button>
                                 </div>
                               </div>
                             );
