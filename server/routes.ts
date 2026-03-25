@@ -4007,10 +4007,19 @@ export async function registerRoutes(
       const attachments: any[] = Array.isArray(payload?.attachments) ? payload.attachments : [];
       const hasAttachment = attachments.length > 0;
 
+      // ┌─────────────────────────────────────────────────────────────────────┐
+      // │              CORE INVARIANT RULES — DO NOT VIOLATE                 │
+      // │  Rule 1 (AP):   An invoice CANNOT be set to PENDING or PAID        │
+      // │                 without a valid supplierId from the database.       │
+      // │                 No supplierId → status MUST be REVIEW. Always.     │
+      // │  Rule 2 (Task): A TASK email MUST NEVER enter the AP pipeline.     │
+      // │                 It belongs ONLY in the todos table / Smart Inbox.  │
+      // └─────────────────────────────────────────────────────────────────────┘
+
       // ══════════════════════════════════════════════════════════════════════════
       // STEP 1 — STRICT TRIAGE (The Gatekeeper)
-      // A dedicated GPT-4o call that ONLY classifies the email.
-      // No extraction happens here. Route first, extract later.
+      // GPT-4o call that ONLY classifies — returns ONE WORD: INVOICE/TASK/JUNK.
+      // No data extraction happens here. Route first, extract later.
       // ══════════════════════════════════════════════════════════════════════════
       console.log(`[Webhook/inbound-invoices] [Step 1] Triaging email from ${senderEmail}: "${subject}"`);
       const triage = await triageEmail(subject, emailBody, hasAttachment);
