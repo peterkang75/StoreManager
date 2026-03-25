@@ -45,21 +45,19 @@ export interface UnknownSenderParsedResult {
 }
 
 /**
- * Extract raw text from a PDF buffer using pdf-parse (pure JS, no system deps).
- * Uses dynamic import so it works in both ESM (dev) and CJS bundles (production).
+ * Extract raw text from a PDF buffer using pdf-parse v2 (pure JS, no system deps).
+ * pdf-parse v2 uses a class-based API: new PDFParse({ data: buffer }).getText()
  * Returns empty string if extraction fails.
  */
 export async function extractPdfText(buffer: Buffer): Promise<string> {
   try {
-    // Dynamic import works in both ESM (tsx dev) and esbuild CJS bundles.
-    // esbuild transforms `import()` to `require()` in CJS output, so pdf-parse
-    // (which is marked external) gets loaded via Node's native require at runtime.
-    const mod = await import("pdf-parse");
-    // pdf-parse is a CJS module: handle both .default (ESM interop) and direct
-    const pdfParse: (buf: Buffer) => Promise<{ text: string }> =
-      (mod as any).default ?? mod;
-    const data = await pdfParse(buffer);
-    return data.text ?? "";
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { PDFParse } = require("pdf-parse") as {
+      PDFParse: new (opts: { data: Buffer }) => { getText(): Promise<{ text: string }> };
+    };
+    const parser = new PDFParse({ data: buffer });
+    const result = await parser.getText();
+    return result.text ?? "";
   } catch (err) {
     console.warn("[invoiceParser] pdf-parse failed:", err);
     return "";
