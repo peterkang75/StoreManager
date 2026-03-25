@@ -1739,33 +1739,41 @@ export class DatabaseStorage implements IStorage {
   }
 
   async sweepReviewInvoicesBySupplierName(supplierName: string, supplierId: string): Promise<number> {
-    // Update REVIEW invoices to PENDING, but skip any whose invoice_number already exists
-    // for this supplier (to avoid violating the (supplier_id, invoice_number) unique constraint).
+    // Use a CTE to:
+    //   1. Rank REVIEW invoices by invoice_number (ROW_NUMBER) to de-duplicate within the REVIEW set.
+    //   2. Also exclude invoice_numbers that already exist as non-REVIEW for this supplier.
+    // Only rn=1 (first occurrence per invoice_number) that is not a pre-existing duplicate → PENDING.
+    // Everything else remaining in REVIEW → QUARANTINE.
     const result = await db.execute(sql`
-      UPDATE supplier_invoices AS r
+      WITH review_set AS (
+        SELECT id, invoice_number,
+               ROW_NUMBER() OVER (PARTITION BY invoice_number ORDER BY created_at) AS rn
+        FROM supplier_invoices
+        WHERE status = 'REVIEW'
+          AND raw_extracted_data->'supplier'->>'supplierName' ILIKE ${supplierName}
+      ),
+      to_approve AS (
+        SELECT rs.id
+        FROM review_set rs
+        WHERE rs.rn = 1
+          AND NOT EXISTS (
+            SELECT 1 FROM supplier_invoices ex
+            WHERE ex.supplier_id = ${supplierId}
+              AND ex.invoice_number = rs.invoice_number
+              AND ex.status != 'REVIEW'
+          )
+      )
+      UPDATE supplier_invoices
       SET supplier_id = ${supplierId}, status = 'PENDING'
-      WHERE r.status = 'REVIEW'
-        AND r.raw_extracted_data->'supplier'->>'supplierName' ILIKE ${supplierName}
-        AND NOT EXISTS (
-          SELECT 1 FROM supplier_invoices AS existing
-          WHERE existing.supplier_id = ${supplierId}
-            AND existing.invoice_number = r.invoice_number
-            AND existing.status != 'REVIEW'
-        )
+      WHERE id IN (SELECT id FROM to_approve)
     `);
-    // Mark duplicates as QUARANTINE so they don't linger in the review inbox
+    // Quarantine all remaining REVIEW invoices that matched the supplier name but weren't approved
     await db.execute(sql`
-      UPDATE supplier_invoices AS r
+      UPDATE supplier_invoices
       SET status = 'QUARANTINE',
-          notes = 'Duplicate invoice number — already exists for this supplier.'
-      WHERE r.status = 'REVIEW'
-        AND r.raw_extracted_data->'supplier'->>'supplierName' ILIKE ${supplierName}
-        AND EXISTS (
-          SELECT 1 FROM supplier_invoices AS existing
-          WHERE existing.supplier_id = ${supplierId}
-            AND existing.invoice_number = r.invoice_number
-            AND existing.status != 'REVIEW'
-        )
+          notes = 'Duplicate or already-existing invoice — quarantined during supplier approval.'
+      WHERE status = 'REVIEW'
+        AND raw_extracted_data->'supplier'->>'supplierName' ILIKE ${supplierName}
     `);
     return (result as any).rowCount ?? 0;
   }
