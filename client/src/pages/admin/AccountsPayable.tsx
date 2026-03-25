@@ -117,11 +117,16 @@ export function AdminAccountsPayable() {
 
   const { data: stores = [] } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
 
-  // Only show Sushi + Sandwich in store toggle
-  const rosterStores = useMemo(
-    () => stores.filter(s => s.active && (s.name.toLowerCase().includes("sushi") || s.name.toLowerCase().includes("sandwich"))),
-    [stores]
-  );
+  // Store filter order: Sushi → Sandwich → Holdings → PYC
+  const STORE_ORDER = ["sushi", "sandwich", "holding", "pyc"];
+  const filteredStores = useMemo(() => {
+    const matched = STORE_ORDER.flatMap(keyword =>
+      stores.filter(s => s.active && s.name.toLowerCase().includes(keyword))
+    );
+    // deduplicate preserving order
+    const seen = new Set<string>();
+    return matched.filter(s => { if (seen.has(s.id)) return false; seen.add(s.id); return true; });
+  }, [stores]);
 
   // Apply store filter
   const storeFiltered = useMemo(() => {
@@ -241,26 +246,28 @@ export function AdminAccountsPayable() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className={selected.size > 0 ? "border-primary/40" : ""}>
             <CardContent className="p-4">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="text-xs text-muted-foreground mb-1">Suppliers Owing</p>
-                  <p className="text-2xl font-bold tracking-tight" data-testid="text-pending-count">
-                    {supplierGroups.length}
+                  <p className="text-xs text-muted-foreground mb-1">Selected Total</p>
+                  <p className={`text-2xl font-bold tracking-tight tabular-nums transition-colors ${selected.size > 0 ? "text-primary" : "text-muted-foreground/50"}`} data-testid="text-selected-total-card">
+                    {fmtAUD(selectedTotal)}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">with unpaid invoices</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {selected.size > 0 ? `${selected.size} invoice${selected.size !== 1 ? "s" : ""} selected` : "None selected"}
+                  </p>
                 </div>
-                <Receipt className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                <CheckCircle className={`h-4 w-4 shrink-0 mt-0.5 transition-colors ${selected.size > 0 ? "text-primary" : "text-muted-foreground"}`} />
               </div>
             </CardContent>
           </Card>
         </div>
 
         {/* ── Tab + Store Filter bar ─────────────────────────────────────── */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          {/* View Tabs */}
-          <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg">
+        <div className="flex items-center gap-3">
+          {/* Left: View Tabs */}
+          <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg shrink-0">
             <button
               onClick={() => { setActiveTab("topay"); clearSelection(); }}
               className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
@@ -301,9 +308,9 @@ export function AdminAccountsPayable() {
             </button>
           </div>
 
-          {/* Store Toggle Buttons */}
-          <div className="flex items-center gap-1">
-            {[{ id: "ALL", label: "All Stores" }, ...rosterStores.map(s => ({ id: s.id, label: s.name }))].map(opt => (
+          {/* Center: Store Toggle Buttons */}
+          <div className="flex-1 flex items-center justify-center gap-1 flex-wrap">
+            {[{ id: "ALL", label: "All Stores" }, ...filteredStores.map(s => ({ id: s.id, label: s.name }))].map(opt => (
               <button
                 key={opt.id}
                 onClick={() => { setStoreFilter(opt.id); clearSelection(); }}
@@ -318,6 +325,9 @@ export function AdminAccountsPayable() {
               </button>
             ))}
           </div>
+
+          {/* Right: spacer to balance layout */}
+          <div className="shrink-0 w-[160px]" />
         </div>
 
         {/* ── Content Area ──────────────────────────────────────────────── */}
@@ -345,6 +355,10 @@ export function AdminAccountsPayable() {
                 {supplierGroups.map(group => {
                   const allGroupSelected = group.invoices.every(inv => selected.has(inv.id));
                   const someGroupSelected = group.invoices.some(inv => selected.has(inv.id));
+                  const groupSelectedTotal = group.invoices
+                    .filter(inv => selected.has(inv.id))
+                    .reduce((s, inv) => s + (inv.amount ?? 0), 0);
+                  const groupSelectedCount = group.invoices.filter(inv => selected.has(inv.id)).length;
 
                   return (
                     <AccordionItem
@@ -376,6 +390,12 @@ export function AdminAccountsPayable() {
                               <span className="text-xs font-semibold text-foreground tabular-nums">
                                 {fmtAUD(group.totalAmount)}
                               </span>
+                              {groupSelectedCount > 0 && (
+                                <span className="text-xs font-semibold text-primary tabular-nums flex items-center gap-1">
+                                  <CheckCircle className="h-3 w-3" />
+                                  {fmtAUD(groupSelectedTotal)} selected ({groupSelectedCount})
+                                </span>
+                              )}
                               {group.overdueAmount > 0 && (
                                 <span className="text-xs font-bold text-red-600 dark:text-red-400 flex items-center gap-0.5">
                                   <AlertCircle className="h-3 w-3" />

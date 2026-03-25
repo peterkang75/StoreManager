@@ -185,15 +185,15 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Manual Cash Adjustment & Audit Trail:** Managers can align the system's Cash Balance with the physical safe using the "Manual Entry" feature. They can record `Cash In` or `Cash Out` with specific categories (e.g., Petty Cash, Till Shortage, Owner Deposit) and notes. This creates a permanent audit trail transaction instead of destructively overwriting the balance.
 
 ### 3.8 Accounts Payable Dashboard (`/admin/accounts-payable`)
-- **Summary cards**: Total Payable (all pending), Suppliers Owing (distinct supplier count with unpaid invoices). Overdue amount shown in red beneath Total Payable if any exist.
-- **View Tabs**: `To Pay` (PENDING + OVERDUE) | `Paid History` (PAID, sorted by updatedAt desc).
-- **Store Toggle Buttons**: `All Stores` | `Sushi` | `Sandwich` (only roster stores shown).
+- **Summary cards**: `Total Payable` (all pending) + `Selected Total` (live sum of currently selected invoices, highlights in primary color when >0). Overdue amount shown in red beneath Total Payable if any exist.
+- **View Tabs** (left-aligned): `To Pay` (PENDING + OVERDUE) | `Paid History` (PAID, sorted by updatedAt desc).
+- **Store Toggle Buttons** (center-aligned in control bar): `All Stores` | `Sushi` | `Sandwich` | `Holdings` | `PYC` in that order. Resolved by keyword match on store name (case-insensitive).
 - **To Pay view**: invoices grouped by supplier in collapsible Accordion cards (all open by default).
-  - Supplier header: name, invoice count, total unpaid, "Overdue: $X" in red (if applicable), select-all checkbox.
-  - Expanded table columns: Invoice Date | Amount | Due Date (overdue highlighted red with AlertCircle icon; due-soon orange) | Invoice # | Store.
+  - Supplier header: name, invoice count, total unpaid, **real-time selected subtotal** ("$X selected (N)" in primary color, visible when any invoice in group is selected), "Overdue: $X" in red (if applicable), select-all checkbox.
+  - Expanded table columns: Invoice Date | Amount | Due Date (overdue red + AlertCircle; due-soon orange) | Invoice # | Store.
   - Overdue rows sorted to top within each group; rows highlighted with faint red background.
 - **Paid History view**: flat table — Supplier | Invoice Date | Amount | Invoice # | Store.
-- **Sticky bottom bar** (visible when ≥1 invoice selected): selected total (fmtAUD), invoice count, `Clear` button, `Pay Selected (N)` button → bulk PATCH to PAID.
+- **Sticky bottom bar** (visible when ≥1 invoice selected): selected total, invoice count, `Clear` button, `Pay Selected (N)` button → bulk PATCH to PAID.
 - **Bulk Pay**: parallel PATCH `/api/invoices/:id/status` → `{ status: "PAID" }`, then invalidate query cache and clear selection.
 
 ### 3.9 Supplier Management (`/admin/suppliers`)
