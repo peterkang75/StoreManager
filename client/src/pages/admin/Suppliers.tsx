@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Truck, Edit, FileText } from "lucide-react";
+import { Plus, Truck, Edit, FileText, Zap } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Supplier } from "@shared/schema";
 
@@ -40,6 +40,7 @@ type FormState = {
   address: string;
   notes: string;
   active: boolean;
+  isAutoPay: boolean;
 };
 
 const BLANK_FORM: FormState = {
@@ -52,6 +53,7 @@ const BLANK_FORM: FormState = {
   address: "",
   notes: "",
   active: true,
+  isAutoPay: false,
 };
 
 function parseEmails(raw: string): string[] {
@@ -173,6 +175,24 @@ function SupplierForm({
         />
       </div>
 
+      <div className="flex items-center justify-between pt-1 rounded-md border border-border px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <Zap className="w-4 h-4 text-amber-500" />
+          <div>
+            <Label htmlFor="sup-autopay" className="cursor-pointer font-medium">Auto-Pay (Direct Debit)</Label>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Invoices from this supplier are paid automatically. They will be recorded as PAID immediately.
+            </p>
+          </div>
+        </div>
+        <Switch
+          id="sup-autopay"
+          checked={form.isAutoPay}
+          onCheckedChange={checked => setForm({ ...form, isAutoPay: checked })}
+          data-testid="switch-autopay"
+        />
+      </div>
+
       {isEdit && (
         <div className="flex items-center justify-between pt-1">
           <Label htmlFor="sup-active">Active</Label>
@@ -226,6 +246,7 @@ export function AdminSuppliers() {
       address: f.address.trim() || null,
       notes: f.notes.trim() || null,
       active: f.active,
+      isAutoPay: f.isAutoPay,
     };
   }
 
@@ -276,6 +297,7 @@ export function AdminSuppliers() {
       address: supplier.address || "",
       notes: supplier.notes || "",
       active: supplier.active,
+      isAutoPay: supplier.isAutoPay ?? false,
     });
   };
 
@@ -407,11 +429,22 @@ export function AdminSuppliers() {
                       </TableCell>
 
                       <TableCell>
-                        {supplier.active ? (
-                          <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Active</Badge>
-                        ) : (
-                          <Badge variant="secondary">Inactive</Badge>
-                        )}
+                        <div className="flex flex-wrap gap-1">
+                          {supplier.active ? (
+                            <Badge className="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 no-default-active-elevate">Active</Badge>
+                          ) : (
+                            <Badge variant="secondary">Inactive</Badge>
+                          )}
+                          {supplier.isAutoPay && (
+                            <Badge
+                              className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 no-default-active-elevate flex items-center gap-1"
+                              data-testid={`badge-autopay-${supplier.id}`}
+                            >
+                              <Zap className="w-2.5 h-2.5" />
+                              Auto-Pay
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
 
                       <TableCell className="text-right">

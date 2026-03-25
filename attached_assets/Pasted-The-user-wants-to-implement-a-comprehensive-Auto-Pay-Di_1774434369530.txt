@@ -1,0 +1,22 @@
+The user wants to implement a comprehensive "Auto-Pay (Direct Debit)" workflow for specific suppliers. 
+These suppliers automatically deduct money from our account. Their invoices must be recorded for COGS/expense tracking but should skip the "To Pay" list to prevent double payment. Additionally, we need an "Escape Hatch" (Revert to Pending) in case an auto-payment bounces due to insufficient funds.
+
+Please implement this complete feature set securely:
+
+### 1. Database Schema Update
+- Add a new boolean column to the `suppliers` table: `isAutoPay` (default: `false`).
+- Ensure this is reflected in the Drizzle schema and pushed to the DB.
+
+### 2. Backend API & Webhook Updates
+- **Auto-Pay Logic (`/api/webhooks/inbound-invoices` & Manual Creation):** When assigning an invoice to a `supplierId`, check if `supplier.isAutoPay === true`. If true, set the new invoice `status` directly to `'PAID'` (instead of `'PENDING'`), set the `paymentDate` to the invoice date, and automatically generate a `supplierPayments` record with the method "AUTO_DEBIT".
+- **Revert Logic (`PATCH /api/invoices/:id/revert` or similar):**
+  Create or update an endpoint to revert a `PAID` invoice back to `PENDING`. **CRITICAL:** When reverting, the backend MUST delete (or void) any associated `supplierPayments` records for this invoice and clear the `paymentDate` on the invoice to ensure accounting math stays accurate.
+
+### 3. Frontend UI Updates
+- **Supplier Forms:** Add an `[⚡️ Auto-Pay (Direct Debit)]` toggle switch to the standard Add/Edit Supplier forms, AND specifically inside the "Approve & Add Supplier" modal in the AP Review Inbox.
+- **Paid History Tab:** - Add a visual badge (e.g., `⚡️ Auto-Paid`) next to invoices that were paid automatically.
+  - Add an action button/icon to each row: `[ ↩️ Revert to Pending ]`.
+  - When clicked, show a confirmation dialog ("Are you sure? This will move the invoice back to the To Pay list and remove its payment record.").
+  - On confirm, call the revert endpoint, invalidate TanStack queries, and ensure the invoice moves from `Paid History` back to `To Pay`.
+
+Please implement both the frontend and backend for this complete Auto-Pay & Revert lifecycle!

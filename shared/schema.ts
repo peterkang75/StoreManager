@@ -428,6 +428,7 @@ export const suppliers = pgTable("suppliers", {
   accountNumber: text("account_number"),
   notes: text("notes"),
   active: boolean("active").default(true).notNull(),
+  isAutoPay: boolean("is_auto_pay").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

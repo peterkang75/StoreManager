@@ -116,6 +116,7 @@ export interface IStorage {
   getSupplierPayments(filters?: { supplierId?: string; invoiceId?: string; startDate?: string; endDate?: string }): Promise<SupplierPayment[]>;
   getSupplierPayment(id: string): Promise<SupplierPayment | undefined>;
   createSupplierPayment(payment: InsertSupplierPayment): Promise<SupplierPayment>;
+  deleteSupplierPaymentsByInvoiceId(invoiceId: string): Promise<void>;
 
   findSupplierByEmail(email: string): Promise<Supplier | undefined>;
   getQuarantinedEmails(): Promise<QuarantinedEmail[]>;
@@ -919,6 +920,12 @@ export class MemStorage implements IStorage {
     return payment;
   }
 
+  async deleteSupplierPaymentsByInvoiceId(invoiceId: string): Promise<void> {
+    for (const [id, p] of this.supplierPayments.entries()) {
+      if (p.invoiceId === invoiceId) this.supplierPayments.delete(id);
+    }
+  }
+
   async findSupplierByEmail(email: string): Promise<Supplier | undefined> {
     return Array.from(this.suppliers.values()).find(s =>
       s.contactEmails && s.contactEmails.includes(email)
@@ -1669,6 +1676,10 @@ export class DatabaseStorage implements IStorage {
   async createSupplierPayment(data: InsertSupplierPayment): Promise<SupplierPayment> {
     const [p] = await db.insert(supplierPayments).values(data).returning();
     return p;
+  }
+
+  async deleteSupplierPaymentsByInvoiceId(invoiceId: string): Promise<void> {
+    await db.delete(supplierPayments).where(eq(supplierPayments.invoiceId, invoiceId));
   }
 
   async findSupplierByEmail(email: string): Promise<Supplier | undefined> {

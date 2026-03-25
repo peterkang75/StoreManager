@@ -15,6 +15,17 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Switch } from "@/components/ui/switch";
+import {
   Accordion,
   AccordionContent,
   AccordionItem,
@@ -35,6 +46,8 @@ import {
   Trash2,
   Mail,
   UserPlus,
+  Zap,
+  Undo2,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import AddInvoiceModal from "@/components/AddInvoiceModal";
@@ -151,6 +164,7 @@ interface SupplierFormValues {
 function ApproveSupplierModal({ invoice, onClose, onSuccess }: ApproveSupplierModalProps) {
   const { toast } = useToast();
   const raw = invoice?.rawExtractedData as ReviewRawData | null;
+  const [isAutoPay, setIsAutoPay] = useState(false);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<SupplierFormValues>({
     defaultValues: {
@@ -178,6 +192,7 @@ function ApproveSupplierModal({ invoice, onClose, onSuccess }: ApproveSupplierMo
         address: r?.supplier?.address ?? "",
         notes: "",
       });
+      setIsAutoPay(false);
     }
   }, [invoice, reset]);
 
@@ -203,6 +218,7 @@ function ApproveSupplierModal({ invoice, onClose, onSuccess }: ApproveSupplierMo
         address: data.address || null,
         notes: data.notes || null,
         active: true,
+        isAutoPay,
       });
 
       // 2. Add ALLOW routing rule
@@ -304,6 +320,22 @@ function ApproveSupplierModal({ invoice, onClose, onSuccess }: ApproveSupplierMo
             </div>
           </div>
 
+          <div className="flex items-center justify-between rounded-md border border-border px-3 py-2.5 mt-2">
+            <div className="flex items-center gap-2">
+              <Zap className="h-4 w-4 text-amber-500" />
+              <div>
+                <Label htmlFor="approve-autopay" className="cursor-pointer font-medium">Auto-Pay (Direct Debit)</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">This supplier auto-debits — invoices will be recorded as PAID immediately.</p>
+              </div>
+            </div>
+            <Switch
+              id="approve-autopay"
+              checked={isAutoPay}
+              onCheckedChange={setIsAutoPay}
+              data-testid="switch-approve-autopay"
+            />
+          </div>
+
           <DialogFooter className="gap-2 pt-2">
             <Button type="button" variant="outline" onClick={onClose} disabled={approveMutation.isPending}>
               Cancel
@@ -336,6 +368,7 @@ export function AdminAccountsPayable() {
   const [openAccordions, setOpenAccordions] = useState<string[]>([]);
   const [addInvoiceOpen, setAddInvoiceOpen] = useState(false);
   const [approveInvoice, setApproveInvoice] = useState<SupplierInvoice | null>(null);
+  const [revertInvoice, setRevertInvoice] = useState<EnrichedInvoice | null>(null);
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const { data: allInvoices = [], isLoading } = useQuery<EnrichedInvoice[]>({
@@ -424,6 +457,21 @@ export function AdminAccountsPayable() {
       toast({ title: `${n} invoice${n !== 1 ? "s" : ""} marked as paid` });
     },
     onError: () => toast({ title: "Failed to update invoices", variant: "destructive" }),
+  });
+
+  const revertMutation = useMutation({
+    mutationFn: async (invoiceId: string) => {
+      await apiRequest("POST", `/api/invoices/${invoiceId}/revert`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      toast({ title: "Invoice reverted to To Pay" });
+      setRevertInvoice(null);
+    },
+    onError: () => {
+      toast({ title: "Failed to revert invoice", variant: "destructive" });
+      setRevertInvoice(null);
+    },
   });
 
   const ignoreSenderMutation = useMutation({
@@ -1000,12 +1048,14 @@ export function AdminAccountsPayable() {
                       <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right whitespace-nowrap">Amount</th>
                       <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice #</th>
                       <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Store</th>
-                      <th className="py-2.5 px-4 w-8" />
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Payment</th>
+                      <th className="py-2.5 px-4 w-16" />
                     </tr>
                   </thead>
                   <tbody>
                     {historyInvoices.map(inv => {
                       const store = stores.find(s => s.id === inv.storeId);
+                      const isAutoDebit = inv.supplier?.isAutoPay === true;
                       return (
                         <tr
                           key={inv.id}
@@ -1019,12 +1069,36 @@ export function AdminAccountsPayable() {
                           <td className="py-2.5 px-4 font-semibold tabular-nums text-right whitespace-nowrap">{fmtAUD(inv.amount ?? 0)}</td>
                           <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground">{inv.invoiceNumber || "—"}</td>
                           <td className="py-2.5 px-4 text-xs text-muted-foreground">{store?.name ?? "—"}</td>
-                          <td className="py-2.5 pr-4 w-8">
-                            {inv.notes && (
-                              <button type="button" title={inv.notes} className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-muted-foreground transition-colors" data-testid={`button-notes-${inv.id}`}>
-                                <FileText className="h-3.5 w-3.5" />
-                              </button>
+                          <td className="py-2.5 px-4">
+                            {isAutoDebit ? (
+                              <span
+                                className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                                data-testid={`badge-autopaid-${inv.id}`}
+                              >
+                                <Zap className="h-2.5 w-2.5" />
+                                Auto-Paid
+                              </span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Manual</span>
                             )}
+                          </td>
+                          <td className="py-2.5 pr-3 w-16">
+                            <div className="flex items-center gap-1 justify-end">
+                              {inv.notes && (
+                                <button type="button" title={inv.notes} className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground/40 hover:text-muted-foreground transition-colors" data-testid={`button-notes-${inv.id}`}>
+                                  <FileText className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                title="Revert to Pending (e.g. bounced direct debit)"
+                                onClick={() => setRevertInvoice(inv)}
+                                className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground/40 hover:text-orange-600 dark:hover:text-orange-400 transition-colors"
+                                data-testid={`button-revert-${inv.id}`}
+                              >
+                                <Undo2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1116,6 +1190,41 @@ export function AdminAccountsPayable() {
           )
         )}
       </div>
+
+      {/* ── Revert Confirmation Dialog ─────────────────────────────────────── */}
+      <AlertDialog open={!!revertInvoice} onOpenChange={open => !open && setRevertInvoice(null)}>
+        <AlertDialogContent data-testid="dialog-revert-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revert Invoice to Pending?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will move{" "}
+              <strong>{revertInvoice?.supplier?.name ?? "this invoice"}</strong>{" "}
+              {revertInvoice?.invoiceNumber ? `(#${revertInvoice.invoiceNumber})` : ""} back to the{" "}
+              <strong>To Pay</strong> list and permanently remove its payment record.
+              {revertInvoice?.supplier?.isAutoPay && (
+                <span className="block mt-2 text-amber-600 dark:text-amber-400">
+                  This supplier uses Auto-Pay (Direct Debit). Only revert if the debit has bounced or failed.
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-revert-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => revertInvoice && revertMutation.mutate(revertInvoice.id)}
+              disabled={revertMutation.isPending}
+              className="bg-orange-600 text-white hover:bg-orange-700 dark:bg-orange-700 dark:hover:bg-orange-600"
+              data-testid="button-revert-confirm"
+            >
+              {revertMutation.isPending ? (
+                <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Reverting…</>
+              ) : (
+                <><Undo2 className="h-3.5 w-3.5 mr-1.5" />Revert to Pending</>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AddInvoiceModal
         open={addInvoiceOpen}

@@ -2721,13 +2721,55 @@ export async function registerRoutes(
   // ── Invoice: create (AP dashboard) ───────────────────────────────────────
   app.post("/api/invoices", async (req: Request, res: Response) => {
     try {
-      const parsed = insertSupplierInvoiceSchema.safeParse({ ...req.body, status: "PENDING" });
+      // Check auto-pay status of the supplier before setting invoice status
+      let invoiceStatus = "PENDING";
+      let supplierForAutoPay: Supplier | undefined;
+      if (req.body.supplierId) {
+        supplierForAutoPay = await storage.getSupplier(req.body.supplierId);
+        if (supplierForAutoPay?.isAutoPay) invoiceStatus = "PAID";
+      }
+
+      const parsed = insertSupplierInvoiceSchema.safeParse({ ...req.body, status: invoiceStatus });
       if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
       const invoice = await storage.createSupplierInvoice(parsed.data);
+
+      // Auto-pay: create payment record immediately
+      if (supplierForAutoPay?.isAutoPay && invoice.supplierId) {
+        const today = new Date().toISOString().split("T")[0];
+        await storage.createSupplierPayment({
+          supplierId: invoice.supplierId,
+          invoiceId: invoice.id,
+          paymentDate: invoice.invoiceDate ?? today,
+          amount: invoice.amount ?? 0,
+          method: "AUTO_DEBIT",
+          notes: "Automatic direct debit — manual entry",
+        });
+      }
+
       res.status(201).json(invoice);
     } catch (err) {
       console.error("[POST /api/invoices] error:", err);
       res.status(500).json({ error: "Failed to create invoice" });
+    }
+  });
+
+  // ── Invoice: revert PAID → PENDING (escape hatch for bounced auto-debits) ──
+  app.post("/api/invoices/:id/revert", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const invoice = await storage.getSupplierInvoice(id);
+      if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+      if (invoice.status !== "PAID") {
+        return res.status(400).json({ error: "Only PAID invoices can be reverted" });
+      }
+      // Delete ALL payment records for this invoice
+      await storage.deleteSupplierPaymentsByInvoiceId(id);
+      // Revert invoice back to PENDING
+      const updated = await storage.updateSupplierInvoice(id, { status: "PENDING" });
+      res.json(updated);
+    } catch (err) {
+      console.error("[POST /api/invoices/:id/revert] error:", err);
+      res.status(500).json({ error: "Failed to revert invoice" });
     }
   });
 
@@ -4071,12 +4113,15 @@ export async function registerRoutes(
         const created: string[] = [];
         const skipped: string[] = [];
 
+        const isAutoPay = matchedSupplier?.isAutoPay ?? false;
+
         for (const parsed of parsedItems) {
           if (!parsed.invoiceNumber && !parsed.issueDate && !parsed.totalAmount) continue;
           if (parsed.invoiceNumber && existingNumbers.has(parsed.invoiceNumber)) {
             skipped.push(parsed.invoiceNumber);
             continue;
           }
+          const invoiceStatus = isAutoPay ? "PAID" : "PENDING";
           const newInv = await storage.createSupplierInvoice({
             supplierId: matchedSupplier?.id ?? undefined,
             storeId: resolveStoreId(parsed.storeCode),
@@ -4084,10 +4129,24 @@ export async function registerRoutes(
             invoiceDate: parsed.issueDate,
             dueDate: parsed.dueDate ?? undefined,
             amount: parsed.totalAmount,
-            status: "PENDING",
-            notes: `Auto-imported via email from ${senderEmail}. Subject: ${subject}`,
+            status: invoiceStatus,
+            notes: isAutoPay
+              ? `Auto-paid (Direct Debit) via email from ${senderEmail}. Subject: ${subject}`
+              : `Auto-imported via email from ${senderEmail}. Subject: ${subject}`,
           });
-          console.log(`[Webhook/inbound-invoices] Created PENDING invoice ${newInv.id} (#${parsed.invoiceNumber})`);
+          // Auto-pay: immediately create a payment record
+          if (isAutoPay && matchedSupplier) {
+            const today = new Date().toISOString().split("T")[0];
+            await storage.createSupplierPayment({
+              supplierId: matchedSupplier.id,
+              invoiceId: newInv.id,
+              paymentDate: parsed.issueDate ?? today,
+              amount: parsed.totalAmount ?? 0,
+              method: "AUTO_DEBIT",
+              notes: `Automatic direct debit — ${senderEmail}`,
+            });
+          }
+          console.log(`[Webhook/inbound-invoices] Created ${invoiceStatus} invoice ${newInv.id} (#${parsed.invoiceNumber}) isAutoPay=${isAutoPay}`);
           created.push(newInv.id);
         }
 
