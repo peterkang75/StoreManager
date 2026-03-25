@@ -254,7 +254,9 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
   - `GET /api/todos` — list all todos, newest first.
   - `POST /api/todos` — create todo manually.
   - `PATCH /api/todos/:id` — update status/title/description/dueDate.
-- **Frontend**: To be built in a future task (Executive Dashboard / Todo UI).
+- **Frontend** ✅ COMPLETE: `/admin/executive` — AI Smart Inbox page. Active tasks (TODO/IN_PROGRESS) shown in main list. DONE tasks hidden from main list and collapsed under "완료된 작업 N건" toggle button; expandable with Reopen support. 3 filter stat cards (All Active, To Do, In Progress). Task title/description auto-translated to Korean by GPT.
+- **AI Korean translation** ✅: `classifyAndParseEmail` prompt updated — TASK title and description are now generated in Korean.
+- **Auto-Pay (Direct Debit)** ✅: `isAutoPay` boolean on `suppliers`. Auto-creates PAID invoice + AUTO_DEBIT payment on webhook/manual creation. Revert endpoint `POST /api/invoices/:id/revert` deletes payments and moves back to PENDING. Suppliers.tsx: Auto-Pay toggle + amber badge. AccountsPayable.tsx: isAutoPay toggle in Approve modal + Auto-Paid badge + Revert button + AlertDialog confirmation in Paid History tab.
 
 ### 3.12 Employee Portal (Mobile)
 - **Login**: `/mobile/portal` — employee selects store, finds their name, enters PIN.

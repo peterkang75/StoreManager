@@ -279,8 +279,8 @@ CRITICAL RULES:
    - TASK: the email contains an action item, reminder, request, question or task that requires follow-up. Examples: "please call X", "can you organise Y", "don't forget to Z".
    - OTHER: newsletters, spam, automated notifications, or anything that is not clearly an invoice or actionable task.
 2. If type is "TASK", extract:
-   - "title": a concise 5-15 word summary of the task (imperative form, e.g. "Call John about lease renewal")
-   - "description": a 1-3 sentence summary of what needs to be done and any relevant context
+   - "title": a concise 5-15 word summary of the task written in KOREAN (imperative form, e.g. "임대 계약 갱신 관련 John에게 전화하기")
+   - "description": a 1-3 sentence summary in KOREAN of what needs to be done and any relevant context, translating and summarising the original email content
    - "dueDate": a date in YYYY-MM-DD format if an explicit or strongly implied deadline exists, otherwise null
 3. If type is "INVOICE" or "OTHER", the "task" field must be omitted or null.
 4. Return ONLY valid JSON with no code fences or explanation.
@@ -289,8 +289,8 @@ JSON schema:
 {
   "type": "INVOICE" | "TASK" | "OTHER",
   "task": {
-    "title": "string",
-    "description": "string",
+    "title": "string (Korean)",
+    "description": "string (Korean)",
     "dueDate": "YYYY-MM-DD or null"
   } | null
 }`;

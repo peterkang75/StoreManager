@@ -60,7 +60,7 @@ function isOverdue(date: string | Date | null): boolean {
   return new Date(date) < new Date(new Date().toDateString());
 }
 
-type StatusFilter = "ALL" | "TODO" | "IN_PROGRESS" | "DONE";
+type StatusFilter = "ALL" | "TODO" | "IN_PROGRESS";
 
 const STATUS_NEXT: Record<string, string> = {
   TODO: "IN_PROGRESS",
@@ -432,6 +432,7 @@ export function AdminExecutiveDashboard() {
   const [filter, setFilter] = useState<StatusFilter>("ALL");
   const [addOpen, setAddOpen] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [doneOpen, setDoneOpen] = useState(false);
   const { toast } = useToast();
 
   const { data: todos = [], isLoading } = useQuery<Todo[]>({
@@ -455,24 +456,32 @@ export function AdminExecutiveDashboard() {
     updateMutation.mutate({ id, status: nextStatus });
   }
 
+  // Split done from active
+  const activeTodos = todos.filter((t) => t.status !== "DONE");
+  const doneTodos = todos.filter((t) => t.status === "DONE");
+
   // Counts
-  const countAll = todos.length;
-  const countTodo = todos.filter((t) => t.status === "TODO").length;
-  const countInProgress = todos.filter((t) => t.status === "IN_PROGRESS").length;
-  const countDone = todos.filter((t) => t.status === "DONE").length;
+  const countAll = activeTodos.length;
+  const countTodo = activeTodos.filter((t) => t.status === "TODO").length;
+  const countInProgress = activeTodos.filter((t) => t.status === "IN_PROGRESS").length;
+  const countDone = doneTodos.length;
 
   const filtered =
     filter === "ALL"
-      ? todos
-      : todos.filter((t) => t.status === filter);
+      ? activeTodos
+      : activeTodos.filter((t) => t.status === filter);
 
   const sorted = [...filtered].sort((a, b) => {
     // Overdue first, then by createdAt desc
-    const aOver = isOverdue(a.dueDate) && a.status !== "DONE";
-    const bOver = isOverdue(b.dueDate) && b.status !== "DONE";
+    const aOver = isOverdue(a.dueDate);
+    const bOver = isOverdue(b.dueDate);
     if (aOver !== bOver) return aOver ? -1 : 1;
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
+
+  const sortedDone = [...doneTodos].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
 
   return (
     <AdminLayout title="Executive Dashboard">
@@ -497,9 +506,9 @@ export function AdminExecutiveDashboard() {
         </div>
 
         {/* Summary stat cards */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-3 gap-3">
           <StatCard
-            label="All Tasks"
+            label="All Active"
             value={countAll}
             active={filter === "ALL"}
             onClick={() => setFilter("ALL")}
@@ -519,13 +528,6 @@ export function AdminExecutiveDashboard() {
             onClick={() => setFilter("IN_PROGRESS")}
             testId="stat-in-progress"
           />
-          <StatCard
-            label="Done"
-            value={countDone}
-            active={filter === "DONE"}
-            onClick={() => setFilter("DONE")}
-            testId="stat-done"
-          />
         </div>
 
         {/* Filter label */}
@@ -533,7 +535,7 @@ export function AdminExecutiveDashboard() {
           <ListTodo className="w-4 h-4" />
           <span>
             {filter === "ALL"
-              ? `All tasks (${sorted.length})`
+              ? `진행 중인 작업 (${sorted.length})`
               : `${STATUS_LABEL[filter]} (${sorted.length})`}
           </span>
         </div>
@@ -563,8 +565,8 @@ export function AdminExecutiveDashboard() {
               <Inbox className="w-10 h-10 text-muted-foreground/40" />
               <p className="text-sm text-muted-foreground" data-testid="text-todos-empty">
                 {filter === "ALL"
-                  ? "No tasks yet. Tasks will appear here when your AI detects action items in your emails."
-                  : `No tasks with status "${STATUS_LABEL[filter]}".`}
+                  ? "진행 중인 작업이 없습니다. AI가 이메일에서 할 일을 자동으로 감지하면 여기에 표시됩니다."
+                  : `"${STATUS_LABEL[filter]}" 상태의 작업이 없습니다.`}
               </p>
               {filter === "ALL" && (
                 <Button
@@ -589,6 +591,40 @@ export function AdminExecutiveDashboard() {
                 isUpdating={updatingId === todo.id}
               />
             ))}
+          </div>
+        )}
+
+        {/* Completed tasks section */}
+        {!isLoading && countDone > 0 && (
+          <div data-testid="section-done">
+            <button
+              type="button"
+              onClick={() => setDoneOpen((v) => !v)}
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors w-full py-2"
+              data-testid="button-toggle-done"
+            >
+              <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
+              <span className="font-medium">완료된 작업 {countDone}건</span>
+              {doneOpen ? (
+                <ChevronUp className="w-4 h-4 ml-1" />
+              ) : (
+                <ChevronDown className="w-4 h-4 ml-1" />
+              )}
+              <span className="flex-1 border-t border-border/40 ml-2" />
+            </button>
+
+            {doneOpen && (
+              <div className="space-y-3 mt-2" data-testid="list-done-todos">
+                {sortedDone.map((todo) => (
+                  <TaskCard
+                    key={todo.id}
+                    todo={todo}
+                    onStatusChange={handleStatusChange}
+                    isUpdating={updatingId === todo.id}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
