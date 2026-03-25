@@ -4193,7 +4193,10 @@ export async function registerRoutes(
             skipped.push(parsed.invoiceNumber);
             continue;
           }
-          const invoiceStatus = isAutoPay ? "PAID" : "PENDING";
+          // If the supplier is not matched to a known supplier in the system,
+          // send to REVIEW (Review Inbox) so a human can assign the supplier.
+          // Only move to PENDING (To Pay) when a known supplier is matched.
+          const invoiceStatus = isAutoPay ? "PAID" : (matchedSupplier ? "PENDING" : "REVIEW");
           const newInv = await storage.createSupplierInvoice({
             supplierId: matchedSupplier?.id ?? undefined,
             storeId: resolveStoreId(parsed.storeCode),
@@ -4204,7 +4207,9 @@ export async function registerRoutes(
             status: invoiceStatus,
             notes: isAutoPay
               ? `Auto-paid (Direct Debit) via email from ${senderEmail}. Subject: ${subject}`
-              : `Auto-imported via email from ${senderEmail}. Subject: ${subject}`,
+              : matchedSupplier
+                ? `Auto-imported via email from ${senderEmail}. Subject: ${subject}`
+                : `Unknown supplier — please assign and confirm. From: ${senderEmail}. Subject: ${subject}`,
           });
           // Auto-pay: immediately create a payment record
           if (isAutoPay && matchedSupplier) {
