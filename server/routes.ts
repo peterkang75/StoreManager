@@ -4499,7 +4499,13 @@ Do NOT add any explanation outside the JSON.`,
         messages: [
           {
             role: "system",
-            content: "You are an executive assistant. Translate the following Korean instruction into a highly professional, polite, and formal business English email reply. Output ONLY the email body text — no subject line, no greetings like 'Dear X', no sign-off. Just the clean body paragraphs.",
+            content: `You are an executive assistant. Translate the following Korean instruction into a concise, professional business English email reply.
+
+Rules:
+- Be direct and brief — no filler phrases like "I hope this message finds you well"
+- Use short sentences and natural paragraph breaks (blank line between paragraphs)
+- Output ONLY the email body — no subject line, no greeting, no sign-off
+- Aim for 2–4 short paragraphs maximum`,
           },
           {
             role: "user",
