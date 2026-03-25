@@ -4580,19 +4580,37 @@ export async function registerRoutes(
         return res.status(400).json({ error: "supplierData.name and supplierName are required" });
       }
 
-      // 1. Create supplier
-      const supplier = await storage.createSupplier({
-        name: supplierData.name,
-        abn: supplierData.abn || null,
-        contactName: supplierData.contactName || null,
-        contactEmails: supplierData.contactEmails && supplierData.contactEmails.length > 0 ? supplierData.contactEmails : null,
-        bsb: supplierData.bsb || null,
-        accountNumber: supplierData.accountNumber || null,
-        address: supplierData.address || null,
-        notes: supplierData.notes || null,
-        active: true,
-        isAutoPay: supplierData.isAutoPay ?? false,
-      });
+      // 1. Find or create supplier (avoid unique constraint violation if already exists)
+      let supplier = await storage.findSupplierByName(supplierData.name);
+      if (supplier) {
+        console.log(`[Review/approve-group] Supplier "${supplier.name}" already exists (${supplier.id}) — reusing.`);
+        // Update with any new details from the form
+        supplier = (await storage.updateSupplier(supplier.id, {
+          abn: supplierData.abn || supplier.abn,
+          contactName: supplierData.contactName || supplier.contactName,
+          contactEmails: supplierData.contactEmails && supplierData.contactEmails.length > 0
+            ? supplierData.contactEmails
+            : supplier.contactEmails,
+          bsb: supplierData.bsb || supplier.bsb,
+          accountNumber: supplierData.accountNumber || supplier.accountNumber,
+          address: supplierData.address || supplier.address,
+          notes: supplierData.notes || supplier.notes,
+          isAutoPay: supplierData.isAutoPay ?? supplier.isAutoPay,
+        })) ?? supplier;
+      } else {
+        supplier = await storage.createSupplier({
+          name: supplierData.name,
+          abn: supplierData.abn || null,
+          contactName: supplierData.contactName || null,
+          contactEmails: supplierData.contactEmails && supplierData.contactEmails.length > 0 ? supplierData.contactEmails : null,
+          bsb: supplierData.bsb || null,
+          accountNumber: supplierData.accountNumber || null,
+          address: supplierData.address || null,
+          notes: supplierData.notes || null,
+          active: true,
+          isAutoPay: supplierData.isAutoPay ?? false,
+        });
+      }
 
       // 2. Set ALLOW routing rule for the sender email (if we have a non-forwarded address)
       if (senderEmail) {
