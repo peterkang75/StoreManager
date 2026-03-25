@@ -1,20 +1,28 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useForm } from "react-hook-form";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
 } from "@/components/ui/accordion";
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
-import { ChevronDown, Plus } from "lucide-react";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import AddInvoiceModal from "@/components/AddInvoiceModal";
-import { useToast } from "@/hooks/use-toast";
 import {
+  ChevronDown,
+  Plus,
   CheckCircle,
   AlertCircle,
   Clock,
@@ -22,12 +30,41 @@ import {
   DollarSign,
   Receipt,
   Loader2,
+  Inbox,
+  Ban,
+  Trash2,
+  Mail,
+  UserPlus,
 } from "lucide-react";
-import type { SupplierInvoice, Supplier, Store } from "@shared/schema";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import AddInvoiceModal from "@/components/AddInvoiceModal";
+import { useToast } from "@/hooks/use-toast";
+import type { SupplierInvoice, Supplier, Store, EmailRoutingRule } from "@shared/schema";
 
 type EnrichedInvoice = SupplierInvoice & { supplier: Supplier | null };
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+// ── rawExtractedData shape from webhook ──────────────────────────────────────
+interface ExtractedSupplierInfo {
+  supplierName: string;
+  senderEmail?: string;
+  abn?: string;
+  address?: string;
+  bsb?: string;
+  accountNumber?: string;
+  contactName?: string;
+}
+interface ReviewRawData {
+  senderEmail: string;
+  subject?: string;
+  supplier: ExtractedSupplierInfo;
+  invoiceNumber?: string;
+  issueDate?: string;
+  dueDate?: string;
+  totalAmount?: number;
+  storeCode?: string;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmt(dateStr: string | null | undefined): string {
   if (!dateStr) return "—";
@@ -59,7 +96,7 @@ function isDueSoon(dueDate: string | null | undefined, status: string): boolean 
   return diff >= 0 && diff <= 7;
 }
 
-// ── Supplier group structure ────────────────────────────────────────────────────
+// ── Supplier group structure ──────────────────────────────────────────────────
 
 interface SupplierGroup {
   supplierId: string;
@@ -92,24 +129,215 @@ function groupBySupplier(invoices: EnrichedInvoice[]): SupplierGroup[] {
   return Array.from(map.values()).sort((a, b) => b.totalAmount - a.totalAmount);
 }
 
-// ── Main Component ─────────────────────────────────────────────────────────────
+// ── Approve Supplier Modal ───────────────────────────────────────────────────
+
+interface ApproveSupplierModalProps {
+  invoice: SupplierInvoice | null;
+  onClose: () => void;
+  onSuccess: () => void;
+}
+
+interface SupplierFormValues {
+  name: string;
+  abn: string;
+  contactName: string;
+  contactEmails: string;
+  bsb: string;
+  accountNumber: string;
+  address: string;
+  notes: string;
+}
+
+function ApproveSupplierModal({ invoice, onClose, onSuccess }: ApproveSupplierModalProps) {
+  const { toast } = useToast();
+  const raw = invoice?.rawExtractedData as ReviewRawData | null;
+
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<SupplierFormValues>({
+    defaultValues: {
+      name: raw?.supplier?.supplierName ?? "",
+      abn: raw?.supplier?.abn ?? "",
+      contactName: raw?.supplier?.contactName ?? "",
+      contactEmails: raw?.senderEmail ?? raw?.supplier?.senderEmail ?? "",
+      bsb: raw?.supplier?.bsb ?? "",
+      accountNumber: raw?.supplier?.accountNumber ?? "",
+      address: raw?.supplier?.address ?? "",
+      notes: "",
+    },
+  });
+
+  useEffect(() => {
+    if (invoice) {
+      const r = invoice.rawExtractedData as ReviewRawData | null;
+      reset({
+        name: r?.supplier?.supplierName ?? "",
+        abn: r?.supplier?.abn ?? "",
+        contactName: r?.supplier?.contactName ?? "",
+        contactEmails: r?.senderEmail ?? r?.supplier?.senderEmail ?? "",
+        bsb: r?.supplier?.bsb ?? "",
+        accountNumber: r?.supplier?.accountNumber ?? "",
+        address: r?.supplier?.address ?? "",
+        notes: "",
+      });
+    }
+  }, [invoice, reset]);
+
+  const approveMutation = useMutation({
+    mutationFn: async (data: SupplierFormValues) => {
+      if (!invoice) throw new Error("No invoice");
+      const r = invoice.rawExtractedData as ReviewRawData | null;
+      const senderEmail = r?.senderEmail ?? "";
+
+      const emailsArray = data.contactEmails
+        .split(",")
+        .map(e => e.trim())
+        .filter(Boolean);
+
+      // 1. Create supplier
+      const supplier = await apiRequest("POST", "/api/suppliers", {
+        name: data.name,
+        abn: data.abn || null,
+        contactName: data.contactName || null,
+        contactEmails: emailsArray.length > 0 ? emailsArray : null,
+        bsb: data.bsb || null,
+        accountNumber: data.accountNumber || null,
+        address: data.address || null,
+        notes: data.notes || null,
+        active: true,
+      });
+
+      // 2. Add ALLOW routing rule
+      if (senderEmail) {
+        await apiRequest("PUT", `/api/email-routing-rules/${encodeURIComponent(senderEmail)}`, {
+          action: "ALLOW",
+          supplierName: data.name,
+        });
+      }
+
+      // 3. Update invoice: set supplierId + status PENDING
+      await apiRequest("PUT", `/api/supplier-invoices/${invoice.id}`, {
+        supplierId: supplier.id,
+        status: "PENDING",
+        notes: `Approved via Review Inbox. Originally from: ${senderEmail}`,
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Supplier created and invoice approved" });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/email-routing-rules"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/suppliers"] });
+      onSuccess();
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to approve supplier", description: err?.message, variant: "destructive" });
+    },
+  });
+
+  function onSubmit(data: SupplierFormValues) {
+    approveMutation.mutate(data);
+  }
+
+  return (
+    <Dialog open={!!invoice} onOpenChange={open => !open && onClose()}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="dialog-approve-supplier">
+        <DialogHeader>
+          <DialogTitle>Approve & Add Supplier</DialogTitle>
+          <p className="text-sm text-muted-foreground">
+            Review and confirm the AI-extracted supplier details before creating.
+          </p>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-2">
+          <div className="grid grid-cols-1 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="sup-name">Supplier Name <span className="text-red-500">*</span></Label>
+              <Input
+                id="sup-name"
+                {...register("name", { required: true })}
+                placeholder="Supplier name"
+                data-testid="input-supplier-name"
+                className={errors.name ? "border-red-500" : ""}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="sup-abn">ABN</Label>
+                <Input id="sup-abn" {...register("abn")} placeholder="XX XXX XXX XXX" data-testid="input-supplier-abn" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="sup-contact-name">Contact Name</Label>
+                <Input id="sup-contact-name" {...register("contactName")} placeholder="Contact person" data-testid="input-supplier-contact-name" />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="sup-emails">Contact Emails</Label>
+              <Input
+                id="sup-emails"
+                {...register("contactEmails")}
+                placeholder="email@example.com, email2@example.com"
+                data-testid="input-supplier-emails"
+              />
+              <p className="text-xs text-muted-foreground">Comma-separated. These will be whitelisted for future auto-import.</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="sup-bsb">BSB</Label>
+                <Input id="sup-bsb" {...register("bsb")} placeholder="000-000" data-testid="input-supplier-bsb" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="sup-account">Account Number</Label>
+                <Input id="sup-account" {...register("accountNumber")} placeholder="XXXXXXXXX" data-testid="input-supplier-account" />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="sup-address">Address</Label>
+              <Input id="sup-address" {...register("address")} placeholder="Street, Suburb, State" data-testid="input-supplier-address" />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="sup-notes">Notes</Label>
+              <Input id="sup-notes" {...register("notes")} placeholder="Optional notes" data-testid="input-supplier-notes" />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={onClose} disabled={approveMutation.isPending}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={approveMutation.isPending} data-testid="button-confirm-approve-supplier">
+              {approveMutation.isPending ? (
+                <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Creating…</>
+              ) : (
+                <><UserPlus className="h-3.5 w-3.5 mr-1.5" />Create Supplier & Approve</>
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
+
+type TabKey = "topay" | "review" | "history" | "emailrules";
 
 export function AdminAccountsPayable() {
   const { toast } = useToast();
 
-  // View tab: "topay" | "history"
-  const [activeTab, setActiveTab] = useState<"topay" | "history">("topay");
-  // Store filter: "ALL" | store id — default auto-selects Sushi once stores load
+  const [activeTab, setActiveTab] = useState<TabKey>("topay");
   const [storeFilter, setStoreFilter] = useState<string>("");
   const defaultFilterSet = useRef(false);
-  // Selected invoice IDs
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  // Open accordion items
   const [openAccordions, setOpenAccordions] = useState<string[]>([]);
-  // Add Invoice modal
   const [addInvoiceOpen, setAddInvoiceOpen] = useState(false);
+  const [approveInvoice, setApproveInvoice] = useState<SupplierInvoice | null>(null);
 
-  // Fetch all invoices (we split client-side for the two tabs)
+  // ── Queries ────────────────────────────────────────────────────────────────
   const { data: allInvoices = [], isLoading } = useQuery<EnrichedInvoice[]>({
     queryKey: ["/api/invoices", "ALL"],
     queryFn: async () => {
@@ -120,35 +348,40 @@ export function AdminAccountsPayable() {
     staleTime: 30_000,
   });
 
+  const { data: reviewInvoices = [], isLoading: reviewLoading } = useQuery<SupplierInvoice[]>({
+    queryKey: ["/api/invoices/review"],
+    staleTime: 30_000,
+  });
+
+  const { data: emailRules = [], isLoading: rulesLoading } = useQuery<EmailRoutingRule[]>({
+    queryKey: ["/api/email-routing-rules"],
+    staleTime: 30_000,
+  });
+
   const { data: stores = [] } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
 
-  // Store filter order: Sushi → Sandwich → Holdings → PYC
+  // ── Store filter ────────────────────────────────────────────────────────────
   const STORE_ORDER = ["sushi", "sandwich", "holding", "pyc"];
   const filteredStores = useMemo(() => {
     const matched = STORE_ORDER.flatMap(keyword =>
       stores.filter(s => s.active && s.name.toLowerCase().includes(keyword))
     );
-    // deduplicate preserving order
     const seen = new Set<string>();
     return matched.filter(s => { if (seen.has(s.id)) return false; seen.add(s.id); return true; });
   }, [stores]);
 
-  // Auto-select Sushi store on first load
   useEffect(() => {
     if (!defaultFilterSet.current && filteredStores.length > 0) {
       defaultFilterSet.current = true;
-      // filteredStores is already ordered Sushi first
       setStoreFilter(filteredStores[0].id);
     }
   }, [filteredStores]);
 
-  // Apply store filter ("ALL" or "" = no filter)
   const storeFiltered = useMemo(() => {
     if (!storeFilter || storeFilter === "ALL") return allInvoices;
     return allInvoices.filter(inv => inv.storeId === storeFilter);
   }, [allInvoices, storeFilter]);
 
-  // Split into tabs
   const toPayInvoices = useMemo(
     () => storeFiltered.filter(inv => inv.status === "PENDING" || inv.status === "OVERDUE"),
     [storeFiltered]
@@ -165,24 +398,21 @@ export function AdminAccountsPayable() {
     [storeFiltered]
   );
 
-  // Summary stats
   const totalPayable = useMemo(() => toPayInvoices.reduce((s, inv) => s + (inv.amount ?? 0), 0), [toPayInvoices]);
   const totalOverdue = useMemo(
     () => toPayInvoices.filter(inv => isOverdue(inv.dueDate, inv.status)).reduce((s, inv) => s + (inv.amount ?? 0), 0),
     [toPayInvoices]
   );
 
-  // Supplier groups for To Pay view
   const supplierGroups = useMemo(() => groupBySupplier(toPayInvoices), [toPayInvoices]);
 
-  // Selected total
   const selectedTotal = useMemo(() => {
     return toPayInvoices
       .filter(inv => selected.has(inv.id))
       .reduce((s, inv) => s + (inv.amount ?? 0), 0);
   }, [toPayInvoices, selected]);
 
-  // Bulk mark paid mutation
+  // ── Mutations ───────────────────────────────────────────────────────────────
   const bulkMarkPaidMutation = useMutation({
     mutationFn: async (ids: string[]) => {
       await Promise.all(ids.map(id => apiRequest("PATCH", `/api/invoices/${id}/status`, { status: "PAID" })));
@@ -196,7 +426,39 @@ export function AdminAccountsPayable() {
     onError: () => toast({ title: "Failed to update invoices", variant: "destructive" }),
   });
 
-  // Selection helpers
+  const ignoreSenderMutation = useMutation({
+    mutationFn: async ({ invoiceId, senderEmail, supplierName }: { invoiceId: string; senderEmail: string; supplierName?: string }) => {
+      await Promise.all([
+        apiRequest("PUT", `/api/email-routing-rules/${encodeURIComponent(senderEmail)}`, {
+          action: "IGNORE",
+          supplierName: supplierName ?? null,
+        }),
+        apiRequest("PUT", `/api/supplier-invoices/${invoiceId}`, {
+          status: "QUARANTINE",
+          notes: `Sender ignored by manager. Email: ${senderEmail}`,
+        }),
+      ]);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/email-routing-rules"] });
+      toast({ title: "Sender ignored", description: "Future emails from this sender will be discarded." });
+    },
+    onError: () => toast({ title: "Failed to ignore sender", variant: "destructive" }),
+  });
+
+  const deleteRuleMutation = useMutation({
+    mutationFn: async (email: string) => {
+      await apiRequest("DELETE", `/api/email-routing-rules/${encodeURIComponent(email)}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/email-routing-rules"] });
+      toast({ title: "Routing rule deleted", description: "Future emails from this address will be processed as unknown." });
+    },
+    onError: () => toast({ title: "Failed to delete rule", variant: "destructive" }),
+  });
+
+  // ── Selection helpers ───────────────────────────────────────────────────────
   function toggleOne(id: string) {
     setSelected(prev => {
       const next = new Set(prev);
@@ -208,14 +470,11 @@ export function AdminAccountsPayable() {
 
   function toggleSupplier(group: SupplierGroup) {
     const ids = group.invoices.map(i => i.id);
-    const allSelected = ids.every(id => selected.has(id));
+    const allSel = ids.every(id => selected.has(id));
     setSelected(prev => {
       const next = new Set(prev);
-      if (allSelected) {
-        ids.forEach(id => next.delete(id));
-      } else {
-        ids.forEach(id => next.add(id));
-      }
+      if (allSel) ids.forEach(id => next.delete(id));
+      else ids.forEach(id => next.add(id));
       return next;
     });
   }
@@ -224,7 +483,6 @@ export function AdminAccountsPayable() {
     setSelected(new Set());
   }
 
-  // Open all accordions by default when data first loads
   useEffect(() => {
     if (supplierGroups.length > 0) {
       setOpenAccordions(prev =>
@@ -233,11 +491,42 @@ export function AdminAccountsPayable() {
     }
   }, [supplierGroups]);
 
+  // ── Tab config ──────────────────────────────────────────────────────────────
+  const tabs: { key: TabKey; label: string; badge?: number; badgeColor?: string }[] = [
+    {
+      key: "topay",
+      label: "To Pay",
+      badge: toPayInvoices.length > 0 ? toPayInvoices.length : undefined,
+      badgeColor: totalOverdue > 0 ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400" : "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400",
+    },
+    {
+      key: "review",
+      label: "Review Inbox",
+      badge: reviewInvoices.length > 0 ? reviewInvoices.length : undefined,
+      badgeColor: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400",
+    },
+    {
+      key: "history",
+      label: "Paid History",
+      badge: historyInvoices.length > 0 ? historyInvoices.length : undefined,
+      badgeColor: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400",
+    },
+    {
+      key: "emailrules",
+      label: "Email Rules",
+      badge: emailRules.length > 0 ? emailRules.length : undefined,
+      badgeColor: "bg-muted text-muted-foreground",
+    },
+  ];
+
+  const showStoreFilter = activeTab === "topay" || activeTab === "history";
+  const showSummaryCards = activeTab === "topay";
+
   return (
     <AdminLayout title="Accounts Payable">
       <div className="flex flex-col gap-5">
 
-        {/* ── Page header actions ─────────────────────────────────────────── */}
+        {/* ── Page header actions ────────────────────────────────────────── */}
         <div className="flex justify-end">
           <Button
             size="sm"
@@ -249,153 +538,137 @@ export function AdminAccountsPayable() {
           </Button>
         </div>
 
-        {/* ── Summary Cards ─────────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 gap-4">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Total Payable</p>
-                  <p className="text-2xl font-bold tracking-tight tabular-nums" data-testid="text-total-payable">
-                    {fmtAUD(totalPayable)}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{toPayInvoices.length} pending invoices</p>
+        {/* ── Summary Cards (To Pay only) ────────────────────────────────── */}
+        {showSummaryCards && (
+          <div className="grid grid-cols-2 gap-4">
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Total Payable</p>
+                    <p className="text-2xl font-bold tracking-tight tabular-nums" data-testid="text-total-payable">
+                      {fmtAUD(totalPayable)}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{toPayInvoices.length} pending invoices</p>
+                  </div>
+                  <DollarSign className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
                 </div>
-                <DollarSign className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-              </div>
-              {totalOverdue > 0 && (
-                <p className="text-xs text-red-600 dark:text-red-400 font-semibold mt-2 flex items-center gap-1">
-                  <AlertCircle className="h-3 w-3" />
-                  Overdue: {fmtAUD(totalOverdue)}
-                </p>
-              )}
-            </CardContent>
-          </Card>
+                {totalOverdue > 0 && (
+                  <p className="text-xs text-red-600 dark:text-red-400 font-semibold mt-2 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    Overdue: {fmtAUD(totalOverdue)}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
 
-          <Card className={selected.size > 0 ? "border-primary/40" : ""}>
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Selected Total</p>
-                  <p className={`text-2xl font-bold tracking-tight tabular-nums transition-colors ${selected.size > 0 ? "text-primary" : "text-muted-foreground/50"}`} data-testid="text-selected-total-card">
-                    {fmtAUD(selectedTotal)}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {selected.size > 0 ? `${selected.size} invoice${selected.size !== 1 ? "s" : ""} selected` : "None selected"}
-                  </p>
+            <Card className={selected.size > 0 ? "border-primary/40" : ""}>
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Selected Total</p>
+                    <p className={`text-2xl font-bold tracking-tight tabular-nums transition-colors ${selected.size > 0 ? "text-primary" : "text-muted-foreground/50"}`} data-testid="text-selected-total-card">
+                      {fmtAUD(selectedTotal)}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {selected.size > 0 ? `${selected.size} invoice${selected.size !== 1 ? "s" : ""} selected` : "None selected"}
+                    </p>
+                  </div>
+                  <CheckCircle className={`h-4 w-4 shrink-0 mt-0.5 transition-colors ${selected.size > 0 ? "text-primary" : "text-muted-foreground"}`} />
                 </div>
-                <CheckCircle className={`h-4 w-4 shrink-0 mt-0.5 transition-colors ${selected.size > 0 ? "text-primary" : "text-muted-foreground"}`} />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
-        {/* ── Tab bar + Pay action ──────────────────────────────────────── */}
-        <div className="flex items-center gap-3">
-          {/* Left: View Tabs */}
-          <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg shrink-0">
-            <button
-              onClick={() => { setActiveTab("topay"); clearSelection(); }}
-              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                activeTab === "topay"
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-              data-testid="tab-topay"
-            >
-              To Pay
-              {toPayInvoices.length > 0 && (
-                <span className={`ml-2 text-[11px] px-1.5 py-0.5 rounded-full font-semibold ${
-                  activeTab === "topay"
-                    ? totalOverdue > 0 ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400" : "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400"
-                    : "bg-muted text-muted-foreground"
-                }`}>
-                  {toPayInvoices.length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => { setActiveTab("history"); clearSelection(); }}
-              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                activeTab === "history"
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-              data-testid="tab-history"
-            >
-              Paid History
-              {historyInvoices.length > 0 && (
-                <span className={`ml-2 text-[11px] px-1.5 py-0.5 rounded-full font-semibold ${
-                  activeTab === "history" ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400" : "bg-muted text-muted-foreground"
-                }`}>
-                  {historyInvoices.length}
-                </span>
-              )}
-            </button>
+        {/* ── Tab bar + Pay action ───────────────────────────────────────── */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg shrink-0 flex-wrap">
+            {tabs.map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => { setActiveTab(tab.key); clearSelection(); }}
+                className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
+                  activeTab === tab.key
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                data-testid={`tab-${tab.key}`}
+              >
+                {tab.label}
+                {tab.badge !== undefined && (
+                  <span className={`ml-2 text-[11px] px-1.5 py-0.5 rounded-full font-semibold ${
+                    activeTab === tab.key ? tab.badgeColor : "bg-muted text-muted-foreground"
+                  }`}>
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            ))}
           </div>
 
           <div className="flex-1" />
 
-          {/* Right: Pay action (only when something is selected) */}
-          <div className="shrink-0 flex items-center gap-2">
-            {selected.size > 0 && (
-              <>
-                <span className="text-sm font-semibold tabular-nums text-foreground whitespace-nowrap" data-testid="text-selected-total">
-                  {fmtAUD(selectedTotal)}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={clearSelection}
-                  data-testid="button-clear-selection"
-                >
-                  Clear
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => bulkMarkPaidMutation.mutate(Array.from(selected))}
-                  disabled={bulkMarkPaidMutation.isPending}
-                  data-testid="button-bulk-mark-paid"
-                  className="gap-1.5 whitespace-nowrap"
-                >
-                  {bulkMarkPaidMutation.isPending ? (
-                    <><Loader2 className="h-3.5 w-3.5 animate-spin" />Paying…</>
-                  ) : (
-                    <><CheckCircle className="h-3.5 w-3.5" />Pay Selected ({selected.size})</>
-                  )}
-                </Button>
-              </>
-            )}
-          </div>
+          {activeTab === "topay" && selected.size > 0 && (
+            <div className="shrink-0 flex items-center gap-2">
+              <span className="text-sm font-semibold tabular-nums text-foreground whitespace-nowrap" data-testid="text-selected-total">
+                {fmtAUD(selectedTotal)}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={clearSelection}
+                data-testid="button-clear-selection"
+              >
+                Clear
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => bulkMarkPaidMutation.mutate(Array.from(selected))}
+                disabled={bulkMarkPaidMutation.isPending}
+                data-testid="button-bulk-mark-paid"
+                className="gap-1.5 whitespace-nowrap"
+              >
+                {bulkMarkPaidMutation.isPending ? (
+                  <><Loader2 className="h-3.5 w-3.5 animate-spin" />Paying…</>
+                ) : (
+                  <><CheckCircle className="h-3.5 w-3.5" />Pay Selected ({selected.size})</>
+                )}
+              </Button>
+            </div>
+          )}
         </div>
 
-        {/* ── Store Filter row (below tabs, left-aligned) ─────────────────── */}
-        <div className="flex items-center gap-1 flex-wrap">
-          {[...filteredStores.map(s => ({ id: s.id, label: s.name })), { id: "ALL", label: "All Stores" }].map(opt => (
-            <button
-              key={opt.id}
-              onClick={() => { setStoreFilter(opt.id); clearSelection(); }}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
-                storeFilter === opt.id
-                  ? "bg-foreground text-background border-foreground"
-                  : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40"
-              }`}
-              data-testid={`button-store-filter-${opt.id}`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-
-        {/* ── Content Area ──────────────────────────────────────────────── */}
-        {isLoading ? (
-          <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span className="text-sm">Loading invoices…</span>
+        {/* ── Store Filter (To Pay + History only) ──────────────────────── */}
+        {showStoreFilter && (
+          <div className="flex items-center gap-1 flex-wrap">
+            {[...filteredStores.map(s => ({ id: s.id, label: s.name })), { id: "ALL", label: "All Stores" }].map(opt => (
+              <button
+                key={opt.id}
+                onClick={() => { setStoreFilter(opt.id); clearSelection(); }}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
+                  storeFilter === opt.id
+                    ? "bg-foreground text-background border-foreground"
+                    : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40"
+                }`}
+                data-testid={`button-store-filter-${opt.id}`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
-        ) : activeTab === "topay" ? (
-          /* ── To Pay: Supplier Accordion Groups ── */
-          toPayInvoices.length === 0 ? (
+        )}
+
+        {/* ── Content Area ───────────────────────────────────────────────── */}
+
+        {/* ── TO PAY ── */}
+        {activeTab === "topay" && (
+          isLoading ? (
+            <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading invoices…</span>
+            </div>
+          ) : toPayInvoices.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
               <CheckCircle className="h-10 w-10 opacity-20" />
               <p className="text-sm font-medium">All invoices are paid</p>
@@ -424,9 +697,7 @@ export function AdminAccountsPayable() {
                       className="border border-border/40 rounded-lg bg-card overflow-hidden"
                       data-testid={`supplier-group-${group.supplierId}`}
                     >
-                      {/* Custom header: checkbox OUTSIDE trigger to avoid button-in-button */}
                       <AccordionPrimitive.Header className="flex items-center px-4 py-3 hover:bg-muted/30 transition-colors">
-                        {/* Supplier select-all checkbox (sibling to trigger, not inside) */}
                         <Checkbox
                           checked={allGroupSelected}
                           data-state={someGroupSelected && !allGroupSelected ? "indeterminate" : undefined}
@@ -435,10 +706,7 @@ export function AdminAccountsPayable() {
                           data-testid={`checkbox-supplier-${group.supplierId}`}
                           className="mr-3 shrink-0"
                         />
-
-                        {/* Expand/collapse trigger (contains only info + chevron) */}
                         <AccordionPrimitive.Trigger className="flex flex-1 items-center justify-between gap-2 min-w-0 text-left [&[data-state=open]>svg]:rotate-180">
-                          {/* Supplier name + amounts */}
                           <div className="flex-1 min-w-0">
                             <p className="font-semibold text-sm">{group.supplierName}</p>
                             <div className="flex items-center gap-3 mt-0.5 flex-wrap">
@@ -565,9 +833,157 @@ export function AdminAccountsPayable() {
               </Accordion>
             </div>
           )
-        ) : (
-          /* ── Paid History: flat sorted list ── */
-          historyInvoices.length === 0 ? (
+        )}
+
+        {/* ── REVIEW INBOX ── */}
+        {activeTab === "review" && (
+          reviewLoading ? (
+            <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading review inbox…</span>
+            </div>
+          ) : reviewInvoices.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
+              <Inbox className="h-10 w-10 opacity-20" />
+              <p className="text-sm font-medium">Review inbox is empty</p>
+              <p className="text-xs">New invoices from unknown senders will appear here for review.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {reviewInvoices.map(inv => {
+                const raw = inv.rawExtractedData as ReviewRawData | null;
+                const senderEmail = raw?.senderEmail ?? "Unknown";
+                const supplierName = raw?.supplier?.supplierName ?? "Unknown Supplier";
+                const isPending = ignoreSenderMutation.isPending;
+
+                return (
+                  <Card key={inv.id} className="overflow-hidden" data-testid={`review-card-${inv.id}`}>
+                    <CardContent className="p-0">
+                      {/* Header row */}
+                      <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border/30 bg-muted/20">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <Mail className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+                          <div className="min-w-0">
+                            <p className="font-semibold text-sm truncate" data-testid={`text-review-supplier-${inv.id}`}>
+                              {supplierName}
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate" data-testid={`text-review-email-${inv.id}`}>
+                              {senderEmail}
+                            </p>
+                            {raw?.subject && (
+                              <p className="text-xs text-muted-foreground/70 truncate mt-0.5 italic">
+                                "{raw.subject}"
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          {raw?.totalAmount !== undefined && raw.totalAmount > 0 && (
+                            <p className="font-bold text-sm tabular-nums" data-testid={`text-review-amount-${inv.id}`}>
+                              {fmtAUD(raw.totalAmount)}
+                            </p>
+                          )}
+                          {raw?.invoiceNumber && (
+                            <p className="text-xs font-mono text-muted-foreground">#{raw.invoiceNumber}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Details grid */}
+                      <div className="px-4 py-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
+                        {raw?.supplier?.abn && (
+                          <div className="flex gap-2">
+                            <span className="text-muted-foreground shrink-0 w-20">ABN</span>
+                            <span className="font-medium" data-testid={`text-review-abn-${inv.id}`}>{raw.supplier.abn}</span>
+                          </div>
+                        )}
+                        {raw?.supplier?.bsb && (
+                          <div className="flex gap-2">
+                            <span className="text-muted-foreground shrink-0 w-20">BSB</span>
+                            <span className="font-medium font-mono">{raw.supplier.bsb}</span>
+                          </div>
+                        )}
+                        {raw?.supplier?.accountNumber && (
+                          <div className="flex gap-2">
+                            <span className="text-muted-foreground shrink-0 w-20">Account</span>
+                            <span className="font-medium font-mono">{raw.supplier.accountNumber}</span>
+                          </div>
+                        )}
+                        {raw?.supplier?.address && (
+                          <div className="flex gap-2">
+                            <span className="text-muted-foreground shrink-0 w-20">Address</span>
+                            <span className="font-medium">{raw.supplier.address}</span>
+                          </div>
+                        )}
+                        {raw?.issueDate && (
+                          <div className="flex gap-2">
+                            <span className="text-muted-foreground shrink-0 w-20">Invoice Date</span>
+                            <span className="font-medium">{fmt(raw.issueDate)}</span>
+                          </div>
+                        )}
+                        {raw?.dueDate && (
+                          <div className="flex gap-2">
+                            <span className="text-muted-foreground shrink-0 w-20">Due Date</span>
+                            <span className="font-medium">{fmt(raw.dueDate)}</span>
+                          </div>
+                        )}
+                        {raw?.storeCode && raw.storeCode !== "UNKNOWN" && (
+                          <div className="flex gap-2">
+                            <span className="text-muted-foreground shrink-0 w-20">Store</span>
+                            <span className="font-medium">{raw.storeCode}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center gap-2 px-4 py-3 border-t border-border/30 bg-muted/10">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            ignoreSenderMutation.mutate({
+                              invoiceId: inv.id,
+                              senderEmail,
+                              supplierName: supplierName !== "Unknown Supplier" ? supplierName : undefined,
+                            })
+                          }
+                          disabled={isPending}
+                          data-testid={`button-ignore-${inv.id}`}
+                          className="gap-1.5"
+                        >
+                          {isPending ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Ban className="h-3.5 w-3.5" />
+                          )}
+                          Ignore Sender
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => setApproveInvoice(inv)}
+                          data-testid={`button-approve-${inv.id}`}
+                          className="gap-1.5"
+                        >
+                          <UserPlus className="h-3.5 w-3.5" />
+                          Approve & Add Supplier
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )
+        )}
+
+        {/* ── PAID HISTORY ── */}
+        {activeTab === "history" && (
+          isLoading ? (
+            <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading history…</span>
+            </div>
+          ) : historyInvoices.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
               <Receipt className="h-10 w-10 opacity-20" />
               <p className="text-sm font-medium">No paid invoices</p>
@@ -619,11 +1035,97 @@ export function AdminAccountsPayable() {
             </Card>
           )
         )}
+
+        {/* ── EMAIL RULES ── */}
+        {activeTab === "emailrules" && (
+          rulesLoading ? (
+            <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading email rules…</span>
+            </div>
+          ) : emailRules.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
+              <Mail className="h-10 w-10 opacity-20" />
+              <p className="text-sm font-medium">No email routing rules</p>
+              <p className="text-xs">Rules are created when you approve or ignore senders from the Review Inbox.</p>
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <table className="w-full text-sm" data-testid="table-email-rules">
+                  <thead>
+                    <tr className="border-b border-border/40 bg-muted/30">
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Email Address</th>
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Supplier Name</th>
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Action</th>
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Created</th>
+                      <th className="py-2.5 px-4 w-10" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {emailRules.map(rule => (
+                      <tr
+                        key={rule.email}
+                        className="border-b border-border/10 last:border-0 hover:bg-muted/20 transition-colors"
+                        data-testid={`row-rule-${rule.email}`}
+                      >
+                        <td className="py-2.5 px-4 font-mono text-xs" data-testid={`text-rule-email-${rule.email}`}>
+                          {rule.email}
+                        </td>
+                        <td className="py-2.5 px-4 text-muted-foreground text-xs">
+                          {rule.supplierName ?? "—"}
+                        </td>
+                        <td className="py-2.5 px-4">
+                          <span
+                            className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
+                              rule.action === "ALLOW"
+                                ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
+                                : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400"
+                            }`}
+                            data-testid={`text-rule-action-${rule.email}`}
+                          >
+                            {rule.action === "ALLOW" ? (
+                              <CheckCircle className="h-3 w-3" />
+                            ) : (
+                              <Ban className="h-3 w-3" />
+                            )}
+                            {rule.action}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-4 text-xs text-muted-foreground whitespace-nowrap">
+                          {fmt(rule.createdAt?.toString())}
+                        </td>
+                        <td className="py-2.5 pr-4 w-10">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => deleteRuleMutation.mutate(rule.email)}
+                            disabled={deleteRuleMutation.isPending}
+                            data-testid={`button-delete-rule-${rule.email}`}
+                            title="Delete rule"
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )
+        )}
       </div>
 
       <AddInvoiceModal
         open={addInvoiceOpen}
         onClose={() => setAddInvoiceOpen(false)}
+      />
+
+      <ApproveSupplierModal
+        invoice={approveInvoice}
+        onClose={() => setApproveInvoice(null)}
+        onSuccess={() => setApproveInvoice(null)}
       />
     </AdminLayout>
   );

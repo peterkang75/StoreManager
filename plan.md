@@ -207,7 +207,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - Add / Edit supplier with full AP fields: name, ABN, contact name, contact emails (comma-separated → stored as array), BSB, account number, notes, active toggle.
 - Whitelisted emails drive the webhook routing logic (see §3.10).
 
-### 3.10 Invoice Inbound Pipeline (Webhook / Cloudmailin) + Auto-Discovery
+### 3.10 Invoice Inbound Pipeline (Webhook / Cloudmailin) + Auto-Discovery ✅ COMPLETE
 - **Email flow**: Supplier sends invoice PDF to a dedicated email address → Gmail forwards to Cloudmailin → Cloudmailin POSTs multipart payload to `POST /api/webhooks/inbound-invoices`.
 - **Sender extraction**: from `req.body.headers.from` only (`envelope.from` is skipped as it contains Gmail forwarding artifacts).
 - **Routing logic** (checked in this order):
@@ -230,6 +230,12 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Email Routing Rules** (`emailRoutingRules` table): manager-controlled ALLOW/IGNORE per sender email with optional `supplierName` label.
 - **CRUD endpoints**: `GET/PUT/DELETE /api/email-routing-rules/:email`; `GET /api/invoices/review`.
 - **Quarantine**: `GET /api/webhooks/quarantined-emails` for PDFs that couldn't be read.
+- **Frontend — AP page 4-tab layout** (`client/src/pages/admin/AccountsPayable.tsx`):
+  - **To Pay** — existing supplier accordion + bulk pay (unchanged).
+  - **Review Inbox** — cards for each REVIEW-status invoice, showing AI-extracted supplier info (name, email, ABN, BSB, account, address, invoice #, amount, date). Two actions per card: **Ignore Sender** (sets IGNORE rule + marks invoice QUARANTINE) and **Approve & Add Supplier** (opens pre-filled modal → creates supplier, sets ALLOW rule, updates invoice to PENDING).
+  - **Paid History** — existing flat paid invoice list (unchanged).
+  - **Email Rules** — data table (Email, Supplier Name, ALLOW/IGNORE badge, Created date, Delete button). Delete removes rule so sender is treated as unknown again.
+  - Store filter row + summary cards only shown on To Pay and Paid History tabs.
 
 ### 3.11 Employee Portal (Mobile)
 - **Login**: `/mobile/portal` — employee selects store, finds their name, enters PIN.
