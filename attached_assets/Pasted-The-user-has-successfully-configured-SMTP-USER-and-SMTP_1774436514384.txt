@@ -1,0 +1,33 @@
+The user has successfully configured `SMTP_USER` and `SMTP_PASS` in the environment variables. We are ready to implement the "AI Smart Inbox" translation and reply workflow.
+
+Please implement this complete feature step-by-step safely:
+
+### 1. Database Schema Updates
+- Update the `todos` table to store raw email data.
+- Add new columns: `originalSubject` (varchar), `originalBody` (text), and `senderEmail` (varchar).
+- Ensure the schema is updated and pushed.
+
+### 2. Backend: AI Parser Update (`server/invoiceParser.ts`)
+- Update the `classifyAndParseEmail` logic for `TASK` types.
+- **CRITICAL:** Save the raw English email subject and body into the new `originalSubject` and `originalBody` columns.
+- Instruct GPT-4o to generate the `title` and `description` (summary) specifically in **KOREAN (한국어)**.
+
+### 3. Backend: Nodemailer Setup & API Routes
+- Install `nodemailer`.
+- Create a mailer utility using standard Gmail SMTP settings:
+  `host: 'smtp.gmail.com', port: 465, secure: true, auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }`
+- **Draft API (`POST /api/todos/:id/draft-reply`):** Accepts `koreanDraft`. Uses GPT-4o with a system prompt: "You are an executive assistant. Translate the following Korean instruction into a highly professional, polite, and formal business English email reply." Returns `englishReply`.
+- **Send API (`POST /api/todos/:id/send-reply`):**
+  Accepts `finalEnglishReply`. Uses nodemailer to send the email to the `senderEmail`. Subject should be `Re: [Original Subject]`. Once sent successfully, update the todo status to `DONE` and return success.
+
+### 4. Frontend UI: Email Modal & Reply Workflow
+- **To-Do Card Update:** Update the Executive Dashboard cards to display the Korean title and summary. Add a prominent `[ ✉️ View & Reply ]` button to each task card.
+- **View & Reply Modal:** When the button is clicked, open a large modal divided into two sections:
+  - **Left Section (Context):** Display the Original English Email (`originalSubject`, `originalBody`) and the Korean Summary (`description`).
+  - **Right Section (Action):**
+    1. A `<Textarea>` placeholder: "한국어로 지시사항을 작성하세요..." (For the CEO to type in Korean).
+    2. A button: `[ ✨ Translate to Professional English ]` (Calls Draft API).
+    3. Below it, another `<Textarea>` displaying the returned `englishReply` (Allow the user to edit if needed).
+    4. A final button: `[ 🚀 Send English Reply ]` (Calls Send API, closes modal, invalidates queries).
+
+Please implement this exactly as described, creating a truly powerful localized AI assistant experience!

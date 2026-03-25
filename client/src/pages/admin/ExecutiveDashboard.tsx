@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
   DialogContent,
@@ -39,6 +40,10 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
+  Send,
+  Sparkles,
+  FileText,
+  MessageSquare,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -90,7 +95,7 @@ function StatusBadge({ status }: { status: string }) {
     return (
       <Badge
         className="text-xs bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 no-default-active-elevate"
-        data-testid={`badge-status-done`}
+        data-testid="badge-status-done"
       >
         Done
       </Badge>
@@ -100,7 +105,7 @@ function StatusBadge({ status }: { status: string }) {
     return (
       <Badge
         className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 no-default-active-elevate"
-        data-testid={`badge-status-in-progress`}
+        data-testid="badge-status-in-progress"
       >
         In Progress
       </Badge>
@@ -110,7 +115,7 @@ function StatusBadge({ status }: { status: string }) {
     <Badge
       variant="secondary"
       className="text-xs no-default-active-elevate"
-      data-testid={`badge-status-todo`}
+      data-testid="badge-status-todo"
     >
       To Do
     </Badge>
@@ -142,11 +147,239 @@ function StatCard({
           : "bg-card border-border text-card-foreground"
       }`}
     >
-      <span className={`text-2xl font-bold tabular-nums`}>{value}</span>
+      <span className="text-2xl font-bold tabular-nums">{value}</span>
       <span className={`text-xs font-medium ${active ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
         {label}
       </span>
     </button>
+  );
+}
+
+// ─── Email Reply Modal ────────────────────────────────────────────────────────
+
+function EmailReplyModal({
+  todo,
+  open,
+  onClose,
+}: {
+  todo: Todo | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [koreanDraft, setKoreanDraft] = useState("");
+  const [englishReply, setEnglishReply] = useState("");
+
+  const draftMutation = useMutation({
+    mutationFn: async (draft: string) => {
+      const res = await apiRequest("POST", `/api/todos/${todo!.id}/draft-reply`, { koreanDraft: draft });
+      return res.json();
+    },
+    onSuccess: (data: { englishReply: string }) => {
+      setEnglishReply(data.englishReply);
+    },
+    onError: () => toast({ title: "Translation failed", variant: "destructive" }),
+  });
+
+  const sendMutation = useMutation({
+    mutationFn: async (reply: string) => {
+      const res = await apiRequest("POST", `/api/todos/${todo!.id}/send-reply`, { finalEnglishReply: reply });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/todos"] });
+      toast({ title: "Reply sent successfully", description: "Task has been marked as done." });
+      onClose();
+    },
+    onError: () => toast({ title: "Failed to send reply", variant: "destructive" }),
+  });
+
+  function handleClose() {
+    setKoreanDraft("");
+    setEnglishReply("");
+    onClose();
+  }
+
+  if (!todo) return null;
+
+  const hasEmailContext = !!(todo.originalSubject || todo.originalBody || todo.senderEmail);
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
+      <DialogContent
+        className="max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+        data-testid="modal-reply"
+      >
+        <DialogHeader className="shrink-0">
+          <DialogTitle className="flex items-center gap-2">
+            <Mail className="w-4 h-4 text-primary" />
+            View & Reply
+          </DialogTitle>
+          <DialogDescription className="text-sm text-muted-foreground">
+            {(todo.senderEmail || todo.sourceEmail)
+              ? `Replying to: ${todo.senderEmail || todo.sourceEmail}`
+              : "Review the task and compose a reply"}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex-1 min-h-0 overflow-auto">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-2">
+            {/* ── Left: Context Panel ──────────────────────────────── */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <FileText className="w-4 h-4 text-muted-foreground" />
+                원문 이메일 (Original Email)
+              </div>
+
+              {hasEmailContext ? (
+                <div className="space-y-3">
+                  {todo.originalSubject && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Subject</p>
+                      <p
+                        className="text-sm font-medium bg-muted/40 rounded-md px-3 py-2 border border-border/60"
+                        data-testid="text-original-subject"
+                      >
+                        {todo.originalSubject}
+                      </p>
+                    </div>
+                  )}
+                  {todo.originalBody && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Body</p>
+                      <div
+                        className="text-sm bg-muted/40 rounded-md px-3 py-2 border border-border/60 max-h-40 overflow-y-auto whitespace-pre-wrap leading-relaxed text-foreground/80"
+                        data-testid="text-original-body"
+                      >
+                        {todo.originalBody}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-4 text-sm text-muted-foreground text-center">
+                  이 작업은 수동으로 생성되어 원본 이메일 내용이 없습니다.
+                </div>
+              )}
+
+              <Separator />
+
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <MessageSquare className="w-4 h-4 text-muted-foreground" />
+                AI 한국어 요약
+              </div>
+
+              <div
+                className="rounded-md border border-primary/20 bg-primary/5 px-3 py-3 space-y-1"
+                data-testid="panel-korean-summary"
+              >
+                <p
+                  className="text-sm font-semibold text-foreground"
+                  data-testid="text-task-title-korean"
+                >
+                  {todo.title}
+                </p>
+                {todo.description && (
+                  <p
+                    className="text-sm text-muted-foreground leading-relaxed"
+                    data-testid="text-task-description-korean"
+                  >
+                    {todo.description}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* ── Right: Action Panel ──────────────────────────────── */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Send className="w-4 h-4 text-muted-foreground" />
+                한국어로 지시 → 영어 답장
+              </div>
+
+              {/* Step 1: Korean input */}
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  1단계: 한국어로 지시사항을 작성하세요
+                </p>
+                <Textarea
+                  placeholder="한국어로 지시사항을 작성하세요... (예: 이번 주 금요일까지 견적서를 보내달라고 요청하세요)"
+                  value={koreanDraft}
+                  onChange={(e) => setKoreanDraft(e.target.value)}
+                  rows={4}
+                  className="resize-none text-sm"
+                  data-testid="textarea-korean-draft"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!koreanDraft.trim() || draftMutation.isPending}
+                  onClick={() => draftMutation.mutate(koreanDraft)}
+                  data-testid="button-translate"
+                  className="w-full"
+                >
+                  {draftMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Translating...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Translate to Professional English
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {/* Step 2: English reply */}
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  2단계: 영어 답장을 확인 및 수정 후 발송
+                </p>
+                <Textarea
+                  placeholder="번역된 영어 답장이 여기에 표시됩니다..."
+                  value={englishReply}
+                  onChange={(e) => setEnglishReply(e.target.value)}
+                  rows={6}
+                  className="resize-none text-sm"
+                  data-testid="textarea-english-reply"
+                />
+                <Button
+                  disabled={!englishReply.trim() || sendMutation.isPending || !(todo.senderEmail || todo.sourceEmail)}
+                  onClick={() => sendMutation.mutate(englishReply)}
+                  data-testid="button-send-reply"
+                  className="w-full"
+                >
+                  {sendMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      Send English Reply
+                    </>
+                  )}
+                </Button>
+                {!todo.senderEmail && (
+                  <p className="text-xs text-muted-foreground text-center">
+                    발신자 이메일 정보가 없어 발송이 불가합니다. 수동으로 생성된 작업입니다.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter className="shrink-0 pt-2 border-t border-border/60">
+          <Button variant="outline" onClick={handleClose} data-testid="button-reply-close">
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -156,10 +389,12 @@ function TaskCard({
   todo,
   onStatusChange,
   isUpdating,
+  onReply,
 }: {
   todo: Todo;
   onStatusChange: (id: string, status: string) => void;
   isUpdating: boolean;
+  onReply: (todo: Todo) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const overdue = isOverdue(todo.dueDate) && todo.status !== "DONE";
@@ -182,6 +417,8 @@ function TaskCard({
 
   const hasDescription = todo.description && todo.description.trim().length > 0;
   const isLong = hasDescription && todo.description!.length > 160;
+
+  const hasEmailContext = !!(todo.senderEmail || todo.originalSubject || todo.sourceEmail);
 
   return (
     <Card
@@ -217,6 +454,16 @@ function TaskCard({
                 {todo.title}
               </span>
               <StatusBadge status={todo.status} />
+              {hasEmailContext && !isDone && (
+                <Badge
+                  variant="outline"
+                  className="text-xs text-primary border-primary/30 bg-primary/5 no-default-active-elevate"
+                  data-testid={`badge-has-email-${todo.id}`}
+                >
+                  <Mail className="w-2.5 h-2.5 mr-1" />
+                  이메일
+                </Badge>
+              )}
             </div>
 
             {/* Description */}
@@ -255,9 +502,7 @@ function TaskCard({
               {dueFmt && (
                 <span
                   className={`flex items-center gap-1 text-xs font-medium ${
-                    overdue
-                      ? "text-red-600 dark:text-red-400"
-                      : "text-muted-foreground"
+                    overdue ? "text-red-600 dark:text-red-400" : "text-muted-foreground"
                   }`}
                   data-testid={`text-todo-due-${todo.id}`}
                 >
@@ -278,22 +523,37 @@ function TaskCard({
             </div>
           </div>
 
-          {/* Action button */}
-          <Button
-            size="sm"
-            variant={todo.status === "IN_PROGRESS" ? "default" : "outline"}
-            onClick={() => onStatusChange(todo.id, STATUS_NEXT[todo.status])}
-            disabled={isUpdating}
-            data-testid={`button-todo-status-${todo.id}`}
-            className="shrink-0"
-          >
-            {isUpdating ? (
-              <Loader2 className="w-3 h-3 animate-spin" />
-            ) : (
-              <ActionIcon className="w-3 h-3" />
+          {/* Action buttons */}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* View & Reply button — only for email-originated tasks */}
+            {hasEmailContext && !isDone && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onReply(todo)}
+                data-testid={`button-todo-reply-${todo.id}`}
+                className="text-primary border-primary/30 bg-primary/5"
+              >
+                <Mail className="w-3 h-3" />
+                View & Reply
+              </Button>
             )}
-            <span className="ml-1.5">{actionLabel}</span>
-          </Button>
+
+            <Button
+              size="sm"
+              variant={todo.status === "IN_PROGRESS" ? "default" : "outline"}
+              onClick={() => onStatusChange(todo.id, STATUS_NEXT[todo.status])}
+              disabled={isUpdating}
+              data-testid={`button-todo-status-${todo.id}`}
+            >
+              {isUpdating ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <ActionIcon className="w-3 h-3" />
+              )}
+              <span className="ml-1.5">{actionLabel}</span>
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -371,7 +631,10 @@ function AddTaskModal({
               name="description"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Description <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                  <FormLabel>
+                    Description{" "}
+                    <span className="text-muted-foreground font-normal">(optional)</span>
+                  </FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="Add more detail…"
@@ -389,7 +652,10 @@ function AddTaskModal({
               name="dueDate"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Due Date <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                  <FormLabel>
+                    Due Date{" "}
+                    <span className="text-muted-foreground font-normal">(optional)</span>
+                  </FormLabel>
                   <FormControl>
                     <Input
                       type="date"
@@ -415,7 +681,9 @@ function AddTaskModal({
                 disabled={mutation.isPending}
                 data-testid="button-task-submit"
               >
-                {mutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                {mutation.isPending && (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                )}
                 Add Task
               </Button>
             </DialogFooter>
@@ -433,6 +701,7 @@ export function AdminExecutiveDashboard() {
   const [addOpen, setAddOpen] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [doneOpen, setDoneOpen] = useState(false);
+  const [replyTarget, setReplyTarget] = useState<Todo | null>(null);
   const { toast } = useToast();
 
   const { data: todos = [], isLoading } = useQuery<Todo[]>({
@@ -589,6 +858,7 @@ export function AdminExecutiveDashboard() {
                 todo={todo}
                 onStatusChange={handleStatusChange}
                 isUpdating={updatingId === todo.id}
+                onReply={setReplyTarget}
               />
             ))}
           </div>
@@ -621,6 +891,7 @@ export function AdminExecutiveDashboard() {
                     todo={todo}
                     onStatusChange={handleStatusChange}
                     isUpdating={updatingId === todo.id}
+                    onReply={setReplyTarget}
                   />
                 ))}
               </div>
@@ -630,6 +901,11 @@ export function AdminExecutiveDashboard() {
       </div>
 
       <AddTaskModal open={addOpen} onClose={() => setAddOpen(false)} />
+      <EmailReplyModal
+        todo={replyTarget}
+        open={!!replyTarget}
+        onClose={() => setReplyTarget(null)}
+      />
     </AdminLayout>
   );
 }

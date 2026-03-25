@@ -529,6 +529,9 @@ export const todos = pgTable("todos", {
   title: text("title").notNull(),
   description: text("description"),
   sourceEmail: varchar("source_email"),
+  originalSubject: varchar("original_subject"),
+  originalBody: text("original_body"),
+  senderEmail: varchar("sender_email"),
   dueDate: timestamp("due_date"),
   status: text("status").default("TODO").notNull(), // 'TODO' | 'IN_PROGRESS' | 'DONE'
   createdAt: timestamp("created_at").defaultNow().notNull(),

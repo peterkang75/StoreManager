@@ -4005,6 +4005,9 @@ export async function registerRoutes(
           title: taskData.title,
           description: taskData.description || null,
           sourceEmail: senderEmail,
+          senderEmail: senderEmail,
+          originalSubject: subject,
+          originalBody: emailBody.slice(0, 8000),
           dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
           status: "TODO",
         });
@@ -4331,12 +4334,15 @@ export async function registerRoutes(
 
   app.post("/api/todos", async (req: Request, res: Response) => {
     try {
-      const { title, description, sourceEmail, dueDate, status } = req.body;
+      const { title, description, sourceEmail, senderEmail, originalSubject, originalBody, dueDate, status } = req.body;
       if (!title) return res.status(400).json({ error: "title is required" });
       const todo = await storage.createTodo({
         title,
         description: description ?? null,
         sourceEmail: sourceEmail ?? null,
+        senderEmail: senderEmail ?? null,
+        originalSubject: originalSubject ?? null,
+        originalBody: originalBody ?? null,
         dueDate: dueDate ? new Date(dueDate) : null,
         status: status ?? "TODO",
       });
@@ -4362,6 +4368,69 @@ export async function registerRoutes(
     } catch (err) {
       console.error("Error updating todo:", err);
       res.status(500).json({ error: "Failed to update todo" });
+    }
+  });
+
+  // ── Todo Reply Endpoints ────────────────────────────────────────────────────
+  app.post("/api/todos/:id/draft-reply", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { koreanDraft } = req.body;
+      if (!koreanDraft) return res.status(400).json({ error: "koreanDraft is required" });
+
+      const todo = await storage.getTodo(id);
+      if (!todo) return res.status(404).json({ error: "Todo not found" });
+
+      const openaiClient = new (await import("openai")).default({ apiKey: process.env.OPENAI_API_KEY });
+      const completion = await openaiClient.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: "You are an executive assistant. Translate the following Korean instruction into a highly professional, polite, and formal business English email reply. Output ONLY the email body text — no subject line, no greetings like 'Dear X', no sign-off. Just the clean body paragraphs.",
+          },
+          {
+            role: "user",
+            content: koreanDraft,
+          },
+        ],
+        temperature: 0.3,
+        max_tokens: 800,
+      });
+
+      const englishReply = completion.choices[0]?.message?.content?.trim() ?? "";
+      res.json({ englishReply });
+    } catch (err) {
+      console.error("Error drafting reply:", err);
+      res.status(500).json({ error: "Failed to draft reply" });
+    }
+  });
+
+  app.post("/api/todos/:id/send-reply", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { finalEnglishReply } = req.body;
+      if (!finalEnglishReply) return res.status(400).json({ error: "finalEnglishReply is required" });
+
+      const todo = await storage.getTodo(id);
+      if (!todo) return res.status(404).json({ error: "Todo not found" });
+
+      const toEmail = todo.senderEmail || todo.sourceEmail;
+      if (!toEmail) return res.status(400).json({ error: "No sender email to reply to" });
+      if (!todo.originalSubject) return res.status(400).json({ error: "No original subject to reply to" });
+
+      const { sendEmailReply } = await import("./mailer.js");
+      await sendEmailReply({
+        to: toEmail,
+        originalSubject: todo.originalSubject,
+        body: finalEnglishReply,
+      });
+
+      await storage.updateTodo(id, { status: "DONE" });
+      res.json({ success: true });
+    } catch (err) {
+      console.error("Error sending reply:", err);
+      res.status(500).json({ error: "Failed to send reply" });
     }
   });
 

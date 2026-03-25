@@ -475,6 +475,19 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 
 ### Phase 5: Executive Cockpit + RBAC ✅ COMPLETE
 
+**Phase 5.0 — AI Email Reply Workflow**
+- `todos` table: 3 new columns — `originalSubject` (varchar), `originalBody` (text), `senderEmail` (varchar)
+- DB pushed successfully
+- Webhook handler updated to store raw English email content (`originalSubject`, `originalBody`, `senderEmail`) when creating a task from inbound email
+- `server/mailer.ts` created: nodemailer Gmail SMTP transporter utility
+- `POST /api/todos/:id/draft-reply` — accepts `koreanDraft`, uses GPT-4o to translate to professional English, returns `englishReply`
+- `POST /api/todos/:id/send-reply` — accepts `finalEnglishReply`, sends via nodemailer to `senderEmail || sourceEmail`, marks todo as DONE
+- `ExecutiveDashboard.tsx` updated:
+  - `TaskCard`: "View & Reply" button shown for email-originated tasks (has `sourceEmail`, `senderEmail`, or `originalSubject`)
+  - Email badge pill on cards with email context
+  - `EmailReplyModal`: Left panel — original English email (subject + body) + Korean AI summary. Right panel — Korean input → Translate button (calls draft API) → English textarea (editable) → Send button (calls send API, closes modal, marks done)
+  - Fallback: tasks without email context show no "View & Reply" button
+
 **Phase 5.1 — Dashboard Cockpit**
 - AI Smart Inbox widget added to main Dashboard (`/admin`)
 - Fetches `/api/todos`, filters TODO+IN_PROGRESS, sorts by urgency (overdue first, then due date), shows top 5
