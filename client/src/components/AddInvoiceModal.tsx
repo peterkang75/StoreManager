@@ -182,7 +182,7 @@ export default function AddInvoiceModal({ open, onClose }: Props) {
         amount: parseFloat(values.amount),
         status: "PENDING",
       };
-      return apiRequest("/api/invoices", { method: "POST", body: JSON.stringify(body) });
+      return apiRequest("POST", "/api/invoices", body);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
