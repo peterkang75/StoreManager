@@ -15,6 +15,7 @@ import {
   History,
   CreditCard,
   Megaphone,
+  BrainCircuit,
 } from "lucide-react";
 import {
   Sidebar,
@@ -81,6 +82,14 @@ const commsNavItems = [
     title: "Notices",
     url: "/admin/notices",
     icon: Megaphone,
+  },
+];
+
+const executiveNavItems = [
+  {
+    title: "AI Smart Inbox",
+    url: "/admin/executive",
+    icon: BrainCircuit,
   },
 ];
 
@@ -207,6 +216,27 @@ function AdminSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {commsNavItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isActive(item.url)}
+                    tooltip={item.title}
+                  >
+                    <Link href={item.url} data-testid={`link-admin-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
+                      <item.icon className="w-4 h-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Executive</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {executiveNavItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
