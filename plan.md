@@ -240,15 +240,15 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 ### 3.11 AI Executive Assistant — Email → Task Pipeline ✅ BACKEND COMPLETE
 
 - **Trigger**: Same inbound webhook `POST /api/webhooks/inbound-invoices` now receives ALL forwarded emails.
-- **Classification step** (added BEFORE existing AP routing):
-  - Extracts `subject` + `body` (`payload.plain` or `payload.html` stripped of tags).
-  - Calls `classifyAndParseEmail(subject, body)` via GPT-4o-mini (cost-efficient classifier).
-  - Returns `{ type: "INVOICE" | "TASK" | "OTHER", task?: { title, description, dueDate } }`.
-- **Routing by classification**:
-  - **INVOICE** → falls through to the existing AP Auto-Discovery logic (routing rules → supplier match → review inbox). No change to existing AP behavior.
-  - **TASK** → AI-extracted `{ title, description, dueDate }` saved to `todos` table with `status: "TODO"`. Returns `{ action: "task_created" }`.
-  - **OTHER, no attachment** → silently ignored.
-  - **OTHER, with attachment** → quarantined for manual review.
+- **TWO-STEP PIPELINE** (refactored for strict isolation):
+  - **Step 1 — Triage** (`triageEmail`): GPT-4o call, single-word response only. Returns `INVOICE | TASK | JUNK`. Never extracts data.
+  - **Step 2A — INVOICE branch**: Completely isolated AP pipeline. Sub-routes:
+    - `matchedSupplier` (email sender = DB supplier): `parseInvoiceWithAI` → PENDING (supplierId confirmed).
+    - `isAllowlisted` forwarder (e.g. CEO): `parseInvoiceFromUnknownSender` → name-match → PENDING if matched, REVIEW if not.
+    - Unknown sender + PDF: `parseInvoiceFromUnknownSender` → name-match → PENDING if matched, REVIEW if not.
+    - No PDF (any): quarantine or REVIEW placeholder. **CRITICAL: No supplierId = always REVIEW, never PENDING.**
+  - **Step 2B — TASK branch**: Completely isolated from AP. `summarizeTaskFromEmail` (GPT-4o-mini) → Korean title/description → save to `todos` ONLY. NEVER touches AP pipeline.
+  - **JUNK**: silently ignored (with attachment → quarantine).
 - **`todos` table** (`shared/schema.ts`): `id`, `title`, `description`, `sourceEmail`, `dueDate` (timestamp, nullable), `status` (`REVIEW` | `TODO` | `IN_PROGRESS` | `DONE`), `createdAt`.
 - **API endpoints**:
   - `GET /api/todos` — list all todos, newest first.

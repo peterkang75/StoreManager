@@ -250,99 +250,128 @@ export async function parseUploadedFile(
   }
 }
 
-// ── Email Classification ──────────────────────────────────────────────────────
-
-export interface ClassifiedEmailTask {
-  title: string;
-  description: string;
-  dueDate: string | null; // YYYY-MM-DD
-}
-
-export type EmailType = "INVOICE" | "TASK" | "OTHER";
-
-export interface ClassifiedEmail {
-  type: EmailType;
-  task?: ClassifiedEmailTask;
-}
-
-const CLASSIFY_SYSTEM_PROMPT = `You are an AI assistant for an Australian retail/hospitality business.
-You receive forwarded emails and must classify them and extract structured data.
-
-CRITICAL RULES:
-1. Classify the email into exactly one of: "INVOICE", "TASK", or "OTHER".
-   - INVOICE: the email relates to ANY monetary charge, bill, invoice, statement, purchase order, payment request, delivery docket, or fee from a supplier or service provider.
-     This explicitly includes (but is not limited to): fuel levy, fuel surcharge, delivery charge, freight charge, service fee, handling fee, admin fee, account statement, credit note, monthly charge, subscription invoice, utility bill, rent invoice, insurance renewal, or any email with an amount or reference number that implies a financial transaction.
-     When in doubt between INVOICE and OTHER, choose INVOICE.
-   - TASK: the email contains an action item, reminder, request, question or task that requires human follow-up. Examples: "please call X", "can you organise Y", "don't forget to Z", "please pay the rent", "reminder to submit".
-   - OTHER: marketing newsletters, spam, automated system notifications with no financial or action content, or anything clearly unrelated to invoices or tasks.
-2. If type is "TASK", extract:
-   - "title": a concise 5-15 word summary of the task written in KOREAN (imperative form, e.g. "임대 계약 갱신 관련 John에게 전화하기")
-   - "description": a 1-3 sentence summary in KOREAN of what needs to be done and any relevant context, translating and summarising the original email content
-   - "dueDate": a date in YYYY-MM-DD format if an explicit or strongly implied deadline exists, otherwise null
-3. If type is "INVOICE" or "OTHER", the "task" field must be omitted or null.
-4. Return ONLY valid JSON with no code fences or explanation.
-
-JSON schema:
-{
-  "type": "INVOICE" | "TASK" | "OTHER",
-  "task": {
-    "title": "string (Korean)",
-    "description": "string (Korean)",
-    "dueDate": "YYYY-MM-DD or null"
-  } | null
-}`;
+// ── Step 1: Strict Email Triage (The Gatekeeper) ─────────────────────────────
 
 /**
- * Classify an incoming email (by subject + body text) using GPT-4o-mini.
- * Returns the email type and, if TASK, the extracted task data.
- * Falls back to "OTHER" on any error.
+ * Step 1 of the two-step pipeline.
+ * Uses GPT-4o to classify the email into EXACTLY one category.
+ * Does NOT attempt extraction — purely a routing decision.
+ *
+ * INVOICE: Any email where money is owed to a supplier (invoices, bills,
+ *          statements, fuel levies, charges, surcharges, etc.)
+ * TASK:    Any email requiring a human action that is NOT a supplier payment.
+ * JUNK:    Marketing, spam, newsletters, automated notifications.
  */
-export async function classifyAndParseEmail(
+export type TriageResult = "INVOICE" | "TASK" | "JUNK";
+
+const TRIAGE_SYSTEM_PROMPT = `You are a strict email triage system for an Australian retail/hospitality business.
+Your ONLY job is to classify the email. Reply with EXACTLY ONE WORD — nothing else.
+
+INVOICE — The email is, or contains, a financial document where money is owed to a supplier.
+  This includes: invoices, bills, statements, purchase orders, delivery dockets,
+  fuel levies, fuel surcharges, freight charges, service fees, handling fees,
+  admin fees, credit notes, subscription charges, rent invoices, utility bills,
+  insurance renewals, or any email that implies a charge from a business to another.
+  When in doubt between INVOICE and anything else, choose INVOICE.
+
+TASK — The email requires a human action or follow-up that is NOT paying a supplier.
+  Examples: "please call X", "can you organise Y", "reminder to submit Z",
+  "don't forget to do W", internal requests, questions needing a reply.
+
+JUNK — Marketing, newsletters, promotions, spam, automated system alerts with no
+  action required, or anything completely irrelevant to the business.
+
+Reply with ONLY the single word: INVOICE, TASK, or JUNK`;
+
+export async function triageEmail(
   subject: string,
   body: string,
-): Promise<ClassifiedEmail> {
-  const userContent = `Subject: ${subject}
+  hasAttachment: boolean,
+): Promise<TriageResult> {
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: TRIAGE_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: `Subject: ${subject}
+Has attachment: ${hasAttachment}
 
-Email body:
-${body.slice(0, 4000)}
+Body:
+${body.slice(0, 3000)}`,
+        },
+      ],
+      temperature: 0,
+      max_tokens: 5,
+    });
 
-Classify this email and extract data as instructed.`;
+    const raw = (response.choices[0]?.message?.content ?? "").trim().toUpperCase();
+    if (raw === "INVOICE" || raw === "TASK" || raw === "JUNK") return raw;
+    console.warn(`[invoiceParser] triageEmail unexpected result: "${raw}" — defaulting to JUNK`);
+    return "JUNK";
+  } catch (err) {
+    console.error("[invoiceParser] triageEmail error:", err);
+    return "JUNK";
+  }
+}
 
+// ── Step 2B: Task Summarization (TASK branch only) ────────────────────────────
+
+/**
+ * Step 2 of the TASK branch.
+ * Extracts a structured task summary in Korean from the email content.
+ * Called ONLY after triageEmail returns "TASK".
+ */
+export interface TaskSummary {
+  title: string;
+  description: string;
+  dueDate: string | null;
+}
+
+const TASK_SUMMARY_SYSTEM_PROMPT = `You are a task extraction assistant for an Australian retail/hospitality business.
+Read the email and extract the action item. Write your response in KOREAN.
+
+Return ONLY valid JSON with no code fences or explanation:
+{
+  "title": "5-15 word imperative task title in Korean (e.g. '임대 계약 갱신 관련 John에게 전화하기')",
+  "description": "1-3 sentence Korean summary of what needs to be done and any relevant context",
+  "dueDate": "YYYY-MM-DD if there is an explicit or strongly implied deadline, otherwise null"
+}`;
+
+export async function summarizeTaskFromEmail(
+  subject: string,
+  body: string,
+): Promise<TaskSummary | null> {
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: CLASSIFY_SYSTEM_PROMPT },
-        { role: "user", content: userContent },
+        { role: "system", content: TASK_SUMMARY_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: `Subject: ${subject}
+
+Body:
+${body.slice(0, 4000)}`,
+        },
       ],
       temperature: 0,
-      max_tokens: 400,
+      max_tokens: 300,
     });
 
     const raw = response.choices[0]?.message?.content?.trim() ?? "";
     const cleaned = raw.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
     const parsed = JSON.parse(cleaned);
 
-    const type: EmailType = (["INVOICE", "TASK", "OTHER"].includes(parsed.type)
-      ? parsed.type
-      : "OTHER") as EmailType;
-
-    if (type === "TASK") {
-      // Always return a task object for TASK type — synthesise from subject if AI omitted it
-      return {
-        type,
-        task: {
-          title: String(parsed.task?.title ?? subject ?? "Untitled Task"),
-          description: String(parsed.task?.description ?? ""),
-          dueDate: parsed.task?.dueDate ? String(parsed.task.dueDate) : null,
-        },
-      };
-    }
-
-    return { type };
+    return {
+      title: String(parsed.title ?? subject ?? "Untitled Task"),
+      description: String(parsed.description ?? ""),
+      dueDate: parsed.dueDate ? String(parsed.dueDate) : null,
+    };
   } catch (err) {
-    console.error("[invoiceParser] classifyAndParseEmail error:", err);
-    return { type: "OTHER" };
+    console.error("[invoiceParser] summarizeTaskFromEmail error:", err);
+    return null;
   }
 }
 
