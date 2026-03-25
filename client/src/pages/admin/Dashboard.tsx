@@ -258,6 +258,8 @@ export function AdminDashboard() {
 
   const { data: allTodos = [], isLoading: todosLoading } = useQuery<Todo[]>({
     queryKey: ["/api/todos"],
+    staleTime: 0,
+    refetchOnMount: true,
   });
 
   const markDoneMutation = useMutation({
