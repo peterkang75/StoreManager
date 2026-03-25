@@ -4000,25 +4000,47 @@ export async function registerRoutes(
       console.log(`[Webhook/inbound-invoices] Classification: ${classification.type}`);
 
       if (classification.type === "TASK") {
-        const taskData = classification.task!;
+        const taskData = classification.task;
+
+        // Guard: if AI didn't return task data, acknowledge and move on
+        if (!taskData?.title) {
+          console.warn(`[Webhook/inbound-invoices] TASK classification missing task data from ${senderEmail} — acknowledged`);
+          return res.status(200).json({ received: true, action: "task_no_data", sender: senderEmail });
+        }
 
         // ── Check sender routing rule before creating task ─────────────────
-        const taskRoutingRule = await storage.getEmailRoutingRule(senderEmail);
+        let taskRoutingRule: { action: string } | null | undefined;
+        try {
+          taskRoutingRule = await storage.getEmailRoutingRule(senderEmail);
+        } catch (ruleErr) {
+          console.warn(`[Webhook/inbound-invoices] Could not fetch routing rule for ${senderEmail}:`, ruleErr);
+          taskRoutingRule = undefined;
+        }
+
         if (taskRoutingRule?.action === "IGNORE") {
           console.log(`[Webhook/inbound-invoices] TASK from IGNORED sender — discarding: ${senderEmail}`);
           return res.status(200).json({ received: true, action: "task_ignored_by_rule", sender: senderEmail });
         }
+
         const taskStatus = taskRoutingRule?.action === "ALLOW" ? "TODO" : "REVIEW";
-        const todo = await storage.createTodo({
-          title: taskData.title,
-          description: taskData.description || null,
-          sourceEmail: senderEmail,
-          senderEmail: senderEmail,
-          originalSubject: subject,
-          originalBody: emailBody.slice(0, 8000),
-          dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
-          status: taskStatus,
-        });
+
+        let todo: any;
+        try {
+          todo = await storage.createTodo({
+            title: taskData.title,
+            description: taskData.description || null,
+            sourceEmail: senderEmail,
+            senderEmail: senderEmail,
+            originalSubject: subject,
+            originalBody: emailBody.slice(0, 8000),
+            dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
+            status: taskStatus,
+          });
+        } catch (createErr) {
+          console.error(`[Webhook/inbound-invoices] Failed to create todo from ${senderEmail}:`, createErr);
+          return res.status(200).json({ received: true, action: "task_create_failed", sender: senderEmail });
+        }
+
         console.log(`[Webhook/inbound-invoices] Task created (status=${taskStatus}): ${todo.id} — "${todo.title}"`);
         return res.status(200).json({
           received: true,

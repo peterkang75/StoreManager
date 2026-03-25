@@ -330,13 +330,14 @@ Classify this email and extract data as instructed.`;
       ? parsed.type
       : "OTHER") as EmailType;
 
-    if (type === "TASK" && parsed.task) {
+    if (type === "TASK") {
+      // Always return a task object for TASK type — synthesise from subject if AI omitted it
       return {
         type,
         task: {
-          title: String(parsed.task.title ?? "Untitled Task"),
-          description: String(parsed.task.description ?? ""),
-          dueDate: parsed.task.dueDate ? String(parsed.task.dueDate) : null,
+          title: String(parsed.task?.title ?? subject ?? "Untitled Task"),
+          description: String(parsed.task?.description ?? ""),
+          dueDate: parsed.task?.dueDate ? String(parsed.task.dueDate) : null,
         },
       };
     }
