@@ -270,9 +270,11 @@ You receive forwarded emails and must classify them and extract structured data.
 
 CRITICAL RULES:
 1. Classify the email into exactly one of: "INVOICE", "TASK", or "OTHER".
-   - INVOICE: the email relates to a bill, invoice, statement, purchase order, payment request, or delivery docket from a supplier.
-   - TASK: the email contains an action item, reminder, request, question or task that requires follow-up. Examples: "please call X", "can you organise Y", "don't forget to Z".
-   - OTHER: newsletters, spam, automated notifications, or anything that is not clearly an invoice or actionable task.
+   - INVOICE: the email relates to ANY monetary charge, bill, invoice, statement, purchase order, payment request, delivery docket, or fee from a supplier or service provider.
+     This explicitly includes (but is not limited to): fuel levy, fuel surcharge, delivery charge, freight charge, service fee, handling fee, admin fee, account statement, credit note, monthly charge, subscription invoice, utility bill, rent invoice, insurance renewal, or any email with an amount or reference number that implies a financial transaction.
+     When in doubt between INVOICE and OTHER, choose INVOICE.
+   - TASK: the email contains an action item, reminder, request, question or task that requires human follow-up. Examples: "please call X", "can you organise Y", "don't forget to Z", "please pay the rent", "reminder to submit".
+   - OTHER: marketing newsletters, spam, automated system notifications with no financial or action content, or anything clearly unrelated to invoices or tasks.
 2. If type is "TASK", extract:
    - "title": a concise 5-15 word summary of the task written in KOREAN (imperative form, e.g. "임대 계약 갱신 관련 John에게 전화하기")
    - "description": a 1-3 sentence summary in KOREAN of what needs to be done and any relevant context, translating and summarising the original email content

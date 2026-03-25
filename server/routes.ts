@@ -4135,13 +4135,37 @@ export async function registerRoutes(
         console.log(`[Webhook/inbound-invoices] Known/allowlisted sender: ${supplierLabel} (${senderEmail})`);
 
         if (!hasAttachment) {
-          return res.status(200).json({ received: true, action: "matched_no_attachment", supplier: supplierLabel });
+          // Known sender but no PDF — create a placeholder REVIEW invoice so the
+          // team can see the charge and fill in the details manually.
+          console.log(`[Webhook/inbound-invoices] Known sender, no attachment — creating placeholder REVIEW invoice for ${supplierLabel}`);
+          const placeholder = await storage.createSupplierInvoice({
+            supplierId: matchedSupplier?.id ?? undefined,
+            storeId: null,
+            invoiceNumber: `EMAIL-${Date.now()}`,
+            invoiceDate: new Date().toISOString().split("T")[0],
+            dueDate: undefined,
+            amount: 0,
+            status: "REVIEW",
+            notes: `No PDF attached. Please review and enter amount manually.\nFrom: ${senderEmail}\nSubject: ${subject}`,
+          });
+          console.log(`[Webhook/inbound-invoices] Placeholder REVIEW invoice created: ${placeholder.id} for ${supplierLabel}`);
+          return res.status(200).json({ received: true, action: "matched_no_attachment_placeholder", supplier: supplierLabel, invoiceId: placeholder.id });
         }
 
         const pdfResult = await extractPdfFromAttachments();
         if (!pdfResult) {
           console.log(`[Webhook/inbound-invoices] No readable PDF from ${senderEmail}`);
-          return res.status(200).json({ received: true, action: "matched_no_pdf", supplier: supplierLabel });
+          const placeholder = await storage.createSupplierInvoice({
+            supplierId: matchedSupplier?.id ?? undefined,
+            storeId: null,
+            invoiceNumber: `EMAIL-${Date.now()}`,
+            invoiceDate: new Date().toISOString().split("T")[0],
+            dueDate: undefined,
+            amount: 0,
+            status: "REVIEW",
+            notes: `PDF could not be read. Please attach or enter manually.\nFrom: ${senderEmail}\nSubject: ${subject}`,
+          });
+          return res.status(200).json({ received: true, action: "matched_no_pdf_placeholder", supplier: supplierLabel, invoiceId: placeholder.id });
         }
 
         console.log(`[Webhook/inbound-invoices] Extracted ${pdfResult.text.length} chars from PDF`);
@@ -4206,8 +4230,11 @@ export async function registerRoutes(
 
       // ── 5. UNKNOWN SENDER — Auto-Discovery Review flow ────────────────────────
       if (!hasAttachment) {
-        console.log(`[Webhook/inbound-invoices] Unknown sender, no attachment — ignored: ${senderEmail}`);
-        return res.status(200).json({ received: true, action: "ignored", reason: "no_attachment" });
+        // INVOICE from unknown sender with no PDF — create a review entry so the
+        // team is aware of the charge and can set up routing for this sender.
+        console.log(`[Webhook/inbound-invoices] Unknown sender, no attachment — creating REVIEW placeholder: ${senderEmail}`);
+        await storage.createQuarantinedEmail({ senderEmail, subject, hasAttachment: false, rawPayload: JSON.stringify(payload) });
+        return res.status(200).json({ received: true, action: "review_no_attachment", reason: "unknown_sender_no_pdf" });
       }
 
       console.log(`[Webhook/inbound-invoices] Unknown sender with attachment — Auto-Discovery parse: ${senderEmail}`);
