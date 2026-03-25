@@ -4001,6 +4001,14 @@ export async function registerRoutes(
 
       if (classification.type === "TASK") {
         const taskData = classification.task!;
+
+        // ── Check sender routing rule before creating task ─────────────────
+        const taskRoutingRule = await storage.getEmailRoutingRule(senderEmail);
+        if (taskRoutingRule?.action === "IGNORE") {
+          console.log(`[Webhook/inbound-invoices] TASK from IGNORED sender — discarding: ${senderEmail}`);
+          return res.status(200).json({ received: true, action: "task_ignored_by_rule", sender: senderEmail });
+        }
+        const taskStatus = taskRoutingRule?.action === "ALLOW" ? "TODO" : "REVIEW";
         const todo = await storage.createTodo({
           title: taskData.title,
           description: taskData.description || null,
@@ -4009,14 +4017,15 @@ export async function registerRoutes(
           originalSubject: subject,
           originalBody: emailBody.slice(0, 8000),
           dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
-          status: "TODO",
+          status: taskStatus,
         });
-        console.log(`[Webhook/inbound-invoices] Task created: ${todo.id} — "${todo.title}"`);
+        console.log(`[Webhook/inbound-invoices] Task created (status=${taskStatus}): ${todo.id} — "${todo.title}"`);
         return res.status(200).json({
           received: true,
           action: "task_created",
           todoId: todo.id,
           title: todo.title,
+          status: taskStatus,
           sender: senderEmail,
         });
       }
@@ -4420,6 +4429,18 @@ export async function registerRoutes(
     } catch (err) {
       console.error("Error updating todo:", err);
       res.status(500).json({ error: "Failed to update todo" });
+    }
+  });
+
+  app.delete("/api/todos/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const deleted = await storage.deleteTodo(id);
+      if (!deleted) return res.status(404).json({ error: "Todo not found" });
+      res.status(204).send();
+    } catch (err) {
+      console.error("Error deleting todo:", err);
+      res.status(500).json({ error: "Failed to delete todo" });
     }
   });
 

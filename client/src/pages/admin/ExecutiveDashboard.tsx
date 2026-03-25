@@ -44,6 +44,10 @@ import {
   Sparkles,
   FileText,
   MessageSquare,
+  ShieldAlert,
+  ShieldCheck,
+  Ban,
+  CheckCheck,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -694,12 +698,113 @@ function AddTaskModal({
   );
 }
 
+// ─── Review Inbox Card ───────────────────────────────────────────────────────
+
+function ReviewTodoCard({
+  todo,
+  onIgnore,
+  onAllow,
+  isActing,
+}: {
+  todo: Todo;
+  onIgnore: (todo: Todo) => void;
+  onAllow: (todo: Todo) => void;
+  isActing: boolean;
+}) {
+  const dueFmt = formatDueDate(todo.dueDate);
+  const overdue = isOverdue(todo.dueDate);
+
+  return (
+    <Card data-testid={`card-review-todo-${todo.id}`}>
+      <CardContent className="p-5">
+        <div className="flex flex-wrap items-start gap-4">
+          <ShieldAlert className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+
+          <div className="flex-1 min-w-0">
+            <p className="font-medium leading-snug" data-testid={`text-review-title-${todo.id}`}>
+              {todo.title}
+            </p>
+            {todo.description && (
+              <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                {todo.description}
+              </p>
+            )}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5">
+              {todo.senderEmail && (
+                <span
+                  className="flex items-center gap-1 text-xs text-muted-foreground"
+                  data-testid={`text-review-sender-${todo.id}`}
+                >
+                  <Mail className="w-3 h-3" />
+                  {todo.senderEmail}
+                </span>
+              )}
+              {dueFmt && (
+                <span
+                  className={`flex items-center gap-1 text-xs font-medium ${
+                    overdue ? "text-red-600 dark:text-red-400" : "text-muted-foreground"
+                  }`}
+                >
+                  <CalendarClock className="w-3 h-3" />
+                  {overdue ? "Overdue · " : "Due "}
+                  {dueFmt}
+                </span>
+              )}
+              {todo.originalSubject && (
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <FileText className="w-3 h-3" />
+                  {todo.originalSubject}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onIgnore(todo)}
+              disabled={isActing}
+              data-testid={`button-review-ignore-${todo.id}`}
+              className="text-muted-foreground"
+            >
+              {isActing ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Ban className="w-3 h-3" />
+              )}
+              <span className="ml-1.5">Ignore Sender</span>
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => onAllow(todo)}
+              disabled={isActing}
+              data-testid={`button-review-allow-${todo.id}`}
+            >
+              {isActing ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <CheckCheck className="w-3 h-3" />
+              )}
+              <span className="ml-1.5">Allow & Add to To-Do</span>
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
+type DashTab = "ACTIVE" | "REVIEW";
+
 export function AdminExecutiveDashboard() {
+  const [tab, setTab] = useState<DashTab>("ACTIVE");
   const [filter, setFilter] = useState<StatusFilter>("ALL");
   const [addOpen, setAddOpen] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [actingReviewId, setActingReviewId] = useState<string | null>(null);
   const [doneOpen, setDoneOpen] = useState(false);
   const [replyTarget, setReplyTarget] = useState<Todo | null>(null);
   const { toast } = useToast();
@@ -725,8 +830,46 @@ export function AdminExecutiveDashboard() {
     updateMutation.mutate({ id, status: nextStatus });
   }
 
-  // Split done from active
-  const activeTodos = todos.filter((t) => t.status !== "DONE");
+  // Review inbox actions
+  async function handleIgnore(todo: Todo) {
+    if (!todo.senderEmail) return;
+    setActingReviewId(todo.id);
+    try {
+      await apiRequest("PUT", "/api/email-routing-rules", {
+        senderEmail: todo.senderEmail,
+        action: "IGNORE",
+      });
+      await apiRequest("DELETE", `/api/todos/${todo.id}`);
+      queryClient.invalidateQueries({ queryKey: ["/api/todos"] });
+      toast({ title: "Sender ignored", description: `${todo.senderEmail} will be silently discarded.` });
+    } catch {
+      toast({ title: "Failed to ignore sender", variant: "destructive" });
+    } finally {
+      setActingReviewId(null);
+    }
+  }
+
+  async function handleAllow(todo: Todo) {
+    if (!todo.senderEmail) return;
+    setActingReviewId(todo.id);
+    try {
+      await apiRequest("PUT", "/api/email-routing-rules", {
+        senderEmail: todo.senderEmail,
+        action: "ALLOW",
+      });
+      await apiRequest("PATCH", `/api/todos/${todo.id}`, { status: "TODO" });
+      queryClient.invalidateQueries({ queryKey: ["/api/todos"] });
+      toast({ title: "Task approved", description: "Sender allowed and task moved to Active Tasks." });
+    } catch {
+      toast({ title: "Failed to approve task", variant: "destructive" });
+    } finally {
+      setActingReviewId(null);
+    }
+  }
+
+  // Split todos by status
+  const reviewTodos = todos.filter((t) => t.status === "REVIEW");
+  const activeTodos = todos.filter((t) => t.status !== "DONE" && t.status !== "REVIEW");
   const doneTodos = todos.filter((t) => t.status === "DONE");
 
   // Counts
@@ -734,6 +877,7 @@ export function AdminExecutiveDashboard() {
   const countTodo = activeTodos.filter((t) => t.status === "TODO").length;
   const countInProgress = activeTodos.filter((t) => t.status === "IN_PROGRESS").length;
   const countDone = doneTodos.length;
+  const countReview = reviewTodos.length;
 
   const filtered =
     filter === "ALL"
@@ -741,7 +885,6 @@ export function AdminExecutiveDashboard() {
       : activeTodos.filter((t) => t.status === filter);
 
   const sorted = [...filtered].sort((a, b) => {
-    // Overdue first, then by createdAt desc
     const aOver = isOverdue(a.dueDate);
     const bOver = isOverdue(b.dueDate);
     if (aOver !== bOver) return aOver ? -1 : 1;
@@ -749,6 +892,10 @@ export function AdminExecutiveDashboard() {
   });
 
   const sortedDone = [...doneTodos].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+
+  const sortedReview = [...reviewTodos].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
 
@@ -774,118 +921,128 @@ export function AdminExecutiveDashboard() {
           </Button>
         </div>
 
-        {/* Summary stat cards */}
-        <div className="grid grid-cols-3 gap-3">
-          <StatCard
-            label="All Active"
-            value={countAll}
-            active={filter === "ALL"}
-            onClick={() => setFilter("ALL")}
-            testId="stat-all"
-          />
-          <StatCard
-            label="To Do"
-            value={countTodo}
-            active={filter === "TODO"}
-            onClick={() => setFilter("TODO")}
-            testId="stat-todo"
-          />
-          <StatCard
-            label="In Progress"
-            value={countInProgress}
-            active={filter === "IN_PROGRESS"}
-            onClick={() => setFilter("IN_PROGRESS")}
-            testId="stat-in-progress"
-          />
+        {/* Tabs */}
+        <div className="flex items-center gap-1 border-b border-border" data-testid="tabs-exec-dashboard">
+          <button
+            type="button"
+            onClick={() => setTab("ACTIVE")}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              tab === "ACTIVE"
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+            data-testid="tab-active-tasks"
+          >
+            <ListTodo className="w-4 h-4" />
+            Active Tasks
+            {countAll > 0 && (
+              <Badge variant="secondary" className="ml-1 text-xs">
+                {countAll}
+              </Badge>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("REVIEW")}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              tab === "REVIEW"
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+            data-testid="tab-review-inbox"
+          >
+            <ShieldAlert className="w-4 h-4" />
+            Review Inbox
+            {countReview > 0 && (
+              <Badge variant="destructive" className="ml-1 text-xs">
+                {countReview}
+              </Badge>
+            )}
+          </button>
         </div>
 
-        {/* Filter label */}
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <ListTodo className="w-4 h-4" />
-          <span>
-            {filter === "ALL"
-              ? `진행 중인 작업 (${sorted.length})`
-              : `${STATUS_LABEL[filter]} (${sorted.length})`}
-          </span>
-        </div>
+        {/* ── ACTIVE TASKS TAB ── */}
+        {tab === "ACTIVE" && (
+          <>
+            {/* Summary stat cards */}
+            <div className="grid grid-cols-3 gap-3">
+              <StatCard
+                label="All Active"
+                value={countAll}
+                active={filter === "ALL"}
+                onClick={() => setFilter("ALL")}
+                testId="stat-all"
+              />
+              <StatCard
+                label="To Do"
+                value={countTodo}
+                active={filter === "TODO"}
+                onClick={() => setFilter("TODO")}
+                testId="stat-todo"
+              />
+              <StatCard
+                label="In Progress"
+                value={countInProgress}
+                active={filter === "IN_PROGRESS"}
+                onClick={() => setFilter("IN_PROGRESS")}
+                testId="stat-in-progress"
+              />
+            </div>
 
-        {/* Task list */}
-        {isLoading ? (
-          <div className="space-y-3" data-testid="skeleton-todos">
-            {[1, 2, 3].map((i) => (
-              <Card key={i}>
-                <CardContent className="p-5">
-                  <div className="flex items-start gap-4">
-                    <Skeleton className="w-5 h-5 rounded-full mt-0.5 shrink-0" />
-                    <div className="flex-1 space-y-2">
-                      <Skeleton className="h-4 w-1/2" />
-                      <Skeleton className="h-3 w-3/4" />
-                      <Skeleton className="h-3 w-1/3" />
-                    </div>
-                    <Skeleton className="h-8 w-24 shrink-0" />
-                  </div>
+            {/* Filter label */}
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <ListTodo className="w-4 h-4" />
+              <span>
+                {filter === "ALL"
+                  ? `진행 중인 작업 (${sorted.length})`
+                  : `${STATUS_LABEL[filter]} (${sorted.length})`}
+              </span>
+            </div>
+
+            {/* Task list */}
+            {isLoading ? (
+              <div className="space-y-3" data-testid="skeleton-todos">
+                {[1, 2, 3].map((i) => (
+                  <Card key={i}>
+                    <CardContent className="p-5">
+                      <div className="flex items-start gap-4">
+                        <Skeleton className="w-5 h-5 rounded-full mt-0.5 shrink-0" />
+                        <div className="flex-1 space-y-2">
+                          <Skeleton className="h-4 w-1/2" />
+                          <Skeleton className="h-3 w-3/4" />
+                          <Skeleton className="h-3 w-1/3" />
+                        </div>
+                        <Skeleton className="h-8 w-24 shrink-0" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : sorted.length === 0 ? (
+              <Card>
+                <CardContent className="py-16 flex flex-col items-center justify-center gap-3 text-center">
+                  <Inbox className="w-10 h-10 text-muted-foreground/40" />
+                  <p className="text-sm text-muted-foreground" data-testid="text-todos-empty">
+                    {filter === "ALL"
+                      ? "진행 중인 작업이 없습니다. AI가 이메일에서 할 일을 자동으로 감지하면 여기에 표시됩니다."
+                      : `"${STATUS_LABEL[filter]}" 상태의 작업이 없습니다.`}
+                  </p>
+                  {filter === "ALL" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setAddOpen(true)}
+                      data-testid="button-add-task-empty"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add your first task
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
-            ))}
-          </div>
-        ) : sorted.length === 0 ? (
-          <Card>
-            <CardContent className="py-16 flex flex-col items-center justify-center gap-3 text-center">
-              <Inbox className="w-10 h-10 text-muted-foreground/40" />
-              <p className="text-sm text-muted-foreground" data-testid="text-todos-empty">
-                {filter === "ALL"
-                  ? "진행 중인 작업이 없습니다. AI가 이메일에서 할 일을 자동으로 감지하면 여기에 표시됩니다."
-                  : `"${STATUS_LABEL[filter]}" 상태의 작업이 없습니다.`}
-              </p>
-              {filter === "ALL" && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setAddOpen(true)}
-                  data-testid="button-add-task-empty"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add your first task
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-3" data-testid="list-todos">
-            {sorted.map((todo) => (
-              <TaskCard
-                key={todo.id}
-                todo={todo}
-                onStatusChange={handleStatusChange}
-                isUpdating={updatingId === todo.id}
-                onReply={setReplyTarget}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Completed tasks section */}
-        {!isLoading && countDone > 0 && (
-          <div data-testid="section-done">
-            <button
-              type="button"
-              onClick={() => setDoneOpen((v) => !v)}
-              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors w-full py-2"
-              data-testid="button-toggle-done"
-            >
-              <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
-              <span className="font-medium">완료된 작업 {countDone}건</span>
-              {doneOpen ? (
-                <ChevronUp className="w-4 h-4 ml-1" />
-              ) : (
-                <ChevronDown className="w-4 h-4 ml-1" />
-              )}
-              <span className="flex-1 border-t border-border/40 ml-2" />
-            </button>
-
-            {doneOpen && (
-              <div className="space-y-3 mt-2" data-testid="list-done-todos">
-                {sortedDone.map((todo) => (
+            ) : (
+              <div className="space-y-3" data-testid="list-todos">
+                {sorted.map((todo) => (
                   <TaskCard
                     key={todo.id}
                     todo={todo}
@@ -896,7 +1053,92 @@ export function AdminExecutiveDashboard() {
                 ))}
               </div>
             )}
-          </div>
+
+            {/* Completed tasks section */}
+            {!isLoading && countDone > 0 && (
+              <div data-testid="section-done">
+                <button
+                  type="button"
+                  onClick={() => setDoneOpen((v) => !v)}
+                  className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors w-full py-2"
+                  data-testid="button-toggle-done"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
+                  <span className="font-medium">완료된 작업 {countDone}건</span>
+                  {doneOpen ? (
+                    <ChevronUp className="w-4 h-4 ml-1" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 ml-1" />
+                  )}
+                  <span className="flex-1 border-t border-border/40 ml-2" />
+                </button>
+
+                {doneOpen && (
+                  <div className="space-y-3 mt-2" data-testid="list-done-todos">
+                    {sortedDone.map((todo) => (
+                      <TaskCard
+                        key={todo.id}
+                        todo={todo}
+                        onStatusChange={handleStatusChange}
+                        isUpdating={updatingId === todo.id}
+                        onReply={setReplyTarget}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── REVIEW INBOX TAB ── */}
+        {tab === "REVIEW" && (
+          <>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <ShieldAlert className="w-4 h-4 text-amber-500" />
+              <span>검토 필요 — 알 수 없는 발신자의 태스크 ({sortedReview.length}건)</span>
+            </div>
+
+            {isLoading ? (
+              <div className="space-y-3" data-testid="skeleton-review">
+                {[1, 2].map((i) => (
+                  <Card key={i}>
+                    <CardContent className="p-5">
+                      <div className="flex items-start gap-4">
+                        <Skeleton className="w-5 h-5 rounded-full mt-0.5 shrink-0" />
+                        <div className="flex-1 space-y-2">
+                          <Skeleton className="h-4 w-1/2" />
+                          <Skeleton className="h-3 w-3/4" />
+                        </div>
+                        <Skeleton className="h-8 w-40 shrink-0" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : sortedReview.length === 0 ? (
+              <Card>
+                <CardContent className="py-16 flex flex-col items-center justify-center gap-3 text-center">
+                  <ShieldCheck className="w-10 h-10 text-green-500/60" />
+                  <p className="text-sm text-muted-foreground" data-testid="text-review-empty">
+                    검토할 항목이 없습니다. 모든 발신자가 승인되었거나 무시되었습니다.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3" data-testid="list-review-todos">
+                {sortedReview.map((todo) => (
+                  <ReviewTodoCard
+                    key={todo.id}
+                    todo={todo}
+                    onIgnore={handleIgnore}
+                    onAllow={handleAllow}
+                    isActing={actingReviewId === todo.id}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 

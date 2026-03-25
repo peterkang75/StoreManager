@@ -533,7 +533,7 @@ export const todos = pgTable("todos", {
   originalBody: text("original_body"),
   senderEmail: varchar("sender_email"),
   dueDate: timestamp("due_date"),
-  status: text("status").default("TODO").notNull(), // 'TODO' | 'IN_PROGRESS' | 'DONE'
+  status: text("status").default("TODO").notNull(), // 'REVIEW' | 'TODO' | 'IN_PROGRESS' | 'DONE'
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

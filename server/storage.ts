@@ -134,6 +134,7 @@ export interface IStorage {
   getTodo(id: string): Promise<Todo | undefined>;
   createTodo(data: InsertTodo): Promise<Todo>;
   updateTodo(id: string, data: Partial<InsertTodo>): Promise<Todo | undefined>;
+  deleteTodo(id: string): Promise<boolean>;
 
   getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]>;
   getNotice(id: string): Promise<Notice | undefined>;
@@ -1051,6 +1052,10 @@ export class MemStorage implements IStorage {
     return updated;
   }
 
+  async deleteTodo(id: string): Promise<boolean> {
+    return this.todosMap.delete(id);
+  }
+
   async getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]> {
     let list = Array.from(this.noticesMap.values());
     if (filters?.activeOnly) list = list.filter(n => n.isActive);
@@ -1832,6 +1837,11 @@ export class DatabaseStorage implements IStorage {
   async updateTodo(id: string, data: Partial<InsertTodo>): Promise<Todo | undefined> {
     const [todo] = await db.update(todos).set(data).where(eq(todos.id, id)).returning();
     return todo;
+  }
+
+  async deleteTodo(id: string): Promise<boolean> {
+    const result = await db.delete(todos).where(eq(todos.id, id));
+    return (result as any).rowCount > 0;
   }
 
   async getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]> {

@@ -249,12 +249,16 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
   - **TASK** → AI-extracted `{ title, description, dueDate }` saved to `todos` table with `status: "TODO"`. Returns `{ action: "task_created" }`.
   - **OTHER, no attachment** → silently ignored.
   - **OTHER, with attachment** → quarantined for manual review.
-- **`todos` table** (`shared/schema.ts`): `id`, `title`, `description`, `sourceEmail`, `dueDate` (timestamp, nullable), `status` (`TODO` | `IN_PROGRESS` | `DONE`), `createdAt`.
+- **`todos` table** (`shared/schema.ts`): `id`, `title`, `description`, `sourceEmail`, `dueDate` (timestamp, nullable), `status` (`REVIEW` | `TODO` | `IN_PROGRESS` | `DONE`), `createdAt`.
 - **API endpoints**:
   - `GET /api/todos` — list all todos, newest first.
   - `POST /api/todos` — create todo manually.
   - `PATCH /api/todos/:id` — update status/title/description/dueDate.
-- **Frontend** ✅ COMPLETE: `/admin/executive` — AI Smart Inbox page. Active tasks (TODO/IN_PROGRESS) shown in main list. DONE tasks hidden from main list and collapsed under "완료된 작업 N건" toggle button; expandable with Reopen support. 3 filter stat cards (All Active, To Do, In Progress). Task title/description auto-translated to Korean by GPT.
+  - `DELETE /api/todos/:id` — delete a todo (used by Ignore Sender action).
+- **Webhook TASK routing** ✅: checks `emailRoutingRules` before creating todo. IGNORE → discard silently. ALLOW → `status:"TODO"`. Unknown sender → `status:"REVIEW"`.
+- **Frontend** ✅ COMPLETE: `/admin/executive` — AI Smart Inbox with tab structure:
+  - **Active Tasks** tab: TODO/IN_PROGRESS tasks, stat cards (All Active / To Do / In Progress), overdue sorting, DONE collapsible section.
+  - **Review Inbox** tab: REVIEW todos grouped by unknown sender. "Ignore Sender" button → sets routing rule IGNORE + deletes todo. "Allow & Add to To-Do" button → sets routing rule ALLOW + patches status to TODO (moves to Active Tasks). Badge count on tab header. Task title/description auto-translated to Korean by GPT.
 - **AI Korean translation** ✅: `classifyAndParseEmail` prompt updated — TASK title and description are now generated in Korean.
 - **Auto-Pay (Direct Debit)** ✅: `isAutoPay` boolean on `suppliers`. Auto-creates PAID invoice + AUTO_DEBIT payment on webhook/manual creation. Revert endpoint `POST /api/invoices/:id/revert` deletes payments and moves back to PENDING. Suppliers.tsx: Auto-Pay toggle + amber badge. AccountsPayable.tsx: isAutoPay toggle in Approve modal + Auto-Paid badge + Revert button + AlertDialog confirmation in Paid History tab.
 
