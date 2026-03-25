@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Button } from "@/components/ui/button";
@@ -99,8 +99,9 @@ export function AdminAccountsPayable() {
 
   // View tab: "topay" | "history"
   const [activeTab, setActiveTab] = useState<"topay" | "history">("topay");
-  // Store filter: "ALL" | store id (only Sushi/Sandwich)
-  const [storeFilter, setStoreFilter] = useState<string>("ALL");
+  // Store filter: "ALL" | store id — default auto-selects Sushi once stores load
+  const [storeFilter, setStoreFilter] = useState<string>("");
+  const defaultFilterSet = useRef(false);
   // Selected invoice IDs
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // Open accordion items
@@ -132,9 +133,18 @@ export function AdminAccountsPayable() {
     return matched.filter(s => { if (seen.has(s.id)) return false; seen.add(s.id); return true; });
   }, [stores]);
 
-  // Apply store filter
+  // Auto-select Sushi store on first load
+  useEffect(() => {
+    if (!defaultFilterSet.current && filteredStores.length > 0) {
+      defaultFilterSet.current = true;
+      // filteredStores is already ordered Sushi first
+      setStoreFilter(filteredStores[0].id);
+    }
+  }, [filteredStores]);
+
+  // Apply store filter ("ALL" or "" = no filter)
   const storeFiltered = useMemo(() => {
-    if (storeFilter === "ALL") return allInvoices;
+    if (!storeFilter || storeFilter === "ALL") return allInvoices;
     return allInvoices.filter(inv => inv.storeId === storeFilter);
   }, [allInvoices, storeFilter]);
 
@@ -280,7 +290,7 @@ export function AdminAccountsPayable() {
           </Card>
         </div>
 
-        {/* ── Tab + Store Filter bar ─────────────────────────────────────── */}
+        {/* ── Tab bar + Pay action ──────────────────────────────────────── */}
         <div className="flex items-center gap-3">
           {/* Left: View Tabs */}
           <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg shrink-0">
@@ -324,27 +334,11 @@ export function AdminAccountsPayable() {
             </button>
           </div>
 
-          {/* Center: Store Toggle Buttons */}
-          <div className="flex-1 flex items-center justify-center gap-1 flex-wrap">
-            {[{ id: "ALL", label: "All Stores" }, ...filteredStores.map(s => ({ id: s.id, label: s.name }))].map(opt => (
-              <button
-                key={opt.id}
-                onClick={() => { setStoreFilter(opt.id); clearSelection(); }}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
-                  storeFilter === opt.id
-                    ? "bg-foreground text-background border-foreground"
-                    : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40"
-                }`}
-                data-testid={`button-store-filter-${opt.id}`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
+          <div className="flex-1" />
 
           {/* Right: Pay action (only when something is selected) */}
           <div className="shrink-0 flex items-center gap-2">
-            {selected.size > 0 ? (
+            {selected.size > 0 && (
               <>
                 <span className="text-sm font-semibold tabular-nums text-foreground whitespace-nowrap" data-testid="text-selected-total">
                   {fmtAUD(selectedTotal)}
@@ -371,10 +365,26 @@ export function AdminAccountsPayable() {
                   )}
                 </Button>
               </>
-            ) : (
-              <div className="w-[160px]" />
             )}
           </div>
+        </div>
+
+        {/* ── Store Filter row (below tabs, left-aligned) ─────────────────── */}
+        <div className="flex items-center gap-1 flex-wrap">
+          {[...filteredStores.map(s => ({ id: s.id, label: s.name })), { id: "ALL", label: "All Stores" }].map(opt => (
+            <button
+              key={opt.id}
+              onClick={() => { setStoreFilter(opt.id); clearSelection(); }}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
+                storeFilter === opt.id
+                  ? "bg-foreground text-background border-foreground"
+                  : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40"
+              }`}
+              data-testid={`button-store-filter-${opt.id}`}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
 
         {/* ── Content Area ──────────────────────────────────────────────── */}
