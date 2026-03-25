@@ -237,7 +237,26 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
   - **Email Rules** — data table (Email, Supplier Name, ALLOW/IGNORE badge, Created date, Delete button). Delete removes rule so sender is treated as unknown again.
   - Store filter row + summary cards only shown on To Pay and Paid History tabs.
 
-### 3.11 Employee Portal (Mobile)
+### 3.11 AI Executive Assistant — Email → Task Pipeline ✅ BACKEND COMPLETE
+
+- **Trigger**: Same inbound webhook `POST /api/webhooks/inbound-invoices` now receives ALL forwarded emails.
+- **Classification step** (added BEFORE existing AP routing):
+  - Extracts `subject` + `body` (`payload.plain` or `payload.html` stripped of tags).
+  - Calls `classifyAndParseEmail(subject, body)` via GPT-4o-mini (cost-efficient classifier).
+  - Returns `{ type: "INVOICE" | "TASK" | "OTHER", task?: { title, description, dueDate } }`.
+- **Routing by classification**:
+  - **INVOICE** → falls through to the existing AP Auto-Discovery logic (routing rules → supplier match → review inbox). No change to existing AP behavior.
+  - **TASK** → AI-extracted `{ title, description, dueDate }` saved to `todos` table with `status: "TODO"`. Returns `{ action: "task_created" }`.
+  - **OTHER, no attachment** → silently ignored.
+  - **OTHER, with attachment** → quarantined for manual review.
+- **`todos` table** (`shared/schema.ts`): `id`, `title`, `description`, `sourceEmail`, `dueDate` (timestamp, nullable), `status` (`TODO` | `IN_PROGRESS` | `DONE`), `createdAt`.
+- **API endpoints**:
+  - `GET /api/todos` — list all todos, newest first.
+  - `POST /api/todos` — create todo manually.
+  - `PATCH /api/todos/:id` — update status/title/description/dueDate.
+- **Frontend**: To be built in a future task (Executive Dashboard / Todo UI).
+
+### 3.12 Employee Portal (Mobile)
 - **Login**: `/mobile/portal` — employee selects store, finds their name, enters PIN.
 - **PIN login**: alternative numeric PIN entry.
 - **Today view**: shows today's scheduled shift (from published roster), with clock-in/out via time logs.

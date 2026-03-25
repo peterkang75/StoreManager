@@ -255,6 +255,99 @@ export async function parseUploadedFile(
   }
 }
 
+// ── Email Classification ──────────────────────────────────────────────────────
+
+export interface ClassifiedEmailTask {
+  title: string;
+  description: string;
+  dueDate: string | null; // YYYY-MM-DD
+}
+
+export type EmailType = "INVOICE" | "TASK" | "OTHER";
+
+export interface ClassifiedEmail {
+  type: EmailType;
+  task?: ClassifiedEmailTask;
+}
+
+const CLASSIFY_SYSTEM_PROMPT = `You are an AI assistant for an Australian retail/hospitality business.
+You receive forwarded emails and must classify them and extract structured data.
+
+CRITICAL RULES:
+1. Classify the email into exactly one of: "INVOICE", "TASK", or "OTHER".
+   - INVOICE: the email relates to a bill, invoice, statement, purchase order, payment request, or delivery docket from a supplier.
+   - TASK: the email contains an action item, reminder, request, question or task that requires follow-up. Examples: "please call X", "can you organise Y", "don't forget to Z".
+   - OTHER: newsletters, spam, automated notifications, or anything that is not clearly an invoice or actionable task.
+2. If type is "TASK", extract:
+   - "title": a concise 5-15 word summary of the task (imperative form, e.g. "Call John about lease renewal")
+   - "description": a 1-3 sentence summary of what needs to be done and any relevant context
+   - "dueDate": a date in YYYY-MM-DD format if an explicit or strongly implied deadline exists, otherwise null
+3. If type is "INVOICE" or "OTHER", the "task" field must be omitted or null.
+4. Return ONLY valid JSON with no code fences or explanation.
+
+JSON schema:
+{
+  "type": "INVOICE" | "TASK" | "OTHER",
+  "task": {
+    "title": "string",
+    "description": "string",
+    "dueDate": "YYYY-MM-DD or null"
+  } | null
+}`;
+
+/**
+ * Classify an incoming email (by subject + body text) using GPT-4o-mini.
+ * Returns the email type and, if TASK, the extracted task data.
+ * Falls back to "OTHER" on any error.
+ */
+export async function classifyAndParseEmail(
+  subject: string,
+  body: string,
+): Promise<ClassifiedEmail> {
+  const userContent = `Subject: ${subject}
+
+Email body:
+${body.slice(0, 4000)}
+
+Classify this email and extract data as instructed.`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: CLASSIFY_SYSTEM_PROMPT },
+        { role: "user", content: userContent },
+      ],
+      temperature: 0,
+      max_tokens: 400,
+    });
+
+    const raw = response.choices[0]?.message?.content?.trim() ?? "";
+    const cleaned = raw.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
+    const parsed = JSON.parse(cleaned);
+
+    const type: EmailType = (["INVOICE", "TASK", "OTHER"].includes(parsed.type)
+      ? parsed.type
+      : "OTHER") as EmailType;
+
+    if (type === "TASK" && parsed.task) {
+      return {
+        type,
+        task: {
+          title: String(parsed.task.title ?? "Untitled Task"),
+          description: String(parsed.task.description ?? ""),
+          dueDate: parsed.task.dueDate ? String(parsed.task.dueDate) : null,
+        },
+      };
+    }
+
+    return { type };
+  } catch (err) {
+    console.error("[invoiceParser] classifyAndParseEmail error:", err);
+    return { type: "OTHER" };
+  }
+}
+
 const UNKNOWN_SENDER_SYSTEM_PROMPT = `You are an invoice data extraction assistant for an Australian retail/hospitality business.
 An email with a PDF invoice/statement has arrived from an UNKNOWN sender. Extract everything you can.
 

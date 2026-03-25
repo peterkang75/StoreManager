@@ -18,6 +18,7 @@ import {
   type SupplierPayment, type InsertSupplierPayment,
   type QuarantinedEmail, type InsertQuarantinedEmail,
   type EmailRoutingRule, type InsertEmailRoutingRule,
+  type Todo, type InsertTodo,
   type FinancialTransaction, type InsertFinancialTransaction,
   type Roster, type InsertRoster,
   type RosterPublication,
@@ -28,6 +29,7 @@ import {
   rosterPeriods, shifts, rosters, rosterPublications, timeLogs, timesheets, payrolls,
   dailyClosings, cashSalesDetails, dailyCloseForms, suppliers, supplierInvoices, supplierPayments,
   quarantinedEmails, emailRoutingRules,
+  todos,
   financialTransactions, shiftTimesheets, notices, intercompanySettlements,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
@@ -124,6 +126,11 @@ export interface IStorage {
   upsertEmailRoutingRule(data: InsertEmailRoutingRule): Promise<EmailRoutingRule>;
   deleteEmailRoutingRule(email: string): Promise<boolean>;
 
+  getTodos(): Promise<Todo[]>;
+  getTodo(id: string): Promise<Todo | undefined>;
+  createTodo(data: InsertTodo): Promise<Todo>;
+  updateTodo(id: string, data: Partial<InsertTodo>): Promise<Todo | undefined>;
+
   getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]>;
   getNotice(id: string): Promise<Notice | undefined>;
   createNotice(data: InsertNotice): Promise<Notice>;
@@ -182,6 +189,7 @@ export class MemStorage implements IStorage {
   private supplierPayments: Map<string, SupplierPayment>;
   private quarantinedEmails: Map<string, QuarantinedEmail>;
   private emailRoutingRulesMap: Map<string, EmailRoutingRule>;
+  private todosMap: Map<string, Todo>;
   private noticesMap: Map<string, Notice>;
   private employeeStoreAssignments: Map<string, EmployeeStoreAssignment>;
   private financialTransactions: Map<string, FinancialTransaction>;
@@ -206,6 +214,7 @@ export class MemStorage implements IStorage {
     this.supplierPayments = new Map();
     this.quarantinedEmails = new Map();
     this.emailRoutingRulesMap = new Map();
+    this.todosMap = new Map();
     this.noticesMap = new Map();
     this.financialTransactions = new Map();
     this.rostersMap = new Map();
@@ -961,6 +970,38 @@ export class MemStorage implements IStorage {
     return this.emailRoutingRulesMap.delete(email.toLowerCase());
   }
 
+  async getTodos(): Promise<Todo[]> {
+    return Array.from(this.todosMap.values())
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async getTodo(id: string): Promise<Todo | undefined> {
+    return this.todosMap.get(id);
+  }
+
+  async createTodo(data: InsertTodo): Promise<Todo> {
+    const id = randomUUID();
+    const todo: Todo = {
+      id,
+      title: data.title,
+      description: data.description ?? null,
+      sourceEmail: data.sourceEmail ?? null,
+      dueDate: data.dueDate ?? null,
+      status: data.status ?? "TODO",
+      createdAt: new Date(),
+    };
+    this.todosMap.set(id, todo);
+    return todo;
+  }
+
+  async updateTodo(id: string, data: Partial<InsertTodo>): Promise<Todo | undefined> {
+    const existing = this.todosMap.get(id);
+    if (!existing) return undefined;
+    const updated: Todo = { ...existing, ...data };
+    this.todosMap.set(id, updated);
+    return updated;
+  }
+
   async getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]> {
     let list = Array.from(this.noticesMap.values());
     if (filters?.activeOnly) list = list.filter(n => n.isActive);
@@ -1671,6 +1712,25 @@ export class DatabaseStorage implements IStorage {
     const result = await db.delete(emailRoutingRules)
       .where(eq(emailRoutingRules.email, email.toLowerCase()));
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async getTodos(): Promise<Todo[]> {
+    return db.select().from(todos).orderBy(desc(todos.createdAt));
+  }
+
+  async getTodo(id: string): Promise<Todo | undefined> {
+    const [todo] = await db.select().from(todos).where(eq(todos.id, id));
+    return todo;
+  }
+
+  async createTodo(data: InsertTodo): Promise<Todo> {
+    const [todo] = await db.insert(todos).values(data).returning();
+    return todo;
+  }
+
+  async updateTodo(id: string, data: Partial<InsertTodo>): Promise<Todo | undefined> {
+    const [todo] = await db.update(todos).set(data).where(eq(todos.id, id)).returning();
+    return todo;
   }
 
   async getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]> {

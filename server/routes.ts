@@ -3,7 +3,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage, generateSecureToken } from "./storage";
 import { PAYROLL_CYCLE_ANCHOR, getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "../shared/payrollCycle";
-import { extractPdfText, parseInvoiceWithAI, parseUploadedFile, parseInvoiceFromUnknownSender } from "./invoiceParser";
+import { extractPdfText, parseInvoiceWithAI, parseUploadedFile, parseInvoiceFromUnknownSender, classifyAndParseEmail } from "./invoiceParser";
 import { 
   insertStoreSchema, 
   insertCandidateSchema, 
@@ -3941,13 +3941,59 @@ export async function registerRoutes(
         return res.status(200).json({ received: true, action: "ignored", reason: "no_sender" });
       }
 
-      // ── 2. Extract subject and attachments (Cloudmailin format) ──────────────
+      // ── 2. Extract subject, body and attachments (Cloudmailin format) ───────────
       const subject: string = payload?.headers?.subject ?? "(no subject)";
+      // Cloudmailin sends plain text body in payload.plain, HTML in payload.html
+      const emailBody: string = payload?.plain ?? payload?.html?.replace(/<[^>]*>/g, " ") ?? "";
 
       // Cloudmailin attachments: array under payload.attachments
       // Each item has: file_name, content_type, content (base64), size
       const attachments: any[] = Array.isArray(payload?.attachments) ? payload.attachments : [];
       const hasAttachment = attachments.length > 0;
+
+      // ── 2b. AI Email Classification ─────────────────────────────────────────────
+      // Classify BEFORE supplier/routing checks so non-invoice emails are handled first.
+      console.log(`[Webhook/inbound-invoices] Classifying email from ${senderEmail}: "${subject}"`);
+      const classification = await classifyAndParseEmail(subject, emailBody);
+      console.log(`[Webhook/inbound-invoices] Classification: ${classification.type}`);
+
+      if (classification.type === "TASK") {
+        const taskData = classification.task!;
+        const todo = await storage.createTodo({
+          title: taskData.title,
+          description: taskData.description || null,
+          sourceEmail: senderEmail,
+          dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
+          status: "TODO",
+        });
+        console.log(`[Webhook/inbound-invoices] Task created: ${todo.id} — "${todo.title}"`);
+        return res.status(200).json({
+          received: true,
+          action: "task_created",
+          todoId: todo.id,
+          title: todo.title,
+          sender: senderEmail,
+        });
+      }
+
+      if (classification.type === "OTHER") {
+        // No attachment: silently ignore. With attachment: quarantine for manual review.
+        if (!hasAttachment) {
+          console.log(`[Webhook/inbound-invoices] OTHER email, no attachment — ignored: ${senderEmail}`);
+          return res.status(200).json({ received: true, action: "ignored", reason: "other_no_attachment" });
+        }
+        console.log(`[Webhook/inbound-invoices] OTHER email with attachment — quarantined: ${senderEmail}`);
+        await storage.createQuarantinedEmail({
+          senderEmail,
+          subject,
+          hasAttachment: true,
+          rawPayload: JSON.stringify(payload),
+        });
+        return res.status(200).json({ received: true, action: "quarantined_other", sender: senderEmail });
+      }
+
+      // classification.type === "INVOICE" → fall through to AP auto-discovery logic
+      console.log(`[Webhook/inbound-invoices] INVOICE detected — proceeding with AP routing: ${senderEmail}`);
 
       // ── 3a. Check email routing rules (manager-set ALLOW/IGNORE) ─────────────
       const [routingRule, matchedSupplier] = await Promise.all([
@@ -4210,6 +4256,53 @@ export async function registerRoutes(
     } catch (err) {
       console.error("Error deleting email routing rule:", err);
       res.status(500).json({ error: "Failed to delete email routing rule" });
+    }
+  });
+
+  // ── Todos (AI Executive Assistant) ───────────────────────────────────────────
+  app.get("/api/todos", async (_req: Request, res: Response) => {
+    try {
+      const items = await storage.getTodos();
+      res.json(items);
+    } catch (err) {
+      console.error("Error fetching todos:", err);
+      res.status(500).json({ error: "Failed to fetch todos" });
+    }
+  });
+
+  app.post("/api/todos", async (req: Request, res: Response) => {
+    try {
+      const { title, description, sourceEmail, dueDate, status } = req.body;
+      if (!title) return res.status(400).json({ error: "title is required" });
+      const todo = await storage.createTodo({
+        title,
+        description: description ?? null,
+        sourceEmail: sourceEmail ?? null,
+        dueDate: dueDate ? new Date(dueDate) : null,
+        status: status ?? "TODO",
+      });
+      res.status(201).json(todo);
+    } catch (err) {
+      console.error("Error creating todo:", err);
+      res.status(500).json({ error: "Failed to create todo" });
+    }
+  });
+
+  app.patch("/api/todos/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { status, title, description, dueDate } = req.body;
+      const update: Record<string, any> = {};
+      if (status !== undefined) update.status = status;
+      if (title !== undefined) update.title = title;
+      if (description !== undefined) update.description = description;
+      if (dueDate !== undefined) update.dueDate = dueDate ? new Date(dueDate) : null;
+      const todo = await storage.updateTodo(id, update);
+      if (!todo) return res.status(404).json({ error: "Todo not found" });
+      res.json(todo);
+    } catch (err) {
+      console.error("Error updating todo:", err);
+      res.status(500).json({ error: "Failed to update todo" });
     }
   });
 

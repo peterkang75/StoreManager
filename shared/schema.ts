@@ -522,6 +522,25 @@ export const insertEmailRoutingRuleSchema = createInsertSchema(emailRoutingRules
 export type InsertEmailRoutingRule = z.infer<typeof insertEmailRoutingRuleSchema>;
 export type EmailRoutingRule = typeof emailRoutingRules.$inferSelect;
 
+// ── AI Executive Assistant: To-Do items extracted from emails ────────────────
+export const todos = pgTable("todos", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  description: text("description"),
+  sourceEmail: varchar("source_email"),
+  dueDate: timestamp("due_date"),
+  status: text("status").default("TODO").notNull(), // 'TODO' | 'IN_PROGRESS' | 'DONE'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertTodoSchema = createInsertSchema(todos).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertTodo = z.infer<typeof insertTodoSchema>;
+export type Todo = typeof todos.$inferSelect;
+
 export const financialTransactions = pgTable("financial_transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   transactionType: text("transaction_type").notNull(),
