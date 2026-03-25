@@ -6,6 +6,9 @@ This project aims to develop an integrated staff management system for multi-sto
 ## User Preferences
 I prefer clear and concise communication. For coding tasks, I appreciate an iterative development approach where major changes are discussed before implementation. Please ensure that all new features or modifications align with the existing architectural patterns and coding conventions. Do not modify the `vite.ts`, `drizzle.config.ts`, and `package.json` files. For all other files, I want you to make necessary changes to implement the requested features.
 
+## Mandatory Rules (Always Apply — No Exceptions)
+- **After EVERY task, update `plan.md` automatically.** Do not wait to be reminded. If the task added, changed, or removed any feature, API endpoint, architectural decision, DB schema, or design convention, reflect it in the appropriate section of `plan.md`. This applies to every task, no matter how small.
+
 ## System Architecture
 The system is built as a Single Page Application (SPA) using React 18 with Vite and TypeScript for the frontend, and Node.js with Express for the backend API. PostgreSQL, backed by Neon, serves as the primary database, with Drizzle ORM for type-safe query building.
 

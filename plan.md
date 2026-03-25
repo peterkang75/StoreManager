@@ -146,12 +146,16 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Publish roster**: marks a `(storeId, weekStart)` as published, making it visible to employees in the portal.
 - Roster publication status shown in grid.
 
-### 3.5 Timesheet Approvals (`/admin/timesheet-approvals`)
+### 3.5 Timesheet Approvals (`/admin/approvals`)
 - Admin view of all `shiftTimesheets` submitted by employees via portal.
-- Filter by store and date range.
-- **Approve** individual submissions or **bulk approve** multiple.
-- **Edit + Approve**: adjust the actual times before approval.
+- Filter by store and status (Pending / Approved / All); payroll cycle navigator (14-day periods).
+- **Approve** individual submissions or **bulk approve** all pending for an employee at once.
+- **Edit + Approve**: ±15-min quick-adjust buttons auto-save times before approval.
 - Shows scheduled vs actual times; highlights discrepancies and unscheduled shifts.
+- **Auto-Fill from Roster**: creates PENDING timesheets for any rostered shift that has no submission yet.
+- **Add Missing Shift**: manager can manually add an ad-hoc shift directly from the review modal.
+- **Mark Absent**: reject/tombstone a shift so Auto-Fill won't recreate it (0 hours paid).
+- **Responsive layout**: desktop shows employee table → click to open detail modal; mobile shows employee summary cards → tap to open bottom-sheet review modal with per-shift cards (no horizontal scroll on mobile).
 
 ### 3.6 Payroll (`/admin/payrolls`, `/admin/weekly-payroll`)
 - **Generate payroll** for a period: pulls approved timesheets, calculates pay from hours × rate (or fixed amount) per employee.
