@@ -4114,7 +4114,7 @@ export async function registerRoutes(
         else if (Buffer.isBuffer(rawContent)) buf = rawContent;
         else return null;
         try {
-          const text = extractPdfText(buf);
+          const text = await extractPdfText(buf);
           return text.trim() ? { text } : null;
         } catch { return null; }
       }

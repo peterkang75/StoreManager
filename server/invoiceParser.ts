@@ -1,7 +1,6 @@
-import { spawnSync } from "child_process";
-import { writeFileSync, unlinkSync, existsSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const pdfParse = require("pdf-parse") as (buffer: Buffer) => Promise<{ text: string }>;
 import OpenAI from "openai";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -49,23 +48,16 @@ export interface UnknownSenderParsedResult {
 }
 
 /**
- * Extract raw text from a PDF buffer using the pdftotext CLI tool.
+ * Extract raw text from a PDF buffer using pdf-parse (pure JS, no system deps).
  * Returns empty string if extraction fails.
  */
-export function extractPdfText(buffer: Buffer): string {
-  const tmpFile = join(tmpdir(), `invoice_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`);
+export async function extractPdfText(buffer: Buffer): Promise<string> {
   try {
-    writeFileSync(tmpFile, buffer);
-    const result = spawnSync("pdftotext", [tmpFile, "-"], { encoding: "utf-8", timeout: 15000 });
-    if (result.error || result.status !== 0) {
-      console.warn("[invoiceParser] pdftotext failed:", result.error?.message ?? result.stderr);
-      return "";
-    }
-    return result.stdout ?? "";
-  } finally {
-    if (existsSync(tmpFile)) {
-      try { unlinkSync(tmpFile); } catch { /* ignore cleanup error */ }
-    }
+    const data = await pdfParse(buffer);
+    return data.text ?? "";
+  } catch (err) {
+    console.warn("[invoiceParser] pdf-parse failed:", err);
+    return "";
   }
 }
 
@@ -214,7 +206,7 @@ export async function parseUploadedFile(
         },
       ];
     } else if (isPdf) {
-      const rawText = extractPdfText(buffer);
+      const rawText = await extractPdfText(buffer);
       if (!rawText.trim()) {
         console.warn("[invoiceParser] PDF text extraction returned empty string");
       }
