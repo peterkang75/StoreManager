@@ -81,19 +81,10 @@ export default {
           busy: "rgb(239 68 68)",
           offline: "rgb(156 163 175)",
         },
-        /* Stitch Design System — explicit brand tokens */
-        "corporate-navy": "#1a2b3c",
-        "surface-container": "#fdeae2",
-        "surface-container-low": "#fff1eb",
-        "surface-bright": "#fff8f6",
-        "on-surface": "#231a15",
-        "on-surface-variant": "#55433a",
-        "primary-container": "#ee864a",
-        "outline-variant": "#dcc1b5",
       },
       fontFamily: {
-        sans: ["Inter", "var(--font-sans)", "sans-serif"],
-        serif: ["Inter", "var(--font-serif)", "sans-serif"],
+        sans: ["var(--font-sans)"],
+        serif: ["var(--font-serif)"],
         mono: ["var(--font-mono)"],
       },
       keyframes: {
