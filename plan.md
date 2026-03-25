@@ -185,13 +185,16 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Manual Cash Adjustment & Audit Trail:** Managers can align the system's Cash Balance with the physical safe using the "Manual Entry" feature. They can record `Cash In` or `Cash Out` with specific categories (e.g., Petty Cash, Till Shortage, Owner Deposit) and notes. This creates a permanent audit trail transaction instead of destructively overwriting the balance.
 
 ### 3.8 Accounts Payable Dashboard (`/admin/accounts-payable`)
-- **Summary cards**: Total Invoices, Pending, Overdue, Paid (amounts).
-- **Filter bar**: Status (All/Pending/Paid/Overdue/Quarantine), Supplier dropdown, Store dropdown.
-- **Invoice table**: Supplier, Invoice #, Store, Issue Date, Due Date (overdue highlighted in red), Amount, Status badge.
-- **Checkbox multi-select**: select one or more PENDING invoices.
-- **Selected Total** display: live running total + count of selected invoices.
-- **Bulk "Mark N as Paid"** action: sends parallel PATCH requests, refreshes list, clears selection.
-- PDF icon link to original invoice file where available.
+- **Summary cards**: Total Payable (all pending), Suppliers Owing (distinct supplier count with unpaid invoices). Overdue amount shown in red beneath Total Payable if any exist.
+- **View Tabs**: `To Pay` (PENDING + OVERDUE) | `Paid History` (PAID, sorted by updatedAt desc).
+- **Store Toggle Buttons**: `All Stores` | `Sushi` | `Sandwich` (only roster stores shown).
+- **To Pay view**: invoices grouped by supplier in collapsible Accordion cards (all open by default).
+  - Supplier header: name, invoice count, total unpaid, "Overdue: $X" in red (if applicable), select-all checkbox.
+  - Expanded table columns: Invoice Date | Amount | Due Date (overdue highlighted red with AlertCircle icon; due-soon orange) | Invoice # | Store.
+  - Overdue rows sorted to top within each group; rows highlighted with faint red background.
+- **Paid History view**: flat table — Supplier | Invoice Date | Amount | Invoice # | Store.
+- **Sticky bottom bar** (visible when ≥1 invoice selected): selected total (fmtAUD), invoice count, `Clear` button, `Pay Selected (N)` button → bulk PATCH to PAID.
+- **Bulk Pay**: parallel PATCH `/api/invoices/:id/status` → `{ status: "PAID" }`, then invalidate query cache and clear selection.
 
 ### 3.9 Supplier Management (`/admin/suppliers`)
 - List all suppliers with ABN, whitelisted contact emails (shown as tags), BSB/account number.

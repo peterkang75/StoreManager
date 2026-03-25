@@ -1,42 +1,40 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, AlertCircle, Clock, FileText, DollarSign, Receipt } from "lucide-react";
+import {
+  CheckCircle,
+  AlertCircle,
+  Clock,
+  FileText,
+  DollarSign,
+  Receipt,
+  Loader2,
+} from "lucide-react";
 import type { SupplierInvoice, Supplier, Store } from "@shared/schema";
 
 type EnrichedInvoice = SupplierInvoice & { supplier: Supplier | null };
 
-const STATUS_COLORS: Record<string, string> = {
-  PENDING: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
-  PAID: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
-  OVERDUE: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
-  QUARANTINE: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
-};
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
 function fmt(dateStr: string | null | undefined): string {
   if (!dateStr) return "—";
   try {
-    return new Date(dateStr).toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric" });
+    return new Date(dateStr).toLocaleDateString("en-AU", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
   } catch {
     return dateStr;
   }
@@ -46,85 +44,140 @@ function fmtAUD(amount: number): string {
   return new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(amount);
 }
 
-function isDueSoon(dueDate: string | null | undefined, isPending: boolean): boolean {
-  if (!dueDate || !isPending) return false;
+function isOverdue(dueDate: string | null | undefined, status: string): boolean {
+  if (!dueDate) return false;
+  if (status === "OVERDUE") return true;
+  if (status !== "PENDING") return false;
+  return new Date(dueDate) < new Date(new Date().toDateString());
+}
+
+function isDueSoon(dueDate: string | null | undefined, status: string): boolean {
+  if (!dueDate || status !== "PENDING") return false;
   const diff = (new Date(dueDate).getTime() - Date.now()) / 86400000;
   return diff >= 0 && diff <= 7;
 }
 
-function isOverdue(dueDate: string | null | undefined, isPending: boolean): boolean {
-  if (!dueDate || !isPending) return false;
-  return new Date(dueDate) < new Date();
+// ── Supplier group structure ────────────────────────────────────────────────────
+
+interface SupplierGroup {
+  supplierId: string;
+  supplierName: string;
+  invoices: EnrichedInvoice[];
+  totalAmount: number;
+  overdueAmount: number;
 }
+
+function groupBySupplier(invoices: EnrichedInvoice[]): SupplierGroup[] {
+  const map = new Map<string, SupplierGroup>();
+  invoices.forEach(inv => {
+    const key = inv.supplierId ?? "unknown";
+    if (!map.has(key)) {
+      map.set(key, {
+        supplierId: key,
+        supplierName: inv.supplier?.name ?? "Unknown Supplier",
+        invoices: [],
+        totalAmount: 0,
+        overdueAmount: 0,
+      });
+    }
+    const g = map.get(key)!;
+    g.invoices.push(inv);
+    g.totalAmount += inv.amount ?? 0;
+    if (isOverdue(inv.dueDate, inv.status)) {
+      g.overdueAmount += inv.amount ?? 0;
+    }
+  });
+  return Array.from(map.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────────
 
 export function AdminAccountsPayable() {
   const { toast } = useToast();
-  const [statusFilter, setStatusFilter] = useState<string>("PENDING");
-  const [supplierFilter, setSupplierFilter] = useState<string>("ALL");
-  const [storeFilter, setStoreFilter] = useState<string>("ALL");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  const { data: invoices = [], isLoading } = useQuery<EnrichedInvoice[]>({
-    queryKey: ["/api/invoices", statusFilter, supplierFilter, storeFilter],
+  // View tab: "topay" | "history"
+  const [activeTab, setActiveTab] = useState<"topay" | "history">("topay");
+  // Store filter: "ALL" | store id (only Sushi/Sandwich)
+  const [storeFilter, setStoreFilter] = useState<string>("ALL");
+  // Selected invoice IDs
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Open accordion items
+  const [openAccordions, setOpenAccordions] = useState<string[]>([]);
+
+  // Fetch all invoices (we split client-side for the two tabs)
+  const { data: allInvoices = [], isLoading } = useQuery<EnrichedInvoice[]>({
+    queryKey: ["/api/invoices", "ALL"],
     queryFn: async () => {
-      const params = new URLSearchParams();
-      if (statusFilter !== "ALL") params.set("status", statusFilter);
-      if (supplierFilter !== "ALL") params.set("supplierId", supplierFilter);
-      if (storeFilter !== "ALL") params.set("storeId", storeFilter);
-      const res = await fetch(`/api/invoices?${params.toString()}`);
+      const res = await fetch("/api/invoices");
       if (!res.ok) throw new Error("Failed to fetch invoices");
       return res.json();
     },
+    staleTime: 30_000,
   });
 
-  const { data: allPending = [] } = useQuery<EnrichedInvoice[]>({
-    queryKey: ["/api/invoices", "PENDING", "summary"],
-    queryFn: async () => {
-      const res = await fetch("/api/invoices?status=PENDING");
-      if (!res.ok) throw new Error();
-      return res.json();
-    },
-  });
-
-  const { data: suppliers = [] } = useQuery<Supplier[]>({ queryKey: ["/api/suppliers"] });
   const { data: stores = [] } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
 
+  // Only show Sushi + Sandwich in store toggle
+  const rosterStores = useMemo(
+    () => stores.filter(s => s.active && (s.name.toLowerCase().includes("sushi") || s.name.toLowerCase().includes("sandwich"))),
+    [stores]
+  );
+
+  // Apply store filter
+  const storeFiltered = useMemo(() => {
+    if (storeFilter === "ALL") return allInvoices;
+    return allInvoices.filter(inv => inv.storeId === storeFilter);
+  }, [allInvoices, storeFilter]);
+
+  // Split into tabs
+  const toPayInvoices = useMemo(
+    () => storeFiltered.filter(inv => inv.status === "PENDING" || inv.status === "OVERDUE"),
+    [storeFiltered]
+  );
+  const historyInvoices = useMemo(
+    () =>
+      storeFiltered
+        .filter(inv => inv.status === "PAID")
+        .sort((a, b) => {
+          const da = a.updatedAt?.toString() ?? a.invoiceDate ?? "";
+          const db = b.updatedAt?.toString() ?? b.invoiceDate ?? "";
+          return db.localeCompare(da);
+        }),
+    [storeFiltered]
+  );
+
+  // Summary stats
+  const totalPayable = useMemo(() => toPayInvoices.reduce((s, inv) => s + (inv.amount ?? 0), 0), [toPayInvoices]);
+  const totalOverdue = useMemo(
+    () => toPayInvoices.filter(inv => isOverdue(inv.dueDate, inv.status)).reduce((s, inv) => s + (inv.amount ?? 0), 0),
+    [toPayInvoices]
+  );
+
+  // Supplier groups for To Pay view
+  const supplierGroups = useMemo(() => groupBySupplier(toPayInvoices), [toPayInvoices]);
+
+  // Selected total
+  const selectedTotal = useMemo(() => {
+    return toPayInvoices
+      .filter(inv => selected.has(inv.id))
+      .reduce((s, inv) => s + (inv.amount ?? 0), 0);
+  }, [toPayInvoices, selected]);
+
+  // Bulk mark paid mutation
   const bulkMarkPaidMutation = useMutation({
     mutationFn: async (ids: string[]) => {
-      await Promise.all(
-        ids.map(id => apiRequest("PATCH", `/api/invoices/${id}/status`, { status: "PAID" }))
-      );
+      await Promise.all(ids.map(id => apiRequest("PATCH", `/api/invoices/${id}/status`, { status: "PAID" })));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      const n = selected.size;
       setSelected(new Set());
-      toast({ title: `${selected.size} invoice${selected.size !== 1 ? "s" : ""} marked as paid` });
+      toast({ title: `${n} invoice${n !== 1 ? "s" : ""} marked as paid` });
     },
     onError: () => toast({ title: "Failed to update invoices", variant: "destructive" }),
   });
 
-  const totalPayable = allPending.reduce((sum, inv) => sum + (inv.amount ?? 0), 0);
-  const pendingCount = allPending.length;
-
-  const selectedTotal = useMemo(() => {
-    return invoices
-      .filter(inv => selected.has(inv.id))
-      .reduce((sum, inv) => sum + (inv.amount ?? 0), 0);
-  }, [invoices, selected]);
-
-  const pendingInvoices = invoices.filter(inv => inv.status === "PENDING");
-  const allPendingSelected =
-    pendingInvoices.length > 0 && pendingInvoices.every(inv => selected.has(inv.id));
-  const somePendingSelected = pendingInvoices.some(inv => selected.has(inv.id));
-
-  function toggleAll() {
-    if (allPendingSelected) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(pendingInvoices.map(inv => inv.id)));
-    }
-  }
-
+  // Selection helpers
   function toggleOne(id: string) {
     setSelected(prev => {
       const next = new Set(prev);
@@ -134,260 +187,399 @@ export function AdminAccountsPayable() {
     });
   }
 
-  const activeStores = stores.filter(s => s.active && !s.isExternal);
+  function toggleSupplier(group: SupplierGroup) {
+    const ids = group.invoices.map(i => i.id);
+    const allSelected = ids.every(id => selected.has(id));
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (allSelected) {
+        ids.forEach(id => next.delete(id));
+      } else {
+        ids.forEach(id => next.add(id));
+      }
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelected(new Set());
+  }
+
+  // Open all accordions by default when data first loads
+  useEffect(() => {
+    if (supplierGroups.length > 0) {
+      setOpenAccordions(prev =>
+        prev.length === 0 ? supplierGroups.map(g => g.supplierId) : prev
+      );
+    }
+  }, [supplierGroups]);
 
   return (
     <AdminLayout title="Accounts Payable">
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-5 pb-24">
 
-        {/* ── Summary Cards ───────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* ── Summary Cards ─────────────────────────────────────────────── */}
+        <div className="grid grid-cols-2 gap-4">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Total Payable (Pending)
-              </CardTitle>
-              <DollarSign className="w-4 h-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold tracking-tight" data-testid="text-total-payable">
-                {fmtAUD(totalPayable)}
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Total Payable</p>
+                  <p className="text-2xl font-bold tracking-tight tabular-nums" data-testid="text-total-payable">
+                    {fmtAUD(totalPayable)}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{toPayInvoices.length} pending invoices</p>
+                </div>
+                <DollarSign className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
               </div>
-              <p className="text-xs text-muted-foreground mt-1">Across all pending invoices</p>
+              {totalOverdue > 0 && (
+                <p className="text-xs text-red-600 dark:text-red-400 font-semibold mt-2 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  Overdue: {fmtAUD(totalOverdue)}
+                </p>
+              )}
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Pending Invoices
-              </CardTitle>
-              <Receipt className="w-4 h-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold tracking-tight" data-testid="text-pending-count">
-                {pendingCount}
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Suppliers Owing</p>
+                  <p className="text-2xl font-bold tracking-tight" data-testid="text-pending-count">
+                    {supplierGroups.length}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">with unpaid invoices</p>
+                </div>
+                <Receipt className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
               </div>
-              <p className="text-xs text-muted-foreground mt-1">Awaiting payment</p>
             </CardContent>
           </Card>
         </div>
 
-        {/* ── Filters + Bulk Actions ──────────────────────────────────── */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground whitespace-nowrap">Status</span>
-            <Select
-              value={statusFilter}
-              onValueChange={v => { setStatusFilter(v); setSelected(new Set()); }}
+        {/* ── Tab + Store Filter bar ─────────────────────────────────────── */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* View Tabs */}
+          <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg">
+            <button
+              onClick={() => { setActiveTab("topay"); clearSelection(); }}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                activeTab === "topay"
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              data-testid="tab-topay"
             >
-              <SelectTrigger className="w-36" data-testid="select-status-filter">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All</SelectItem>
-                <SelectItem value="PENDING">Pending</SelectItem>
-                <SelectItem value="PAID">Paid</SelectItem>
-                <SelectItem value="OVERDUE">Overdue</SelectItem>
-              </SelectContent>
-            </Select>
+              To Pay
+              {toPayInvoices.length > 0 && (
+                <span className={`ml-2 text-[11px] px-1.5 py-0.5 rounded-full font-semibold ${
+                  activeTab === "topay"
+                    ? totalOverdue > 0 ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400" : "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400"
+                    : "bg-muted text-muted-foreground"
+                }`}>
+                  {toPayInvoices.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => { setActiveTab("history"); clearSelection(); }}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                activeTab === "history"
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              data-testid="tab-history"
+            >
+              Paid History
+              {historyInvoices.length > 0 && (
+                <span className={`ml-2 text-[11px] px-1.5 py-0.5 rounded-full font-semibold ${
+                  activeTab === "history" ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400" : "bg-muted text-muted-foreground"
+                }`}>
+                  {historyInvoices.length}
+                </span>
+              )}
+            </button>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground whitespace-nowrap">Supplier</span>
-            <Select
-              value={supplierFilter}
-              onValueChange={v => { setSupplierFilter(v); setSelected(new Set()); }}
-            >
-              <SelectTrigger className="w-44" data-testid="select-supplier-filter">
-                <SelectValue placeholder="All Suppliers" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All Suppliers</SelectItem>
-                {suppliers.filter(s => s.active).map(s => (
-                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          {/* Store Toggle Buttons */}
+          <div className="flex items-center gap-1">
+            {[{ id: "ALL", label: "All Stores" }, ...rosterStores.map(s => ({ id: s.id, label: s.name }))].map(opt => (
+              <button
+                key={opt.id}
+                onClick={() => { setStoreFilter(opt.id); clearSelection(); }}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
+                  storeFilter === opt.id
+                    ? "bg-foreground text-background border-foreground"
+                    : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40"
+                }`}
+                data-testid={`button-store-filter-${opt.id}`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
+        </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground whitespace-nowrap">Store</span>
-            <Select
-              value={storeFilter}
-              onValueChange={v => { setStoreFilter(v); setSelected(new Set()); }}
-            >
-              <SelectTrigger className="w-36" data-testid="select-store-filter">
-                <SelectValue placeholder="All Stores" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All Stores</SelectItem>
-                {activeStores.map(s => (
-                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        {/* ── Content Area ──────────────────────────────────────────────── */}
+        {isLoading ? (
+          <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="text-sm">Loading invoices…</span>
           </div>
+        ) : activeTab === "topay" ? (
+          /* ── To Pay: Supplier Accordion Groups ── */
+          toPayInvoices.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
+              <CheckCircle className="h-10 w-10 opacity-20" />
+              <p className="text-sm font-medium">All invoices are paid</p>
+              <p className="text-xs">Nothing outstanding for this store filter.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <Accordion
+                type="multiple"
+                value={openAccordions}
+                onValueChange={setOpenAccordions}
+                className="space-y-3"
+              >
+                {supplierGroups.map(group => {
+                  const allGroupSelected = group.invoices.every(inv => selected.has(inv.id));
+                  const someGroupSelected = group.invoices.some(inv => selected.has(inv.id));
 
-          <span className="text-sm text-muted-foreground">
-            {invoices.length} invoice{invoices.length !== 1 ? "s" : ""}
-          </span>
+                  return (
+                    <AccordionItem
+                      key={group.supplierId}
+                      value={group.supplierId}
+                      className="border border-border/40 rounded-lg bg-card overflow-hidden"
+                      data-testid={`supplier-group-${group.supplierId}`}
+                    >
+                      <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-muted/30">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          {/* Supplier select-all checkbox */}
+                          <div onClick={e => e.stopPropagation()}>
+                            <Checkbox
+                              checked={allGroupSelected}
+                              data-state={someGroupSelected && !allGroupSelected ? "indeterminate" : undefined}
+                              onCheckedChange={() => toggleSupplier(group)}
+                              aria-label={`Select all invoices for ${group.supplierName}`}
+                              data-testid={`checkbox-supplier-${group.supplierId}`}
+                            />
+                          </div>
 
-          {/* Selected total + Bulk action */}
-          {selected.size > 0 && (
-            <div className="ml-auto flex items-center gap-3">
-              <span className="text-sm font-medium tabular-nums" data-testid="text-selected-total">
-                {fmtAUD(selectedTotal)} selected ({selected.size})
-              </span>
+                          {/* Supplier name + amounts */}
+                          <div className="flex-1 min-w-0 text-left">
+                            <p className="font-semibold text-sm">{group.supplierName}</p>
+                            <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                              <span className="text-xs text-muted-foreground">
+                                {group.invoices.length} invoice{group.invoices.length !== 1 ? "s" : ""}
+                              </span>
+                              <span className="text-xs font-semibold text-foreground tabular-nums">
+                                {fmtAUD(group.totalAmount)}
+                              </span>
+                              {group.overdueAmount > 0 && (
+                                <span className="text-xs font-bold text-red-600 dark:text-red-400 flex items-center gap-0.5">
+                                  <AlertCircle className="h-3 w-3" />
+                                  Overdue: {fmtAUD(group.overdueAmount)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </AccordionTrigger>
+
+                      <AccordionContent className="pb-0">
+                        <div className="border-t border-border/30">
+                          <table className="w-full text-sm" data-testid={`invoice-table-${group.supplierId}`}>
+                            <thead>
+                              <tr className="bg-muted/30 border-b border-border/20">
+                                <th className="w-10 py-2 pl-4" />
+                                <th className="py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice Date</th>
+                                <th className="py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right whitespace-nowrap">Amount</th>
+                                <th className="py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Due Date</th>
+                                <th className="py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice #</th>
+                                <th className="py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Store</th>
+                                <th className="w-8 py-2 pr-4" />
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {group.invoices
+                                .slice()
+                                .sort((a, b) => {
+                                  const oa = isOverdue(a.dueDate, a.status) ? 0 : 1;
+                                  const ob = isOverdue(b.dueDate, b.status) ? 0 : 1;
+                                  if (oa !== ob) return oa - ob;
+                                  return (a.dueDate ?? "").localeCompare(b.dueDate ?? "");
+                                })
+                                .map(inv => {
+                                  const overdue = isOverdue(inv.dueDate, inv.status);
+                                  const dueSoon = isDueSoon(inv.dueDate, inv.status);
+                                  const isChecked = selected.has(inv.id);
+                                  const store = stores.find(s => s.id === inv.storeId);
+
+                                  return (
+                                    <tr
+                                      key={inv.id}
+                                      className={`border-b border-border/10 last:border-0 transition-colors ${
+                                        isChecked ? "bg-primary/5" : overdue ? "bg-red-50/40 dark:bg-red-950/10" : "hover:bg-muted/20"
+                                      }`}
+                                      data-testid={`row-invoice-${inv.id}`}
+                                    >
+                                      <td className="pl-4 py-2.5 w-10">
+                                        <Checkbox
+                                          checked={isChecked}
+                                          onCheckedChange={() => toggleOne(inv.id)}
+                                          aria-label={`Select invoice ${inv.invoiceNumber}`}
+                                          data-testid={`checkbox-invoice-${inv.id}`}
+                                        />
+                                      </td>
+                                      <td className="py-2.5 px-3 text-muted-foreground whitespace-nowrap">
+                                        {fmt(inv.invoiceDate)}
+                                      </td>
+                                      <td className="py-2.5 px-3 font-semibold tabular-nums text-right whitespace-nowrap">
+                                        {fmtAUD(inv.amount ?? 0)}
+                                      </td>
+                                      <td className="py-2.5 px-3 whitespace-nowrap">
+                                        {inv.dueDate ? (
+                                          <span className={
+                                            overdue
+                                              ? "text-red-600 dark:text-red-400 font-semibold flex items-center gap-1"
+                                              : dueSoon
+                                                ? "text-orange-600 dark:text-orange-400 font-medium flex items-center gap-1"
+                                                : "text-muted-foreground"
+                                          }>
+                                            {overdue && <AlertCircle className="h-3 w-3 shrink-0" />}
+                                            {dueSoon && !overdue && <Clock className="h-3 w-3 shrink-0" />}
+                                            {fmt(inv.dueDate)}
+                                          </span>
+                                        ) : (
+                                          <span className="text-muted-foreground">—</span>
+                                        )}
+                                      </td>
+                                      <td className="py-2.5 px-3 font-mono text-xs text-muted-foreground">
+                                        {inv.invoiceNumber || "—"}
+                                      </td>
+                                      <td className="py-2.5 px-3 text-xs text-muted-foreground whitespace-nowrap">
+                                        {store?.name ?? "—"}
+                                      </td>
+                                      <td className="py-2.5 pr-4 w-8">
+                                        {inv.notes && (
+                                          <button
+                                            type="button"
+                                            title={inv.notes}
+                                            className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                                            data-testid={`button-notes-${inv.id}`}
+                                          >
+                                            <FileText className="h-3.5 w-3.5" />
+                                          </button>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  );
+                })}
+              </Accordion>
+            </div>
+          )
+        ) : (
+          /* ── Paid History: flat sorted list ── */
+          historyInvoices.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
+              <Receipt className="h-10 w-10 opacity-20" />
+              <p className="text-sm font-medium">No paid invoices</p>
+              <p className="text-xs">Paid invoices will appear here.</p>
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border/40 bg-muted/30">
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Supplier</th>
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice Date</th>
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right whitespace-nowrap">Amount</th>
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice #</th>
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Store</th>
+                      <th className="py-2.5 px-4 w-8" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyInvoices.map(inv => {
+                      const store = stores.find(s => s.id === inv.storeId);
+                      return (
+                        <tr
+                          key={inv.id}
+                          className="border-b border-border/10 last:border-0 hover:bg-muted/20 transition-colors"
+                          data-testid={`row-invoice-${inv.id}`}
+                        >
+                          <td className="py-2.5 px-4 font-medium">
+                            {inv.supplier?.name ?? <span className="text-muted-foreground italic">Unknown</span>}
+                          </td>
+                          <td className="py-2.5 px-4 text-muted-foreground whitespace-nowrap">{fmt(inv.invoiceDate)}</td>
+                          <td className="py-2.5 px-4 font-semibold tabular-nums text-right whitespace-nowrap">{fmtAUD(inv.amount ?? 0)}</td>
+                          <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground">{inv.invoiceNumber || "—"}</td>
+                          <td className="py-2.5 px-4 text-xs text-muted-foreground">{store?.name ?? "—"}</td>
+                          <td className="py-2.5 pr-4 w-8">
+                            {inv.notes && (
+                              <button type="button" title={inv.notes} className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-muted-foreground transition-colors" data-testid={`button-notes-${inv.id}`}>
+                                <FileText className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )
+        )}
+      </div>
+
+      {/* ── Sticky Bottom Summary Bar ─────────────────────────────────────── */}
+      {selected.size > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-background/95 backdrop-blur-sm border-t border-border/40 px-6 py-3">
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold" data-testid="text-selected-total">
+                {fmtAUD(selectedTotal)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {selected.size} invoice{selected.size !== 1 ? "s" : ""} selected
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
               <Button
+                variant="outline"
+                size="sm"
+                onClick={clearSelection}
+                data-testid="button-clear-selection"
+              >
+                Clear
+              </Button>
+              <Button
+                size="sm"
                 onClick={() => bulkMarkPaidMutation.mutate(Array.from(selected))}
                 disabled={bulkMarkPaidMutation.isPending}
                 data-testid="button-bulk-mark-paid"
+                className="gap-2"
               >
-                <CheckCircle className="w-4 h-4 mr-2" />
-                {bulkMarkPaidMutation.isPending
-                  ? "Updating..."
-                  : `Mark ${selected.size} as Paid`}
+                {bulkMarkPaidMutation.isPending ? (
+                  <><Loader2 className="h-3.5 w-3.5 animate-spin" />Paying…</>
+                ) : (
+                  <><CheckCircle className="h-3.5 w-3.5" />Pay Selected ({selected.size})</>
+                )}
               </Button>
             </div>
-          )}
+          </div>
         </div>
-
-        {/* ── Invoice Table ───────────────────────────────────────────── */}
-        <Card>
-          <CardContent className="p-0">
-            {isLoading ? (
-              <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">
-                Loading invoices...
-              </div>
-            ) : invoices.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-40 gap-2 text-muted-foreground">
-                <FileText className="w-8 h-8 opacity-30" />
-                <span className="text-sm">No invoices found</span>
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-10 pl-4">
-                      {pendingInvoices.length > 0 && (
-                        <Checkbox
-                          checked={allPendingSelected}
-                          data-state={somePendingSelected && !allPendingSelected ? "indeterminate" : undefined}
-                          onCheckedChange={toggleAll}
-                          aria-label="Select all pending"
-                          data-testid="checkbox-select-all"
-                        />
-                      )}
-                    </TableHead>
-                    <TableHead>Supplier</TableHead>
-                    <TableHead>Invoice #</TableHead>
-                    <TableHead>Store</TableHead>
-                    <TableHead>Issue Date</TableHead>
-                    <TableHead>Due Date</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="w-10" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {invoices.map(inv => {
-                    const isPending = inv.status === "PENDING";
-                    const overdue = isOverdue(inv.dueDate, isPending);
-                    const dueSoon = isDueSoon(inv.dueDate, isPending);
-                    const isChecked = selected.has(inv.id);
-                    const store = stores.find(s => s.id === inv.storeId);
-
-                    return (
-                      <TableRow
-                        key={inv.id}
-                        data-testid={`row-invoice-${inv.id}`}
-                        className={[
-                          overdue ? "bg-red-50/50 dark:bg-red-950/20" : "",
-                          isChecked ? "bg-muted/40" : "",
-                        ].join(" ")}
-                      >
-                        <TableCell className="pl-4">
-                          {isPending && (
-                            <Checkbox
-                              checked={isChecked}
-                              onCheckedChange={() => toggleOne(inv.id)}
-                              aria-label={`Select invoice ${inv.invoiceNumber}`}
-                              data-testid={`checkbox-invoice-${inv.id}`}
-                            />
-                          )}
-                        </TableCell>
-
-                        <TableCell className="font-medium">
-                          {inv.supplier?.name ?? (
-                            <span className="text-muted-foreground italic">Unknown</span>
-                          )}
-                        </TableCell>
-
-                        <TableCell className="font-mono text-sm">
-                          {inv.invoiceNumber || "—"}
-                        </TableCell>
-
-                        <TableCell className="text-sm text-muted-foreground">
-                          {store?.name ?? "—"}
-                        </TableCell>
-
-                        <TableCell className="text-sm text-muted-foreground">
-                          {fmt(inv.invoiceDate)}
-                        </TableCell>
-
-                        <TableCell className="text-sm">
-                          {inv.dueDate ? (
-                            <span className={
-                              overdue
-                                ? "text-red-600 dark:text-red-400 font-medium"
-                                : dueSoon
-                                  ? "text-orange-600 dark:text-orange-400 font-medium"
-                                  : "text-muted-foreground"
-                            }>
-                              {overdue && <AlertCircle className="inline w-3 h-3 mr-1 mb-0.5" />}
-                              {dueSoon && !overdue && <Clock className="inline w-3 h-3 mr-1 mb-0.5" />}
-                              {fmt(inv.dueDate)}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-
-                        <TableCell className="text-right font-medium tabular-nums">
-                          {fmtAUD(inv.amount ?? 0)}
-                        </TableCell>
-
-                        <TableCell>
-                          <span
-                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[inv.status] ?? STATUS_COLORS.PENDING}`}
-                            data-testid={`status-invoice-${inv.id}`}
-                          >
-                            {inv.status}
-                          </span>
-                        </TableCell>
-
-                        <TableCell>
-                          {inv.notes && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              title={inv.notes}
-                              data-testid={`button-notes-${inv.id}`}
-                            >
-                              <FileText className="w-4 h-4" />
-                            </Button>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      )}
     </AdminLayout>
   );
 }
