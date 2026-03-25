@@ -23,6 +23,31 @@ export interface UploadParsedInvoice {
   storeCode: string;
 }
 
+/** Structured supplier details extracted from an invoice by GPT-4o */
+export interface ExtractedSupplierInfo {
+  supplierName: string;
+  supplierAddress: string | null;
+  supplierPhone: string | null;
+  abn: string | null;
+  bsb: string | null;
+  accountNumber: string | null;
+}
+
+/** A single invoice item extracted from an unknown sender's document */
+export interface UnknownSenderInvoiceItem {
+  invoiceNumber: string;
+  issueDate: string;
+  dueDate: string | null;
+  totalAmount: number;
+  storeCode: "SUSHI" | "SANDWICH" | "UNKNOWN";
+}
+
+/** Combined result for unknown-sender parsing: supplier info + all invoice items */
+export interface UnknownSenderParsedResult {
+  supplier: ExtractedSupplierInfo;
+  invoices: UnknownSenderInvoiceItem[];
+}
+
 /**
  * Extract raw text from a PDF buffer using the pdftotext CLI tool.
  * Returns empty string if extraction fails.
@@ -226,6 +251,102 @@ export async function parseUploadedFile(
     };
   } catch (err) {
     console.error("[invoiceParser] parseUploadedFile error:", err);
+    return null;
+  }
+}
+
+const UNKNOWN_SENDER_SYSTEM_PROMPT = `You are an invoice data extraction assistant for an Australian retail/hospitality business.
+An email with a PDF invoice/statement has arrived from an UNKNOWN sender. Extract everything you can.
+
+CRITICAL RULES:
+1. Return ONLY a single JSON object (no arrays at top level, no code fences, no explanation).
+2. Extract the SUPPLIER (the company issuing the invoice) — not the customer/recipient.
+3. For storeCode per invoice, look at the "Bill To" / "Invoice To" / "Deliver To" name:
+   - Contains "olitin" or "sushime" → "SUSHI"
+   - Contains "eatem" or "sandwich" → "SANDWICH"
+   - Otherwise → "UNKNOWN"
+4. Dates must be in YYYY-MM-DD format. Use null if unclear.
+5. Amounts must be numbers (float, no currency symbols).
+6. The document may be a STATEMENT with multiple invoice line items — extract ALL of them.
+7. If a field is not visible or cannot be determined, use null.
+
+Return this exact structure:
+{
+  "supplier": {
+    "supplierName": "string",
+    "supplierAddress": "string or null",
+    "supplierPhone": "string or null",
+    "abn": "string or null (Australian Business Number, digits only or formatted)",
+    "bsb": "string or null (bank BSB, e.g. 062-000)",
+    "accountNumber": "string or null"
+  },
+  "invoices": [
+    {
+      "invoiceNumber": "string",
+      "issueDate": "YYYY-MM-DD or null",
+      "dueDate": "YYYY-MM-DD or null",
+      "totalAmount": number,
+      "storeCode": "SUSHI" | "SANDWICH" | "UNKNOWN"
+    }
+  ]
+}`;
+
+/**
+ * Parse an invoice PDF from an unknown sender.
+ * Extracts comprehensive supplier info AND all invoice line items.
+ * Used in the Auto-Discovery Review Inbox workflow.
+ */
+export async function parseInvoiceFromUnknownSender(
+  pdfText: string
+): Promise<UnknownSenderParsedResult | null> {
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: UNKNOWN_SENDER_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: `Extract all fields from this invoice/statement:\n\n${pdfText.slice(0, 12000)}`,
+        },
+      ],
+      temperature: 0,
+      max_tokens: 1500,
+    });
+
+    const raw = response.choices[0]?.message?.content?.trim() ?? "";
+    const cleaned = raw.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
+    const parsed = JSON.parse(cleaned);
+
+    const supplierRaw = parsed.supplier ?? {};
+    const supplier: ExtractedSupplierInfo = {
+      supplierName: String(supplierRaw.supplierName ?? "Unknown Supplier"),
+      supplierAddress: supplierRaw.supplierAddress ? String(supplierRaw.supplierAddress) : null,
+      supplierPhone: supplierRaw.supplierPhone ? String(supplierRaw.supplierPhone) : null,
+      abn: supplierRaw.abn ? String(supplierRaw.abn) : null,
+      bsb: supplierRaw.bsb ? String(supplierRaw.bsb) : null,
+      accountNumber: supplierRaw.accountNumber ? String(supplierRaw.accountNumber) : null,
+    };
+
+    const invoicesRaw = Array.isArray(parsed.invoices) ? parsed.invoices : [];
+    const invoices: UnknownSenderInvoiceItem[] = invoicesRaw
+      .filter((item: any) => item && (item.invoiceNumber || item.totalAmount))
+      .map((item: any) => ({
+        invoiceNumber: String(item.invoiceNumber ?? ""),
+        issueDate: item.issueDate ? String(item.issueDate) : new Date().toISOString().split("T")[0],
+        dueDate: item.dueDate ? String(item.dueDate) : null,
+        totalAmount: Number(item.totalAmount ?? 0),
+        storeCode: (["SUSHI", "SANDWICH", "UNKNOWN"].includes(item.storeCode)
+          ? item.storeCode
+          : "UNKNOWN") as UnknownSenderInvoiceItem["storeCode"],
+      }));
+
+    if (invoices.length === 0) {
+      console.warn("[invoiceParser] parseInvoiceFromUnknownSender: no invoice items extracted");
+    }
+
+    return { supplier, invoices };
+  } catch (err) {
+    console.error("[invoiceParser] parseInvoiceFromUnknownSender error:", err);
     return null;
   }
 }

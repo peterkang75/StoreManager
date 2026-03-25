@@ -207,28 +207,29 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - Add / Edit supplier with full AP fields: name, ABN, contact name, contact emails (comma-separated → stored as array), BSB, account number, notes, active toggle.
 - Whitelisted emails drive the webhook routing logic (see §3.10).
 
-### 3.10 Invoice Inbound Pipeline (Webhook / Cloudmailin)
+### 3.10 Invoice Inbound Pipeline (Webhook / Cloudmailin) + Auto-Discovery
 - **Email flow**: Supplier sends invoice PDF to a dedicated email address → Gmail forwards to Cloudmailin → Cloudmailin POSTs multipart payload to `POST /api/webhooks/inbound-invoices`.
 - **Sender extraction**: from `req.body.headers.from` only (`envelope.from` is skipped as it contains Gmail forwarding artifacts).
-- **Routing logic**:
-  1. Extract sender email from `From` header.
-  2. Check against all `suppliers.contactEmails` arrays in DB.
-  3. **Whitelisted**: proceed to PDF extraction + AI parsing.
-  4. **Unknown sender**: save to `quarantined_emails` for manager review.
-  5. **No attachment**: silently ignored.
-- **PDF extraction**: attachment decoded from base64 (`content` field), written to `/tmp`, `pdftotext` CLI extracts text, temp file deleted.
+- **Routing logic** (checked in this order):
+  1. Check `emailRoutingRules` table for the sender email.
+  2. If rule = **IGNORE** → discard silently (no DB record).
+  3. If rule = **ALLOW** → treat as known supplier, proceed to PDF extraction + AI parsing → `status: PENDING`.
+  4. Check `suppliers.contactEmails` whitelist:
+     - **Matched**: proceed to PDF extraction + AI parsing → `status: PENDING`.
+  5. **Unknown sender with attachment** → Auto-Discovery flow:
+     - Extract PDF text.
+     - Call `parseInvoiceFromUnknownSender()` (GPT-4o) to get `UnknownSenderParsedResult`.
+     - Insert record(s) with `status: "REVIEW"` + `rawExtractedData` JSON blob (contains extracted supplier info, invoice items).
+  6. **Unknown sender, no attachment** → silently ignored.
+  7. **Unreadable PDF** → quarantined to `quarantinedEmails` table.
+- **PDF extraction**: attachment decoded from base64 (`content` field), `pdftotext` CLI extracts text.
 - **AI parsing** (`server/invoiceParser.ts`):
-  - System prompt instructs GPT-4o to return a **JSON array** of `ParsedInvoice` objects.
-  - Each object: `{ invoiceNumber, invoiceDate, dueDate, amount, notes, storeCode }`.
-  - `storeCode`: `"SUSHI"` (Olitin/Sushime), `"SANDWICH"` (Eatem Pty Ltd/Eatem Sandwich), or `"UNKNOWN"`.
-  - Handles both **single invoices** and **statements** listing multiple invoices.
-  - `max_tokens: 1000` to accommodate multiple invoice responses.
-- **Webhook loop**: for each parsed invoice:
-  - Resolve `storeCode` → actual `storeId` via store name matching.
-  - Duplicate check: skip if `(supplierId, invoiceNumber)` already exists.
-  - Insert new `supplierInvoice` record with `status: "PENDING"`.
-- **Response**: `{ created: N, skipped: N }`.
-- **Quarantine review**: `GET /api/webhooks/quarantined-emails` returns all quarantined emails for admin inspection.
+  - `parseInvoiceWithAI(text, supplierName)` — known supplier: returns `ParsedInvoice[]` (invoiceNumber, issueDate, dueDate, totalAmount, storeCode).
+  - `parseInvoiceFromUnknownSender(text)` — unknown sender: returns `UnknownSenderParsedResult` (supplier name/email/ABN/address + invoice array).
+- **Duplicate check**: skip if `(supplierId, invoiceNumber)` already exists (NULL supplierId treated as distinct by PostgreSQL).
+- **Email Routing Rules** (`emailRoutingRules` table): manager-controlled ALLOW/IGNORE per sender email with optional `supplierName` label.
+- **CRUD endpoints**: `GET/PUT/DELETE /api/email-routing-rules/:email`; `GET /api/invoices/review`.
+- **Quarantine**: `GET /api/webhooks/quarantined-emails` for PDFs that couldn't be read.
 
 ### 3.11 Employee Portal (Mobile)
 - **Login**: `/mobile/portal` — employee selects store, finds their name, enters PIN.

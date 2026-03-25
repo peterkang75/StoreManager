@@ -17,6 +17,7 @@ import {
   type SupplierInvoice, type InsertSupplierInvoice,
   type SupplierPayment, type InsertSupplierPayment,
   type QuarantinedEmail, type InsertQuarantinedEmail,
+  type EmailRoutingRule, type InsertEmailRoutingRule,
   type FinancialTransaction, type InsertFinancialTransaction,
   type Roster, type InsertRoster,
   type RosterPublication,
@@ -26,7 +27,7 @@ import {
   stores, candidates, employees, employeeStoreAssignments, employeeOnboardingTokens, employeeDocuments,
   rosterPeriods, shifts, rosters, rosterPublications, timeLogs, timesheets, payrolls,
   dailyClosings, cashSalesDetails, dailyCloseForms, suppliers, supplierInvoices, supplierPayments,
-  quarantinedEmails,
+  quarantinedEmails, emailRoutingRules,
   financialTransactions, shiftTimesheets, notices, intercompanySettlements,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
@@ -118,6 +119,11 @@ export interface IStorage {
   getQuarantinedEmails(): Promise<QuarantinedEmail[]>;
   createQuarantinedEmail(email: InsertQuarantinedEmail): Promise<QuarantinedEmail>;
 
+  getEmailRoutingRules(): Promise<EmailRoutingRule[]>;
+  getEmailRoutingRule(email: string): Promise<EmailRoutingRule | undefined>;
+  upsertEmailRoutingRule(data: InsertEmailRoutingRule): Promise<EmailRoutingRule>;
+  deleteEmailRoutingRule(email: string): Promise<boolean>;
+
   getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]>;
   getNotice(id: string): Promise<Notice | undefined>;
   createNotice(data: InsertNotice): Promise<Notice>;
@@ -175,6 +181,7 @@ export class MemStorage implements IStorage {
   private supplierInvoices: Map<string, SupplierInvoice>;
   private supplierPayments: Map<string, SupplierPayment>;
   private quarantinedEmails: Map<string, QuarantinedEmail>;
+  private emailRoutingRulesMap: Map<string, EmailRoutingRule>;
   private noticesMap: Map<string, Notice>;
   private employeeStoreAssignments: Map<string, EmployeeStoreAssignment>;
   private financialTransactions: Map<string, FinancialTransaction>;
@@ -198,6 +205,7 @@ export class MemStorage implements IStorage {
     this.supplierInvoices = new Map();
     this.supplierPayments = new Map();
     this.quarantinedEmails = new Map();
+    this.emailRoutingRulesMap = new Map();
     this.noticesMap = new Map();
     this.financialTransactions = new Map();
     this.rostersMap = new Map();
@@ -927,6 +935,32 @@ export class MemStorage implements IStorage {
     return email;
   }
 
+  async getEmailRoutingRules(): Promise<EmailRoutingRule[]> {
+    return Array.from(this.emailRoutingRulesMap.values())
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async getEmailRoutingRule(email: string): Promise<EmailRoutingRule | undefined> {
+    return this.emailRoutingRulesMap.get(email.toLowerCase());
+  }
+
+  async upsertEmailRoutingRule(data: InsertEmailRoutingRule): Promise<EmailRoutingRule> {
+    const normalizedEmail = data.email.toLowerCase();
+    const existing = this.emailRoutingRulesMap.get(normalizedEmail);
+    const rule: EmailRoutingRule = {
+      email: normalizedEmail,
+      action: data.action,
+      supplierName: data.supplierName ?? null,
+      createdAt: existing?.createdAt ?? new Date(),
+    };
+    this.emailRoutingRulesMap.set(normalizedEmail, rule);
+    return rule;
+  }
+
+  async deleteEmailRoutingRule(email: string): Promise<boolean> {
+    return this.emailRoutingRulesMap.delete(email.toLowerCase());
+  }
+
   async getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]> {
     let list = Array.from(this.noticesMap.values());
     if (filters?.activeOnly) list = list.filter(n => n.isActive);
@@ -1609,6 +1643,34 @@ export class DatabaseStorage implements IStorage {
   async createQuarantinedEmail(data: InsertQuarantinedEmail): Promise<QuarantinedEmail> {
     const [q] = await db.insert(quarantinedEmails).values(data).returning();
     return q;
+  }
+
+  async getEmailRoutingRules(): Promise<EmailRoutingRule[]> {
+    return db.select().from(emailRoutingRules).orderBy(desc(emailRoutingRules.createdAt));
+  }
+
+  async getEmailRoutingRule(email: string): Promise<EmailRoutingRule | undefined> {
+    const [rule] = await db.select().from(emailRoutingRules)
+      .where(eq(emailRoutingRules.email, email.toLowerCase()));
+    return rule;
+  }
+
+  async upsertEmailRoutingRule(data: InsertEmailRoutingRule): Promise<EmailRoutingRule> {
+    const normalizedData = { ...data, email: data.email.toLowerCase() };
+    const [rule] = await db.insert(emailRoutingRules)
+      .values(normalizedData)
+      .onConflictDoUpdate({
+        target: emailRoutingRules.email,
+        set: { action: normalizedData.action, supplierName: normalizedData.supplierName ?? null },
+      })
+      .returning();
+    return rule;
+  }
+
+  async deleteEmailRoutingRule(email: string): Promise<boolean> {
+    const result = await db.delete(emailRoutingRules)
+      .where(eq(emailRoutingRules.email, email.toLowerCase()));
+    return (result.rowCount ?? 0) > 0;
   }
 
   async getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]> {

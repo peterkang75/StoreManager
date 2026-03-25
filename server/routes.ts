@@ -3,7 +3,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage, generateSecureToken } from "./storage";
 import { PAYROLL_CYCLE_ANCHOR, getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "../shared/payrollCycle";
-import { extractPdfText, parseInvoiceWithAI, parseUploadedFile } from "./invoiceParser";
+import { extractPdfText, parseInvoiceWithAI, parseUploadedFile, parseInvoiceFromUnknownSender } from "./invoiceParser";
 import { 
   insertStoreSchema, 
   insertCandidateSchema, 
@@ -3949,131 +3949,164 @@ export async function registerRoutes(
       const attachments: any[] = Array.isArray(payload?.attachments) ? payload.attachments : [];
       const hasAttachment = attachments.length > 0;
 
-      // ── 3. Whitelist check ───────────────────────────────────────────────────
-      const matchedSupplier = await storage.findSupplierByEmail(senderEmail);
+      // ── 3a. Check email routing rules (manager-set ALLOW/IGNORE) ─────────────
+      const [routingRule, matchedSupplier] = await Promise.all([
+        storage.getEmailRoutingRule(senderEmail),
+        storage.findSupplierByEmail(senderEmail),
+      ]);
 
-      if (!matchedSupplier) {
-        // Unknown sender
-        if (!hasAttachment) {
-          console.log(`[Webhook/inbound-invoices] Unknown sender, no attachment — ignored: ${senderEmail}`);
-          return res.status(200).json({ received: true, action: "ignored", reason: "no_attachment" });
-        }
-        // Unknown sender WITH attachment → quarantine
-        console.log(`[Webhook/inbound-invoices] Unknown sender with attachment — quarantining: ${senderEmail}`);
-        await storage.createQuarantinedEmail({
-          senderEmail,
-          subject,
-          hasAttachment: true,
-          rawPayload: JSON.stringify(payload),
+      if (routingRule?.action === "IGNORE") {
+        console.log(`[Webhook/inbound-invoices] IGNORE rule matched — discarding: ${senderEmail}`);
+        return res.status(200).json({ received: true, action: "ignored_by_rule", sender: senderEmail });
+      }
+
+      // ── 3b. Determine if this is a known or allowlisted sender ───────────────
+      const isAllowlisted = routingRule?.action === "ALLOW";
+
+      // ── Helper: find + decode first PDF attachment ────────────────────────────
+      async function extractPdfFromAttachments(): Promise<{ text: string } | null> {
+        if (!hasAttachment) return null;
+        const pdfAttachment = attachments.find((a: any) => {
+          const name: string = a.file_name ?? a.filename ?? a.name ?? "";
+          const type: string = a.content_type ?? a.contentType ?? a.mimeType ?? a.type ?? "";
+          return name.toLowerCase().endsWith(".pdf") || type.toLowerCase().includes("pdf");
         });
-        return res.status(200).json({ received: true, action: "quarantined", sender: senderEmail });
+        if (!pdfAttachment) return null;
+        const rawContent = pdfAttachment.content ?? pdfAttachment.data ?? pdfAttachment.body ?? "";
+        let buf: Buffer;
+        if (typeof rawContent === "string") buf = Buffer.from(rawContent, "base64");
+        else if (Buffer.isBuffer(rawContent)) buf = rawContent;
+        else return null;
+        try {
+          const text = extractPdfText(buf);
+          return text.trim() ? { text } : null;
+        } catch { return null; }
       }
 
-      // ── 4. Known supplier: find the first PDF attachment ─────────────────────
-      console.log(`[Webhook/inbound-invoices] Matched supplier: ${matchedSupplier.name} (${senderEmail})`);
-
-      if (!hasAttachment) {
-        console.log(`[Webhook/inbound-invoices] No attachments from known supplier — logged only`);
-        return res.status(200).json({ received: true, action: "matched_no_attachment", supplier: matchedSupplier.name });
-      }
-
-      // Find first PDF attachment
-      // Cloudmailin uses: file_name, content_type, content (base64)
-      const pdfAttachment = attachments.find((a: any) => {
-        const name: string = a.file_name ?? a.filename ?? a.name ?? "";
-        const type: string = a.content_type ?? a.contentType ?? a.mimeType ?? a.type ?? "";
-        return name.toLowerCase().endsWith(".pdf") || type.toLowerCase().includes("pdf");
-      });
-
-      if (!pdfAttachment) {
-        console.log(`[Webhook/inbound-invoices] No PDF found in attachments from ${senderEmail}`);
-        return res.status(200).json({ received: true, action: "matched_no_pdf", supplier: matchedSupplier.name });
-      }
-
-      // ── 5. Decode PDF buffer and extract text ────────────────────────────────
-      let pdfBuffer: Buffer;
-      const rawContent = pdfAttachment.content ?? pdfAttachment.data ?? pdfAttachment.body ?? "";
-
-      if (typeof rawContent === "string") {
-        pdfBuffer = Buffer.from(rawContent, "base64");
-      } else if (Buffer.isBuffer(rawContent)) {
-        pdfBuffer = rawContent;
-      } else {
-        console.warn("[Webhook/inbound-invoices] Cannot decode PDF attachment content");
-        return res.status(200).json({ received: true, action: "error", reason: "unreadable_pdf" });
-      }
-
-      let pdfText: string;
-      try {
-        pdfText = extractPdfText(pdfBuffer);
-        console.log(`[Webhook/inbound-invoices] Extracted ${pdfText.length} chars from PDF`);
-        if (!pdfText.trim()) {
-          console.warn("[Webhook/inbound-invoices] PDF text extraction returned empty result");
-          return res.status(200).json({ received: true, action: "error", reason: "pdf_parse_failed" });
-        }
-      } catch (pdfErr) {
-        console.error("[Webhook/inbound-invoices] PDF extraction failed:", pdfErr);
-        return res.status(200).json({ received: true, action: "error", reason: "pdf_parse_failed" });
-      }
-
-      // ── 6. AI extraction (returns array for statements) ──────────────────────
-      const parsedItems = await parseInvoiceWithAI(pdfText, matchedSupplier.name);
-
-      if (!parsedItems || parsedItems.length === 0) {
-        console.warn(`[Webhook/inbound-invoices] AI could not extract invoice data for ${matchedSupplier.name}`);
-        return res.status(200).json({ received: true, action: "ai_parse_failed", supplier: matchedSupplier.name });
-      }
-
-      console.log(`[Webhook/inbound-invoices] AI extracted ${parsedItems.length} invoice(s) for ${matchedSupplier.name}`);
-
-      // ── 7. Load stores for storeCode → storeId mapping ───────────────────────
+      // ── Helper: resolve storeCode → storeId ──────────────────────────────────
       const allStores = await storage.getStores();
       const sushiStore = allStores.find(s => s.name.toLowerCase().includes("sushi"));
       const sandwichStore = allStores.find(s => s.name.toLowerCase().includes("sandwich"));
-
       function resolveStoreId(code: string): string | null {
         if (code === "SUSHI" && sushiStore) return sushiStore.id;
         if (code === "SANDWICH" && sandwichStore) return sandwichStore.id;
         return null;
       }
 
-      // ── 8. Duplicate check + create one record per invoice ───────────────────
-      const existing = await storage.getSupplierInvoices({ supplierId: matchedSupplier.id });
-      const existingNumbers = new Set(existing.map(inv => inv.invoiceNumber));
+      // ── 4. KNOWN SUPPLIER or explicit ALLOW rule ──────────────────────────────
+      if (matchedSupplier || isAllowlisted) {
+        const supplierLabel = matchedSupplier?.name ?? routingRule?.supplierName ?? senderEmail;
+        console.log(`[Webhook/inbound-invoices] Known/allowlisted sender: ${supplierLabel} (${senderEmail})`);
 
-      const created: string[] = [];
-      const skipped: string[] = [];
-
-      for (const parsed of parsedItems) {
-        if (!parsed.invoiceNumber && !parsed.issueDate && !parsed.totalAmount) continue;
-
-        if (parsed.invoiceNumber && existingNumbers.has(parsed.invoiceNumber)) {
-          console.log(`[Webhook/inbound-invoices] Duplicate skipped: ${parsed.invoiceNumber}`);
-          skipped.push(parsed.invoiceNumber);
-          continue;
+        if (!hasAttachment) {
+          return res.status(200).json({ received: true, action: "matched_no_attachment", supplier: supplierLabel });
         }
 
-        const newInvoice = await storage.createSupplierInvoice({
-          supplierId: matchedSupplier.id,
-          storeId: resolveStoreId(parsed.storeCode),
-          invoiceNumber: parsed.invoiceNumber,
-          invoiceDate: parsed.issueDate,
-          dueDate: parsed.dueDate ?? undefined,
-          amount: parsed.totalAmount,
-          status: "PENDING",
-          notes: `Auto-imported via email from ${senderEmail}. Subject: ${subject}`,
-        });
+        const pdfResult = await extractPdfFromAttachments();
+        if (!pdfResult) {
+          console.log(`[Webhook/inbound-invoices] No readable PDF from ${senderEmail}`);
+          return res.status(200).json({ received: true, action: "matched_no_pdf", supplier: supplierLabel });
+        }
 
-        console.log(`[Webhook/inbound-invoices] Created invoice ${newInvoice.id} (#${parsed.invoiceNumber}) store=${parsed.storeCode}`);
-        created.push(newInvoice.id);
+        console.log(`[Webhook/inbound-invoices] Extracted ${pdfResult.text.length} chars from PDF`);
+
+        const parsedItems = await parseInvoiceWithAI(pdfResult.text, supplierLabel);
+        if (!parsedItems || parsedItems.length === 0) {
+          console.warn(`[Webhook/inbound-invoices] AI parse failed for ${supplierLabel}`);
+          return res.status(200).json({ received: true, action: "ai_parse_failed", supplier: supplierLabel });
+        }
+
+        console.log(`[Webhook/inbound-invoices] AI extracted ${parsedItems.length} invoice(s) for ${supplierLabel}`);
+
+        const existing = matchedSupplier
+          ? await storage.getSupplierInvoices({ supplierId: matchedSupplier.id })
+          : [];
+        const existingNumbers = new Set(existing.map(inv => inv.invoiceNumber));
+        const created: string[] = [];
+        const skipped: string[] = [];
+
+        for (const parsed of parsedItems) {
+          if (!parsed.invoiceNumber && !parsed.issueDate && !parsed.totalAmount) continue;
+          if (parsed.invoiceNumber && existingNumbers.has(parsed.invoiceNumber)) {
+            skipped.push(parsed.invoiceNumber);
+            continue;
+          }
+          const newInv = await storage.createSupplierInvoice({
+            supplierId: matchedSupplier?.id ?? undefined,
+            storeId: resolveStoreId(parsed.storeCode),
+            invoiceNumber: parsed.invoiceNumber,
+            invoiceDate: parsed.issueDate,
+            dueDate: parsed.dueDate ?? undefined,
+            amount: parsed.totalAmount,
+            status: "PENDING",
+            notes: `Auto-imported via email from ${senderEmail}. Subject: ${subject}`,
+          });
+          console.log(`[Webhook/inbound-invoices] Created PENDING invoice ${newInv.id} (#${parsed.invoiceNumber})`);
+          created.push(newInv.id);
+        }
+
+        return res.status(200).json({
+          received: true, action: "invoices_created",
+          created: created.length, skipped: skipped.length, supplier: supplierLabel,
+        });
+      }
+
+      // ── 5. UNKNOWN SENDER — Auto-Discovery Review flow ────────────────────────
+      if (!hasAttachment) {
+        console.log(`[Webhook/inbound-invoices] Unknown sender, no attachment — ignored: ${senderEmail}`);
+        return res.status(200).json({ received: true, action: "ignored", reason: "no_attachment" });
+      }
+
+      console.log(`[Webhook/inbound-invoices] Unknown sender with attachment — Auto-Discovery parse: ${senderEmail}`);
+
+      const pdfResult = await extractPdfFromAttachments();
+      if (!pdfResult) {
+        console.log(`[Webhook/inbound-invoices] No readable PDF from unknown sender ${senderEmail}`);
+        await storage.createQuarantinedEmail({ senderEmail, subject, hasAttachment: true, rawPayload: JSON.stringify(payload) });
+        return res.status(200).json({ received: true, action: "quarantined_no_pdf", sender: senderEmail });
+      }
+
+      const unknownParsed = await parseInvoiceFromUnknownSender(pdfResult.text);
+      if (!unknownParsed || unknownParsed.invoices.length === 0) {
+        console.warn(`[Webhook/inbound-invoices] AI parse returned nothing for unknown sender ${senderEmail}`);
+        await storage.createQuarantinedEmail({ senderEmail, subject, hasAttachment: true, rawPayload: JSON.stringify(payload) });
+        return res.status(200).json({ received: true, action: "quarantined_parse_failed", sender: senderEmail });
+      }
+
+      console.log(`[Webhook/inbound-invoices] AI extracted ${unknownParsed.invoices.length} invoice(s) from unknown sender ${senderEmail}. Supplier: ${unknownParsed.supplier.supplierName}`);
+
+      const reviewCreated: string[] = [];
+      for (const item of unknownParsed.invoices) {
+        if (!item.invoiceNumber && !item.totalAmount) continue;
+        const rawExtractedData = {
+          senderEmail,
+          subject,
+          supplier: unknownParsed.supplier,
+          invoiceNumber: item.invoiceNumber,
+          issueDate: item.issueDate,
+          dueDate: item.dueDate,
+          totalAmount: item.totalAmount,
+          storeCode: item.storeCode,
+        };
+        const reviewInv = await storage.createSupplierInvoice({
+          supplierId: undefined,
+          storeId: resolveStoreId(item.storeCode),
+          invoiceNumber: item.invoiceNumber || `REVIEW-${Date.now()}`,
+          invoiceDate: item.issueDate,
+          dueDate: item.dueDate ?? undefined,
+          amount: item.totalAmount,
+          status: "REVIEW",
+          notes: `Pending review. Unknown sender: ${senderEmail}. Subject: ${subject}`,
+          rawExtractedData,
+        });
+        console.log(`[Webhook/inbound-invoices] Created REVIEW invoice ${reviewInv.id} from ${senderEmail}`);
+        reviewCreated.push(reviewInv.id);
       }
 
       return res.status(200).json({
-        received: true,
-        action: "invoices_created",
-        created: created.length,
-        skipped: skipped.length,
-        supplier: matchedSupplier.name,
+        received: true, action: "review_created",
+        created: reviewCreated.length, sender: senderEmail,
+        supplierName: unknownParsed.supplier.supplierName,
       });
 
     } catch (err) {
@@ -4139,6 +4172,55 @@ export async function registerRoutes(
     } catch (err) {
       console.error("Error fetching quarantined emails:", err);
       res.status(500).json({ error: "Failed to fetch quarantined emails" });
+    }
+  });
+
+  // ── Email Routing Rules ──────────────────────────────────────────────────────
+  app.get("/api/email-routing-rules", async (_req: Request, res: Response) => {
+    try {
+      const rules = await storage.getEmailRoutingRules();
+      res.json(rules);
+    } catch (err) {
+      console.error("Error fetching email routing rules:", err);
+      res.status(500).json({ error: "Failed to fetch email routing rules" });
+    }
+  });
+
+  app.put("/api/email-routing-rules/:email", async (req: Request, res: Response) => {
+    try {
+      const email = decodeURIComponent(req.params.email).toLowerCase();
+      const { action, supplierName } = req.body;
+      if (!["ALLOW", "IGNORE"].includes(action)) {
+        return res.status(400).json({ error: "action must be 'ALLOW' or 'IGNORE'" });
+      }
+      const rule = await storage.upsertEmailRoutingRule({ email, action, supplierName });
+      res.json(rule);
+    } catch (err) {
+      console.error("Error upserting email routing rule:", err);
+      res.status(500).json({ error: "Failed to save email routing rule" });
+    }
+  });
+
+  app.delete("/api/email-routing-rules/:email", async (req: Request, res: Response) => {
+    try {
+      const email = decodeURIComponent(req.params.email).toLowerCase();
+      const deleted = await storage.deleteEmailRoutingRule(email);
+      if (!deleted) return res.status(404).json({ error: "Rule not found" });
+      res.json({ deleted: true });
+    } catch (err) {
+      console.error("Error deleting email routing rule:", err);
+      res.status(500).json({ error: "Failed to delete email routing rule" });
+    }
+  });
+
+  // ── REVIEW invoices (from auto-discovery inbox) ──────────────────────────────
+  app.get("/api/invoices/review", async (_req: Request, res: Response) => {
+    try {
+      const reviewInvoices = await storage.getSupplierInvoices({ status: "REVIEW" });
+      res.json(reviewInvoices);
+    } catch (err) {
+      console.error("Error fetching review invoices:", err);
+      res.status(500).json({ error: "Failed to fetch review invoices" });
     }
   });
 

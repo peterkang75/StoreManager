@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, date, integer, timestamp, real, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, date, integer, timestamp, real, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -443,18 +443,21 @@ export type Supplier = typeof suppliers.$inferSelect;
 
 export const supplierInvoices = pgTable("supplier_invoices", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  supplierId: varchar("supplier_id").references(() => suppliers.id).notNull(),
+  supplierId: varchar("supplier_id").references(() => suppliers.id),  // nullable: REVIEW invoices from unknown senders have no supplierId yet
   storeId: varchar("store_id").references(() => stores.id),
   invoiceNumber: text("invoice_number").notNull(),
   invoiceDate: text("invoice_date").notNull(),
   dueDate: text("due_date"),
   amount: real("amount").default(0).notNull(),
-  status: text("status").default("PENDING").notNull(), // PENDING | PAID | OVERDUE | QUARANTINE
+  status: text("status").default("PENDING").notNull(), // PENDING | PAID | OVERDUE | QUARANTINE | REVIEW
   pdfUrl: text("pdf_url"),
   notes: text("notes"),
+  // Stores extracted supplier + invoice data for REVIEW-state invoices (unknown senders)
+  rawExtractedData: jsonb("raw_extracted_data"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
+  // NULL supplierId values don't conflict in unique indexes (PostgreSQL treats NULLs as distinct)
   supplierInvoiceUniq: uniqueIndex("supplier_invoice_supplier_number_uniq").on(table.supplierId, table.invoiceNumber),
 }));
 
@@ -503,6 +506,21 @@ export const insertQuarantinedEmailSchema = createInsertSchema(quarantinedEmails
 
 export type InsertQuarantinedEmail = z.infer<typeof insertQuarantinedEmailSchema>;
 export type QuarantinedEmail = typeof quarantinedEmails.$inferSelect;
+
+// Email routing rules — manager-set ALLOW/IGNORE decisions for inbound invoice senders
+export const emailRoutingRules = pgTable("email_routing_rules", {
+  email: text("email").primaryKey(), // normalized lowercase sender email
+  action: text("action").notNull(), // 'ALLOW' | 'IGNORE'
+  supplierName: text("supplier_name"), // optional: display name from the email header
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertEmailRoutingRuleSchema = createInsertSchema(emailRoutingRules).omit({
+  createdAt: true,
+});
+
+export type InsertEmailRoutingRule = z.infer<typeof insertEmailRoutingRuleSchema>;
+export type EmailRoutingRule = typeof emailRoutingRules.$inferSelect;
 
 export const financialTransactions = pgTable("financial_transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
