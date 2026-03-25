@@ -4183,6 +4183,58 @@ export async function registerRoutes(
 
       console.log(`[Webhook/inbound-invoices] AI extracted ${unknownParsed.invoices.length} invoice(s) from unknown sender ${senderEmail}. Supplier: ${unknownParsed.supplier.supplierName}`);
 
+      // ── 5b. Supplier Name Smart-Match ─────────────────────────────────────────
+      // Even though the email sender is masked (CEO forwarding), the invoice PDF
+      // often contains the real supplier name. Match it against the suppliers table.
+      const nameMatchedSupplier = unknownParsed.supplier.supplierName
+        ? await storage.findSupplierByName(unknownParsed.supplier.supplierName)
+        : undefined;
+
+      if (nameMatchedSupplier) {
+        console.log(`[Webhook/inbound-invoices] Supplier name matched: "${nameMatchedSupplier.name}" (${nameMatchedSupplier.id}) — routing directly to PENDING`);
+        const existing = await storage.getSupplierInvoices({ supplierId: nameMatchedSupplier.id });
+        const existingNumbers = new Set(existing.map(inv => inv.invoiceNumber));
+        const created: string[] = [];
+        const skipped: string[] = [];
+        const isAutoPayMatch = nameMatchedSupplier.isAutoPay ?? false;
+
+        for (const item of unknownParsed.invoices) {
+          if (!item.invoiceNumber && !item.totalAmount) continue;
+          if (item.invoiceNumber && existingNumbers.has(item.invoiceNumber)) {
+            skipped.push(item.invoiceNumber);
+            continue;
+          }
+          const invStatus = isAutoPayMatch ? "PAID" : "PENDING";
+          const newInv = await storage.createSupplierInvoice({
+            supplierId: nameMatchedSupplier.id,
+            storeId: resolveStoreId(item.storeCode),
+            invoiceNumber: item.invoiceNumber,
+            invoiceDate: item.issueDate,
+            dueDate: item.dueDate ?? undefined,
+            amount: item.totalAmount,
+            status: invStatus,
+            notes: `Auto-matched by supplier name "${nameMatchedSupplier.name}". Email forwarded via ${senderEmail}. Subject: ${subject}`,
+          });
+          if (isAutoPayMatch) {
+            const today = new Date().toISOString().split("T")[0];
+            await storage.createSupplierPayment({
+              supplierId: nameMatchedSupplier.id,
+              invoiceId: newInv.id,
+              paymentDate: item.issueDate ?? today,
+              amount: item.totalAmount ?? 0,
+              method: "AUTO_DEBIT",
+              notes: `Automatic direct debit — name-matched supplier "${nameMatchedSupplier.name}"`,
+            });
+          }
+          created.push(newInv.id);
+        }
+        return res.status(200).json({
+          received: true, action: "name_matched_invoices_created",
+          created: created.length, skipped: skipped.length,
+          supplier: nameMatchedSupplier.name,
+        });
+      }
+
       const reviewCreated: string[] = [];
       for (const item of unknownParsed.invoices) {
         if (!item.invoiceNumber && !item.totalAmount) continue;
@@ -4509,6 +4561,56 @@ export async function registerRoutes(
     } catch (err) {
       console.error("Error fetching review invoices:", err);
       res.status(500).json({ error: "Failed to fetch review invoices" });
+    }
+  });
+
+  // ── Approve supplier group — creates supplier + sweeps ALL matching REVIEW invoices ──
+  app.post("/api/invoices/review/approve-group", async (req: Request, res: Response) => {
+    try {
+      const { supplierData, senderEmail, supplierName } = req.body as {
+        supplierData: {
+          name: string; abn?: string; contactName?: string; contactEmails?: string[];
+          bsb?: string; accountNumber?: string; address?: string; notes?: string; isAutoPay?: boolean;
+        };
+        senderEmail?: string;
+        supplierName: string;
+      };
+
+      if (!supplierData?.name || !supplierName) {
+        return res.status(400).json({ error: "supplierData.name and supplierName are required" });
+      }
+
+      // 1. Create supplier
+      const supplier = await storage.createSupplier({
+        name: supplierData.name,
+        abn: supplierData.abn || null,
+        contactName: supplierData.contactName || null,
+        contactEmails: supplierData.contactEmails && supplierData.contactEmails.length > 0 ? supplierData.contactEmails : null,
+        bsb: supplierData.bsb || null,
+        accountNumber: supplierData.accountNumber || null,
+        address: supplierData.address || null,
+        notes: supplierData.notes || null,
+        active: true,
+        isAutoPay: supplierData.isAutoPay ?? false,
+      });
+
+      // 2. Set ALLOW routing rule for the sender email (if we have a non-forwarded address)
+      if (senderEmail) {
+        await storage.upsertEmailRoutingRule({
+          email: senderEmail,
+          action: "ALLOW",
+          supplierName: supplierData.name,
+        });
+      }
+
+      // 3. Sweep: update ALL REVIEW invoices whose rawExtractedData.supplier.supplierName matches
+      const sweptCount = await storage.sweepReviewInvoicesBySupplierName(supplierName, supplier.id);
+
+      console.log(`[Review/approve-group] Supplier "${supplier.name}" created (${supplier.id}). Swept ${sweptCount} REVIEW invoice(s) → PENDING.`);
+      res.json({ supplier, sweptCount });
+    } catch (err: any) {
+      console.error("Error approving supplier group:", err);
+      res.status(500).json({ error: err?.message ?? "Failed to approve supplier group" });
     }
   });
 

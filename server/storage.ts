@@ -35,7 +35,7 @@ import {
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import { db } from "./db";
-import { eq, desc, and, gte, lte, or, ilike, isNull, asc } from "drizzle-orm";
+import { eq, desc, and, gte, lte, or, ilike, isNull, asc, sql } from "drizzle-orm";
 
 export interface IStorage {
   getStores(): Promise<Store[]>;
@@ -120,6 +120,8 @@ export interface IStorage {
   deleteSupplierPaymentsByInvoiceId(invoiceId: string): Promise<void>;
 
   findSupplierByEmail(email: string): Promise<Supplier | undefined>;
+  findSupplierByName(name: string): Promise<Supplier | undefined>;
+  sweepReviewInvoicesBySupplierName(supplierName: string, supplierId: string): Promise<number>;
   getQuarantinedEmails(): Promise<QuarantinedEmail[]>;
   createQuarantinedEmail(email: InsertQuarantinedEmail): Promise<QuarantinedEmail>;
 
@@ -937,6 +939,29 @@ export class MemStorage implements IStorage {
     );
   }
 
+  async findSupplierByName(name: string): Promise<Supplier | undefined> {
+    const lower = name.toLowerCase();
+    return Array.from(this.suppliers.values()).find(s =>
+      s.name.toLowerCase() === lower
+    );
+  }
+
+  async sweepReviewInvoicesBySupplierName(supplierName: string, supplierId: string): Promise<number> {
+    const lower = supplierName.toLowerCase();
+    let count = 0;
+    for (const [id, inv] of this.supplierInvoices.entries()) {
+      if (inv.status === "REVIEW") {
+        const raw = inv.rawExtractedData as any;
+        const invName: string = raw?.supplier?.supplierName ?? "";
+        if (invName.toLowerCase() === lower) {
+          this.supplierInvoices.set(id, { ...inv, supplierId, status: "PENDING" });
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
   async getQuarantinedEmails(): Promise<QuarantinedEmail[]> {
     return Array.from(this.quarantinedEmails.values())
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -1691,9 +1716,24 @@ export class DatabaseStorage implements IStorage {
   }
 
   async findSupplierByEmail(email: string): Promise<Supplier | undefined> {
-    // contactEmails is a text array — check if the sender email is in any supplier's list
     const all = await db.select().from(suppliers).where(eq(suppliers.active, true));
     return all.find(s => s.contactEmails && s.contactEmails.includes(email));
+  }
+
+  async findSupplierByName(name: string): Promise<Supplier | undefined> {
+    const [supplier] = await db.select().from(suppliers)
+      .where(and(eq(suppliers.active, true), ilike(suppliers.name, name)));
+    return supplier;
+  }
+
+  async sweepReviewInvoicesBySupplierName(supplierName: string, supplierId: string): Promise<number> {
+    const result = await db.execute(sql`
+      UPDATE supplier_invoices
+      SET supplier_id = ${supplierId}, status = 'PENDING'
+      WHERE status = 'REVIEW'
+        AND raw_extracted_data->'supplier'->>'supplierName' ILIKE ${supplierName}
+    `);
+    return (result as any).rowCount ?? 0;
   }
 
   async getQuarantinedEmails(): Promise<QuarantinedEmail[]> {

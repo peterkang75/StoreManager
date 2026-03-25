@@ -232,7 +232,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Quarantine**: `GET /api/webhooks/quarantined-emails` for PDFs that couldn't be read.
 - **Frontend — AP page 4-tab layout** (`client/src/pages/admin/AccountsPayable.tsx`):
   - **To Pay** — existing supplier accordion + bulk pay (unchanged).
-  - **Review Inbox** — cards for each REVIEW-status invoice, showing AI-extracted supplier info (name, email, ABN, BSB, account, address, invoice #, amount, date). Two actions per card: **Ignore Sender** (sets IGNORE rule + marks invoice QUARANTINE) and **Approve & Add Supplier** (opens pre-filled modal → creates supplier, sets ALLOW rule, updates invoice to PENDING).
+  - **Review Inbox (Supplier-Centric)** — invoices grouped by AI-extracted `supplierName`. One card per unique supplier name showing invoice count + total amount + individual invoice list. **Webhook smart-match**: after AI extracts supplier name, ILIKE match against `suppliers` table; if found → create as PENDING/PAID directly (skip REVIEW). **Backend sweep**: `POST /api/invoices/review/approve-group` creates supplier + runs `sweepReviewInvoicesBySupplierName` to UPDATE all matching REVIEW invoices to PENDING in one call. **Ignore Supplier** quarantines ALL invoices in the group. **Approve & Add Supplier** opens pre-filled modal + approves all group invoices at once.
   - **Paid History** — existing flat paid invoice list (unchanged).
   - **Email Rules** — data table (Email, Supplier Name, ALLOW/IGNORE badge, Created date, Delete button). Delete removes rule so sender is treated as unknown again.
   - Store filter row + summary cards only shown on To Pay and Paid History tabs.

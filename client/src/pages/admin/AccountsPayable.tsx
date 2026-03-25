@@ -142,10 +142,10 @@ function groupBySupplier(invoices: EnrichedInvoice[]): SupplierGroup[] {
   return Array.from(map.values()).sort((a, b) => b.totalAmount - a.totalAmount);
 }
 
-// ── Approve Supplier Modal ───────────────────────────────────────────────────
+// ── Approve Supplier Modal (Group-based) ─────────────────────────────────────
 
 interface ApproveSupplierModalProps {
-  invoice: SupplierInvoice | null;
+  invoices: SupplierInvoice[];  // All invoices in the review group
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -161,9 +161,11 @@ interface SupplierFormValues {
   notes: string;
 }
 
-function ApproveSupplierModal({ invoice, onClose, onSuccess }: ApproveSupplierModalProps) {
+function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierModalProps) {
   const { toast } = useToast();
-  const raw = invoice?.rawExtractedData as ReviewRawData | null;
+  // Use the first invoice's raw data for form pre-fill
+  const firstInvoice = invoices[0] ?? null;
+  const raw = firstInvoice?.rawExtractedData as ReviewRawData | null;
   const [isAutoPay, setIsAutoPay] = useState(false);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<SupplierFormValues>({
@@ -180,8 +182,8 @@ function ApproveSupplierModal({ invoice, onClose, onSuccess }: ApproveSupplierMo
   });
 
   useEffect(() => {
-    if (invoice) {
-      const r = invoice.rawExtractedData as ReviewRawData | null;
+    if (firstInvoice) {
+      const r = firstInvoice.rawExtractedData as ReviewRawData | null;
       reset({
         name: r?.supplier?.supplierName ?? "",
         abn: r?.supplier?.abn ?? "",
@@ -194,50 +196,40 @@ function ApproveSupplierModal({ invoice, onClose, onSuccess }: ApproveSupplierMo
       });
       setIsAutoPay(false);
     }
-  }, [invoice, reset]);
+  }, [firstInvoice?.id, reset]);
 
   const approveMutation = useMutation({
     mutationFn: async (data: SupplierFormValues) => {
-      if (!invoice) throw new Error("No invoice");
-      const r = invoice.rawExtractedData as ReviewRawData | null;
+      if (!firstInvoice) throw new Error("No invoices in group");
+      const r = firstInvoice.rawExtractedData as ReviewRawData | null;
       const senderEmail = r?.senderEmail ?? "";
+      const supplierName = r?.supplier?.supplierName ?? data.name;
 
       const emailsArray = data.contactEmails
         .split(",")
         .map(e => e.trim())
         .filter(Boolean);
 
-      // 1. Create supplier
-      const supplier = await apiRequest("POST", "/api/suppliers", {
-        name: data.name,
-        abn: data.abn || null,
-        contactName: data.contactName || null,
-        contactEmails: emailsArray.length > 0 ? emailsArray : null,
-        bsb: data.bsb || null,
-        accountNumber: data.accountNumber || null,
-        address: data.address || null,
-        notes: data.notes || null,
-        active: true,
-        isAutoPay,
-      });
-
-      // 2. Add ALLOW routing rule
-      if (senderEmail) {
-        await apiRequest("PUT", `/api/email-routing-rules/${encodeURIComponent(senderEmail)}`, {
-          action: "ALLOW",
-          supplierName: data.name,
-        });
-      }
-
-      // 3. Update invoice: set supplierId + status PENDING
-      await apiRequest("PUT", `/api/supplier-invoices/${invoice.id}`, {
-        supplierId: supplier.id,
-        status: "PENDING",
-        notes: `Approved via Review Inbox. Originally from: ${senderEmail}`,
+      // Single API call: create supplier + sweep all matching REVIEW invoices
+      return apiRequest("POST", "/api/invoices/review/approve-group", {
+        supplierData: {
+          name: data.name,
+          abn: data.abn || null,
+          contactName: data.contactName || null,
+          contactEmails: emailsArray.length > 0 ? emailsArray : null,
+          bsb: data.bsb || null,
+          accountNumber: data.accountNumber || null,
+          address: data.address || null,
+          notes: data.notes || null,
+          isAutoPay,
+        },
+        senderEmail: senderEmail || null,
+        supplierName,
       });
     },
-    onSuccess: () => {
-      toast({ title: "Supplier created and invoice approved" });
+    onSuccess: (result: any) => {
+      const count = result?.sweptCount ?? invoices.length;
+      toast({ title: `Supplier created — ${count} invoice${count !== 1 ? "s" : ""} moved to Pending` });
       queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/email-routing-rules"] });
@@ -254,12 +246,17 @@ function ApproveSupplierModal({ invoice, onClose, onSuccess }: ApproveSupplierMo
   }
 
   return (
-    <Dialog open={!!invoice} onOpenChange={open => !open && onClose()}>
+    <Dialog open={invoices.length > 0} onOpenChange={open => !open && onClose()}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="dialog-approve-supplier">
         <DialogHeader>
           <DialogTitle>Approve & Add Supplier</DialogTitle>
           <p className="text-sm text-muted-foreground">
             Review and confirm the AI-extracted supplier details before creating.
+            {invoices.length > 1 && (
+              <span className="block mt-1 font-medium text-foreground">
+                This will approve all {invoices.length} pending invoices from this supplier.
+              </span>
+            )}
           </p>
         </DialogHeader>
 
@@ -367,7 +364,7 @@ export function AdminAccountsPayable() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openAccordions, setOpenAccordions] = useState<string[]>([]);
   const [addInvoiceOpen, setAddInvoiceOpen] = useState(false);
-  const [approveInvoice, setApproveInvoice] = useState<SupplierInvoice | null>(null);
+  const [approveInvoiceGroup, setApproveInvoiceGroup] = useState<SupplierInvoice[]>([]);
   const [revertInvoice, setRevertInvoice] = useState<EnrichedInvoice | null>(null);
 
   // ── Queries ────────────────────────────────────────────────────────────────
@@ -475,24 +472,27 @@ export function AdminAccountsPayable() {
   });
 
   const ignoreSenderMutation = useMutation({
-    mutationFn: async ({ invoiceId, senderEmail, supplierName }: { invoiceId: string; senderEmail: string; supplierName?: string }) => {
-      await Promise.all([
-        apiRequest("PUT", `/api/email-routing-rules/${encodeURIComponent(senderEmail)}`, {
+    mutationFn: async ({ invoiceIds, senderEmail, supplierName }: { invoiceIds: string[]; senderEmail: string; supplierName?: string }) => {
+      const ops: Promise<any>[] = [
+        ...(senderEmail ? [apiRequest("PUT", `/api/email-routing-rules/${encodeURIComponent(senderEmail)}`, {
           action: "IGNORE",
           supplierName: supplierName ?? null,
-        }),
-        apiRequest("PUT", `/api/supplier-invoices/${invoiceId}`, {
-          status: "QUARANTINE",
-          notes: `Sender ignored by manager. Email: ${senderEmail}`,
-        }),
-      ]);
+        })] : []),
+        ...invoiceIds.map(id =>
+          apiRequest("PUT", `/api/supplier-invoices/${id}`, {
+            status: "QUARANTINE",
+            notes: `Supplier ignored by manager. Email: ${senderEmail}`,
+          })
+        ),
+      ];
+      await Promise.all(ops);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
       queryClient.invalidateQueries({ queryKey: ["/api/email-routing-rules"] });
-      toast({ title: "Sender ignored", description: "Future emails from this sender will be discarded." });
+      toast({ title: "Supplier ignored", description: "All pending invoices from this supplier have been discarded." });
     },
-    onError: () => toast({ title: "Failed to ignore sender", variant: "destructive" }),
+    onError: () => toast({ title: "Failed to ignore supplier", variant: "destructive" }),
   });
 
   const deleteRuleMutation = useMutation({
@@ -538,6 +538,35 @@ export function AdminAccountsPayable() {
       );
     }
   }, [supplierGroups]);
+
+  // ── Group review invoices by supplier name ───────────────────────────────────
+  interface ReviewGroup {
+    supplierName: string;
+    invoices: SupplierInvoice[];
+    totalAmount: number;
+    senderEmail: string;
+    rawFirst: ReviewRawData | null;
+  }
+  const reviewGroups = useMemo<ReviewGroup[]>(() => {
+    const map = new Map<string, ReviewGroup>();
+    for (const inv of reviewInvoices) {
+      const r = inv.rawExtractedData as ReviewRawData | null;
+      const name = r?.supplier?.supplierName ?? "Unknown Supplier";
+      if (!map.has(name)) {
+        map.set(name, {
+          supplierName: name,
+          invoices: [],
+          totalAmount: 0,
+          senderEmail: r?.senderEmail ?? "",
+          rawFirst: r,
+        });
+      }
+      const g = map.get(name)!;
+      g.invoices.push(inv);
+      g.totalAmount += r?.totalAmount ?? 0;
+    }
+    return Array.from(map.values());
+  }, [reviewInvoices]);
 
   // ── Tab config ──────────────────────────────────────────────────────────────
   const tabs: { key: TabKey; label: string; badge?: number; badgeColor?: string }[] = [
@@ -890,7 +919,7 @@ export function AdminAccountsPayable() {
               <Loader2 className="h-4 w-4 animate-spin" />
               <span className="text-sm">Loading review inbox…</span>
             </div>
-          ) : reviewInvoices.length === 0 ? (
+          ) : reviewGroups.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
               <Inbox className="h-10 w-10 opacity-20" />
               <p className="text-sm font-medium">Review inbox is empty</p>
@@ -898,51 +927,50 @@ export function AdminAccountsPayable() {
             </div>
           ) : (
             <div className="space-y-3">
-              {reviewInvoices.map(inv => {
-                const raw = inv.rawExtractedData as ReviewRawData | null;
-                const senderEmail = raw?.senderEmail ?? "Unknown";
-                const supplierName = raw?.supplier?.supplierName ?? "Unknown Supplier";
+              {reviewGroups.map(group => {
+                const raw = group.rawFirst;
                 const isPending = ignoreSenderMutation.isPending;
+                const groupKey = group.supplierName;
 
                 return (
-                  <Card key={inv.id} className="overflow-hidden" data-testid={`review-card-${inv.id}`}>
+                  <Card key={groupKey} className="overflow-hidden" data-testid={`review-card-${groupKey}`}>
                     <CardContent className="p-0">
                       {/* Header row */}
                       <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border/30 bg-muted/20">
                         <div className="flex items-start gap-3 min-w-0">
                           <Mail className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
                           <div className="min-w-0">
-                            <p className="font-semibold text-sm truncate" data-testid={`text-review-supplier-${inv.id}`}>
-                              {supplierName}
+                            <p className="font-semibold text-sm truncate" data-testid={`text-review-supplier-${groupKey}`}>
+                              {group.supplierName}
                             </p>
-                            <p className="text-xs text-muted-foreground truncate" data-testid={`text-review-email-${inv.id}`}>
-                              {senderEmail}
+                            <p className="text-xs text-muted-foreground" data-testid={`text-review-count-${groupKey}`}>
+                              {group.invoices.length === 1
+                                ? "1 pending invoice"
+                                : `${group.invoices.length} pending invoices`}
                             </p>
-                            {raw?.subject && (
-                              <p className="text-xs text-muted-foreground/70 truncate mt-0.5 italic">
-                                "{raw.subject}"
+                            {group.senderEmail && (
+                              <p className="text-xs text-muted-foreground/70 truncate mt-0.5">
+                                via {group.senderEmail}
                               </p>
                             )}
                           </div>
                         </div>
                         <div className="shrink-0 text-right">
-                          {raw?.totalAmount !== undefined && raw.totalAmount > 0 && (
-                            <p className="font-bold text-sm tabular-nums" data-testid={`text-review-amount-${inv.id}`}>
-                              {fmtAUD(raw.totalAmount)}
+                          {group.totalAmount > 0 && (
+                            <p className="font-bold text-sm tabular-nums" data-testid={`text-review-amount-${groupKey}`}>
+                              {fmtAUD(group.totalAmount)}
                             </p>
                           )}
-                          {raw?.invoiceNumber && (
-                            <p className="text-xs font-mono text-muted-foreground">#{raw.invoiceNumber}</p>
-                          )}
+                          <p className="text-xs text-muted-foreground">total</p>
                         </div>
                       </div>
 
-                      {/* Details grid */}
+                      {/* Supplier details (from first invoice) */}
                       <div className="px-4 py-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
                         {raw?.supplier?.abn && (
                           <div className="flex gap-2">
                             <span className="text-muted-foreground shrink-0 w-20">ABN</span>
-                            <span className="font-medium" data-testid={`text-review-abn-${inv.id}`}>{raw.supplier.abn}</span>
+                            <span className="font-medium">{raw.supplier.abn}</span>
                           </div>
                         )}
                         {raw?.supplier?.bsb && (
@@ -958,30 +986,34 @@ export function AdminAccountsPayable() {
                           </div>
                         )}
                         {raw?.supplier?.address && (
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 col-span-2">
                             <span className="text-muted-foreground shrink-0 w-20">Address</span>
                             <span className="font-medium">{raw.supplier.address}</span>
                           </div>
                         )}
-                        {raw?.issueDate && (
-                          <div className="flex gap-2">
-                            <span className="text-muted-foreground shrink-0 w-20">Invoice Date</span>
-                            <span className="font-medium">{fmt(raw.issueDate)}</span>
-                          </div>
-                        )}
-                        {raw?.dueDate && (
-                          <div className="flex gap-2">
-                            <span className="text-muted-foreground shrink-0 w-20">Due Date</span>
-                            <span className="font-medium">{fmt(raw.dueDate)}</span>
-                          </div>
-                        )}
-                        {raw?.storeCode && raw.storeCode !== "UNKNOWN" && (
-                          <div className="flex gap-2">
-                            <span className="text-muted-foreground shrink-0 w-20">Store</span>
-                            <span className="font-medium">{raw.storeCode}</span>
-                          </div>
-                        )}
                       </div>
+
+                      {/* Individual invoice list */}
+                      {group.invoices.length > 0 && (
+                        <div className="px-4 pb-3 space-y-1">
+                          {group.invoices.map(inv => {
+                            const ir = inv.rawExtractedData as ReviewRawData | null;
+                            return (
+                              <div key={inv.id} className="flex items-center justify-between text-xs py-1 border-t border-border/20 first:border-t-0">
+                                <span className="text-muted-foreground font-mono">
+                                  {ir?.invoiceNumber ? `#${ir.invoiceNumber}` : "No invoice #"}
+                                </span>
+                                <div className="flex items-center gap-3">
+                                  {ir?.issueDate && <span className="text-muted-foreground">{fmt(ir.issueDate)}</span>}
+                                  {ir?.totalAmount !== undefined && ir.totalAmount > 0 && (
+                                    <span className="font-medium tabular-nums">{fmtAUD(ir.totalAmount)}</span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
 
                       {/* Action buttons */}
                       <div className="flex items-center gap-2 px-4 py-3 border-t border-border/30 bg-muted/10">
@@ -990,13 +1022,13 @@ export function AdminAccountsPayable() {
                           variant="outline"
                           onClick={() =>
                             ignoreSenderMutation.mutate({
-                              invoiceId: inv.id,
-                              senderEmail,
-                              supplierName: supplierName !== "Unknown Supplier" ? supplierName : undefined,
+                              invoiceIds: group.invoices.map(i => i.id),
+                              senderEmail: group.senderEmail,
+                              supplierName: group.supplierName !== "Unknown Supplier" ? group.supplierName : undefined,
                             })
                           }
                           disabled={isPending}
-                          data-testid={`button-ignore-${inv.id}`}
+                          data-testid={`button-ignore-${groupKey}`}
                           className="gap-1.5"
                         >
                           {isPending ? (
@@ -1004,12 +1036,12 @@ export function AdminAccountsPayable() {
                           ) : (
                             <Ban className="h-3.5 w-3.5" />
                           )}
-                          Ignore Sender
+                          Ignore Supplier
                         </Button>
                         <Button
                           size="sm"
-                          onClick={() => setApproveInvoice(inv)}
-                          data-testid={`button-approve-${inv.id}`}
+                          onClick={() => setApproveInvoiceGroup(group.invoices)}
+                          data-testid={`button-approve-${groupKey}`}
                           className="gap-1.5"
                         >
                           <UserPlus className="h-3.5 w-3.5" />
@@ -1232,9 +1264,9 @@ export function AdminAccountsPayable() {
       />
 
       <ApproveSupplierModal
-        invoice={approveInvoice}
-        onClose={() => setApproveInvoice(null)}
-        onSuccess={() => setApproveInvoice(null)}
+        invoices={approveInvoiceGroup}
+        onClose={() => setApproveInvoiceGroup([])}
+        onSuccess={() => setApproveInvoiceGroup([])}
       />
     </AdminLayout>
   );
