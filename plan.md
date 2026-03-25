@@ -55,6 +55,7 @@
 - `pdftotext` CLI used for PDF text extraction (not `pdf-parse`, which is incompatible).
 - Webhook body limit set to **20 MB** to handle base64-encoded PDF attachments.
 - Date math always uses **AEDT (Australia/Sydney)** local calendar dates via `toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" })` — never `toISOString().slice(0,10)`.
+- **Draft State (Payroll):** `sessionStorage` is strictly used for payroll drafts to survive tab/store switching. Keys MUST be formatted as `payrollDrafts_${storeId}_${periodStart}_${periodEnd}` to prevent date collision. Drafts are only purged when a finalized DB record is detected for that specific context.
 
 ---
 
@@ -162,6 +163,10 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Pay slips** printable view per employee per period.
 - **Payroll import** from archived legacy data.
 - **Weekly payroll summary** (`/admin/weekly-payroll`): aggregated view across stores.
+- **Draft Persistence & Ghost Prevention:** Payroll inputs are saved to `sessionStorage` per store and period. The UI hydrates from this session. Once a payroll is generated/saved to the DB, the specific session draft is forcefully purged to prevent "ghost" deductions.
+- **Intercompany Transfers:** If an employee has a fixed salary at Store A but works at Store B, Store B does not pay them directly (`cash = 0`, `bank = 0`, `tax = 0` forced by backend). Instead, Store B accrues an Intercompany Settlement debt to Store A.
+- **Dual Role Exception:** If an employee has a fixed salary at Store A but earns a direct *Hourly Rate* at Store B (e.g., Peter), the Intercompany zero-override is bypassed, and their direct payout at Store B is preserved.
+- **Unified Bank Transfer Tracker:** A modal tracking all pending banking outflows for a period. It combines both **Direct Employee Bank Deposits** (`bank > 0`) AND **Intercompany Settlements** (e.g., `Karma [ 🔄 Transfer to Sandwich ]`) into a single actionable list for the manager.
 
 ### 3.7 Finance / Cash (`/admin/finance`, `/admin/cash`)
 - **Inter-store transactions**: Convert (float transfer), Remittance (store → HO), Manual entry.
@@ -172,6 +177,8 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - Cash sales detail breakdown: denomination counts × 11 denominations ($100 → 5¢).
 - Bulk cash sales entry and legacy import.
 - Void a day's cash records.
+- **Real-time Global Cash Widget:** The top dashboard cash balance strictly displays the *Actual DB Cash Balance*. It explicitly DOES NOT subtract active payroll drafts (`sessionStorage`) to avoid visual double-deductions and negative balance confusion before a payroll is actually finalized.
+- **Manual Cash Adjustment & Audit Trail:** Managers can align the system's Cash Balance with the physical safe using the "Manual Entry" feature. They can record `Cash In` or `Cash Out` with specific categories (e.g., Petty Cash, Till Shortage, Owner Deposit) and notes. This creates a permanent audit trail transaction instead of destructively overwriting the balance.
 
 ### 3.8 Accounts Payable Dashboard (`/admin/accounts-payable`)
 - **Summary cards**: Total Invoices, Pending, Overdue, Paid (amounts).
