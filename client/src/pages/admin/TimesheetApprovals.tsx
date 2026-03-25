@@ -32,7 +32,6 @@ import {
   Minus,
   Trash2,
   Check,
-  Info,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "@shared/payrollCycle";
@@ -451,13 +450,13 @@ function EmployeeReviewModal({
     return (
       <tr
         key={ts.id}
-        className={`border-b border-slate-200 dark:border-slate-700 transition-colors ${isApproved ? "opacity-50" : "hover:bg-slate-50 dark:hover:bg-slate-800/50"}`}
+        className={`border-b border-border/20 ${isApproved ? "opacity-55" : ""}`}
         data-testid={`review-row-${ts.id}`}
       >
         {/* Date + optional store badge */}
-        <td className="py-2.5 px-3 whitespace-nowrap">
+        <td className="py-1.5 px-2 whitespace-nowrap">
           <div className="flex items-center gap-1.5">
-            <span className="font-semibold text-sm">{fmtDate(ts.date)}</span>
+            <span className="font-medium text-sm">{fmtDate(ts.date)}</span>
             {isMultiStore && (
               <span
                 className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white shrink-0"
@@ -470,15 +469,15 @@ function EmployeeReviewModal({
         </td>
 
         {/* Scheduled */}
-        <td className="py-2.5 px-3 whitespace-nowrap text-muted-foreground text-xs">
+        <td className="py-1.5 px-2 whitespace-nowrap text-muted-foreground text-xs">
           {ts.scheduledStartTime && ts.scheduledEndTime
             ? `${fmtTime(ts.scheduledStartTime)} – ${fmtTime(ts.scheduledEndTime)}`
-            : <span className="text-purple-600 dark:text-purple-400 font-medium text-xs">Unscheduled</span>
+            : <span className="text-purple-600 dark:text-purple-400 font-medium">Unscheduled</span>
           }
         </td>
 
         {/* Start */}
-        <td className="py-2 px-2">
+        <td className="py-1 px-1">
           {isPending
             ? <TimeAdjustCell field="start" />
             : <span className="font-mono text-sm text-muted-foreground px-1">{fmtTime(ts.actualStartTime)}</span>
@@ -486,7 +485,7 @@ function EmployeeReviewModal({
         </td>
 
         {/* End */}
-        <td className="py-2 px-2">
+        <td className="py-1 px-1">
           {isPending
             ? <TimeAdjustCell field="end" />
             : <span className="font-mono text-sm text-muted-foreground px-1">{fmtTime(ts.actualEndTime)}</span>
@@ -494,7 +493,7 @@ function EmployeeReviewModal({
         </td>
 
         {/* Diff */}
-        <td className="py-2.5 px-3 whitespace-nowrap">
+        <td className="py-1.5 px-2 whitespace-nowrap">
           {schedH !== null
             ? <DiffCell diffMinutes={shiftDiffMin} />
             : <span className="text-muted-foreground text-sm">—</span>
@@ -502,12 +501,12 @@ function EmployeeReviewModal({
         </td>
 
         {/* Hours */}
-        <td className="py-2.5 px-3 whitespace-nowrap font-bold text-sm">
+        <td className="py-1.5 px-2 whitespace-nowrap font-semibold text-sm">
           {fmtHours(actualH)}
         </td>
 
         {/* Actions: save indicator + delete */}
-        <td className="py-2.5 px-2 w-16">
+        <td className="py-1.5 px-1 w-16">
           <div className="flex items-center justify-end gap-0.5">
             {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />}
             {!isSaving && justSaved && <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />}
@@ -588,6 +587,7 @@ function EmployeeReviewModal({
                   Scheduled: <span className="font-semibold text-foreground">{fmtHours(group.totalScheduledHours)}</span>
                 </span>
               )}
+              <span className="text-[10px] text-muted-foreground italic">±15m buttons auto-save</span>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -772,145 +772,128 @@ function EmployeeReviewModal({
             )}
           </div>
 
-          {/* ── Desktop: Card-based layout ── */}
-          <div className="hidden md:block bg-slate-100 dark:bg-slate-900 p-4" data-testid="review-shifts-table">
+          {/* ── Desktop: existing scrollable table ── */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-left text-sm" data-testid="review-shifts-table">
+              <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm z-10">
+                <tr className="border-b border-border/40">
+                  <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Date</th>
+                  <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Scheduled</th>
+                  <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap" colSpan={1}>Start</th>
+                  <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap" colSpan={1}>End</th>
+                  <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Diff</th>
+                  <th className="py-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Hours</th>
+                  <th className="py-2 px-2 w-6"></th>
+                </tr>
+              </thead>
 
-            {/* Info alert */}
-            {pendingShifts.length > 0 && (
-              <div className="flex items-center gap-2.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-700 rounded-md px-3 py-2.5 mb-4">
-                <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
-                  ±15분 버튼으로 시간 조정 시 자동 저장됩니다. Approve All을 눌러 일괄 승인하세요.
-                </span>
-              </div>
-            )}
-            {pendingShifts.length === 0 && (
-              <div className="flex items-center gap-2.5 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-700 rounded-md px-3 py-2.5 mb-4">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                  승인 완료 기록 — 수정하려면 해당 시프트의 삭제 후 재등록하거나 관리자에게 문의하세요.
-                </span>
-              </div>
-            )}
+              {/* ── Week 1 ── */}
+              <tbody>
+                <WeekHeader
+                  label="Week 1"
+                  dateRange={`${fmtCycleDate(cycleStart)} – ${fmtCycleDate(week1End)}`}
+                />
+                {week1Shifts.length > 0
+                  ? week1Shifts.map(ts => renderShiftRow(ts))
+                  : (
+                    <tr>
+                      <td colSpan={7} className="py-3 px-4 text-sm text-muted-foreground italic">No shifts this week</td>
+                    </tr>
+                  )
+                }
+                <WeekTotalRow label="Week 1 Total" hours={week1Hours} />
+              </tbody>
 
-            {/* ── Week Cards ── */}
-            {[
-              { label: "Week 1", shifts: week1Shifts, hours: week1Hours, start: cycleStart, end: week1End },
-              { label: "Week 2", shifts: week2Shifts, hours: week2Hours, start: week2Start, end: cycleEnd },
-            ].map(week => (
-              <div key={week.label} className="bg-white dark:bg-slate-800 rounded-xl shadow-md border border-slate-300 dark:border-slate-600 overflow-hidden mb-6">
-                {/* Card header — dark band */}
-                <div className="bg-slate-800 dark:bg-slate-700 text-white px-4 py-2.5 flex justify-between items-center">
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-bold uppercase tracking-wider">{week.label}</span>
-                    <span className="text-xs text-slate-300 font-normal">{fmtCycleDate(week.start)} – {fmtCycleDate(week.end)}</span>
-                  </div>
-                  <span className="text-xs text-slate-400">{week.shifts.length} shift{week.shifts.length !== 1 ? "s" : ""}</span>
-                </div>
+              {/* ── Week 2 ── */}
+              <tbody>
+                <WeekHeader
+                  label="Week 2"
+                  dateRange={`${fmtCycleDate(week2Start)} – ${fmtCycleDate(cycleEnd)}`}
+                />
+                {week2Shifts.length > 0
+                  ? week2Shifts.map(ts => renderShiftRow(ts))
+                  : (
+                    <tr>
+                      <td colSpan={7} className="py-3 px-4 text-sm text-muted-foreground italic">No shifts this week</td>
+                    </tr>
+                  )
+                }
+                <WeekTotalRow label="Week 2 Total" hours={week2Hours} />
+              </tbody>
 
-                {/* Table */}
-                {week.shifts.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead>
-                        <tr className="border-b-2 border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/60">
-                          <th className="py-2.5 px-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">Date</th>
-                          <th className="py-2.5 px-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">Scheduled</th>
-                          <th className="py-2.5 px-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">Start</th>
-                          <th className="py-2.5 px-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">End</th>
-                          <th className="py-2.5 px-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">Diff</th>
-                          <th className="py-2.5 px-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">Hours</th>
-                          <th className="py-2.5 px-2 w-6"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {week.shifts.map(ts => renderShiftRow(ts))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p className="py-4 px-4 text-sm text-slate-400 italic">No shifts this week</p>
-                )}
+              {/* ── Add Missing Shift Form ── */}
+              {showAddForm && (() => {
+                const previewHours = calcHours(addForm.start, addForm.end);
+                return (
+                  <tbody>
+                    <tr>
+                      <td colSpan={7} className="py-1.5 px-3 bg-blue-50/60 dark:bg-blue-950/25 border-y border-blue-200/60 dark:border-blue-800/40">
+                        <span className="text-xs font-bold uppercase tracking-widest text-blue-700 dark:text-blue-400">
+                          New Shift
+                        </span>
+                      </td>
+                    </tr>
+                    <tr className="bg-blue-50/30 dark:bg-blue-950/10 border-b border-border/20">
+                      <td className="py-1.5 px-2">
+                        <Input type="date" min={cycleStart} max={cycleEnd} value={addForm.date} onChange={e => setAddForm(prev => ({ ...prev, date: e.target.value }))} className="h-7 text-xs px-1.5 w-[130px]" data-testid="input-addshift-date" />
+                      </td>
+                      <td className="py-1.5 px-2">
+                        {storeOptions.length > 1 ? (
+                          <Select value={addForm.storeId} onValueChange={v => setAddForm(prev => ({ ...prev, storeId: v }))}>
+                            <SelectTrigger className="h-7 text-xs w-[100px]" data-testid="select-addshift-store"><SelectValue /></SelectTrigger>
+                            <SelectContent>{storeOptions.map(s => <SelectItem key={s.storeId} value={s.storeId}>{s.storeName}</SelectItem>)}</SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-xs text-muted-foreground px-1">{storeOptions[0]?.storeName}</span>
+                        )}
+                      </td>
+                      <td className="py-1 px-1">
+                        <div className="flex items-center gap-0.5">
+                          <button type="button" onClick={() => setAddForm(prev => ({ ...prev, start: adjustTime(prev.start, -15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0"><Minus className="h-3 w-3" /></button>
+                          <Input type="time" value={addForm.start} onChange={e => setAddForm(prev => ({ ...prev, start: e.target.value }))} className="font-mono h-7 text-xs px-1 w-[120px] shrink-0" data-testid="input-addshift-start" />
+                          <button type="button" onClick={() => setAddForm(prev => ({ ...prev, start: adjustTime(prev.start, 15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0"><Plus className="h-3 w-3" /></button>
+                        </div>
+                      </td>
+                      <td className="py-1 px-1">
+                        <div className="flex items-center gap-0.5">
+                          <button type="button" onClick={() => setAddForm(prev => ({ ...prev, end: adjustTime(prev.end, -15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0"><Minus className="h-3 w-3" /></button>
+                          <Input type="time" value={addForm.end} onChange={e => setAddForm(prev => ({ ...prev, end: e.target.value }))} className="font-mono h-7 text-xs px-1 w-[120px] shrink-0" data-testid="input-addshift-end" />
+                          <button type="button" onClick={() => setAddForm(prev => ({ ...prev, end: adjustTime(prev.end, 15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0"><Plus className="h-3 w-3" /></button>
+                        </div>
+                      </td>
+                      <td className="py-1.5 px-2 text-xs text-muted-foreground">—</td>
+                      <td className="py-1.5 px-2 font-semibold text-sm">{fmtHours(previewHours)}</td>
+                      <td />
+                    </tr>
+                    <tr className="bg-blue-50/20 dark:bg-blue-950/10">
+                      <td colSpan={7} className="py-2 px-3">
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" className="h-8 gap-1.5 bg-blue-600 text-white" onClick={handleAddShift} disabled={addingSaving} data-testid="button-addshift-save">
+                            {addingSaving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</> : <><CheckCircle2 className="h-3.5 w-3.5" />Save Shift</>}
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-8" onClick={() => setShowAddForm(false)} data-testid="button-addshift-cancel">Cancel</Button>
+                          <span className="text-xs text-muted-foreground ml-1">Status: Approved · Unscheduled</span>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                );
+              })()}
 
-                {/* Card footer / Total — solid receipt style */}
-                <div className="bg-slate-100 dark:bg-slate-700 border-t-2 border-slate-400 dark:border-slate-500 px-4 py-3 flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">{week.label} Total</span>
-                  <span className="text-lg font-black text-slate-900 dark:text-slate-100">{fmtHours(week.hours)}</span>
-                </div>
-              </div>
-            ))}
-
-            {/* ── Add Missing Shift ── */}
-            {showAddForm ? (() => {
-              const previewHours = calcHours(addForm.start, addForm.end);
-              return (
-                <div className="bg-white dark:bg-slate-800 rounded-xl shadow-md border border-blue-300 dark:border-blue-700 overflow-hidden mb-4">
-                  <div className="bg-blue-600 dark:bg-blue-800 text-white px-4 py-2.5 flex items-center gap-2">
-                    <Plus className="h-4 w-4" />
-                    <span className="text-sm font-bold uppercase tracking-wider">New Shift</span>
-                  </div>
-                  <div className="p-4">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-sm">
-                        <thead>
-                          <tr className="border-b-2 border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/50">
-                            <th className="py-2.5 px-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">Date</th>
-                            <th className="py-2.5 px-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">Store</th>
-                            <th className="py-2.5 px-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">Start</th>
-                            <th className="py-2.5 px-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">End</th>
-                            <th className="py-2.5 px-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">Hours</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            <td className="py-2 px-3">
-                              <Input type="date" min={cycleStart} max={cycleEnd} value={addForm.date} onChange={e => setAddForm(prev => ({ ...prev, date: e.target.value }))} className="h-8 text-xs px-1.5 w-[130px]" data-testid="input-addshift-date" />
-                            </td>
-                            <td className="py-2 px-3">
-                              {storeOptions.length > 1 ? (
-                                <Select value={addForm.storeId} onValueChange={v => setAddForm(prev => ({ ...prev, storeId: v }))}>
-                                  <SelectTrigger className="h-8 text-xs w-[110px]" data-testid="select-addshift-store"><SelectValue /></SelectTrigger>
-                                  <SelectContent>{storeOptions.map(s => <SelectItem key={s.storeId} value={s.storeId}>{s.storeName}</SelectItem>)}</SelectContent>
-                                </Select>
-                              ) : (
-                                <span className="text-xs text-muted-foreground px-1">{storeOptions[0]?.storeName}</span>
-                              )}
-                            </td>
-                            <td className="py-2 px-2">
-                              <div className="flex items-center gap-0.5">
-                                <button type="button" onClick={() => setAddForm(prev => ({ ...prev, start: adjustTime(prev.start, -15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0"><Minus className="h-3 w-3" /></button>
-                                <Input type="time" value={addForm.start} onChange={e => setAddForm(prev => ({ ...prev, start: e.target.value }))} className="font-mono h-7 text-xs px-1 w-[120px] shrink-0" data-testid="input-addshift-start" />
-                                <button type="button" onClick={() => setAddForm(prev => ({ ...prev, start: adjustTime(prev.start, 15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0"><Plus className="h-3 w-3" /></button>
-                              </div>
-                            </td>
-                            <td className="py-2 px-2">
-                              <div className="flex items-center gap-0.5">
-                                <button type="button" onClick={() => setAddForm(prev => ({ ...prev, end: adjustTime(prev.end, -15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0"><Minus className="h-3 w-3" /></button>
-                                <Input type="time" value={addForm.end} onChange={e => setAddForm(prev => ({ ...prev, end: e.target.value }))} className="font-mono h-7 text-xs px-1 w-[120px] shrink-0" data-testid="input-addshift-end" />
-                                <button type="button" onClick={() => setAddForm(prev => ({ ...prev, end: adjustTime(prev.end, 15) }))} className="h-7 w-6 flex items-center justify-center rounded text-muted-foreground hover-elevate active-elevate-2 shrink-0"><Plus className="h-3 w-3" /></button>
-                              </div>
-                            </td>
-                            <td className="py-2 px-3 font-bold text-sm">{fmtHours(previewHours)}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-200 dark:border-slate-600">
-                      <Button size="sm" className="gap-1.5 bg-blue-600 text-white" onClick={handleAddShift} disabled={addingSaving} data-testid="button-addshift-save">
-                        {addingSaving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</> : <><CheckCircle2 className="h-3.5 w-3.5" />Save Shift</>}
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setShowAddForm(false)} data-testid="button-addshift-cancel">Cancel</Button>
-                      <span className="text-xs text-muted-foreground">Status: Approved · Unscheduled</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })() : (
-              <button type="button" className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors rounded-xl px-4 py-3 border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500 w-full justify-center bg-white dark:bg-slate-800" onClick={() => setShowAddForm(true)} data-testid="button-add-missing-shift">
-                <Plus className="h-4 w-4" />
-                Add Missing Shift
-              </button>
-            )}
+              {/* ── "Add Missing Shift" trigger row ── */}
+              {!showAddForm && (
+                <tbody>
+                  <tr>
+                    <td colSpan={7} className="py-2 px-3">
+                      <button type="button" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors hover-elevate rounded px-2 py-1" onClick={() => setShowAddForm(true)} data-testid="button-add-missing-shift">
+                        <Plus className="h-3.5 w-3.5" />
+                        Add Missing Shift
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              )}
+            </table>
           </div>
         </div>
 
