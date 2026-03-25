@@ -174,6 +174,15 @@ function EmailReplyModal({
   const [koreanDraft, setKoreanDraft] = useState("");
   const [englishReply, setEnglishReply] = useState("");
 
+  const { data: koreanSummary, isLoading: isLoadingKorean } = useQuery<{
+    koreanTitle: string;
+    koreanDescription: string;
+  }>({
+    queryKey: ["/api/todos", todo?.id, "korean-summary"],
+    enabled: !!todo?.id && open,
+    staleTime: 1000 * 60 * 10, // 10분 캐시
+  });
+
   const draftMutation = useMutation({
     mutationFn: async (draft: string) => {
       const res = await apiRequest("POST", `/api/todos/${todo!.id}/draft-reply`, { koreanDraft: draft });
@@ -277,19 +286,29 @@ function EmailReplyModal({
                 className="rounded-md border border-primary/20 bg-primary/5 px-3 py-3 space-y-1"
                 data-testid="panel-korean-summary"
               >
-                <p
-                  className="text-sm font-semibold text-foreground"
-                  data-testid="text-task-title-korean"
-                >
-                  {todo.title}
-                </p>
-                {todo.description && (
-                  <p
-                    className="text-sm text-muted-foreground leading-relaxed"
-                    data-testid="text-task-description-korean"
-                  >
-                    {todo.description}
-                  </p>
+                {isLoadingKorean ? (
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-2/3" />
+                  </div>
+                ) : (
+                  <>
+                    <p
+                      className="text-sm font-semibold text-foreground"
+                      data-testid="text-task-title-korean"
+                    >
+                      {koreanSummary?.koreanTitle ?? todo.title}
+                    </p>
+                    {(koreanSummary?.koreanDescription || todo.description) && (
+                      <p
+                        className="text-sm text-muted-foreground leading-relaxed"
+                        data-testid="text-task-description-korean"
+                      >
+                        {koreanSummary?.koreanDescription || todo.description}
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             </div>

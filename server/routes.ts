@@ -4445,6 +4445,45 @@ export async function registerRoutes(
   });
 
   // ── Todo Reply Endpoints ────────────────────────────────────────────────────
+  app.get("/api/todos/:id/korean-summary", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const todo = await storage.getTodo(id);
+      if (!todo) return res.status(404).json({ error: "Todo not found" });
+
+      const openaiClient = new (await import("openai")).default({ apiKey: process.env.OPENAI_API_KEY });
+      const completion = await openaiClient.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are a Korean business assistant. Translate the given task title and description into natural, professional Korean.
+Return ONLY a JSON object: {"koreanTitle": "...", "koreanDescription": "..."}
+If description is empty, return an empty string for koreanDescription.
+Do NOT add any explanation outside the JSON.`,
+          },
+          {
+            role: "user",
+            content: `Title: ${todo.title}\nDescription: ${todo.description ?? ""}`,
+          },
+        ],
+        temperature: 0.2,
+        max_tokens: 300,
+      });
+
+      const raw = completion.choices[0]?.message?.content?.trim() ?? "{}";
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+      res.json({
+        koreanTitle: parsed.koreanTitle ?? todo.title,
+        koreanDescription: parsed.koreanDescription ?? todo.description ?? "",
+      });
+    } catch (err) {
+      console.error("Error getting Korean summary:", err);
+      res.status(500).json({ error: "Failed to translate" });
+    }
+  });
+
   app.post("/api/todos/:id/draft-reply", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
