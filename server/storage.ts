@@ -948,14 +948,26 @@ export class MemStorage implements IStorage {
 
   async sweepReviewInvoicesBySupplierName(supplierName: string, supplierId: string): Promise<number> {
     const lower = supplierName.toLowerCase();
+    // Build set of invoice numbers already existing for this supplier (non-REVIEW)
+    const existingNumbers = new Set<string>();
+    for (const inv of this.supplierInvoices.values()) {
+      if (inv.supplierId === supplierId && inv.status !== "REVIEW" && inv.invoiceNumber) {
+        existingNumbers.add(inv.invoiceNumber);
+      }
+    }
     let count = 0;
     for (const [id, inv] of this.supplierInvoices.entries()) {
       if (inv.status === "REVIEW") {
         const raw = inv.rawExtractedData as any;
         const invName: string = raw?.supplier?.supplierName ?? "";
         if (invName.toLowerCase() === lower) {
-          this.supplierInvoices.set(id, { ...inv, supplierId, status: "PENDING" });
-          count++;
+          if (inv.invoiceNumber && existingNumbers.has(inv.invoiceNumber)) {
+            // Duplicate — quarantine instead
+            this.supplierInvoices.set(id, { ...inv, status: "QUARANTINE", notes: "Duplicate invoice number — already exists for this supplier." });
+          } else {
+            this.supplierInvoices.set(id, { ...inv, supplierId, status: "PENDING" });
+            count++;
+          }
         }
       }
     }
@@ -1727,11 +1739,33 @@ export class DatabaseStorage implements IStorage {
   }
 
   async sweepReviewInvoicesBySupplierName(supplierName: string, supplierId: string): Promise<number> {
+    // Update REVIEW invoices to PENDING, but skip any whose invoice_number already exists
+    // for this supplier (to avoid violating the (supplier_id, invoice_number) unique constraint).
     const result = await db.execute(sql`
-      UPDATE supplier_invoices
+      UPDATE supplier_invoices AS r
       SET supplier_id = ${supplierId}, status = 'PENDING'
-      WHERE status = 'REVIEW'
-        AND raw_extracted_data->'supplier'->>'supplierName' ILIKE ${supplierName}
+      WHERE r.status = 'REVIEW'
+        AND r.raw_extracted_data->'supplier'->>'supplierName' ILIKE ${supplierName}
+        AND NOT EXISTS (
+          SELECT 1 FROM supplier_invoices AS existing
+          WHERE existing.supplier_id = ${supplierId}
+            AND existing.invoice_number = r.invoice_number
+            AND existing.status != 'REVIEW'
+        )
+    `);
+    // Mark duplicates as QUARANTINE so they don't linger in the review inbox
+    await db.execute(sql`
+      UPDATE supplier_invoices AS r
+      SET status = 'QUARANTINE',
+          notes = 'Duplicate invoice number — already exists for this supplier.'
+      WHERE r.status = 'REVIEW'
+        AND r.raw_extracted_data->'supplier'->>'supplierName' ILIKE ${supplierName}
+        AND EXISTS (
+          SELECT 1 FROM supplier_invoices AS existing
+          WHERE existing.supplier_id = ${supplierId}
+            AND existing.invoice_number = r.invoice_number
+            AND existing.status != 'REVIEW'
+        )
     `);
     return (result as any).rowCount ?? 0;
   }
