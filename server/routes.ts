@@ -4417,12 +4417,12 @@ export async function registerRoutes(
 
       const toEmail = todo.senderEmail || todo.sourceEmail;
       if (!toEmail) return res.status(400).json({ error: "No sender email to reply to" });
-      if (!todo.originalSubject) return res.status(400).json({ error: "No original subject to reply to" });
+      const replySubject = todo.originalSubject || todo.title;
 
       const { sendEmailReply } = await import("./mailer.js");
       await sendEmailReply({
         to: toEmail,
-        originalSubject: todo.originalSubject,
+        originalSubject: replySubject,
         body: finalEnglishReply,
       });
 

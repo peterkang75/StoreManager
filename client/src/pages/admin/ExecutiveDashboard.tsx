@@ -363,7 +363,7 @@ function EmailReplyModal({
                     </>
                   )}
                 </Button>
-                {!todo.senderEmail && (
+                {!(todo.senderEmail || todo.sourceEmail) && (
                   <p className="text-xs text-muted-foreground text-center">
                     발신자 이메일 정보가 없어 발송이 불가합니다. 수동으로 생성된 작업입니다.
                   </p>
