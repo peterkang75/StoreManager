@@ -35,7 +35,7 @@ import {
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import { db } from "./db";
-import { eq, desc, and, gte, lte, or, ilike, isNull, asc, sql } from "drizzle-orm";
+import { eq, desc, and, gte, lte, or, ilike, isNull, asc, sql, ne } from "drizzle-orm";
 
 export interface IStorage {
   getStores(): Promise<Store[]>;
@@ -109,7 +109,7 @@ export interface IStorage {
   createSupplier(supplier: InsertSupplier): Promise<Supplier>;
   updateSupplier(id: string, supplier: Partial<InsertSupplier>): Promise<Supplier | undefined>;
 
-  getSupplierInvoices(filters?: { supplierId?: string; storeId?: string; status?: string; startDate?: string; endDate?: string }): Promise<SupplierInvoice[]>;
+  getSupplierInvoices(filters?: { supplierId?: string; storeId?: string; status?: string; startDate?: string; endDate?: string; includeDeleted?: boolean }): Promise<SupplierInvoice[]>;
   getSupplierInvoice(id: string): Promise<SupplierInvoice | undefined>;
   createSupplierInvoice(invoice: InsertSupplierInvoice): Promise<SupplierInvoice>;
   updateSupplierInvoice(id: string, invoice: Partial<InsertSupplierInvoice>): Promise<SupplierInvoice | undefined>;
@@ -857,8 +857,9 @@ export class MemStorage implements IStorage {
     return updated;
   }
 
-  async getSupplierInvoices(filters?: { supplierId?: string; storeId?: string; status?: string; startDate?: string; endDate?: string }): Promise<SupplierInvoice[]> {
+  async getSupplierInvoices(filters?: { supplierId?: string; storeId?: string; status?: string; startDate?: string; endDate?: string; includeDeleted?: boolean }): Promise<SupplierInvoice[]> {
     let invoices = Array.from(this.supplierInvoices.values());
+    if (!filters?.includeDeleted && !filters?.status) invoices = invoices.filter(i => i.status !== "DELETED");
     if (filters?.supplierId) invoices = invoices.filter(i => i.supplierId === filters.supplierId);
     if (filters?.storeId) invoices = invoices.filter(i => i.storeId === filters.storeId);
     if (filters?.status) invoices = invoices.filter(i => i.status === filters.status);
@@ -1681,8 +1682,9 @@ export class DatabaseStorage implements IStorage {
     return s;
   }
 
-  async getSupplierInvoices(filters?: { supplierId?: string; storeId?: string; status?: string; startDate?: string; endDate?: string }): Promise<SupplierInvoice[]> {
+  async getSupplierInvoices(filters?: { supplierId?: string; storeId?: string; status?: string; startDate?: string; endDate?: string; includeDeleted?: boolean }): Promise<SupplierInvoice[]> {
     const conditions = [];
+    if (!filters?.includeDeleted && !filters?.status) conditions.push(ne(supplierInvoices.status, "DELETED"));
     if (filters?.supplierId) conditions.push(eq(supplierInvoices.supplierId, filters.supplierId));
     if (filters?.storeId) conditions.push(eq(supplierInvoices.storeId, filters.storeId));
     if (filters?.status) conditions.push(eq(supplierInvoices.status, filters.status));

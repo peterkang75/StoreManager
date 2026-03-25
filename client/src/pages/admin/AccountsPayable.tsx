@@ -353,7 +353,7 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-type TabKey = "topay" | "review" | "history" | "emailrules";
+type TabKey = "topay" | "review" | "history" | "emailrules" | "trash";
 
 export function AdminAccountsPayable() {
   const { toast } = useToast();
@@ -381,6 +381,12 @@ export function AdminAccountsPayable() {
   const { data: reviewInvoices = [], isLoading: reviewLoading } = useQuery<SupplierInvoice[]>({
     queryKey: ["/api/invoices/review"],
     staleTime: 30_000,
+  });
+
+  const { data: deletedInvoices = [], isLoading: trashLoading } = useQuery<SupplierInvoice[]>({
+    queryKey: ["/api/supplier-invoices/deleted"],
+    staleTime: 0,
+    refetchOnMount: true,
   });
 
   const { data: emailRules = [], isLoading: rulesLoading } = useQuery<EmailRoutingRule[]>({
@@ -506,6 +512,41 @@ export function AdminAccountsPayable() {
     onError: () => toast({ title: "Failed to delete invoice", variant: "destructive" }),
   });
 
+  const softDeleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("PATCH", `/api/supplier-invoices/${id}/soft-delete`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/deleted"] });
+      toast({ title: "Invoice moved to Trash", description: "You can restore it from the Trash tab." });
+    },
+    onError: () => toast({ title: "Failed to delete invoice", variant: "destructive" }),
+  });
+
+  const restoreInvoiceMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("PATCH", `/api/supplier-invoices/${id}/restore`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/deleted"] });
+      toast({ title: "Invoice restored", description: "The invoice has been moved back." });
+    },
+    onError: () => toast({ title: "Failed to restore invoice", variant: "destructive" }),
+  });
+
+  const permanentDeleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/supplier-invoices/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/deleted"] });
+      toast({ title: "Permanently deleted", description: "The invoice has been permanently removed." });
+    },
+    onError: () => toast({ title: "Failed to permanently delete", variant: "destructive" }),
+  });
+
   const deleteRuleMutation = useMutation({
     mutationFn: async (email: string) => {
       await apiRequest("DELETE", `/api/email-routing-rules/${encodeURIComponent(email)}`);
@@ -603,6 +644,12 @@ export function AdminAccountsPayable() {
       key: "emailrules",
       label: "Email Rules",
       badge: emailRules.length > 0 ? emailRules.length : undefined,
+      badgeColor: "bg-muted text-muted-foreground",
+    },
+    {
+      key: "trash",
+      label: "Trash",
+      badge: deletedInvoices.length > 0 ? deletedInvoices.length : undefined,
       badgeColor: "bg-muted text-muted-foreground",
     },
   ];
@@ -833,7 +880,7 @@ export function AdminAccountsPayable() {
                                 <th className="py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Due Date</th>
                                 <th className="py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice #</th>
                                 <th className="py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Store</th>
-                                <th className="w-8 py-2 pr-4" />
+                                <th className="w-16 py-2 pr-4" />
                               </tr>
                             </thead>
                             <tbody>
@@ -896,17 +943,34 @@ export function AdminAccountsPayable() {
                                       <td className="py-2.5 px-3 text-xs text-muted-foreground whitespace-nowrap">
                                         {store?.name ?? "—"}
                                       </td>
-                                      <td className="py-2.5 pr-4 w-8">
-                                        {inv.notes && (
+                                      <td className="py-2.5 pr-4 w-16">
+                                        <div className="flex items-center gap-0.5 justify-end">
+                                          {inv.notes && (
+                                            <button
+                                              type="button"
+                                              title={inv.notes}
+                                              className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                                              data-testid={`button-notes-${inv.id}`}
+                                            >
+                                              <FileText className="h-3.5 w-3.5" />
+                                            </button>
+                                          )}
                                           <button
                                             type="button"
-                                            title={inv.notes}
-                                            className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-                                            data-testid={`button-notes-${inv.id}`}
+                                            title="Move to Trash"
+                                            className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/30 hover:text-destructive transition-colors"
+                                            data-testid={`button-softdelete-invoice-${inv.id}`}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              softDeleteMutation.mutate(inv.id);
+                                            }}
+                                            disabled={softDeleteMutation.isPending && softDeleteMutation.variables === inv.id}
                                           >
-                                            <FileText className="h-3.5 w-3.5" />
+                                            {softDeleteMutation.isPending && softDeleteMutation.variables === inv.id
+                                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                              : <Trash2 className="h-3.5 w-3.5" />}
                                           </button>
-                                        )}
+                                        </div>
                                       </td>
                                     </tr>
                                   );
@@ -1242,6 +1306,93 @@ export function AdminAccountsPayable() {
                         </td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )
+        )}
+
+        {/* ── TRASH ── */}
+        {activeTab === "trash" && (
+          trashLoading ? (
+            <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading trash…</span>
+            </div>
+          ) : deletedInvoices.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
+              <Trash2 className="h-10 w-10 opacity-20" />
+              <p className="text-sm font-medium">Trash is empty</p>
+              <p className="text-xs">Deleted invoices will appear here and can be restored.</p>
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border/40 bg-muted/30">
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Supplier</th>
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice #</th>
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice Date</th>
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right whitespace-nowrap">Amount</th>
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Was</th>
+                      <th className="w-48 py-2.5 px-4" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deletedInvoices.map(inv => {
+                      const enrichedInv = inv as any;
+                      const isRestoring = restoreInvoiceMutation.isPending && restoreInvoiceMutation.variables === inv.id;
+                      const isDeleting = permanentDeleteMutation.isPending && permanentDeleteMutation.variables === inv.id;
+                      return (
+                        <tr key={inv.id} className="border-b border-border/10 last:border-0 hover:bg-muted/20 transition-colors" data-testid={`row-trash-${inv.id}`}>
+                          <td className="py-2.5 px-4 font-medium">
+                            {enrichedInv.supplier?.name ?? enrichedInv.rawExtractedData?.supplier?.supplierName ?? "Unknown Supplier"}
+                          </td>
+                          <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground">
+                            {inv.invoiceNumber || "—"}
+                          </td>
+                          <td className="py-2.5 px-4 text-muted-foreground whitespace-nowrap">
+                            {fmt(inv.invoiceDate)}
+                          </td>
+                          <td className="py-2.5 px-4 font-semibold tabular-nums text-right whitespace-nowrap">
+                            {fmtAUD(inv.amount ?? 0)}
+                          </td>
+                          <td className="py-2.5 px-4">
+                            <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-mono">
+                              {inv.previousStatus ?? "PENDING"}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4">
+                            <div className="flex items-center gap-2 justify-end">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => restoreInvoiceMutation.mutate(inv.id)}
+                                disabled={isRestoring || isDeleting}
+                                data-testid={`button-restore-${inv.id}`}
+                                className="gap-1.5"
+                              >
+                                {isRestoring ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />}
+                                Restore
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => permanentDeleteMutation.mutate(inv.id)}
+                                disabled={isRestoring || isDeleting}
+                                data-testid={`button-permanent-delete-${inv.id}`}
+                                className="gap-1.5 text-destructive hover:text-destructive"
+                              >
+                                {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                Delete Forever
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </CardContent>

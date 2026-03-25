@@ -2891,6 +2891,52 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/supplier-invoices/deleted", async (req: Request, res: Response) => {
+    try {
+      const deleted = await storage.getSupplierInvoices({ status: "DELETED" });
+      const allSuppliers = await storage.getSuppliers();
+      const supplierMap = new Map(allSuppliers.map(s => [s.id, s]));
+      const enriched = deleted.map(inv => ({ ...inv, supplier: supplierMap.get(inv.supplierId ?? "") ?? null }));
+      res.json(enriched);
+    } catch (error) {
+      console.error("Error fetching deleted invoices:", error);
+      res.status(500).json({ error: "Failed to fetch deleted invoices" });
+    }
+  });
+
+  app.patch("/api/supplier-invoices/:id/soft-delete", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const current = await storage.getSupplierInvoice(id);
+      if (!current) return res.status(404).json({ error: "Supplier invoice not found" });
+      const updated = await storage.updateSupplierInvoice(id, {
+        status: "DELETED",
+        previousStatus: current.status,
+      });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error soft-deleting invoice:", error);
+      res.status(500).json({ error: "Failed to delete invoice" });
+    }
+  });
+
+  app.patch("/api/supplier-invoices/:id/restore", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const current = await storage.getSupplierInvoice(id);
+      if (!current) return res.status(404).json({ error: "Supplier invoice not found" });
+      const restoreStatus = current.previousStatus ?? "PENDING";
+      const updated = await storage.updateSupplierInvoice(id, {
+        status: restoreStatus,
+        previousStatus: null,
+      });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error restoring invoice:", error);
+      res.status(500).json({ error: "Failed to restore invoice" });
+    }
+  });
+
   app.delete("/api/supplier-invoices/:id", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;

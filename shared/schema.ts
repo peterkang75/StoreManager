@@ -450,7 +450,8 @@ export const supplierInvoices = pgTable("supplier_invoices", {
   invoiceDate: text("invoice_date").notNull(),
   dueDate: text("due_date"),
   amount: real("amount").default(0).notNull(),
-  status: text("status").default("PENDING").notNull(), // PENDING | PAID | OVERDUE | QUARANTINE | REVIEW
+  status: text("status").default("PENDING").notNull(), // PENDING | PAID | OVERDUE | QUARANTINE | REVIEW | DELETED
+  previousStatus: text("previous_status"),             // Stores original status before soft-delete (for restore)
   pdfUrl: text("pdf_url"),
   notes: text("notes"),
   // Stores extracted supplier + invoice data for REVIEW-state invoices (unknown senders)
