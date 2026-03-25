@@ -3,6 +3,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { AdminRoleProvider } from "@/contexts/AdminRoleContext";
 import NotFound from "@/pages/not-found";
 
 import { AdminDashboard } from "@/pages/admin/Dashboard";
@@ -23,6 +24,7 @@ import { AdminTimesheetApprovals } from "@/pages/admin/TimesheetApprovals";
 import { AdminWeeklyPayroll } from "@/pages/admin/WeeklyPayroll";
 import { AdminNotices } from "@/pages/admin/Notices";
 import { AdminExecutiveDashboard } from "@/pages/admin/ExecutiveDashboard";
+import { AdminAccessControl } from "@/pages/admin/AccessControl";
 
 import { MobileInterview } from "@/pages/mobile/Interview";
 import { MobileOnboarding } from "@/pages/mobile/Onboarding";
@@ -57,6 +59,7 @@ function Router() {
       <Route path="/admin/finance" component={AdminFinance} />
       <Route path="/admin/notices" component={AdminNotices} />
       <Route path="/admin/executive" component={AdminExecutiveDashboard} />
+      <Route path="/admin/settings/access-control" component={AdminAccessControl} />
       
       <Route path="/m/interview" component={MobileInterview} />
       <Route path="/m/onboarding/:token" component={MobileOnboarding} />
@@ -75,8 +78,10 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <Toaster />
-        <Router />
+        <AdminRoleProvider>
+          <Toaster />
+          <Router />
+        </AdminRoleProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );

@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,7 +17,6 @@ import {
   ResponsiveContainer,
   ComposedChart,
   Bar,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -41,9 +40,17 @@ import {
   ShoppingCart,
   Briefcase,
   ArrowRightLeft,
+  BrainCircuit,
+  CheckCircle2,
+  CalendarClock,
+  Mail,
+  ChevronRight,
+  Loader2,
 } from "lucide-react";
 import { Link } from "wouter";
-import type { Store as StoreType, Candidate, Employee } from "@shared/schema";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import type { Store as StoreType, Candidate, Employee, Todo } from "@shared/schema";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -212,11 +219,23 @@ interface DashboardSummary {
   dailyTrend: { date: string; sales: number; cogs: number }[];
 }
 
+function isOverdue(date: string | Date | null): boolean {
+  if (!date) return false;
+  return new Date(date) < new Date(new Date().toDateString());
+}
+
+function fmtTodoDue(date: string | Date | null): string | null {
+  if (!date) return null;
+  return new Date(date).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+}
+
 export function AdminDashboard() {
   const [startDate, setStartDate] = useState(firstOfMonthYMD);
   const [endDate, setEndDate]     = useState(todayYMD);
   const [storeId, setStoreId]     = useState("ALL");
   const [settlementTarget, setSettlementTarget] = useState<EnrichedSettlement | null>(null);
+  const [markingDoneId, setMarkingDoneId] = useState<string | null>(null);
+  const { toast } = useToast();
 
   // ── Data queries ──────────────────────────────────────────────────────────
   const { data: stores, isLoading: storesLoading } = useQuery<StoreType[]>({
@@ -236,6 +255,33 @@ export function AdminDashboard() {
       return res.json();
     },
   });
+
+  const { data: allTodos = [], isLoading: todosLoading } = useQuery<Todo[]>({
+    queryKey: ["/api/todos"],
+  });
+
+  const markDoneMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("PATCH", `/api/todos/${id}`, { status: "DONE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/todos"] });
+      toast({ title: "Task marked as done" });
+    },
+    onError: () => toast({ title: "Failed to update task", variant: "destructive" }),
+    onSettled: () => setMarkingDoneId(null),
+  });
+
+  const urgentTodos = allTodos
+    .filter((t) => t.status === "TODO" || t.status === "IN_PROGRESS")
+    .sort((a, b) => {
+      const aOver = isOverdue(a.dueDate);
+      const bOver = isOverdue(b.dueDate);
+      if (aOver !== bOver) return aOver ? -1 : 1;
+      if (a.dueDate && b.dueDate) return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+      if (a.dueDate) return -1;
+      if (b.dueDate) return 1;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    })
+    .slice(0, 5);
 
   const params = useMemo(() => {
     const p = new URLSearchParams({ startDate, endDate });
@@ -648,6 +694,120 @@ export function AdminDashboard() {
               </CardContent>
             </Card>
           </div>
+        </section>
+
+        {/* ── Section: AI Smart Inbox Summary ────────────────────────── */}
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight flex items-center gap-2">
+                <BrainCircuit className="w-5 h-5 text-primary" />
+                AI Smart Inbox: Critical Action Items
+              </h2>
+              <p className="text-sm text-muted-foreground">AI가 이메일에서 추출한 긴급 할 일 목록</p>
+            </div>
+            <Link href="/admin/executive">
+              <Button variant="outline" size="sm" data-testid="link-view-all-tasks">
+                View All Tasks
+                <ChevronRight className="w-3.5 h-3.5 ml-1" />
+              </Button>
+            </Link>
+          </div>
+
+          {todosLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-16 w-full rounded-lg" />
+              ))}
+            </div>
+          ) : urgentTodos.length === 0 ? (
+            <div className="flex items-center gap-3 rounded-lg border border-green-500/30 bg-green-500/5 px-4 py-3">
+              <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+              <p className="text-sm text-green-700 dark:text-green-400">
+                진행 중인 작업이 없습니다. 이메일에서 새 할 일이 감지되면 여기에 표시됩니다.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2" data-testid="list-inbox-tasks">
+              {urgentTodos.map((todo) => {
+                const overdue = isOverdue(todo.dueDate);
+                const dueFmt = fmtTodoDue(todo.dueDate);
+                const isMarking = markingDoneId === todo.id;
+                return (
+                  <div
+                    key={todo.id}
+                    className="flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-background px-4 py-3 hover:bg-muted/20 transition-colors"
+                    data-testid={`inbox-task-${todo.id}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-0.5">
+                        {overdue && (
+                          <span className="text-xs font-medium text-red-600 dark:text-red-400 shrink-0">OVERDUE</span>
+                        )}
+                        <span
+                          className="text-sm font-medium truncate"
+                          data-testid={`text-inbox-title-${todo.id}`}
+                        >
+                          {todo.title}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        {dueFmt && (
+                          <span
+                            className={`flex items-center gap-1 text-xs ${
+                              overdue ? "text-red-600 dark:text-red-400" : "text-muted-foreground"
+                            }`}
+                            data-testid={`text-inbox-due-${todo.id}`}
+                          >
+                            <CalendarClock className="w-3 h-3" />
+                            {overdue ? "Overdue · " : "Due "}
+                            {dueFmt}
+                          </span>
+                        )}
+                        {todo.sourceEmail && (
+                          <span
+                            className="flex items-center gap-1 text-xs text-muted-foreground truncate max-w-[200px]"
+                            data-testid={`text-inbox-source-${todo.id}`}
+                          >
+                            <Mail className="w-3 h-3 shrink-0" />
+                            {todo.sourceEmail}
+                          </span>
+                        )}
+                        {!dueFmt && !todo.sourceEmail && (
+                          <span className="text-xs text-muted-foreground">{todo.status === "IN_PROGRESS" ? "In Progress" : "To Do"}</span>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={isMarking}
+                      onClick={() => {
+                        setMarkingDoneId(todo.id);
+                        markDoneMutation.mutate(todo.id);
+                      }}
+                      data-testid={`button-inbox-done-${todo.id}`}
+                      className="shrink-0"
+                    >
+                      {isMarking ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                      )}
+                      Mark Done
+                    </Button>
+                  </div>
+                );
+              })}
+              {allTodos.filter((t) => t.status !== "DONE").length > 5 && (
+                <Link href="/admin/executive">
+                  <p className="text-xs text-muted-foreground text-center py-1 hover:text-foreground transition-colors cursor-pointer">
+                    + {allTodos.filter((t) => t.status !== "DONE").length - 5} more tasks → View All
+                  </p>
+                </Link>
+              )}
+            </div>
+          )}
         </section>
 
       </div>

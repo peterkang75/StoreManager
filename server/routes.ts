@@ -4365,6 +4365,73 @@ export async function registerRoutes(
     }
   });
 
+  // ── RBAC Permissions ─────────────────────────────────────────────────────────
+  const ALL_MANAGED_PAGES = [
+    { route: "/admin", label: "Dashboard" },
+    { route: "/admin/stores", label: "Stores" },
+    { route: "/admin/candidates", label: "Candidates" },
+    { route: "/admin/employees", label: "Employees" },
+    { route: "/admin/rosters", label: "Rosters" },
+    { route: "/admin/approvals", label: "Pending Approvals" },
+    { route: "/admin/timesheets", label: "Attendance History" },
+    { route: "/admin/payrolls", label: "Payroll" },
+    { route: "/admin/cash", label: "Cash & Close" },
+    { route: "/admin/finance", label: "Cash Flow" },
+    { route: "/admin/suppliers", label: "Suppliers" },
+    { route: "/admin/suppliers/invoices", label: "Invoices" },
+    { route: "/admin/accounts-payable", label: "Accounts Payable" },
+    { route: "/admin/notices", label: "Notices" },
+    { route: "/admin/executive", label: "AI Smart Inbox" },
+  ];
+  const MANAGER_ALLOWED = [
+    "/admin", "/admin/stores", "/admin/candidates", "/admin/employees",
+    "/admin/rosters", "/admin/approvals", "/admin/timesheets",
+    "/admin/payrolls", "/admin/cash", "/admin/notices",
+  ];
+  const STAFF_ALLOWED = ["/admin", "/admin/rosters"];
+
+  function buildDefaultPermissions() {
+    const defaults: { role: string; route: string; label: string; allowed: boolean }[] = [];
+    for (const page of ALL_MANAGED_PAGES) {
+      defaults.push({ role: "ADMIN", route: page.route, label: page.label, allowed: true });
+      defaults.push({ role: "MANAGER", route: page.route, label: page.label, allowed: MANAGER_ALLOWED.includes(page.route) });
+      defaults.push({ role: "STAFF", route: page.route, label: page.label, allowed: STAFF_ALLOWED.includes(page.route) });
+    }
+    return defaults;
+  }
+
+  app.get("/api/permissions", async (_req: Request, res: Response) => {
+    try {
+      let perms = await storage.getPermissions();
+      if (perms.length === 0) {
+        await storage.setPermissions(buildDefaultPermissions());
+        perms = await storage.getPermissions();
+      }
+      res.json(perms);
+    } catch (err) {
+      console.error("Error fetching permissions:", err);
+      res.status(500).json({ error: "Failed to fetch permissions" });
+    }
+  });
+
+  app.patch("/api/permissions", async (req: Request, res: Response) => {
+    try {
+      const { permissions } = req.body;
+      if (!Array.isArray(permissions)) return res.status(400).json({ error: "permissions array required" });
+      const valid = permissions.every((p: any) =>
+        typeof p.role === "string" && typeof p.route === "string" &&
+        typeof p.label === "string" && typeof p.allowed === "boolean"
+      );
+      if (!valid) return res.status(400).json({ error: "Invalid permission entry" });
+      await storage.setPermissions(permissions);
+      const updated = await storage.getPermissions();
+      res.json(updated);
+    } catch (err) {
+      console.error("Error updating permissions:", err);
+      res.status(500).json({ error: "Failed to update permissions" });
+    }
+  });
+
   // ── REVIEW invoices (from auto-discovery inbox) ──────────────────────────────
   app.get("/api/invoices/review", async (_req: Request, res: Response) => {
     try {

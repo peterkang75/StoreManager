@@ -473,6 +473,26 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 
 ---
 
+### Phase 5: Executive Cockpit + RBAC ✅ COMPLETE
+
+**Phase 5.1 — Dashboard Cockpit**
+- AI Smart Inbox widget added to main Dashboard (`/admin`)
+- Fetches `/api/todos`, filters TODO+IN_PROGRESS, sorts by urgency (overdue first, then due date), shows top 5
+- Each task card: title, sender email, due date, overdue badge, "Mark Done" quick-action button
+- "View All Tasks" button links to `/admin/executive`
+
+**Phase 5.2 — Role-Based Access Control (RBAC)**
+- `admin_permissions` DB table: composite PK (role, route, label, allowed)
+- `GET /api/permissions` — returns full matrix; seeds defaults on first load
+- `PATCH /api/permissions` — bulk replace permissions
+- Default permissions: ADMIN=all, MANAGER=most ops, STAFF=Dashboard+Rosters
+- `AdminRoleContext` — React context storing current role in localStorage (`admin_role_v1`)
+- Role selector dropdown in sidebar header (Global Admin / Manager / Staff)
+- Sidebar nav groups filtered dynamically by role permissions
+- Header badge shows current role
+- `/admin/settings/access-control` — full-page permissions matrix with checkboxes; Save Changes / Reset buttons; ADMIN-only access enforced
+- App.tsx wrapped with `AdminRoleProvider`
+
 ### Phase 4: AI Executive Assistant — Future (Logged for Later)
 
 - [ ] **Smart Inbox:** AI reads all incoming emails, categorizes them (Action Required / FYI / Spam), translates body to Korean, and presents a concise summary per email. CEO can respond with one click.

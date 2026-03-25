@@ -25,12 +25,13 @@ import {
   type ShiftTimesheet, type InsertShiftTimesheet,
   type Notice, type InsertNotice,
   type IntercompanySettlement, type InsertIntercompanySettlement,
+  type AdminPermission, type InsertAdminPermission,
   stores, candidates, employees, employeeStoreAssignments, employeeOnboardingTokens, employeeDocuments,
   rosterPeriods, shifts, rosters, rosterPublications, timeLogs, timesheets, payrolls,
   dailyClosings, cashSalesDetails, dailyCloseForms, suppliers, supplierInvoices, supplierPayments,
   quarantinedEmails, emailRoutingRules,
   todos,
-  financialTransactions, shiftTimesheets, notices, intercompanySettlements,
+  financialTransactions, shiftTimesheets, notices, intercompanySettlements, adminPermissions,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import { db } from "./db";
@@ -170,6 +171,10 @@ export interface IStorage {
   getIntercompanySettlements(filters?: { status?: string; payrollId?: string }): Promise<IntercompanySettlement[]>;
   createIntercompanySettlement(data: InsertIntercompanySettlement): Promise<IntercompanySettlement>;
   updateIntercompanySettlement(id: string, data: Partial<IntercompanySettlement>): Promise<IntercompanySettlement | undefined>;
+
+  // RBAC Permissions
+  getPermissions(): Promise<AdminPermission[]>;
+  setPermissions(perms: InsertAdminPermission[]): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -1255,6 +1260,9 @@ export class MemStorage implements IStorage {
   async updateIntercompanySettlement(_id: string, _data: Partial<IntercompanySettlement>): Promise<IntercompanySettlement | undefined> {
     return undefined;
   }
+
+  async getPermissions(): Promise<AdminPermission[]> { return []; }
+  async setPermissions(_perms: InsertAdminPermission[]): Promise<void> {}
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1996,6 +2004,18 @@ export class DatabaseStorage implements IStorage {
   async updateIntercompanySettlement(id: string, data: Partial<IntercompanySettlement>): Promise<IntercompanySettlement | undefined> {
     const [row] = await db.update(intercompanySettlements).set(data).where(eq(intercompanySettlements.id, id)).returning();
     return row;
+  }
+
+  // ─── RBAC Permissions ─────────────────────────────────────────────────────
+  async getPermissions(): Promise<AdminPermission[]> {
+    return db.select().from(adminPermissions).orderBy(adminPermissions.role, adminPermissions.route);
+  }
+
+  async setPermissions(perms: InsertAdminPermission[]): Promise<void> {
+    await db.delete(adminPermissions);
+    if (perms.length > 0) {
+      await db.insert(adminPermissions).values(perms);
+    }
   }
 }
 

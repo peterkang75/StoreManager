@@ -1,0 +1,21 @@
+Referencing image_5.png and image_6.png, we need to unify the executive experience and implement a secure Access Control System based on roles.
+
+**Phase 1: Build the Executive Cockpit**
+Please modify the main Dashboard page to create a cohesive 'Cockpit' view.
+1.  **Layout Integration:** Keep the existing financial overview tiles and charts for Sales, Labor Cost, and Gross Profit (as seen in image_6.png). Add a global filter dropdown at the top to select a specific store.
+2.  **Add AI Inbox Summary Widget:** Instead of keeping the full AI Inbox on a separate page, create a condensed "AI Smart Inbox: Critical Action Items" summary widget and embed it into the main Dashboard page (e.g., in a new bottom section or a side panel). This widget should:
+    -   Fetch data from the existing `GET /api/todos` endpoint, filtering by status `TODO` and `IN_PROGRESS`, and sorting by urgency (due date). Limit to the top 3-5 tasks.
+    -   Display Title, Sender, and Due Date for each task in a compact card format. Include a quick-action 'Mark Done' button (as seen in image_5.png).
+
+**Phase 2: Role-Based Access Control (RBAC)**
+Please implement a robust system to manage and enforce page-level permissions for 'Admin', 'Manager', and 'Staff' roles.
+1.  **Database:** Create a `permissions` table to store which page routes (e.g., /admin/dashboard, /admin/invoices, /admin/payroll) are accessible to each role (ADMIN, MANAGER, STAFF).
+2.  **Permissions API:** Create `GET /api/permissions` (to load the matrix) and `PATCH /api/permissions` (to save matrix changes) endpoints. Also, create an endpoint to check the current user's role and associated permissions.
+3.  **Frontend: Create 'Settings -> Access Control' Page:** Build a new page at `/admin/settings/access-control`. This page should render a matrix table as seen in image_0.png.
+    -   **Rows:** Application Pages/Features (Dashboard, Invoices, Payroll, To-Do, Suppliers, Employees).
+    -   **Columns:** Roles (Global Admin, Manager, Staff).
+    -   **Cells:** Checkboxes to grant/revoke access.
+    -   A 'Save Changes' button.
+4.  **Enforcement:** Modify the frontend navigation and backend endpoints to enforce these permissions. Hide sidebar links and restrict page access based on the logged-in user's role as configured in the matrix. Ensure only a 'Global Admin' can access the Access Control Matrix page.
+
+Please implement both the cohesive dashboard cockpit and the new access control system cleanly and securely!

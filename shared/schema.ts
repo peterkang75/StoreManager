@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, date, integer, timestamp, real, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, date, integer, timestamp, real, uniqueIndex, jsonb, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -645,3 +645,17 @@ export const insertUserSchema = createInsertSchema(users).pick({
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+
+// ── Role-Based Access Control ─────────────────────────────────────────────────
+// Roles: ADMIN | MANAGER | STAFF
+export const adminPermissions = pgTable("admin_permissions", {
+  role: varchar("role", { length: 20 }).notNull(),
+  route: varchar("route", { length: 200 }).notNull(),
+  label: text("label").notNull(),
+  allowed: boolean("allowed").notNull().default(false),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.role, table.route] }),
+}));
+
+export type AdminPermission = typeof adminPermissions.$inferSelect;
+export type InsertAdminPermission = typeof adminPermissions.$inferInsert;

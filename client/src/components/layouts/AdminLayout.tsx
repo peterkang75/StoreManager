@@ -16,6 +16,8 @@ import {
   CreditCard,
   Megaphone,
   BrainCircuit,
+  ShieldCheck,
+  ChevronDown,
 } from "lucide-react";
 import {
   Sidebar,
@@ -30,239 +32,187 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useAdminRole, type AdminRole } from "@/contexts/AdminRoleContext";
+
+// ─── Nav item definitions ────────────────────────────────────────────────────
 
 const hiringNavItems = [
-  {
-    title: "Dashboard",
-    url: "/admin",
-    icon: LayoutDashboard,
-  },
-  {
-    title: "Stores",
-    url: "/admin/stores",
-    icon: Store,
-  },
-  {
-    title: "Candidates",
-    url: "/admin/candidates",
-    icon: Users,
-  },
-  {
-    title: "Employees",
-    url: "/admin/employees",
-    icon: UserCheck,
-  },
+  { title: "Dashboard",   url: "/admin",             icon: LayoutDashboard },
+  { title: "Stores",      url: "/admin/stores",       icon: Store },
+  { title: "Candidates",  url: "/admin/candidates",   icon: Users },
+  { title: "Employees",   url: "/admin/employees",    icon: UserCheck },
 ];
 
 const operationsNavItems = [
-  {
-    title: "Rosters",
-    url: "/admin/rosters",
-    icon: Calendar,
-  },
-  {
-    title: "Pending Approvals",
-    url: "/admin/approvals",
-    icon: ClipboardCheck,
-  },
-  {
-    title: "Attendance History",
-    url: "/admin/timesheets",
-    icon: History,
-  },
-  {
-    title: "Payroll",
-    url: "/admin/payrolls",
-    icon: DollarSign,
-  },
+  { title: "Rosters",           url: "/admin/rosters",   icon: Calendar },
+  { title: "Pending Approvals", url: "/admin/approvals", icon: ClipboardCheck },
+  { title: "Attendance History",url: "/admin/timesheets",icon: History },
+  { title: "Payroll",           url: "/admin/payrolls",  icon: DollarSign },
 ];
 
 const commsNavItems = [
-  {
-    title: "Notices",
-    url: "/admin/notices",
-    icon: Megaphone,
-  },
+  { title: "Notices", url: "/admin/notices", icon: Megaphone },
 ];
 
 const executiveNavItems = [
-  {
-    title: "AI Smart Inbox",
-    url: "/admin/executive",
-    icon: BrainCircuit,
-  },
+  { title: "AI Smart Inbox", url: "/admin/executive", icon: BrainCircuit },
 ];
 
 const financeNavItems = [
-  {
-    title: "Cash Flow",
-    url: "/admin/finance",
-    icon: ArrowLeftRight,
-  },
-  {
-    title: "Cash & Close",
-    url: "/admin/cash",
-    icon: Wallet,
-  },
-  {
-    title: "Suppliers",
-    url: "/admin/suppliers",
-    icon: Truck,
-  },
-  {
-    title: "Invoices",
-    url: "/admin/suppliers/invoices",
-    icon: FileText,
-  },
-  {
-    title: "Accounts Payable",
-    url: "/admin/accounts-payable",
-    icon: CreditCard,
-  },
+  { title: "Cash Flow",       url: "/admin/finance",              icon: ArrowLeftRight },
+  { title: "Cash & Close",    url: "/admin/cash",                 icon: Wallet },
+  { title: "Suppliers",       url: "/admin/suppliers",            icon: Truck },
+  { title: "Invoices",        url: "/admin/suppliers/invoices",   icon: FileText },
+  { title: "Accounts Payable",url: "/admin/accounts-payable",     icon: CreditCard },
 ];
 
-interface AdminLayoutProps {
-  children: React.ReactNode;
-  title?: string;
-}
+const settingsNavItems = [
+  { title: "Access Control", url: "/admin/settings/access-control", icon: ShieldCheck },
+];
+
+const ROLE_LABELS: Record<AdminRole, string> = {
+  ADMIN:   "Global Admin",
+  MANAGER: "Manager",
+  STAFF:   "Staff",
+};
+
+// ─── Sidebar component ───────────────────────────────────────────────────────
 
 function AdminSidebar() {
   const [location] = useLocation();
+  const { currentRole, setCurrentRole, hasAccess } = useAdminRole();
 
   const isActive = (url: string) => {
     if (url === "/admin") return location === url;
     return location === url || location.startsWith(url + "/");
   };
 
+  function renderGroup(label: string, items: { title: string; url: string; icon: React.ElementType }[]) {
+    const visible = items.filter((item) => hasAccess(item.url));
+    if (visible.length === 0) return null;
+    return (
+      <SidebarGroup>
+        <SidebarGroupLabel>{label}</SidebarGroupLabel>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            {visible.map((item) => (
+              <SidebarMenuItem key={item.title}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isActive(item.url)}
+                  tooltip={item.title}
+                >
+                  <Link href={item.url} data-testid={`link-admin-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
+                    <item.icon className="w-4 h-4" />
+                    <span>{item.title}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+    );
+  }
+
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="p-4 border-b border-sidebar-border">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
+          <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center shrink-0">
             <Store className="w-4 h-4 text-primary-foreground" />
           </div>
-          <div className="flex flex-col group-data-[collapsible=icon]:hidden">
-            <span className="text-sm font-semibold">Staff Manager</span>
-            <span className="text-xs text-muted-foreground">Admin Portal</span>
+          <div className="flex flex-col min-w-0 group-data-[collapsible=icon]:hidden">
+            <span className="text-sm font-semibold truncate">Staff Manager</span>
+            <span className="text-xs text-muted-foreground truncate">Admin Portal</span>
           </div>
         </div>
+
+        {/* Role switcher */}
+        <div className="mt-3 group-data-[collapsible=icon]:hidden">
+          <Select value={currentRole} onValueChange={(v) => setCurrentRole(v as AdminRole)}>
+            <SelectTrigger
+              className="h-8 text-xs"
+              data-testid="select-admin-role"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ADMIN" data-testid="role-option-admin">
+                <span className="text-blue-700 dark:text-blue-400 font-medium">Global Admin</span>
+              </SelectItem>
+              <SelectItem value="MANAGER" data-testid="role-option-manager">
+                <span className="text-purple-700 dark:text-purple-400 font-medium">Manager</span>
+              </SelectItem>
+              <SelectItem value="STAFF" data-testid="role-option-staff">
+                <span className="text-green-700 dark:text-green-400 font-medium">Staff</span>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </SidebarHeader>
+
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Hiring</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {hiringNavItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton 
-                    asChild 
-                    isActive={isActive(item.url)}
-                    tooltip={item.title}
-                  >
-                    <Link href={item.url} data-testid={`link-admin-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        <SidebarGroup>
-          <SidebarGroupLabel>Operations</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {operationsNavItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton 
-                    asChild 
-                    isActive={isActive(item.url)}
-                    tooltip={item.title}
-                  >
-                    <Link href={item.url} data-testid={`link-admin-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        <SidebarGroup>
-          <SidebarGroupLabel>Finance</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {financeNavItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton 
-                    asChild 
-                    isActive={isActive(item.url)}
-                    tooltip={item.title}
-                  >
-                    <Link href={item.url} data-testid={`link-admin-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        <SidebarGroup>
-          <SidebarGroupLabel>Communications</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {commsNavItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={isActive(item.url)}
-                    tooltip={item.title}
-                  >
-                    <Link href={item.url} data-testid={`link-admin-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        <SidebarGroup>
-          <SidebarGroupLabel>Executive</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {executiveNavItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={isActive(item.url)}
-                    tooltip={item.title}
-                  >
-                    <Link href={item.url} data-testid={`link-admin-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {renderGroup("Hiring", hiringNavItems)}
+        {renderGroup("Operations", operationsNavItems)}
+        {renderGroup("Finance", financeNavItems)}
+        {renderGroup("Communications", commsNavItems)}
+        {renderGroup("Executive", executiveNavItems)}
+        {/* Settings is always visible to ADMIN; hidden to others via hasAccess check */}
+        {currentRole === "ADMIN" && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Settings</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {settingsNavItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive(item.url)}
+                      tooltip={item.title}
+                    >
+                      <Link href={item.url} data-testid={`link-admin-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
+                        <item.icon className="w-4 h-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
     </Sidebar>
   );
 }
 
+// ─── Layout ──────────────────────────────────────────────────────────────────
+
+interface AdminLayoutProps {
+  children: React.ReactNode;
+  title?: string;
+}
+
 export function AdminLayout({ children, title }: AdminLayoutProps) {
+  const { currentRole } = useAdminRole();
+
   const style = {
     "--sidebar-width": "16rem",
     "--sidebar-width-icon": "3rem",
   };
+
+  const roleColor =
+    currentRole === "ADMIN" ? "text-blue-600 dark:text-blue-400"
+    : currentRole === "MANAGER" ? "text-purple-600 dark:text-purple-400"
+    : "text-green-600 dark:text-green-400";
 
   return (
     <SidebarProvider style={style as React.CSSProperties}>
@@ -272,8 +222,11 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
           <header className="h-14 flex items-center gap-4 px-4 border-b bg-background sticky top-0 z-40">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
             {title && (
-              <h1 className="text-lg font-semibold" data-testid="text-page-title">{title}</h1>
+              <h1 className="text-lg font-semibold flex-1" data-testid="text-page-title">{title}</h1>
             )}
+            <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${roleColor} border-current/30 bg-current/5`}>
+              {ROLE_LABELS[currentRole]}
+            </span>
           </header>
           <main className="flex-1 overflow-auto bg-muted/30">
             <div className="p-6 max-w-7xl mx-auto">
