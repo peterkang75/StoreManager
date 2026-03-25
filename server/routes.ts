@@ -3959,12 +3959,26 @@ export async function registerRoutes(
     }
   });
 
-  // ── AP: Inbound Invoice Email Webhook (Resend) ───────────────────────────────
-  // Receives inbound email events from Resend inbound routing.
-  // Filters by known supplier contactEmails (whitelist).
+  // ── AP: Inbound Invoice Email Webhook (Cloudmailin) ─────────────────────────
+  // Receives inbound email events from Cloudmailin.
+  // Route: POST /api/webhooks/inbound-invoices
+  // Always responds 200 so Cloudmailin does not retry endlessly.
   app.post("/api/webhooks/inbound-invoices", async (req: Request, res: Response) => {
     try {
-      const payload = req.body;
+      // ── Body parsing: express.json() handles application/json.
+      // If Cloudmailin sends multipart/form-data or URL-encoded, req.body may be
+      // an empty object. Fall back to parsing rawBody as JSON in that case.
+      let payload = req.body;
+      if (!payload || Object.keys(payload).length === 0) {
+        try {
+          const raw = (req as any).rawBody;
+          if (raw) payload = JSON.parse(raw.toString("utf-8"));
+        } catch (_) {
+          // rawBody not parseable as JSON — leave payload as-is
+        }
+      }
+
+      console.log("[Webhook/inbound-invoices] Received POST — Content-Type:", req.headers["content-type"]);
 
       // ── 1. Extract sender email (Cloudmailin format) ─────────────────────────
       // Use ONLY headers.from — envelope.from contains Gmail forwarding artifacts
@@ -4302,9 +4316,13 @@ export async function registerRoutes(
 
     } catch (err) {
       console.error("[Webhook/inbound-invoices] Unhandled error:", err);
-      // Always return 200 to Resend so it does not retry endlessly
-      return res.status(200).json({ received: true, action: "error" });
+      // Always return 200 to Cloudmailin so it does not retry endlessly
+      if (!res.headersSent) return res.status(200).send("OK");
+      return;
     }
+
+    // Final safety net: if somehow no return path was hit, respond 200
+    if (!res.headersSent) res.status(200).send("OK");
   });
 
   // ── Notices ───────────────────────────────────────────────────────────────────
