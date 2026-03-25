@@ -8,8 +8,9 @@ import {
   Accordion,
   AccordionContent,
   AccordionItem,
-  AccordionTrigger,
 } from "@/components/ui/accordion";
+import * as AccordionPrimitive from "@radix-ui/react-accordion";
+import { ChevronDown } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -221,7 +222,7 @@ export function AdminAccountsPayable() {
 
   return (
     <AdminLayout title="Accounts Payable">
-      <div className="flex flex-col gap-5 pb-24">
+      <div className="flex flex-col gap-5">
 
         {/* ── Summary Cards ─────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 gap-4">
@@ -326,8 +327,39 @@ export function AdminAccountsPayable() {
             ))}
           </div>
 
-          {/* Right: spacer to balance layout */}
-          <div className="shrink-0 w-[160px]" />
+          {/* Right: Pay action (only when something is selected) */}
+          <div className="shrink-0 flex items-center gap-2">
+            {selected.size > 0 ? (
+              <>
+                <span className="text-sm font-semibold tabular-nums text-foreground whitespace-nowrap" data-testid="text-selected-total">
+                  {fmtAUD(selectedTotal)}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={clearSelection}
+                  data-testid="button-clear-selection"
+                >
+                  Clear
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => bulkMarkPaidMutation.mutate(Array.from(selected))}
+                  disabled={bulkMarkPaidMutation.isPending}
+                  data-testid="button-bulk-mark-paid"
+                  className="gap-1.5 whitespace-nowrap"
+                >
+                  {bulkMarkPaidMutation.isPending ? (
+                    <><Loader2 className="h-3.5 w-3.5 animate-spin" />Paying…</>
+                  ) : (
+                    <><CheckCircle className="h-3.5 w-3.5" />Pay Selected ({selected.size})</>
+                  )}
+                </Button>
+              </>
+            ) : (
+              <div className="w-[160px]" />
+            )}
+          </div>
         </div>
 
         {/* ── Content Area ──────────────────────────────────────────────── */}
@@ -367,21 +399,22 @@ export function AdminAccountsPayable() {
                       className="border border-border/40 rounded-lg bg-card overflow-hidden"
                       data-testid={`supplier-group-${group.supplierId}`}
                     >
-                      <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-muted/30">
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                          {/* Supplier select-all checkbox */}
-                          <div onClick={e => e.stopPropagation()}>
-                            <Checkbox
-                              checked={allGroupSelected}
-                              data-state={someGroupSelected && !allGroupSelected ? "indeterminate" : undefined}
-                              onCheckedChange={() => toggleSupplier(group)}
-                              aria-label={`Select all invoices for ${group.supplierName}`}
-                              data-testid={`checkbox-supplier-${group.supplierId}`}
-                            />
-                          </div>
+                      {/* Custom header: checkbox OUTSIDE trigger to avoid button-in-button */}
+                      <AccordionPrimitive.Header className="flex items-center px-4 py-3 hover:bg-muted/30 transition-colors">
+                        {/* Supplier select-all checkbox (sibling to trigger, not inside) */}
+                        <Checkbox
+                          checked={allGroupSelected}
+                          data-state={someGroupSelected && !allGroupSelected ? "indeterminate" : undefined}
+                          onCheckedChange={() => toggleSupplier(group)}
+                          aria-label={`Select all invoices for ${group.supplierName}`}
+                          data-testid={`checkbox-supplier-${group.supplierId}`}
+                          className="mr-3 shrink-0"
+                        />
 
+                        {/* Expand/collapse trigger (contains only info + chevron) */}
+                        <AccordionPrimitive.Trigger className="flex flex-1 items-center justify-between gap-2 min-w-0 text-left [&[data-state=open]>svg]:rotate-180">
                           {/* Supplier name + amounts */}
-                          <div className="flex-1 min-w-0 text-left">
+                          <div className="flex-1 min-w-0">
                             <p className="font-semibold text-sm">{group.supplierName}</p>
                             <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                               <span className="text-xs text-muted-foreground">
@@ -404,8 +437,9 @@ export function AdminAccountsPayable() {
                               )}
                             </div>
                           </div>
-                        </div>
-                      </AccordionTrigger>
+                          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200" />
+                        </AccordionPrimitive.Trigger>
+                      </AccordionPrimitive.Header>
 
                       <AccordionContent className="pb-0">
                         <div className="border-t border-border/30">
@@ -562,44 +596,6 @@ export function AdminAccountsPayable() {
         )}
       </div>
 
-      {/* ── Sticky Bottom Summary Bar ─────────────────────────────────────── */}
-      {selected.size > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-background/95 backdrop-blur-sm border-t border-border/40 px-6 py-3">
-          <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-semibold" data-testid="text-selected-total">
-                {fmtAUD(selectedTotal)}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {selected.size} invoice{selected.size !== 1 ? "s" : ""} selected
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={clearSelection}
-                data-testid="button-clear-selection"
-              >
-                Clear
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => bulkMarkPaidMutation.mutate(Array.from(selected))}
-                disabled={bulkMarkPaidMutation.isPending}
-                data-testid="button-bulk-mark-paid"
-                className="gap-2"
-              >
-                {bulkMarkPaidMutation.isPending ? (
-                  <><Loader2 className="h-3.5 w-3.5 animate-spin" />Paying…</>
-                ) : (
-                  <><CheckCircle className="h-3.5 w-3.5" />Pay Selected ({selected.size})</>
-                )}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </AdminLayout>
   );
 }

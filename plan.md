@@ -193,7 +193,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
   - Expanded table columns: Invoice Date | Amount | Due Date (overdue red + AlertCircle; due-soon orange) | Invoice # | Store.
   - Overdue rows sorted to top within each group; rows highlighted with faint red background.
 - **Paid History view**: flat table — Supplier | Invoice Date | Amount | Invoice # | Store.
-- **Sticky bottom bar** (visible when ≥1 invoice selected): selected total, invoice count, `Clear` button, `Pay Selected (N)` button → bulk PATCH to PAID.
+- **Top-right action bar** (inline, right of store filter buttons): when ≥1 invoice selected, shows selected total amount + `Clear` + `Pay Selected (N)` button. No sticky bottom bar.
 - **Bulk Pay**: parallel PATCH `/api/invoices/:id/status` → `{ status: "PAID" }`, then invalidate query cache and clear selection.
 
 ### 3.9 Supplier Management (`/admin/suppliers`)
