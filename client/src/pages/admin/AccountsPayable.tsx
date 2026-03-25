@@ -10,8 +10,9 @@ import {
   AccordionItem,
 } from "@/components/ui/accordion";
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Plus } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import AddInvoiceModal from "@/components/AddInvoiceModal";
 import { useToast } from "@/hooks/use-toast";
 import {
   CheckCircle,
@@ -104,6 +105,8 @@ export function AdminAccountsPayable() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // Open accordion items
   const [openAccordions, setOpenAccordions] = useState<string[]>([]);
+  // Add Invoice modal
+  const [addInvoiceOpen, setAddInvoiceOpen] = useState(false);
 
   // Fetch all invoices (we split client-side for the two tabs)
   const { data: allInvoices = [], isLoading } = useQuery<EnrichedInvoice[]>({
@@ -223,6 +226,18 @@ export function AdminAccountsPayable() {
   return (
     <AdminLayout title="Accounts Payable">
       <div className="flex flex-col gap-5">
+
+        {/* ── Page header actions ─────────────────────────────────────────── */}
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            onClick={() => setAddInvoiceOpen(true)}
+            data-testid="button-add-invoice"
+          >
+            <Plus className="w-4 h-4 mr-1.5" />
+            Add Invoice
+          </Button>
+        </div>
 
         {/* ── Summary Cards ─────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 gap-4">
@@ -596,6 +611,10 @@ export function AdminAccountsPayable() {
         )}
       </div>
 
+      <AddInvoiceModal
+        open={addInvoiceOpen}
+        onClose={() => setAddInvoiceOpen(false)}
+      />
     </AdminLayout>
   );
 }

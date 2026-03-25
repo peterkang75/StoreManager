@@ -14,6 +14,15 @@ export interface ParsedInvoice {
   storeCode: "SUSHI" | "SANDWICH" | "UNKNOWN";
 }
 
+export interface UploadParsedInvoice {
+  supplierName: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  dueDate: string | null;
+  amount: number;
+  storeCode: string;
+}
+
 /**
  * Extract raw text from a PDF buffer using the pdftotext CLI tool.
  * Returns empty string if extraction fails.
@@ -123,6 +132,100 @@ If a field cannot be found, use null for optional fields or an empty string for 
     return results;
   } catch (err) {
     console.error("[invoiceParser] AI parsing error:", err);
+    return null;
+  }
+}
+
+const UPLOAD_SYSTEM_PROMPT = `You are an invoice data extraction assistant for an Australian retail/hospitality business.
+Extract the key fields from the invoice image or text provided.
+
+CRITICAL RULES:
+1. Return ONLY a single JSON object (not an array).
+2. For storeCode, look for the "Bill To", "Invoice To", or "Deliver To" name:
+   - Contains "olitin" or "sushime" → "SUSHI"
+   - Contains "eatem" or "sandwich" → "SANDWICH"
+   - Otherwise → "UNKNOWN"
+3. Return dates in YYYY-MM-DD format. If a date is unclear, return null.
+4. Return amounts as a number (float), no currency symbols.
+5. Return ONLY valid JSON with no extra text, code fences, or explanation.
+
+Return this exact structure:
+{
+  "supplierName": "string (the name of the supplier/company issuing the invoice)",
+  "invoiceNumber": "string",
+  "invoiceDate": "YYYY-MM-DD or null",
+  "dueDate": "YYYY-MM-DD or null",
+  "amount": number,
+  "storeCode": "SUSHI" | "SANDWICH" | "UNKNOWN"
+}`;
+
+/**
+ * Parse an uploaded invoice file (image or PDF) using GPT-4o.
+ * For images: sends as base64 vision input.
+ * For PDFs: extracts text then sends as text input.
+ * Returns structured invoice data including supplierName.
+ */
+export async function parseUploadedFile(
+  buffer: Buffer,
+  mimeType: string
+): Promise<UploadParsedInvoice | null> {
+  try {
+    let messages: OpenAI.ChatCompletionMessageParam[];
+
+    const isImage = mimeType.startsWith("image/");
+    const isPdf = mimeType === "application/pdf";
+
+    if (isImage) {
+      const base64 = buffer.toString("base64");
+      const dataUrl = `data:${mimeType};base64,${base64}`;
+      messages = [
+        { role: "system", content: UPLOAD_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Extract all invoice fields from this image." },
+            { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
+          ],
+        },
+      ];
+    } else if (isPdf) {
+      const rawText = extractPdfText(buffer);
+      if (!rawText.trim()) {
+        console.warn("[invoiceParser] PDF text extraction returned empty string");
+      }
+      messages = [
+        { role: "system", content: UPLOAD_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: `Extract all invoice fields from this PDF text:\n\n${rawText.slice(0, 8000)}`,
+        },
+      ];
+    } else {
+      console.warn("[invoiceParser] Unsupported MIME type:", mimeType);
+      return null;
+    }
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages,
+      temperature: 0,
+      max_tokens: 500,
+    });
+
+    const raw = response.choices[0]?.message?.content?.trim() ?? "";
+    const cleaned = raw.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
+    const parsed = JSON.parse(cleaned);
+
+    return {
+      supplierName: String(parsed.supplierName ?? ""),
+      invoiceNumber: String(parsed.invoiceNumber ?? ""),
+      invoiceDate: parsed.invoiceDate ? String(parsed.invoiceDate) : "",
+      dueDate: parsed.dueDate ? String(parsed.dueDate) : null,
+      amount: Number(parsed.amount ?? 0),
+      storeCode: String(parsed.storeCode ?? "UNKNOWN"),
+    };
+  } catch (err) {
+    console.error("[invoiceParser] parseUploadedFile error:", err);
     return null;
   }
 }

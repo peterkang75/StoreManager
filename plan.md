@@ -195,6 +195,12 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Paid History view**: flat table — Supplier | Invoice Date | Amount | Invoice # | Store.
 - **Top-right action bar** (inline, right of store filter buttons): when ≥1 invoice selected, shows selected total amount + `Clear` + `Pay Selected (N)` button. No sticky bottom bar.
 - **Bulk Pay**: parallel PATCH `/api/invoices/:id/status` → `{ status: "PAID" }`, then invalidate query cache and clear selection.
+- **Add Invoice** (`+ Add Invoice` button, top-right above summary cards):
+  - Opens `AddInvoiceModal` with two tabs: **AI Scan** and **Manual Entry**.
+  - **AI Scan tab**: Drag-and-drop or browse file upload (JPEG, PNG, WebP, PDF, max 10 MB). Calls `POST /api/invoices/parse-upload` (multer memory storage). Uses GPT-4o Vision for images, `extractPdfText` + GPT-4o for PDFs. On success auto-switches to Manual Entry with pre-filled fields.
+  - **Manual Entry tab**: Supplier dropdown, Store dropdown, Invoice Number, Amount (AUD), Invoice Date, Due Date (optional). Validated with Zod + react-hook-form.
+  - Saves via `POST /api/invoices` → `status: "PENDING"`. Invalidates `/api/invoices` query cache on success.
+  - `parseUploadedFile()` in `server/invoiceParser.ts` handles both image (base64 Vision) and PDF (text extraction) parsing. Returns `{ supplierName, invoiceNumber, invoiceDate, dueDate, amount, storeCode }` plus fuzzy-matched `matchedSupplierId`.
 
 ### 3.9 Supplier Management (`/admin/suppliers`)
 - List all suppliers with ABN, whitelisted contact emails (shown as tags), BSB/account number.

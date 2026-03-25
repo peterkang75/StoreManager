@@ -3,7 +3,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage, generateSecureToken } from "./storage";
 import { PAYROLL_CYCLE_ANCHOR, getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "../shared/payrollCycle";
-import { extractPdfText, parseInvoiceWithAI } from "./invoiceParser";
+import { extractPdfText, parseInvoiceWithAI, parseUploadedFile } from "./invoiceParser";
 import { 
   insertStoreSchema, 
   insertCandidateSchema, 
@@ -2683,6 +2683,51 @@ export async function registerRoutes(
     } catch (err) {
       console.error("Error updating invoice status:", err);
       res.status(500).json({ error: "Failed to update invoice status" });
+    }
+  });
+
+  // ── Invoice: AI parse upload ──────────────────────────────────────────────
+  const invoiceUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      const ok = ["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(file.mimetype);
+      cb(null, ok);
+    },
+  });
+
+  app.post("/api/invoices/parse-upload", invoiceUpload.single("file"), async (req: Request, res: Response) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+      const result = await parseUploadedFile(req.file.buffer, req.file.mimetype);
+      if (!result) return res.status(422).json({ error: "Could not extract invoice data from file" });
+
+      // Try to fuzzy-match supplier name to an existing supplier
+      const allSuppliers = await storage.getSuppliers();
+      const nameLower = result.supplierName.toLowerCase();
+      const matched = allSuppliers.find(s =>
+        s.name.toLowerCase().includes(nameLower) ||
+        nameLower.includes(s.name.toLowerCase())
+      );
+
+      res.json({ ...result, matchedSupplierId: matched?.id ?? null });
+    } catch (err) {
+      console.error("[parse-upload] error:", err);
+      res.status(500).json({ error: "Failed to parse invoice" });
+    }
+  });
+
+  // ── Invoice: create (AP dashboard) ───────────────────────────────────────
+  app.post("/api/invoices", async (req: Request, res: Response) => {
+    try {
+      const parsed = insertSupplierInvoiceSchema.safeParse({ ...req.body, status: "PENDING" });
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
+      const invoice = await storage.createSupplierInvoice(parsed.data);
+      res.status(201).json(invoice);
+    } catch (err) {
+      console.error("[POST /api/invoices] error:", err);
+      res.status(500).json({ error: "Failed to create invoice" });
     }
   });
 
