@@ -79,6 +79,39 @@ interface ReviewRawData {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Parse From/Subject metadata stored in invoice notes field.
+ *  Handles formats:
+ *   "From: email\nSubject: text"
+ *   "Forwarded by Name (email). Subject: text"
+ *   "...From: email...Subject: text..."
+ */
+function parseNotesEmailInfo(notes: string | null | undefined): { from: string | null; subject: string | null } {
+  if (!notes) return { from: null, subject: null };
+  let from: string | null = null;
+  let subject: string | null = null;
+
+  // Line-by-line: "From: ..." and "Subject: ..."
+  for (const line of notes.split("\n")) {
+    const t = line.trim();
+    if (!from && /^from:/i.test(t)) from = t.replace(/^from:/i, "").trim();
+    else if (!subject && /^subject:/i.test(t)) subject = t.replace(/^subject:/i, "").trim();
+  }
+
+  // Inline: "Forwarded by Name (email@domain.com)."
+  if (!from) {
+    const m = notes.match(/\(([^)]+@[^)]+)\)/);
+    if (m) from = m[1];
+  }
+
+  // Inline: "). Subject: text" or "Subject: text" anywhere
+  if (!subject) {
+    const m = notes.match(/[.;]\s*Subject:\s*(.+)/i) || notes.match(/Subject:\s*(.+)/i);
+    if (m) subject = m[1].trim().split("\n")[0];
+  }
+
+  return { from, subject };
+}
+
 function fmt(dateStr: string | null | undefined): string {
   if (!dateStr) return "—";
   try {
@@ -604,18 +637,23 @@ export function AdminAccountsPayable() {
     for (const inv of reviewInvoices) {
       const r = inv.rawExtractedData as ReviewRawData | null;
       const name = r?.supplier?.supplierName ?? "Unknown Supplier";
+      // Extract senderEmail from notes when rawExtractedData is unavailable
+      const notesInfo = parseNotesEmailInfo(inv.notes);
+      const senderEmail = r?.senderEmail ?? notesInfo.from ?? "";
       if (!map.has(name)) {
         map.set(name, {
           supplierName: name,
           invoices: [],
           totalAmount: 0,
-          senderEmail: r?.senderEmail ?? "",
+          senderEmail,
           rawFirst: r,
         });
       }
       const g = map.get(name)!;
       g.invoices.push(inv);
       g.totalAmount += r?.totalAmount ?? 0;
+      // Use earliest available senderEmail
+      if (!g.senderEmail && senderEmail) g.senderEmail = senderEmail;
     }
     return Array.from(map.values());
   }, [reviewInvoices]);
@@ -1073,21 +1111,46 @@ export function AdminAccountsPayable() {
                         <div className="px-4 pb-3 space-y-1">
                           {group.invoices.map(inv => {
                             const ir = inv.rawExtractedData as ReviewRawData | null;
+                            const emailInfo = parseNotesEmailInfo(inv.notes);
                             const isDeleting = deleteInvoiceMutation.isPending && deleteInvoiceMutation.variables === inv.id;
+                            const hasUsefulInvoiceData = ir?.invoiceNumber || ir?.totalAmount;
                             return (
-                              <div key={inv.id} className="flex items-center justify-between text-xs py-1 border-t border-border/20 first:border-t-0">
-                                <span className="text-muted-foreground font-mono">
-                                  {ir?.invoiceNumber ? `#${ir.invoiceNumber}` : "No invoice #"}
-                                </span>
-                                <div className="flex items-center gap-3">
-                                  {ir?.issueDate && <span className="text-muted-foreground">{fmt(ir.issueDate)}</span>}
-                                  {ir?.totalAmount !== undefined && ir.totalAmount > 0 && (
-                                    <span className="font-medium tabular-nums">{fmtAUD(ir.totalAmount)}</span>
-                                  )}
+                              <div key={inv.id} className="py-2 border-t border-border/20 first:border-t-0">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                                    {/* Invoice # + amount */}
+                                    <div className="flex items-center gap-3 flex-wrap">
+                                      <span className="text-muted-foreground font-mono text-xs">
+                                        {ir?.invoiceNumber ? `#${ir.invoiceNumber}` : "No invoice #"}
+                                      </span>
+                                      {ir?.issueDate && <span className="text-muted-foreground text-xs">{fmt(ir.issueDate)}</span>}
+                                      {ir?.totalAmount !== undefined && ir.totalAmount > 0 && (
+                                        <span className="font-medium tabular-nums text-xs">{fmtAUD(ir.totalAmount)}</span>
+                                      )}
+                                    </div>
+                                    {/* Email subject — always show if available */}
+                                    {emailInfo.subject && (
+                                      <p className="text-xs font-medium text-foreground truncate leading-snug">
+                                        {emailInfo.subject}
+                                      </p>
+                                    )}
+                                    {/* Sender */}
+                                    {emailInfo.from && (
+                                      <p className="text-xs text-muted-foreground truncate">
+                                        From: {emailInfo.from}
+                                      </p>
+                                    )}
+                                    {/* Notes fallback when no structured data at all */}
+                                    {!hasUsefulInvoiceData && !emailInfo.subject && !emailInfo.from && inv.notes && (
+                                      <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+                                        {inv.notes.slice(0, 160)}
+                                      </p>
+                                    )}
+                                  </div>
                                   <Button
                                     size="icon"
                                     variant="ghost"
-                                    className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                                    className="h-6 w-6 text-muted-foreground hover:text-destructive shrink-0 mt-0.5"
                                     disabled={isDeleting}
                                     onClick={() => deleteInvoiceMutation.mutate(inv.id)}
                                     data-testid={`button-delete-invoice-${inv.id}`}
