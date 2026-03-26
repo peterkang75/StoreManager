@@ -119,9 +119,9 @@ function buildSingleCycles(rows: DailyRow[], anchor: string): CycleRow[] {
   for (const row of rows) {
     const key = getCycleStart(row.date, anchor);
     const cur = map.get(key) ?? { cycle: fmtCycleLabel(key), sortKey: key, Sales: 0, COGS: 0, Labour: 0 };
-    cur.Sales  += row.sales;
-    cur.COGS   += row.cogs;
-    cur.Labour += row.labor;
+    cur.Sales  += row.sales  ?? 0;
+    cur.COGS   += row.cogs   ?? 0;
+    cur.Labour += row.labor  ?? 0;
     map.set(key, cur);
   }
   return Array.from(map.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
@@ -139,13 +139,13 @@ function buildStackedCycles(sushi: DailyRow[], sandwich: DailyRow[], anchor: str
         SushiLabour: 0, SandwichLabour: 0,
       };
       if (isSushi) {
-        cur.SushiSales   += row.sales;
-        cur.SushiCogs    += row.cogs;
-        cur.SushiLabour  += row.labor;
+        cur.SushiSales   += row.sales  ?? 0;
+        cur.SushiCogs    += row.cogs   ?? 0;
+        cur.SushiLabour  += row.labor  ?? 0;
       } else {
-        cur.SandwichSales   += row.sales;
-        cur.SandwichCogs    += row.cogs;
-        cur.SandwichLabour  += row.labor;
+        cur.SandwichSales   += row.sales  ?? 0;
+        cur.SandwichCogs    += row.cogs   ?? 0;
+        cur.SandwichLabour  += row.labor  ?? 0;
       }
       map.set(key, cur);
     }
@@ -422,7 +422,6 @@ export function AdminDashboard() {
       return res.json();
     },
     enabled: !!sushiStoreId,
-    staleTime: 60_000,
   });
 
   const { data: sandwichSummary } = useQuery<DashboardSummary>({
@@ -433,7 +432,6 @@ export function AdminDashboard() {
       return res.json();
     },
     enabled: !!sandwichStoreId,
-    staleTime: 60_000,
   });
 
   // ── HR stats ──────────────────────────────────────────────────────────────
