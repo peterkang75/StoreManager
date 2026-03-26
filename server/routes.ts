@@ -3507,11 +3507,26 @@ export async function registerRoutes(
   });
 
   // POST /api/portal/login-pin — 1-step PIN login (just a PIN, no employee selection)
+  // Default PIN for employees who have not set a custom PIN = last 4 digits of phone number
   app.post("/api/portal/login-pin", async (req: Request, res: Response) => {
     try {
       const { pin } = req.body;
       if (!pin || String(pin).length !== 4) return res.status(400).json({ error: "4-digit PIN required" });
-      const emp = await storage.getEmployeeByPin(String(pin));
+      const pinStr = String(pin);
+
+      // 1. Try exact custom PIN match first
+      let emp = await storage.getEmployeeByPin(pinStr);
+
+      // 2. Fallback: match last 4 digits of phone for employees with no PIN set
+      if (!emp) {
+        const allActive = await storage.getEmployees({ status: "ACTIVE" });
+        emp = allActive.find(e => {
+          if (e.pin) return false; // has a custom PIN — must use that
+          const phone = (e.phone ?? "").replace(/\D/g, ""); // digits only
+          return phone.length >= 4 && phone.slice(-4) === pinStr;
+        });
+      }
+
       if (!emp) return res.status(401).json({ error: "Invalid PIN" });
       res.json({ id: emp.id, nickname: emp.nickname, firstName: emp.firstName, storeId: emp.storeId, selfieUrl: emp.selfieUrl ?? null });
     } catch (err) {

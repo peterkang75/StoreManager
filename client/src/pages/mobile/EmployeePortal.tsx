@@ -204,6 +204,7 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
       <div className="text-center">
         <h1 className="text-3xl font-bold tracking-tight">Staff Portal</h1>
         <p className="text-muted-foreground mt-2 text-sm">Enter your 4-digit PIN to continue</p>
+        <p className="text-muted-foreground/60 mt-1 text-xs">Default PIN: last 4 digits of your phone number</p>
       </div>
 
       {/* PIN dots */}
@@ -2010,7 +2011,7 @@ function SettingsTab({ session, onLogout, onEditProfile }: { session: Session; o
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-sm">Change PIN</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Update your 4-digit access code</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Default: last 4 digits of your phone</p>
               </div>
               <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
             </button>
