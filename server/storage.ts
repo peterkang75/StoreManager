@@ -834,7 +834,9 @@ export class MemStorage implements IStorage {
   }
 
   async getSuppliers(): Promise<Supplier[]> {
-    return Array.from(this.suppliers.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(this.suppliers.values())
+      .filter(s => s.active)
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async getSupplier(id: string): Promise<Supplier | undefined> {
@@ -952,7 +954,10 @@ export class MemStorage implements IStorage {
   }
 
   async deleteSupplier(id: string): Promise<boolean> {
-    return this.suppliers.delete(id);
+    const supplier = this.suppliers.get(id);
+    if (!supplier) return false;
+    this.suppliers.set(id, { ...supplier, active: false });
+    return true;
   }
 
   async findSupplierByEmail(email: string): Promise<Supplier | undefined> {
@@ -1733,7 +1738,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSuppliers(): Promise<Supplier[]> {
-    return db.select().from(suppliers).orderBy(asc(suppliers.name));
+    return db.select().from(suppliers)
+      .where(eq(suppliers.active, true))
+      .orderBy(asc(suppliers.name));
   }
 
   async getSupplier(id: string): Promise<Supplier | undefined> {
