@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+import sushimeLogo from "../../assets/sushime_logo.png";
+import eatemLogo from "../../assets/eatem_logo.png";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -200,45 +202,78 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
   const handleDel = () => { setPin(p => p.slice(0, -1)); setError(""); };
 
   return (
-    <div className="flex flex-col items-center justify-center flex-1 gap-8 px-4">
-      <div className="text-center">
-        <h1 className="text-3xl font-bold tracking-tight">Staff Portal</h1>
-        <p className="text-muted-foreground mt-2 text-sm">Enter your 4-digit PIN to continue</p>
-        <p className="text-muted-foreground/60 mt-1 text-xs">Default PIN: last 4 digits of your phone number</p>
+    <div className="flex flex-col items-center justify-between flex-1 px-4 py-8 gap-6">
+
+      {/* Logo card */}
+      <div className="flex flex-col items-center justify-center w-full max-w-xs rounded-2xl bg-white dark:bg-white shadow-sm border border-border/40 px-8 py-10 gap-8">
+        {/* Sushime circular logo */}
+        <img
+          src={sushimeLogo}
+          alt="Sushime"
+          className="h-28 w-auto object-contain"
+          data-testid="img-logo-sushime"
+        />
+
+        {/* Divider */}
+        <div className="w-16 h-px bg-border/50" />
+
+        {/* Eat'em text logo */}
+        <img
+          src={eatemLogo}
+          alt="Eat'em"
+          className="h-20 w-auto object-contain"
+          data-testid="img-logo-eatem"
+        />
+
+        {/* Welcome text */}
+        <div className="text-center">
+          <p className="text-sm font-semibold text-gray-700 leading-snug">
+            Welcome to the Eat'em &amp; Sushime
+          </p>
+          <p className="text-xs text-gray-400 mt-0.5">Team Portal</p>
+        </div>
       </div>
 
-      {/* PIN dots */}
-      <div className="flex gap-6" data-testid="pin-dots">
-        {[0,1,2,3].map(i => (
-          <div key={i} className={`h-4 w-4 rounded-full border-2 transition-all duration-150 ${
-            i < pin.length ? "bg-foreground border-foreground scale-110" : "border-muted-foreground/50"
-          }`} />
-        ))}
-      </div>
+      {/* PIN entry section */}
+      <div className="flex flex-col items-center gap-5 w-full max-w-xs">
+        <div className="text-center">
+          <p className="text-sm text-muted-foreground">Enter your 4-digit PIN to continue</p>
+          <p className="text-xs text-muted-foreground/50 mt-1">Default PIN: last 4 digits of your phone number</p>
+        </div>
 
-      {/* Error */}
-      <div className="w-full max-w-xs" style={{ minHeight: "40px" }}>
-        {error && (
-          <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 rounded-md px-4 py-2.5">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-        {loginMutation.isPending && (
-          <div className="flex justify-center">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
-        )}
+        {/* PIN dots */}
+        <div className="flex gap-6" data-testid="pin-dots">
+          {[0,1,2,3].map(i => (
+            <div key={i} className={`h-4 w-4 rounded-full border-2 transition-all duration-150 ${
+              i < pin.length ? "bg-foreground border-foreground scale-110" : "border-muted-foreground/50"
+            }`} />
+          ))}
+        </div>
+
+        {/* Error / loading */}
+        <div className="w-full" style={{ minHeight: "36px" }}>
+          {error && (
+            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 rounded-md px-4 py-2.5">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+          {loginMutation.isPending && (
+            <div className="flex justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Numpad */}
-      <div className="grid grid-cols-3 gap-4 w-full max-w-xs">
+      <div className="grid grid-cols-3 gap-3 w-full max-w-xs">
         {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((key, idx) => (
           <button
             key={idx} type="button"
             disabled={loginMutation.isPending || key === ""}
             data-testid={key === "⌫" ? "pin-delete" : key ? `pin-digit-${key}` : undefined}
-            className={`h-[72px] rounded-2xl text-2xl font-semibold transition-all select-none ${
+            className={`h-[68px] rounded-2xl text-2xl font-semibold transition-all select-none ${
               key === "" ? "invisible pointer-events-none" :
               "bg-muted hover-elevate active-elevate-2"
             } ${key === "⌫" ? "text-muted-foreground" : "text-foreground"}`}
