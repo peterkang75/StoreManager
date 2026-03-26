@@ -230,32 +230,61 @@ export default function AddInvoiceModal({ open, onClose }: Props) {
     }
     setIsCreatingAll(true);
     let created = 0;
-    let failed = 0;
+    let skipped = 0;
+    const failedNums: string[] = [];
     const today = new Date().toISOString().split("T")[0];
+
     for (const item of statementItems) {
       try {
-        await apiRequest("POST", "/api/invoices", {
-          supplierId: statementSupplierId,
-          storeId: statementStoreId,
-          invoiceNumber: item.invoiceNumber,
-          invoiceDate: item.invoiceDate || today,
-          dueDate: item.dueDate || null,
-          amount: item.amount,
-          status: "PENDING",
+        const res = await fetch("/api/invoices", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            supplierId: statementSupplierId,
+            storeId: statementStoreId,
+            invoiceNumber: item.invoiceNumber,
+            invoiceDate: item.invoiceDate || today,
+            dueDate: item.dueDate || null,
+            amount: item.amount,
+            status: "PENDING",
+          }),
         });
-        created++;
+
+        if (res.status === 409) {
+          // Duplicate invoice — skip gracefully
+          skipped++;
+        } else if (!res.ok) {
+          failedNums.push(item.invoiceNumber || "?");
+        } else {
+          created++;
+        }
       } catch {
-        failed++;
+        failedNums.push(item.invoiceNumber || "?");
       }
     }
+
     setIsCreatingAll(false);
     queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-    if (failed === 0) {
+
+    if (failedNums.length === 0 && skipped === 0) {
       toast({ title: `${created} invoice${created !== 1 ? "s" : ""} created`, description: "All statement line items saved as pending." });
+      handleClose();
+    } else if (failedNums.length === 0) {
+      // Only duplicates — all skipped
+      const msg = created > 0
+        ? `${created} created, ${skipped} already existed and were skipped.`
+        : `All ${skipped} invoice${skipped !== 1 ? "s" : ""} already exist in the system.`;
+      toast({ title: "Done", description: msg });
+      handleClose();
     } else {
-      toast({ title: `${created} created, ${failed} failed`, description: "Some invoices could not be saved — they may already exist.", variant: "destructive" });
+      // Some real failures
+      toast({
+        title: `${created} created${skipped > 0 ? `, ${skipped} skipped` : ""}, ${failedNums.length} failed`,
+        description: `Could not save: ${failedNums.join(", ")}`,
+        variant: "destructive",
+      });
     }
-    handleClose();
   }, [statementItems, statementSupplierId, statementStoreId, toast]);
 
   const handleClose = () => {

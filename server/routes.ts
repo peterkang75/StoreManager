@@ -2789,7 +2789,18 @@ export async function registerRoutes(
       }
 
       res.status(201).json(invoice);
-    } catch (err) {
+    } catch (err: any) {
+      // Unique constraint violation → 409 so the frontend can distinguish from real errors
+      const isUniqueViolation =
+        err?.code === "23505" ||                          // PostgreSQL unique_violation
+        err?.message?.includes("unique") ||
+        err?.message?.includes("duplicate") ||
+        err?.message?.includes("already exists");
+      if (isUniqueViolation) {
+        const invoiceNumber = req.body?.invoiceNumber ?? "unknown";
+        console.warn(`[POST /api/invoices] duplicate invoice: ${invoiceNumber}`);
+        return res.status(409).json({ error: "DUPLICATE_INVOICE", invoiceNumber });
+      }
       console.error("[POST /api/invoices] error:", err);
       res.status(500).json({ error: "Failed to create invoice" });
     }
