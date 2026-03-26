@@ -8,6 +8,8 @@ export interface ParsedInvoice {
   dueDate: string | null;
   totalAmount: number;
   storeCode: "SUSHI" | "SANDWICH" | "UNKNOWN";
+  /** Supplier/vendor company name as it appears on the PDF itself (not the hint passed in) */
+  extractedSupplierName?: string;
 }
 
 export interface UploadParsedInvoice {
@@ -88,7 +90,7 @@ CRITICAL RULES:
    - Otherwise → storeCode = "UNKNOWN"
 5. Return ONLY valid JSON with no extra text, code fences, or explanation.`;
 
-  const userPrompt = `Supplier: ${supplierName}
+  const userPrompt = `Supplier hint (from email routing — may be WRONG if the email was forwarded): ${supplierName}
 
 PDF text:
 ${rawText.slice(0, 8000)}
@@ -96,6 +98,7 @@ ${rawText.slice(0, 8000)}
 Extract all invoices and return as a JSON ARRAY. Each item must have:
 [
   {
+    "extractedSupplierName": "string (the ACTUAL supplier/vendor company name as printed on the PDF — ignore the hint above)",
     "invoiceNumber": "string (the invoice or reference number)",
     "issueDate": "YYYY-MM-DD (date the invoice was issued)",
     "dueDate": "YYYY-MM-DD or null (payment due date if present)",
@@ -104,6 +107,7 @@ Extract all invoices and return as a JSON ARRAY. Each item must have:
   }
 ]
 
+IMPORTANT: extractedSupplierName must come from the PDF content itself, not from the hint.
 If a field cannot be found, use null for optional fields or an empty string for required ones.`;
 
   try {
@@ -142,6 +146,7 @@ If a field cannot be found, use null for optional fields or an empty string for 
         storeCode: (["SUSHI", "SANDWICH", "UNKNOWN"].includes(item.storeCode)
           ? item.storeCode
           : "UNKNOWN") as ParsedInvoice["storeCode"],
+        extractedSupplierName: item.extractedSupplierName ? String(item.extractedSupplierName).trim() : undefined,
       }));
 
     if (results.length === 0) {

@@ -4092,13 +4092,15 @@ export async function registerRoutes(
       // When an internal forwarder (e.g. CEO) forwards a supplier email, the
       // senderEmail becomes the forwarder's address, breaking routing.
       // We extract the original sender from the forwarded block and override.
-      const INTERNAL_FORWARDER_EMAILS = [
-        "peter.kang@eatem.com.au",
-        "peterkang75@gmail.com",
-      ];
+      // Any @eatem.com.au address is an internal forwarder — expands beyond the CEO alone.
+      // Also includes explicit non-eatem forwarder addresses (e.g. personal Gmail).
+      const EXTRA_FORWARDER_EMAILS = ["peterkang75@gmail.com"];
+      const isInternalForwarder = (email: string) =>
+        email.endsWith("@eatem.com.au") || EXTRA_FORWARDER_EMAILS.includes(email);
+
       let forwarderEmail: string | null = null; // track who forwarded (for notes)
 
-      if (INTERNAL_FORWARDER_EMAILS.includes(senderEmail)) {
+      if (isInternalForwarder(senderEmail)) {
         // ── Pattern A: Standard forwarded block separator (Gmail EN/KO, Outlook) ──
         // Matches:  "---------- Forwarded message ---------" or
         //           "---------- 전달된 메일 ---------" or
@@ -4120,7 +4122,7 @@ export async function registerRoutes(
           const simplePattern =
             /(?:from|보낸사람|발신자?\s*:?)[\s:]*(?:[^\n<]{0,60}<)?([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})>/i;
           const simpleMatch = emailBody.match(simplePattern);
-          if (simpleMatch?.[1] && !INTERNAL_FORWARDER_EMAILS.includes(simpleMatch[1].toLowerCase())) {
+          if (simpleMatch?.[1] && !isInternalForwarder(simpleMatch[1].toLowerCase())) {
             forwarderEmail = senderEmail;
             senderEmail = simpleMatch[1].toLowerCase();
             console.log(`[Webhook] Forward detected (fwd-subject): ${forwarderEmail} → ${senderEmail}`);
@@ -4178,10 +4180,12 @@ export async function registerRoutes(
       }
 
       // ── Lookup routing rule + check if direct supplier ────────────────────────
-      const [routingRule, matchedSupplier] = await Promise.all([
+      const [routingRule, emailMatchedSupplier] = await Promise.all([
         storage.getEmailRoutingRule(senderEmail),
         storage.findSupplierByEmail(senderEmail),
       ]);
+      // effectiveSupplier may be overridden after PDF cross-check (see below)
+      let matchedSupplier = emailMatchedSupplier;
       let action = routingRule?.action ?? null;
 
       // Backward-compat: map legacy ALLOW/IGNORE → new actions
@@ -4276,6 +4280,84 @@ export async function registerRoutes(
       if (!parsedItems || parsedItems.length === 0) {
         return res.status(200).json({ received: true, action: "ai_parse_failed", supplier: matchedSupplier.name });
       }
+
+      // ── PDF Supplier Cross-Check ────────────────────────────────────────────
+      // PDF content is the ground truth. Compare the supplier name extracted from
+      // the PDF against the email-matched supplier. If they don't overlap, the
+      // email was likely forwarded and the email-matched supplier is WRONG.
+      const pdfSupplierName = parsedItems[0]?.extractedSupplierName ?? null;
+      if (pdfSupplierName) {
+        const normalize = (n: string) =>
+          n.toLowerCase()
+            .replace(/\bpty\.?\s*ltd\.?\b/gi, "")
+            .replace(/\binc\.?\b/gi, "")
+            .replace(/[^a-z0-9\s]/g, "")
+            .replace(/\s+/g, " ")
+            .trim();
+
+        const normPdf = normalize(pdfSupplierName);
+        const normMatched = normalize(matchedSupplier.name);
+
+        // Two names "overlap" if any significant word (4+ chars) appears in both
+        const significantWords = (n: string) => n.split(" ").filter(w => w.length >= 4);
+        const pdfWords = significantWords(normPdf);
+        const matchedWords = significantWords(normMatched);
+        const hasOverlap =
+          pdfWords.some(w => normMatched.includes(w)) ||
+          matchedWords.some(w => normPdf.includes(w));
+
+        if (!hasOverlap) {
+          console.log(`[Webhook] SUPPLIER MISMATCH — Email→"${matchedSupplier.name}" | PDF→"${pdfSupplierName}"`);
+
+          // Is the correct PDF supplier already in the DB?
+          const pdfSupplier = await storage.findSupplierByName(pdfSupplierName);
+          if (pdfSupplier) {
+            // Found — redirect all invoices to the real supplier
+            console.log(`[Webhook] Cross-check: redirecting to known supplier "${pdfSupplier.name}" (${pdfSupplier.id})`);
+            matchedSupplier = pdfSupplier;
+          } else {
+            // Unknown supplier — send to Review Inbox so the manager can approve
+            console.log(`[Webhook] Cross-check: unknown PDF supplier "${pdfSupplierName}" — routing to REVIEW`);
+            const today = new Date().toISOString().split("T")[0];
+            const reviewCreated: string[] = [];
+            for (const parsed of parsedItems) {
+              const inv = await storage.createSupplierInvoice({
+                supplierId: null,
+                storeId: resolveStoreId(parsed.storeCode),
+                invoiceNumber: parsed.invoiceNumber || `EMAIL-${Date.now()}`,
+                invoiceDate: parsed.issueDate || today,
+                dueDate: parsed.dueDate ?? undefined,
+                amount: parsed.totalAmount,
+                status: "REVIEW",
+                rawExtractedData: {
+                  senderEmail,
+                  subject,
+                  supplier: {
+                    supplierName: pdfSupplierName,
+                  },
+                  invoices: parsedItems.map(p => ({
+                    invoiceNumber: p.invoiceNumber,
+                    issueDate: p.issueDate,
+                    dueDate: p.dueDate,
+                    totalAmount: p.totalAmount,
+                    storeCode: p.storeCode,
+                  })),
+                },
+                notes: `Supplier mismatch: email from "${matchedSupplier.name}" but PDF identifies supplier as "${pdfSupplierName}".\nFrom: ${senderEmail}\nSubject: ${subject}`,
+              });
+              reviewCreated.push(inv.id);
+            }
+            return res.status(200).json({
+              received: true,
+              action: "supplier_mismatch_sent_to_review",
+              emailSupplier: matchedSupplier.name,
+              pdfSupplier: pdfSupplierName,
+              reviewCount: reviewCreated.length,
+            });
+          }
+        }
+      }
+      // ── End PDF Supplier Cross-Check ───────────────────────────────────────
 
       const existing = await storage.getSupplierInvoices({ supplierId: matchedSupplier.id });
       const existingNumbers = new Set(existing.map(inv => inv.invoiceNumber));
