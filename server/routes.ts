@@ -2735,18 +2735,25 @@ export async function registerRoutes(
     try {
       if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
-      const result = await parseUploadedFile(req.file.buffer, req.file.mimetype);
-      if (!result) return res.status(422).json({ error: "Could not extract invoice data from file" });
+      const results = await parseUploadedFile(req.file.buffer, req.file.mimetype);
+      if (!results || results.length === 0) return res.status(422).json({ error: "Could not extract invoice data from file" });
 
-      // Try to fuzzy-match supplier name to an existing supplier
+      // Try to fuzzy-match supplier name to an existing supplier (use first item's supplier name)
       const allSuppliers = await storage.getSuppliers();
-      const nameLower = result.supplierName.toLowerCase();
-      const matched = allSuppliers.find(s =>
-        s.name.toLowerCase().includes(nameLower) ||
-        nameLower.includes(s.name.toLowerCase())
-      );
+      const nameLower = (results[0].supplierName ?? "").toLowerCase();
+      const matched = nameLower
+        ? allSuppliers.find(s =>
+            s.name.toLowerCase().includes(nameLower) ||
+            nameLower.includes(s.name.toLowerCase())
+          )
+        : undefined;
 
-      res.json({ ...result, matchedSupplierId: matched?.id ?? null });
+      const isStatement = results.length > 1;
+      res.json({
+        items: results,
+        matchedSupplierId: matched?.id ?? null,
+        isStatement,
+      });
     } catch (err) {
       console.error("[parse-upload] error:", err);
       res.status(500).json({ error: "Failed to parse invoice" });

@@ -230,36 +230,46 @@ If a field cannot be found, use null for optional fields or an empty string for 
 const UPLOAD_SYSTEM_PROMPT = `You are an invoice data extraction assistant for an Australian retail/hospitality business.
 Extract the key fields from the invoice image or text provided.
 
+STEP 1 — DETERMINE DOCUMENT TYPE:
+First decide if this document is:
+  (A) A SINGLE INVOICE — one payable document with a single invoice number and total amount.
+  (B) A STATEMENT OF ACCOUNT — a summary listing MULTIPLE invoices as separate line item rows, each with its own invoice number, date, and individual amount. Usually has a heading like "Statement of Account" or "Account Statement". Contains a "Grand Total", "Total Due", or "Closing Balance" at the bottom that SUMS all line items.
+
 CRITICAL RULES:
-1. Return ONLY a single JSON object (not an array).
-2. For storeCode, look for the "Bill To", "Invoice To", or "Deliver To" name:
+1. If document is type (A) SINGLE INVOICE → return a JSON ARRAY with exactly 1 object.
+2. If document is type (B) STATEMENT → return a JSON ARRAY with ONE object PER LINE ITEM ROW. Each row has its own invoice number, date, and individual line amount. NEVER use the Grand Total / Closing Balance / Statement Total as the amount for any individual line item.
+3. For storeCode, look for the "Bill To", "Invoice To", or "Deliver To" name:
    - Contains "olitin" or "sushime" → "SUSHI"
    - Contains "eatem" or "sandwich" → "SANDWICH"
    - Otherwise → "UNKNOWN"
-3. Return dates in YYYY-MM-DD format. If a date is unclear, return null.
-4. Return amounts as a number (float), no currency symbols.
-5. Return ONLY valid JSON with no extra text, code fences, or explanation.
+4. Return dates in YYYY-MM-DD format. If a date is unclear, return null.
+5. Return amounts as a number (float), no currency symbols.
+6. Return ONLY valid JSON with no extra text, code fences, or explanation.
 
-Return this exact structure:
-{
-  "supplierName": "string (the name of the supplier/company issuing the invoice)",
-  "invoiceNumber": "string",
-  "invoiceDate": "YYYY-MM-DD or null",
-  "dueDate": "YYYY-MM-DD or null",
-  "amount": number,
-  "storeCode": "SUSHI" | "SANDWICH" | "UNKNOWN"
-}`;
+STATEMENT RULE: Each line item must only use fields from ITS OWN ROW. Never mix the invoice number from one row with the amount from another row or the grand total.
+
+Return a JSON ARRAY where each item has this structure:
+[
+  {
+    "supplierName": "string (the name of the supplier/company issuing the invoice)",
+    "invoiceNumber": "string",
+    "invoiceDate": "YYYY-MM-DD or null",
+    "dueDate": "YYYY-MM-DD or null",
+    "amount": number (for Statement: this row's individual amount only, NOT the grand total),
+    "storeCode": "SUSHI" | "SANDWICH" | "UNKNOWN"
+  }
+]`;
 
 /**
  * Parse an uploaded invoice file (image or PDF) using GPT-4o.
  * For images: sends as base64 vision input.
  * For PDFs: extracts text then sends as text input.
- * Returns structured invoice data including supplierName.
+ * Returns an ARRAY of invoice items (1 for a single invoice, N for a statement).
  */
 export async function parseUploadedFile(
   buffer: Buffer,
   mimeType: string
-): Promise<UploadParsedInvoice | null> {
+): Promise<UploadParsedInvoice[] | null> {
   try {
     let messages: OpenAI.ChatCompletionMessageParam[];
 
@@ -274,7 +284,7 @@ export async function parseUploadedFile(
         {
           role: "user",
           content: [
-            { type: "text", text: "Extract all invoice fields from this image." },
+            { type: "text", text: "First determine if this is a single invoice or a Statement of Account, then extract all invoice fields and return a JSON array." },
             { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
           ],
         },
@@ -288,7 +298,7 @@ export async function parseUploadedFile(
         { role: "system", content: UPLOAD_SYSTEM_PROMPT },
         {
           role: "user",
-          content: `Extract all invoice fields from this PDF text:\n\n${rawText.slice(0, 8000)}`,
+          content: `First determine if this is a single invoice or a Statement of Account, then extract all invoice fields and return a JSON array.\n\nPDF text:\n${rawText.slice(0, 8000)}`,
         },
       ];
     } else {
@@ -300,21 +310,27 @@ export async function parseUploadedFile(
       model: "gpt-4o",
       messages,
       temperature: 0,
-      max_tokens: 500,
+      max_tokens: 2000,
     });
 
     const raw = response.choices[0]?.message?.content?.trim() ?? "";
     const cleaned = raw.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
     const parsed = JSON.parse(cleaned);
 
-    return {
-      supplierName: String(parsed.supplierName ?? ""),
-      invoiceNumber: String(parsed.invoiceNumber ?? ""),
-      invoiceDate: parsed.invoiceDate ? String(parsed.invoiceDate) : "",
-      dueDate: parsed.dueDate ? String(parsed.dueDate) : null,
-      amount: Number(parsed.amount ?? 0),
-      storeCode: String(parsed.storeCode ?? "UNKNOWN"),
-    };
+    // Accept both array and legacy single-object responses
+    const items: any[] = Array.isArray(parsed) ? parsed : [parsed];
+    if (items.length === 0) return null;
+
+    return items
+      .filter(item => item && (item.invoiceNumber || item.amount))
+      .map(item => ({
+        supplierName: String(item.supplierName ?? ""),
+        invoiceNumber: String(item.invoiceNumber ?? ""),
+        invoiceDate: item.invoiceDate ? String(item.invoiceDate) : "",
+        dueDate: item.dueDate ? String(item.dueDate) : null,
+        amount: Number(item.amount ?? 0),
+        storeCode: String(item.storeCode ?? "UNKNOWN"),
+      }));
   } catch (err) {
     console.error("[invoiceParser] parseUploadedFile error:", err);
     return null;
