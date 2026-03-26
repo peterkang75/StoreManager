@@ -405,7 +405,7 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
       const r = firstInvoice.rawExtractedData as ReviewRawData | null;
       const h = extractSupplierHint(r, firstInvoice.notes ?? null);
       const senderEmail = h.rawSenderEmail;
-      const supplierName = r?.supplier?.supplierName ?? data.name;
+      const supplierName = r?.supplier?.supplierName?.trim() || data.name;
 
       const emailsArray = data.contactEmails
         .split(",")
