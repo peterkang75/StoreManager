@@ -26,7 +26,17 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Truck, Edit, FileText, Zap } from "lucide-react";
+import { Plus, Truck, Edit, FileText, Zap, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Supplier } from "@shared/schema";
 
@@ -229,6 +239,7 @@ export function AdminSuppliers() {
   const [, navigate] = useLocation();
   const [showDialog, setShowDialog] = useState(false);
   const [editSupplier, setEditSupplier] = useState<Supplier | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Supplier | null>(null);
   const [form, setForm] = useState<FormState>(BLANK_FORM);
 
   const { data: suppliers, isLoading } = useQuery<Supplier[]>({
@@ -282,6 +293,20 @@ export function AdminSuppliers() {
     },
     onError: (err: Error) => {
       toast({ title: err.message || "Failed to update supplier", variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/suppliers/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/suppliers"] });
+      setDeleteTarget(null);
+      toast({ title: "Supplier deleted" });
+    },
+    onError: () => {
+      toast({ title: "Failed to delete supplier", variant: "destructive" });
     },
   });
 
@@ -448,14 +473,25 @@ export function AdminSuppliers() {
                       </TableCell>
 
                       <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => openEdit(supplier)}
-                          data-testid={`button-edit-${supplier.id}`}
-                        >
-                          <Edit className="w-4 h-4" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openEdit(supplier)}
+                            data-testid={`button-edit-${supplier.id}`}
+                          >
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setDeleteTarget(supplier)}
+                            data-testid={`button-delete-${supplier.id}`}
+                            className="text-destructive"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -493,6 +529,32 @@ export function AdminSuppliers() {
           />
         </DialogContent>
       </Dialog>
+
+      {/* ── Delete Confirmation Dialog ────────────────────────── */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Supplier</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>{deleteTarget?.name}</strong> will be permanently deleted.
+              This will not delete any existing invoices linked to this supplier,
+              but they will no longer be associated with a supplier record.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-supplier">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
+              className="bg-destructive text-destructive-foreground"
+              data-testid="button-confirm-delete-supplier"
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AdminLayout>
   );
 }

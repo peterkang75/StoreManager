@@ -121,6 +121,7 @@ export interface IStorage {
   createSupplierPayment(payment: InsertSupplierPayment): Promise<SupplierPayment>;
   deleteSupplierPaymentsByInvoiceId(invoiceId: string): Promise<void>;
 
+  deleteSupplier(id: string): Promise<boolean>;
   findSupplierByEmail(email: string): Promise<Supplier | undefined>;
   findSupplierByName(name: string): Promise<Supplier | undefined>;
   sweepReviewInvoicesBySupplierName(supplierName: string, supplierId: string): Promise<number>;
@@ -947,6 +948,10 @@ export class MemStorage implements IStorage {
     for (const [id, p] of this.supplierPayments.entries()) {
       if (p.invoiceId === invoiceId) this.supplierPayments.delete(id);
     }
+  }
+
+  async deleteSupplier(id: string): Promise<boolean> {
+    return this.suppliers.delete(id);
   }
 
   async findSupplierByEmail(email: string): Promise<Supplier | undefined> {
@@ -1790,6 +1795,11 @@ export class DatabaseStorage implements IStorage {
 
   async deleteSupplierPaymentsByInvoiceId(invoiceId: string): Promise<void> {
     await db.delete(supplierPayments).where(eq(supplierPayments.invoiceId, invoiceId));
+  }
+
+  async deleteSupplier(id: string): Promise<boolean> {
+    const result = await db.delete(suppliers).where(eq(suppliers.id, id));
+    return (result.rowCount ?? 0) > 0;
   }
 
   async findSupplierByEmail(email: string): Promise<Supplier | undefined> {

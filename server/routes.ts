@@ -2636,6 +2636,20 @@ export async function registerRoutes(
     }
   });
 
+  app.delete("/api/suppliers/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const deleted = await storage.deleteSupplier(id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Supplier not found" });
+      }
+      res.json({ deleted: true });
+    } catch (error) {
+      console.error("Error deleting supplier:", error);
+      res.status(500).json({ error: "Failed to delete supplier" });
+    }
+  });
+
   // ── AP: Invoices with enriched supplier data ─────────────────────────────────
   app.get("/api/invoices", async (req: Request, res: Response) => {
     try {
