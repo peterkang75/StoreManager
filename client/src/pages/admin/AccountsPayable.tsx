@@ -2098,13 +2098,41 @@ export function AdminAccountsPayable() {
               </DialogHeader>
 
               {/* Body */}
-              <div className="flex-1 overflow-y-auto px-5 py-4 min-h-0">
-                {body ? (
-                  <pre className="text-xs text-foreground/80 whitespace-pre-wrap font-sans leading-relaxed break-words">
-                    {body}
-                  </pre>
-                ) : (
-                  <p className="text-sm text-muted-foreground italic">No email body available.</p>
+              <div className="flex-1 overflow-hidden min-h-0">
+                {body ? (() => {
+                  const isHtml = /<\s*(html|body|div|table|p|span|br|a|img|style)\b/i.test(body);
+                  if (isHtml) {
+                    return (
+                      <iframe
+                        srcDoc={body}
+                        sandbox="allow-same-origin"
+                        title="Email content"
+                        className="w-full h-full border-0"
+                        style={{ minHeight: "420px" }}
+                        onLoad={e => {
+                          try {
+                            const frame = e.currentTarget;
+                            const doc = frame.contentDocument || frame.contentWindow?.document;
+                            if (doc) {
+                              const h = doc.documentElement.scrollHeight;
+                              frame.style.height = Math.min(Math.max(h, 200), 600) + "px";
+                            }
+                          } catch { /* cross-origin blocked — use fixed height */ }
+                        }}
+                      />
+                    );
+                  }
+                  return (
+                    <div className="overflow-y-auto h-full px-5 py-4">
+                      <pre className="text-xs text-foreground/80 whitespace-pre-wrap font-sans leading-relaxed break-words">
+                        {body}
+                      </pre>
+                    </div>
+                  );
+                })() : (
+                  <div className="px-5 py-4">
+                    <p className="text-sm text-muted-foreground italic">No email body available.</p>
+                  </div>
                 )}
               </div>
 
