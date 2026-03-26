@@ -5426,33 +5426,43 @@ Rules:
         let firstDone = false;
         for (const item of lineItems) {
           const invNum = item.invoiceNumber || null;
-          if (invNum && existingNumbers.has(invNum)) continue; // skip duplicates
+          if (invNum && existingNumbers.has(invNum)) continue; // skip pre-existing duplicates
           const storeId = storeIdForCode(item.storeCode ?? "UNKNOWN");
-          if (!firstDone) {
-            // Upgrade the placeholder itself
-            await storage.updateSupplierInvoice(reviewInv.id, {
-              supplierId: supplier.id, status: "PENDING",
-              invoiceNumber: invNum || reviewInv.invoiceNumber,
-              invoiceDate: item.issueDate || reviewInv.invoiceDate,
-              dueDate: item.dueDate ?? undefined, amount: item.totalAmount ?? reviewInv.amount,
-              storeId,
-              rawExtractedData: pdfBase64 ? { ...raw, pdfBase64 } : raw,
-              notes: `Imported from statement — approved via Review Inbox.\nFrom: ${raw?.senderEmail ?? ""}\nSubject: ${raw?.subject ?? ""}`,
-            });
-            firstDone = true;
-            expandedCount++;
-          } else {
-            await storage.createSupplierInvoice({
-              supplierId: supplier.id, storeId,
-              invoiceNumber: invNum,
-              invoiceDate: item.issueDate,
-              dueDate: item.dueDate ?? undefined,
-              amount: item.totalAmount,
-              status: "PENDING",
-              rawExtractedData: pdfBase64 ? { pdfBase64, senderEmail: raw?.senderEmail, subject: raw?.subject } : undefined,
-              notes: `Imported from statement — approved via Review Inbox.\nFrom: ${raw?.senderEmail ?? ""}\nSubject: ${raw?.subject ?? ""}`,
-            });
-            expandedCount++;
+          try {
+            if (!firstDone) {
+              // Upgrade the placeholder itself
+              await storage.updateSupplierInvoice(reviewInv.id, {
+                supplierId: supplier.id, status: "PENDING",
+                invoiceNumber: invNum || reviewInv.invoiceNumber,
+                invoiceDate: item.issueDate || reviewInv.invoiceDate,
+                dueDate: item.dueDate ?? undefined, amount: item.totalAmount ?? reviewInv.amount,
+                storeId,
+                rawExtractedData: pdfBase64 ? { ...raw, pdfBase64 } : raw,
+                notes: `Imported from statement — approved via Review Inbox.\nFrom: ${raw?.senderEmail ?? ""}\nSubject: ${raw?.subject ?? ""}`,
+              });
+              firstDone = true;
+              expandedCount++;
+            } else {
+              await storage.createSupplierInvoice({
+                supplierId: supplier.id, storeId,
+                invoiceNumber: invNum,
+                invoiceDate: item.issueDate,
+                dueDate: item.dueDate ?? undefined,
+                amount: item.totalAmount,
+                status: "PENDING",
+                rawExtractedData: pdfBase64 ? { pdfBase64, senderEmail: raw?.senderEmail, subject: raw?.subject } : undefined,
+                notes: `Imported from statement — approved via Review Inbox.\nFrom: ${raw?.senderEmail ?? ""}\nSubject: ${raw?.subject ?? ""}`,
+              });
+              expandedCount++;
+            }
+            // Track within-loop to avoid duplicate invoice numbers in the same statement
+            if (invNum) existingNumbers.add(invNum);
+          } catch (dupErr: any) {
+            if (dupErr?.code === "23505" || dupErr?.message?.includes("unique constraint")) {
+              console.warn(`[Review/approve-group] Skipping duplicate invoice ${invNum} for supplier ${supplier.id}`);
+            } else {
+              throw dupErr; // re-throw non-duplicate errors
+            }
           }
         }
       }

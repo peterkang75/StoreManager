@@ -1900,18 +1900,28 @@ export class DatabaseStorage implements IStorage {
   async sweepReviewInvoicesBySenderEmail(senderEmail: string, supplierId: string): Promise<number> {
     // Matches REVIEW invoices by rawExtractedData.senderEmail.
     // IMPORTANT: Only sweeps invoices where the AI-extracted supplierName is ABSENT (no PDF parsed).
-    // If an invoice already has a supplierName in its raw data, we leave it alone — it may belong
-    // to a completely different supplier forwarded by the same internal sender (e.g. peter.kang).
+    // Uses CTE to exclude invoice_numbers that already exist for this supplier (avoids unique constraint violations).
     const result = await db.execute(sql`
+      WITH to_approve AS (
+        SELECT id, invoice_number
+        FROM supplier_invoices
+        WHERE status = 'REVIEW'
+          AND supplier_id IS NULL
+          AND raw_extracted_data->>'senderEmail' ILIKE ${senderEmail}
+          AND (
+            raw_extracted_data->'supplier'->>'supplierName' IS NULL
+            OR raw_extracted_data->'supplier'->>'supplierName' = ''
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM supplier_invoices ex
+            WHERE ex.supplier_id = ${supplierId}
+              AND ex.invoice_number = supplier_invoices.invoice_number
+              AND ex.status != 'REVIEW'
+          )
+      )
       UPDATE supplier_invoices
       SET supplier_id = ${supplierId}, status = 'PENDING'
-      WHERE status = 'REVIEW'
-        AND supplier_id IS NULL
-        AND raw_extracted_data->>'senderEmail' ILIKE ${senderEmail}
-        AND (
-          raw_extracted_data->'supplier'->>'supplierName' IS NULL
-          OR raw_extracted_data->'supplier'->>'supplierName' = ''
-        )
+      WHERE id IN (SELECT id FROM to_approve)
     `);
     return (result as any).rowCount ?? 0;
   }
