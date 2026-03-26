@@ -2765,15 +2765,16 @@ export async function registerRoutes(
 
   // ── Invoice: create (AP dashboard) ───────────────────────────────────────
   app.post("/api/invoices", async (req: Request, res: Response) => {
-    try {
-      // Check auto-pay status of the supplier before setting invoice status
-      let invoiceStatus = "PENDING";
-      let supplierForAutoPay: Supplier | undefined;
-      if (req.body.supplierId) {
+    // Determine invoice status before try/catch so it's accessible in catch (ghost re-animation)
+    let invoiceStatus = "PENDING";
+    let supplierForAutoPay: Supplier | undefined;
+    if (req.body.supplierId) {
+      try {
         supplierForAutoPay = await storage.getSupplier(req.body.supplierId);
         if (supplierForAutoPay?.isAutoPay) invoiceStatus = "PAID";
-      }
-
+      } catch { /* leave as PENDING if lookup fails */ }
+    }
+    try {
       const parsed = insertSupplierInvoiceSchema.safeParse({ ...req.body, status: invoiceStatus });
       if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
       const invoice = await storage.createSupplierInvoice(parsed.data);
