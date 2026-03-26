@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { parseVisaDate } from "@/lib/utils";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -80,8 +81,8 @@ function fmtDate(d: string): string {
 
 function getVisaDaysLeft(visaExpiry: string | null | undefined): number | null {
   if (!visaExpiry) return null;
-  const expiry = new Date(visaExpiry);
-  if (isNaN(expiry.getTime())) return null;
+  const expiry = parseVisaDate(visaExpiry);
+  if (!expiry || isNaN(expiry.getTime())) return null;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return Math.ceil((expiry.getTime() - today.getTime()) / 86400000);

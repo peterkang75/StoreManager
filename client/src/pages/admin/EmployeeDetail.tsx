@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { parseVisaDate } from "@/lib/utils";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute } from "wouter";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
@@ -249,8 +250,8 @@ export function AdminEmployeeDetail() {
 
   const getVisaStatus = (visaExpiry: string | null | undefined): "urgent" | "expiring_soon" | "valid" | "no_data" => {
     if (!visaExpiry) return "no_data";
-    const expiry = new Date(visaExpiry);
-    if (isNaN(expiry.getTime())) return "no_data";
+    const expiry = parseVisaDate(visaExpiry);
+    if (!expiry || isNaN(expiry.getTime())) return "no_data";
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const daysLeft = Math.ceil((expiry.getTime() - today.getTime()) / 86400000);
@@ -521,7 +522,7 @@ export function AdminEmployeeDetail() {
           {/* Visa & Compliance */}
           {(() => {
             const visaStatus = getVisaStatus(currentData.visaExpiry);
-            const daysLeft = currentData.visaExpiry ? Math.ceil((new Date(currentData.visaExpiry).getTime() - Date.now()) / 86400000) : null;
+            const daysLeft = currentData.visaExpiry ? (() => { const d = parseVisaDate(currentData.visaExpiry); return d ? Math.ceil((d.getTime() - Date.now()) / 86400000) : null; })() : null;
             return (
               <Card>
                 <CardHeader>
