@@ -77,6 +77,7 @@ function CashCounter() {
                   className="w-20 text-center"
                   value={counts[d] || ""}
                   onChange={(e) => handleChange(d, e.target.value)}
+                  onWheel={(e) => (e.target as HTMLInputElement).blur()}
                   placeholder="0"
                   data-testid={`input-cash-count-${d}`}
                 />
@@ -516,6 +517,10 @@ export function AdminPayrolls() {
   // Currently selected draft row
   const selectedRow = selectedEmployeeId ? (currentDrafts[selectedEmployeeId] ?? null) : null;
 
+  // Lock past payroll rows that have already been saved to DB
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const isLocked = !!(selectedRow?.payrollId && periodEnd < todayStr);
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       // Capture the ctxKey NOW (at call time) — onSuccess closure may see a stale value
@@ -641,6 +646,20 @@ export function AdminPayrolls() {
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Auto-save memo immediately on blur — prevents data loss on page refresh
+  const memoSaveMutation = useMutation({
+    mutationFn: async ({ employeeId, memo }: { employeeId: string; memo: string }) => {
+      await apiRequest("PUT", `/api/employees/${employeeId}`, { persistentMemo: memo || null });
+    },
+    onSuccess: () => {
+      toast({ title: "Memo saved", description: "Memo saved successfully." });
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+    },
+    onError: () => {
+      toast({ title: "Failed to save memo", variant: "destructive" });
     },
   });
 
@@ -1091,7 +1110,8 @@ export function AdminPayrolls() {
                                   className="text-sm"
                                   value={selectedRow.hours || ""}
                                   onChange={(e) => updateDraft(selectedEmployeeId, "hours", parseFloat(e.target.value) || 0)}
-                                  disabled={selectedRow.isIntercompany}
+                                  onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                                  disabled={selectedRow.isIntercompany || isLocked}
                                   data-testid={`input-hours-${selectedRow.employeeId}`}
                                 />
                               </div>
@@ -1103,7 +1123,8 @@ export function AdminPayrolls() {
                                   className="text-sm"
                                   value={selectedRow.adjustment || ""}
                                   onChange={(e) => updateDraft(selectedEmployeeId, "adjustment", parseFloat(e.target.value) || 0)}
-                                  disabled={selectedRow.isIntercompany}
+                                  onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                                  disabled={selectedRow.isIntercompany || isLocked}
                                   data-testid={`input-adjustment-${selectedRow.employeeId}`}
                                 />
                               </div>
@@ -1114,7 +1135,7 @@ export function AdminPayrolls() {
                                   placeholder="Reason"
                                   value={selectedRow.adjustmentReason}
                                   onChange={(e) => updateDraft(selectedEmployeeId, "adjustmentReason", e.target.value)}
-                                  disabled={selectedRow.isIntercompany}
+                                  disabled={selectedRow.isIntercompany || isLocked}
                                   data-testid={`input-adj-reason-${selectedRow.employeeId}`}
                                 />
                               </div>
@@ -1122,7 +1143,12 @@ export function AdminPayrolls() {
                           </div>
 
                           <div className="space-y-1">
-                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Payment Split</p>
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+                              Payment Split
+                              {isLocked && (
+                                <span className="text-[10px] text-muted-foreground font-normal normal-case tracking-normal">Read-only — past period</span>
+                              )}
+                            </p>
                             <div className="grid grid-cols-3 gap-3">
                               <div className="space-y-1">
                                 <Label className="text-xs">Gross</Label>
@@ -1133,7 +1159,8 @@ export function AdminPayrolls() {
                                   className="text-sm"
                                   value={selectedRow.grossAmount || ""}
                                   onChange={(e) => updateDraft(selectedEmployeeId, "grossAmount", parseFloat(e.target.value) || 0)}
-                                  disabled={selectedRow.isIntercompany}
+                                  onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                                  disabled={selectedRow.isIntercompany || isLocked}
                                   data-testid={`input-gross-${selectedRow.employeeId}`}
                                 />
                               </div>
@@ -1146,7 +1173,8 @@ export function AdminPayrolls() {
                                   className="text-sm"
                                   value={selectedRow.cashAmount || ""}
                                   onChange={(e) => updateDraft(selectedEmployeeId, "cashAmount", parseFloat(e.target.value) || 0)}
-                                  disabled={selectedRow.isIntercompany}
+                                  onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                                  disabled={selectedRow.isIntercompany || isLocked}
                                   data-testid={`input-cash-${selectedRow.employeeId}`}
                                 />
                               </div>
@@ -1165,7 +1193,8 @@ export function AdminPayrolls() {
                                     className={`text-sm ${selectedRow.taxOverridden ? "border-orange-400 dark:border-orange-600" : ""}`}
                                     value={selectedRow.taxAmount || ""}
                                     onChange={(e) => updateDraft(selectedEmployeeId, "taxAmount", parseFloat(e.target.value) || 0)}
-                                    disabled={selectedRow.isIntercompany}
+                                    onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                                    disabled={selectedRow.isIntercompany || isLocked}
                                     data-testid={`input-tax-${selectedRow.employeeId}`}
                                   />
                                   {selectedRow.taxOverridden && (
@@ -1226,12 +1255,20 @@ export function AdminPayrolls() {
                           </div>)}
 
                           <div className="space-y-1">
-                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Memo</p>
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+                              Memo
+                              {memoSaveMutation.isPending && (
+                                <span className="text-[10px] text-muted-foreground font-normal">Saving…</span>
+                              )}
+                            </p>
                             <Textarea
                               className="text-sm resize-none"
                               placeholder="Employee memo (삭제할 때까지 유지됩니다)"
                               value={selectedRow.persistentMemo}
                               onChange={(e) => updateDraft(selectedEmployeeId, "persistentMemo", e.target.value)}
+                              onBlur={(e) => {
+                                memoSaveMutation.mutate({ employeeId: selectedRow.employeeId, memo: e.target.value });
+                              }}
                               rows={2}
                               data-testid={`textarea-memo-${selectedRow.employeeId}`}
                             />
