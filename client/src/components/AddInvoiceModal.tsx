@@ -87,6 +87,9 @@ export default function AddInvoiceModal({ open, onClose }: Props) {
   const [statementSupplierId, setStatementSupplierId] = useState<string>("");
   const [statementStoreId, setStatementStoreId] = useState<string>("");
   const [isCreatingAll, setIsCreatingAll] = useState(false);
+  const [newSupplierName, setNewSupplierName] = useState<string>("");
+
+  const CREATE_NEW = "__new__";
 
   const { data: suppliers = [] } = useQuery<Supplier[]>({ queryKey: ["/api/suppliers"] });
   const { data: stores = [] } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
@@ -228,7 +231,27 @@ export default function AddInvoiceModal({ open, onClose }: Props) {
       toast({ title: "Supplier and Store required", description: "Please select a supplier and store before creating invoices.", variant: "destructive" });
       return;
     }
+    if (statementSupplierId === CREATE_NEW && !newSupplierName.trim()) {
+      toast({ title: "Supplier name required", description: "Enter a name for the new supplier.", variant: "destructive" });
+      return;
+    }
     setIsCreatingAll(true);
+
+    // If creating a new supplier, do that first
+    let resolvedSupplierId = statementSupplierId;
+    if (statementSupplierId === CREATE_NEW) {
+      try {
+        const res = await apiRequest("POST", "/api/suppliers", { name: newSupplierName.trim() });
+        const newSupplier: Supplier = await res.json();
+        resolvedSupplierId = newSupplier.id;
+        queryClient.invalidateQueries({ queryKey: ["/api/suppliers"] });
+      } catch (err: any) {
+        setIsCreatingAll(false);
+        toast({ title: "Failed to create supplier", description: err?.message, variant: "destructive" });
+        return;
+      }
+    }
+
     let created = 0;
     let skipped = 0;
     const failedNums: string[] = [];
@@ -241,7 +264,7 @@ export default function AddInvoiceModal({ open, onClose }: Props) {
           headers: { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify({
-            supplierId: statementSupplierId,
+            supplierId: resolvedSupplierId,
             storeId: statementStoreId,
             invoiceNumber: item.invoiceNumber,
             invoiceDate: item.invoiceDate || today,
@@ -285,7 +308,7 @@ export default function AddInvoiceModal({ open, onClose }: Props) {
         variant: "destructive",
       });
     }
-  }, [statementItems, statementSupplierId, statementStoreId, toast]);
+  }, [statementItems, statementSupplierId, statementStoreId, newSupplierName, toast]);
 
   const handleClose = () => {
     form.reset();
@@ -297,6 +320,7 @@ export default function AddInvoiceModal({ open, onClose }: Props) {
     setStatementSupplierId("");
     setStatementStoreId("");
     setIsCreatingAll(false);
+    setNewSupplierName("");
     onClose();
   };
 
@@ -335,11 +359,14 @@ export default function AddInvoiceModal({ open, onClose }: Props) {
                 {/* Supplier selector */}
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Supplier <span className="text-red-500">*</span></label>
-                  <Select value={statementSupplierId} onValueChange={setStatementSupplierId}>
+                  <Select value={statementSupplierId} onValueChange={(v) => { setStatementSupplierId(v); if (v !== CREATE_NEW) setNewSupplierName(""); }}>
                     <SelectTrigger data-testid="select-statement-supplier">
                       <SelectValue placeholder="Select supplier" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value={CREATE_NEW} data-testid="option-stmt-supplier-new">
+                        + Create new supplier
+                      </SelectItem>
                       {suppliers.map((s) => (
                         <SelectItem key={s.id} value={s.id} data-testid={`option-stmt-supplier-${s.id}`}>
                           {s.name}
@@ -347,6 +374,15 @@ export default function AddInvoiceModal({ open, onClose }: Props) {
                       ))}
                     </SelectContent>
                   </Select>
+                  {statementSupplierId === CREATE_NEW && (
+                    <Input
+                      data-testid="input-new-supplier-name"
+                      placeholder="Supplier name"
+                      value={newSupplierName}
+                      onChange={(e) => setNewSupplierName(e.target.value)}
+                      autoFocus
+                    />
+                  )}
                 </div>
 
                 {/* Store selector */}
@@ -397,7 +433,7 @@ export default function AddInvoiceModal({ open, onClose }: Props) {
                   <Button
                     type="button"
                     onClick={handleCreateAll}
-                    disabled={isCreatingAll || !statementSupplierId || !statementStoreId}
+                    disabled={isCreatingAll || !statementSupplierId || !statementStoreId || (statementSupplierId === CREATE_NEW && !newSupplierName.trim())}
                     data-testid="button-create-all-invoices"
                   >
                     {isCreatingAll ? (
