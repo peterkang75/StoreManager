@@ -477,6 +477,7 @@ export function AdminAccountsPayable() {
   const [addInvoiceOpen, setAddInvoiceOpen] = useState(false);
   const [approveInvoiceGroup, setApproveInvoiceGroup] = useState<SupplierInvoice[]>([]);
   const [revertInvoice, setRevertInvoice] = useState<EnrichedInvoice | null>(null);
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const { data: allInvoices = [], isLoading } = useQuery<EnrichedInvoice[]>({
@@ -634,6 +635,24 @@ export function AdminAccountsPayable() {
       toast({ title: "Invoice moved to Trash", description: "You can restore it from the Trash tab." });
     },
     onError: () => toast({ title: "Failed to delete invoice", variant: "destructive" }),
+  });
+
+  const bulkSoftDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await Promise.all(ids.map(id => apiRequest("PATCH", `/api/supplier-invoices/${id}/soft-delete`)));
+    },
+    onSuccess: () => {
+      const n = selected.size;
+      setSelected(new Set());
+      setBulkDeleteConfirmOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/deleted"] });
+      toast({ title: `${n} invoice${n !== 1 ? "s" : ""} moved to Trash`, description: "Restore them from the Trash tab if needed." });
+    },
+    onError: () => {
+      toast({ title: "Failed to delete invoices", variant: "destructive" });
+      setBulkDeleteConfirmOpen(false);
+    },
   });
 
   const restoreInvoiceMutation = useMutation({
@@ -873,6 +892,17 @@ export function AdminAccountsPayable() {
                 data-testid="button-clear-selection"
               >
                 Clear
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setBulkDeleteConfirmOpen(true)}
+                disabled={bulkSoftDeleteMutation.isPending}
+                data-testid="button-bulk-delete"
+                className="gap-1.5 whitespace-nowrap text-destructive border-destructive/40 hover:bg-destructive/5"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete ({selected.size})
               </Button>
               <Button
                 size="sm"
@@ -1585,6 +1615,39 @@ export function AdminAccountsPayable() {
                 <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Reverting…</>
               ) : (
                 <><Undo2 className="h-3.5 w-3.5 mr-1.5" />Revert to Pending</>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Bulk Delete Confirmation Dialog ───────────────────────────────────── */}
+      <AlertDialog open={bulkDeleteConfirmOpen} onOpenChange={open => !open && setBulkDeleteConfirmOpen(false)}>
+        <AlertDialogContent data-testid="dialog-bulk-delete-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Move to Trash?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {selected.size} invoice{selected.size !== 1 ? "s" : ""} will be moved to the Trash.
+              You can restore them from the <strong>Trash</strong> tab if needed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={bulkSoftDeleteMutation.isPending}
+              data-testid="button-bulk-delete-cancel"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => bulkSoftDeleteMutation.mutate(Array.from(selected))}
+              disabled={bulkSoftDeleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground"
+              data-testid="button-bulk-delete-confirm"
+            >
+              {bulkSoftDeleteMutation.isPending ? (
+                <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Deleting…</>
+              ) : (
+                <><Trash2 className="h-3.5 w-3.5 mr-1.5" />Move to Trash</>
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
