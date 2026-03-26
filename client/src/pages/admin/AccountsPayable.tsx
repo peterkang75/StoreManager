@@ -654,6 +654,139 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
   );
 }
 
+// ── Reassign Supplier Dialog ──────────────────────────────────────────────────
+
+interface ReassignSupplierDialogProps {
+  invoice: EnrichedInvoice | null;
+  onClose: () => void;
+  onSuccess: () => void;
+}
+
+function ReassignSupplierDialog({ invoice, onClose, onSuccess }: ReassignSupplierDialogProps) {
+  const { toast } = useToast();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
+
+  const { data: allSuppliers = [] } = useQuery<Supplier[]>({
+    queryKey: ["/api/suppliers"],
+    staleTime: 60_000,
+  });
+
+  const selectedSupplier = allSuppliers.find(s => s.id === selectedSupplierId) ?? null;
+
+  useEffect(() => {
+    if (!invoice) setSelectedSupplierId(null);
+  }, [invoice?.id]);
+
+  const reassignMutation = useMutation({
+    mutationFn: async () => {
+      if (!invoice || !selectedSupplierId) throw new Error("Missing invoice or supplier");
+      return apiRequest("PATCH", `/api/supplier-invoices/${invoice.id}/reassign`, {
+        supplierId: selectedSupplierId,
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: `Invoice reassigned to ${selectedSupplier?.name ?? "supplier"}`,
+      });
+      onSuccess();
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to reassign invoice", description: err?.message, variant: "destructive" });
+    },
+  });
+
+  if (!invoice) return null;
+
+  const currentSupplierName = invoice.supplier?.name ?? "Unknown Supplier";
+  const invNum = invoice.invoiceNumber ? `#${invoice.invoiceNumber}` : "invoice";
+
+  return (
+    <Dialog open={!!invoice} onOpenChange={open => !open && onClose()}>
+      <DialogContent className="max-w-md" data-testid="dialog-reassign-supplier">
+        <DialogHeader>
+          <DialogTitle>Change Supplier</DialogTitle>
+          <p className="text-sm text-muted-foreground">
+            Reassign {invNum} from <strong>{currentSupplierName}</strong> to the correct supplier.
+          </p>
+        </DialogHeader>
+
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label>Select correct supplier</Label>
+            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  role="combobox"
+                  className="w-full justify-between"
+                  data-testid="button-reassign-supplier-picker"
+                >
+                  {selectedSupplier ? selectedSupplier.name : "Search suppliers…"}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-full p-0" style={{ width: "var(--radix-popover-trigger-width)" }}>
+                <Command>
+                  <CommandInput placeholder="Type to search…" data-testid="input-reassign-supplier-search" />
+                  <CommandList>
+                    <CommandEmpty>No supplier found.</CommandEmpty>
+                    <CommandGroup>
+                      {allSuppliers
+                        .filter(s => s.active !== false && s.id !== invoice.supplierId)
+                        .map(s => (
+                          <CommandItem
+                            key={s.id}
+                            value={s.name}
+                            onSelect={() => { setSelectedSupplierId(s.id); setPickerOpen(false); }}
+                            data-testid={`option-reassign-supplier-${s.id}`}
+                          >
+                            <Check className={`mr-2 h-4 w-4 ${selectedSupplierId === s.id ? "opacity-100" : "opacity-0"}`} />
+                            {s.name}
+                          </CommandItem>
+                        ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          {selectedSupplier && (
+            <div className="rounded-md bg-muted/40 border border-border px-3 py-2 text-sm space-y-0.5">
+              <div className="flex items-center gap-2 font-medium">
+                <Check className="h-3.5 w-3.5 text-green-600" />
+                {selectedSupplier.name}
+              </div>
+              {selectedSupplier.contactEmails && selectedSupplier.contactEmails.length > 0 && (
+                <p className="text-xs text-muted-foreground pl-5">{selectedSupplier.contactEmails.join(", ")}</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button type="button" variant="outline" onClick={onClose} disabled={reassignMutation.isPending}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={!selectedSupplierId || reassignMutation.isPending}
+            onClick={() => reassignMutation.mutate()}
+            data-testid="button-confirm-reassign"
+          >
+            {reassignMutation.isPending
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Reassigning…</>
+              : <><Link2 className="h-3.5 w-3.5 mr-1.5" />Reassign</>
+            }
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 
 type TabKey = "topay" | "review" | "history" | "emailrules" | "trash";
@@ -671,6 +804,7 @@ export function AdminAccountsPayable() {
   const [revertInvoice, setRevertInvoice] = useState<EnrichedInvoice | null>(null);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
   const [viewEmailInvoice, setViewEmailInvoice] = useState<SupplierInvoice | null>(null);
+  const [reassignInvoice, setReassignInvoice] = useState<EnrichedInvoice | null>(null);
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const { data: allInvoices = [], isLoading } = useQuery<EnrichedInvoice[]>({
@@ -1303,7 +1437,7 @@ export function AdminAccountsPayable() {
                                       <td className="py-2.5 px-3 text-xs text-muted-foreground whitespace-nowrap">
                                         {store?.name ?? "—"}
                                       </td>
-                                      <td className="py-2.5 pr-4 w-16">
+                                      <td className="py-2.5 pr-4 w-20">
                                         <div className="flex items-center gap-0.5 justify-end">
                                           {((inv.rawExtractedData as any)?.pdfBase64 || inv.notes) && (
                                             <button
@@ -1319,6 +1453,18 @@ export function AdminAccountsPayable() {
                                               <FileText className="h-3.5 w-3.5" />
                                             </button>
                                           )}
+                                          <button
+                                            type="button"
+                                            title="Change Supplier"
+                                            className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/30 hover:text-primary transition-colors"
+                                            data-testid={`button-reassign-invoice-${inv.id}`}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setReassignInvoice(inv);
+                                            }}
+                                          >
+                                            <Link2 className="h-3.5 w-3.5" />
+                                          </button>
                                           <button
                                             type="button"
                                             title="Move to Trash"
@@ -1990,6 +2136,16 @@ export function AdminAccountsPayable() {
         invoices={approveInvoiceGroup}
         onClose={() => setApproveInvoiceGroup([])}
         onSuccess={() => setApproveInvoiceGroup([])}
+      />
+
+      <ReassignSupplierDialog
+        invoice={reassignInvoice}
+        onClose={() => setReassignInvoice(null)}
+        onSuccess={() => {
+          setReassignInvoice(null);
+          queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/suppliers"] });
+        }}
       />
     </AdminLayout>
   );

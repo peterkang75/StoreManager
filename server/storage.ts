@@ -1010,12 +1010,15 @@ export class MemStorage implements IStorage {
 
   async sweepReviewInvoicesBySenderEmail(senderEmail: string, supplierId: string): Promise<number> {
     // Matches REVIEW invoices whose rawExtractedData.senderEmail equals the given email.
-    // Used for CEO-forwarded emails where no PDF was attached, so supplier.supplierName is absent.
+    // IMPORTANT: Only sweeps invoices where the AI-extracted supplierName is ABSENT.
+    // If an invoice already has a supplierName extracted (e.g. "Bakery Connect"), skip it —
+    // it may belong to a different supplier forwarded by the same internal sender.
     let count = 0;
     for (const [id, inv] of this.supplierInvoices.entries()) {
       if (inv.status === "REVIEW") {
         const raw = inv.rawExtractedData as any;
-        if (raw?.senderEmail && raw.senderEmail.toLowerCase() === senderEmail.toLowerCase()) {
+        const hasSupplierName = !!(raw?.supplier?.supplierName?.trim());
+        if (raw?.senderEmail && raw.senderEmail.toLowerCase() === senderEmail.toLowerCase() && !hasSupplierName) {
           this.supplierInvoices.set(id, { ...inv, supplierId, status: "PENDING" });
           count++;
         }
@@ -1895,15 +1898,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async sweepReviewInvoicesBySenderEmail(senderEmail: string, supplierId: string): Promise<number> {
-    // Matches REVIEW invoices by rawExtractedData.senderEmail (top-level, not nested under supplier).
-    // This handles CEO-forwarded emails where no PDF was parsed, so supplier.supplierName is absent.
-    // Only updates invoices that don't already have a supplierId set (i.e. truly unmatched).
+    // Matches REVIEW invoices by rawExtractedData.senderEmail.
+    // IMPORTANT: Only sweeps invoices where the AI-extracted supplierName is ABSENT (no PDF parsed).
+    // If an invoice already has a supplierName in its raw data, we leave it alone — it may belong
+    // to a completely different supplier forwarded by the same internal sender (e.g. peter.kang).
     const result = await db.execute(sql`
       UPDATE supplier_invoices
       SET supplier_id = ${supplierId}, status = 'PENDING'
       WHERE status = 'REVIEW'
         AND supplier_id IS NULL
         AND raw_extracted_data->>'senderEmail' ILIKE ${senderEmail}
+        AND (
+          raw_extracted_data->'supplier'->>'supplierName' IS NULL
+          OR raw_extracted_data->'supplier'->>'supplierName' = ''
+        )
     `);
     return (result as any).rowCount ?? 0;
   }

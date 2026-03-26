@@ -2973,6 +2973,29 @@ export async function registerRoutes(
     }
   });
 
+  // PATCH /api/supplier-invoices/:id/reassign
+  // Reassigns an invoice to a different supplier. Used to fix misclassified invoices.
+  app.patch("/api/supplier-invoices/:id/reassign", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { supplierId } = req.body as { supplierId: string };
+      if (!supplierId) return res.status(400).json({ error: "supplierId is required" });
+
+      const inv = await storage.getSupplierInvoice(id);
+      if (!inv) return res.status(404).json({ error: "Invoice not found" });
+
+      const supplier = await storage.getSupplier(supplierId);
+      if (!supplier) return res.status(404).json({ error: "Supplier not found" });
+
+      const updated = await storage.updateSupplierInvoice(id, { supplierId });
+      console.log(`[Reassign] Invoice ${id} (${inv.invoiceNumber}) → supplier "${supplier.name}" (${supplierId})`);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error reassigning invoice:", error);
+      res.status(500).json({ error: "Failed to reassign invoice" });
+    }
+  });
+
   // POST /api/supplier-invoices/:id/reparse-pdf
   // Re-runs parseInvoiceFromUnknownSender on the stored pdfBase64 for a REVIEW invoice.
   // Used when the AI previously missed some invoice rows (e.g. future-dated rows).
