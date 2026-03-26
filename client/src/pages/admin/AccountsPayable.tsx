@@ -526,7 +526,8 @@ export function AdminAccountsPayable() {
 
   const storeFiltered = useMemo(() => {
     if (!storeFilter || storeFilter === "ALL") return allInvoices;
-    return allInvoices.filter(inv => inv.storeId === storeFilter);
+    // storeId=null invoices are shown in all store views so they are never lost
+    return allInvoices.filter(inv => inv.storeId === storeFilter || inv.storeId === null);
   }, [allInvoices, storeFilter]);
 
   const toPayInvoices = useMemo(
