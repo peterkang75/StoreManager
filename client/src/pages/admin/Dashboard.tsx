@@ -691,7 +691,7 @@ export function AdminDashboard() {
                 </h2>
                 <p className="text-sm text-muted-foreground mt-0.5">라우팅 규칙이 없는 미처리 이메일</p>
               </div>
-              <Link href="/admin/triage">
+              <Link href="/admin/triage-inbox">
                 <Button variant="outline" size="sm" data-testid="link-view-triage">
                   View Triage Inbox
                   <ChevronRight className="w-3.5 h-3.5 ml-1" />
@@ -711,7 +711,7 @@ export function AdminDashboard() {
               ) : (
                 <div className="flex flex-col gap-3" data-testid="list-triage-items">
                   {needsRouting.slice(0, 5).map((item) => (
-                    <Link key={item.id} href="/admin/triage" className="block">
+                    <Link key={item.id} href="/admin/triage-inbox" className="block">
                       <div
                         className="flex flex-wrap items-center gap-3 rounded-lg border border-border/50 bg-card shadow-sm px-4 py-3 hover:shadow-md transition-shadow cursor-pointer"
                         data-testid={`triage-row-${item.id}`}
@@ -730,7 +730,7 @@ export function AdminDashboard() {
                     </Link>
                   ))}
                   {needsRouting.length > 5 && (
-                    <Link href="/admin/triage">
+                    <Link href="/admin/triage-inbox">
                       <p className="text-xs text-muted-foreground text-center py-1 hover:text-foreground transition-colors cursor-pointer">
                         + {needsRouting.length - 5} more → View All
                       </p>
@@ -758,7 +758,7 @@ export function AdminDashboard() {
                 </h2>
                 <p className="text-sm text-muted-foreground mt-0.5">인보이스 확인 및 공급업체 등록 대기 중</p>
               </div>
-              <Link href="/admin/ap">
+              <Link href="/admin/accounts-payable">
                 <Button variant="outline" size="sm" data-testid="link-view-ap">
                   View Review Inbox
                   <ChevronRight className="w-3.5 h-3.5 ml-1" />
@@ -778,7 +778,7 @@ export function AdminDashboard() {
               ) : (
                 <div className="flex flex-col gap-3" data-testid="list-ap-review-items">
                   {reviewGroups.slice(0, 5).map((group) => (
-                    <Link key={group.key} href="/admin/ap" className="block">
+                    <Link key={group.key} href="/admin/accounts-payable" className="block">
                       <div
                         className="flex flex-wrap items-center gap-3 rounded-lg border border-border/50 bg-card shadow-sm px-4 py-3 hover:shadow-md transition-shadow cursor-pointer"
                         data-testid={`ap-review-row-${group.key}`}
@@ -796,7 +796,7 @@ export function AdminDashboard() {
                     </Link>
                   ))}
                   {reviewGroups.length > 5 && (
-                    <Link href="/admin/ap">
+                    <Link href="/admin/accounts-payable">
                       <p className="text-xs text-muted-foreground text-center py-1 hover:text-foreground transition-colors cursor-pointer">
                         + {reviewGroups.length - 5} more → View All
                       </p>
