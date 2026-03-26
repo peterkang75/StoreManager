@@ -434,7 +434,14 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
     onSuccess: (result: any) => {
       const count = result?.sweptCount ?? invoices.length;
       const action = mode === "link" ? "linked to existing supplier" : "created";
-      toast({ title: `Supplier ${action} — ${count} invoice${count !== 1 ? "s" : ""} moved to Pending` });
+      if (result?.allDuplicates) {
+        toast({
+          title: `Supplier ${action}`,
+          description: "All invoices from this statement already exist in the system. This review entry has been archived.",
+        });
+      } else {
+        toast({ title: `Supplier ${action} — ${count} invoice${count !== 1 ? "s" : ""} moved to Pending` });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/email-routing-rules"] });

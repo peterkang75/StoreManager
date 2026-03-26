@@ -5531,7 +5531,7 @@ Rules:
         // If ALL statement line items were duplicates, the placeholder was never updated.
         // Quarantine it so the sweep step doesn't pick it up as a $0 invoice.
         if (!firstDone && lineItems.length > 1) {
-          console.warn(`[Review/approve-group] All ${lineItems.length} statement items are duplicates for supplier ${supplier.id} — quarantining placeholder ${reviewInv!.id}`);
+          console.error(`[Review/approve-group] All ${lineItems.length} statement items are duplicates for supplier ${supplier.id} — quarantining placeholder ${reviewInv!.id}`);
           await storage.updateSupplierInvoice(reviewInv!.id, {
             status: "QUARANTINE",
             supplierId: supplier.id,
@@ -5549,8 +5549,13 @@ Rules:
 
       if (reviewInvoiceIds && reviewInvoiceIds.length > 0) {
         sweptByIds = await storage.sweepReviewInvoicesByIds(reviewInvoiceIds, supplier.id);
+      } else if (reviewInvoiceIds !== undefined && reviewInvoiceIds !== null) {
+        // Empty array explicitly sent by frontend — the group has no REVIEW invoices left.
+        // Skip the slow legacy blob scan entirely to avoid the 65-second timeout.
+        console.log(`[Review/approve-group] reviewInvoiceIds sent as empty array — skipping sweep.`);
       } else {
-        // Legacy path: name-based + email-based scan (slow on large tables with blob data)
+        // Legacy path only when reviewInvoiceIds is absent (old client).
+        // Slow on large tables due to raw_extracted_data TOAST blob decompression.
         sweptByName = await storage.sweepReviewInvoicesBySupplierName(supplierName, supplier.id);
         if (senderEmail) {
           sweptByEmail = await storage.sweepReviewInvoicesBySenderEmail(senderEmail, supplier.id);
@@ -5559,7 +5564,7 @@ Rules:
 
       const sweptCount = sweptByIds + sweptByName + sweptByEmail + expandedCount;
       console.log(`[Review/approve-group] Supplier "${supplier.name}" (${supplier.id}). IDs=${sweptByIds} expanded=${expandedCount} name=${sweptByName} email=${sweptByEmail} → ${sweptCount} invoice(s) PENDING.`);
-      res.json({ supplier, sweptCount });
+      res.json({ supplier, sweptCount, allDuplicates: sweptCount === 0 });
     } catch (err: any) {
       console.error("Error approving supplier group:", err);
       res.status(500).json({ error: err?.message ?? "Failed to approve supplier group" });
