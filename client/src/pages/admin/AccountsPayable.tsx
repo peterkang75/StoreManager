@@ -1102,12 +1102,16 @@ export function AdminAccountsPayable() {
                                       </td>
                                       <td className="py-2.5 pr-4 w-16">
                                         <div className="flex items-center gap-0.5 justify-end">
-                                          {inv.notes && (
+                                          {((inv.rawExtractedData as any)?.pdfBase64 || inv.notes) && (
                                             <button
                                               type="button"
-                                              title={inv.notes}
-                                              className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                                              title={(inv.rawExtractedData as any)?.pdfBase64 ? "View PDF Invoice" : inv.notes}
+                                              className={`h-6 w-6 flex items-center justify-center rounded transition-colors ${(inv.rawExtractedData as any)?.pdfBase64 ? "text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300" : "text-muted-foreground/40 hover:text-muted-foreground"}`}
                                               data-testid={`button-notes-${inv.id}`}
+                                              onClick={(inv.rawExtractedData as any)?.pdfBase64 ? (e) => {
+                                                e.stopPropagation();
+                                                window.open(`/api/supplier-invoices/${inv.id}/pdf`, "_blank");
+                                              } : undefined}
                                             >
                                               <FileText className="h-3.5 w-3.5" />
                                             </button>
@@ -1406,8 +1410,14 @@ export function AdminAccountsPayable() {
                           </td>
                           <td className="py-2.5 pr-3 w-16">
                             <div className="flex items-center gap-1 justify-end">
-                              {inv.notes && (
-                                <button type="button" title={inv.notes} className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground/40 hover:text-muted-foreground transition-colors" data-testid={`button-notes-${inv.id}`}>
+                              {((inv.rawExtractedData as any)?.pdfBase64 || inv.notes) && (
+                                <button
+                                  type="button"
+                                  title={(inv.rawExtractedData as any)?.pdfBase64 ? "View PDF Invoice" : inv.notes}
+                                  className={`h-7 w-7 flex items-center justify-center rounded transition-colors ${(inv.rawExtractedData as any)?.pdfBase64 ? "text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300" : "text-muted-foreground/40 hover:text-muted-foreground"}`}
+                                  data-testid={`button-notes-${inv.id}`}
+                                  onClick={(inv.rawExtractedData as any)?.pdfBase64 ? () => window.open(`/api/supplier-invoices/${inv.id}/pdf`, "_blank") : undefined}
+                                >
                                   <FileText className="h-3.5 w-3.5" />
                                 </button>
                               )}

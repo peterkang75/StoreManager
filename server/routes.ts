@@ -2891,6 +2891,28 @@ export async function registerRoutes(
     }
   });
 
+  // Serve stored PDF (base64 from rawExtractedData.pdfBase64)
+  app.get("/api/supplier-invoices/:id/pdf", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const invoice = await storage.getSupplierInvoice(id);
+      if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+
+      const raw = invoice.rawExtractedData as any;
+      const b64 = raw?.pdfBase64 as string | undefined;
+      if (!b64) return res.status(404).json({ error: "No PDF stored for this invoice" });
+
+      const buf = Buffer.from(b64, "base64");
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="invoice-${invoice.invoiceNumber ?? id}.pdf"`);
+      res.setHeader("Content-Length", buf.length);
+      return res.send(buf);
+    } catch (err) {
+      console.error("Error serving invoice PDF:", err);
+      return res.status(500).json({ error: "Failed to serve PDF" });
+    }
+  });
+
   app.put("/api/supplier-invoices/:id", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
@@ -4150,7 +4172,7 @@ export async function registerRoutes(
       }
 
       // ── Helper: extract first PDF from attachments ────────────────────────────
-      async function extractPdfFromAttachments(): Promise<{ text: string } | null> {
+      async function extractPdfFromAttachments(): Promise<{ text: string; pdfBase64: string } | null> {
         if (!hasAttachment) return null;
         const pdfAttachment = attachments.find((a: any) => {
           const name: string = a.file_name ?? a.filename ?? a.name ?? "";
@@ -4160,12 +4182,17 @@ export async function registerRoutes(
         if (!pdfAttachment) return null;
         const rawContent = pdfAttachment.content ?? pdfAttachment.data ?? pdfAttachment.body ?? "";
         let buf: Buffer;
-        if (typeof rawContent === "string") buf = Buffer.from(rawContent, "base64");
-        else if (Buffer.isBuffer(rawContent)) buf = rawContent;
-        else return null;
+        let pdfBase64: string;
+        if (typeof rawContent === "string") {
+          buf = Buffer.from(rawContent, "base64");
+          pdfBase64 = rawContent;
+        } else if (Buffer.isBuffer(rawContent)) {
+          buf = rawContent;
+          pdfBase64 = rawContent.toString("base64");
+        } else return null;
         try {
           const text = await extractPdfText(buf);
-          return text.trim() ? { text } : null;
+          return text.trim() ? { text, pdfBase64 } : null;
         } catch { return null; }
       }
 
@@ -4332,6 +4359,7 @@ export async function registerRoutes(
                 rawExtractedData: {
                   senderEmail,
                   subject,
+                  pdfBase64: pdfResult.pdfBase64,
                   supplier: {
                     supplierName: pdfSupplierName,
                   },
@@ -4377,6 +4405,7 @@ export async function registerRoutes(
           dueDate: parsed.dueDate ?? undefined,
           amount: parsed.totalAmount,
           status: invStatus,
+          rawExtractedData: pdfResult?.pdfBase64 ? { pdfBase64: pdfResult.pdfBase64, senderEmail, subject } : undefined,
           notes: isAutoPay
             ? `Auto-paid (Direct Debit) via email from ${senderEmail}. Subject: ${subject}`
             : `Auto-imported via email from ${senderEmail}. Subject: ${subject}`,
@@ -4571,12 +4600,17 @@ export async function registerRoutes(
         const senderEmail = item.senderEmail;
         const attachments: any[] = Array.isArray(rawPayload?.attachments) ? rawPayload.attachments : [];
 
-        // Find PDF attachment
+        // Find PDF attachment and extract base64
         const pdfAttachment = attachments.find((a: any) => {
           const name: string = a.file_name ?? a.filename ?? a.name ?? "";
           const type: string = a.content_type ?? a.contentType ?? a.mimeType ?? a.type ?? "";
           return name.toLowerCase().endsWith(".pdf") || type.toLowerCase().includes("pdf");
         });
+        let triagePdfBase64: string | undefined;
+        if (pdfAttachment) {
+          const rawContent = pdfAttachment.content ?? pdfAttachment.data ?? pdfAttachment.body ?? "";
+          triagePdfBase64 = typeof rawContent === "string" ? rawContent : Buffer.isBuffer(rawContent) ? rawContent.toString("base64") : undefined;
+        }
 
         // Create a REVIEW placeholder immediately so the AP Inbox shows the
         // item right away, before the slow AI parse completes.
@@ -4589,7 +4623,7 @@ export async function registerRoutes(
           amount: 0,
           status: "REVIEW",
           notes: `Routed from Triage Inbox. Parsing in progress…\nFrom: ${senderEmail}\nSubject: ${subject}`,
-          rawExtractedData: { senderEmail, subject, supplier: { supplierName: item.senderName ?? "" }, body: item.body?.slice(0, 8000) },
+          rawExtractedData: { senderEmail, subject, supplier: { supplierName: item.senderName ?? "" }, body: item.body?.slice(0, 8000), pdfBase64: triagePdfBase64 },
         });
         processResult.invoiceId = reviewInv.id;
         processResult.reviewCreated = true;
@@ -4603,11 +4637,13 @@ export async function registerRoutes(
           try {
             // Helper to upgrade or create final invoice(s) after AI parse
             const upgradeToFinal = async (reason: string, rawExtractedData: any, finalStatus: "REVIEW" | "PENDING", extraFields?: Partial<Parameters<typeof storage.createSupplierInvoice>[0]>) => {
+              // Always preserve the pdfBase64 so the PDF viewer button works
+              const mergedRaw = triagePdfBase64 ? { ...rawExtractedData, pdfBase64: triagePdfBase64 } : rawExtractedData;
               // Update the placeholder we already created
               await storage.updateSupplierInvoice(reviewInv.id, {
                 status: finalStatus,
                 notes: `${reason}\nFrom: ${senderEmail}\nSubject: ${subject}`,
-                rawExtractedData,
+                rawExtractedData: mergedRaw,
                 ...extraFields,
               });
               console.log(`[TriageRoute/bg] Placeholder ${reviewInv.id} upgraded → ${finalStatus}`);
