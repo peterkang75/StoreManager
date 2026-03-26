@@ -1,0 +1,33 @@
+The user has correctly identified that AI cannot infer business context (e.g., a Xero invoice is auto-paid and shouldn't go to AP, or a Bakery Connect email is just an FYI). 
+
+We are pivoting from an "AI-First Triage" to a "Human-Trained Rules Engine + AI Worker" architecture.
+
+Please implement this exactly:
+
+### 1. Database Update (`emailRoutingRules`)
+- Expand the `action` enum/string in the `emailRoutingRules` table to support these 4 specific routes:
+  1. `ROUTE_TO_AP` (Supplier Invoices to pay)
+  2. `ROUTE_TO_TODO` (Tasks & Communications)
+  3. `FYI_ARCHIVE` (Informational, Auto-paid receipts - save to DB but don't show in active queues)
+  4. `SPAM_DROP` (Delete/Ignore completely)
+- Add a new table `universal_inbox` (or use `todos` with a status `NEEDS_ROUTING`) to store raw emails from unknown senders temporarily.
+
+### 2. Webhook Rewrite (`/api/webhooks/inbound-invoices`)
+Remove the GPT-4o Triage step completely. The new flow is deterministic:
+- Check `senderEmail` against `emailRoutingRules`.
+- **If `ROUTE_TO_AP`:** Trigger the Invoice Extraction AI prompt -> Send to AP pipeline.
+- **If `ROUTE_TO_TODO`:** Trigger the Task Summarization AI prompt -> Send to To-Do pipeline.
+- **If `FYI_ARCHIVE` or `SPAM_DROP`:** Return 200 OK immediately (Do not trigger AI).
+- **If UNKNOWN (No rule exists):** Do NOT trigger any AI. Save the raw email (Subject, Body, senderEmail) into the `NEEDS_ROUTING` queue. Return 200 OK.
+
+### 3. Frontend: "Universal Triage Inbox"
+- Create a new, prominent page or tab called `[ 📥 Triage Inbox ]` on the Dashboard.
+- Display all emails currently in the `NEEDS_ROUTING` state.
+- For each email, show the Sender, Subject, and a preview of the body.
+- Provide 4 distinct action buttons to train the system:
+  - `[ 💰 Send to Payables ]` -> Saves rule `ROUTE_TO_AP`, triggers AP AI, removes from Triage.
+  - `[ 📝 Send to To-Do ]` -> Saves rule `ROUTE_TO_TODO`, triggers Task AI, removes from Triage.
+  - `[ 🗂️ FYI / Auto-Paid ]` -> Saves rule `FYI_ARCHIVE`, removes from Triage.
+  - `[ 🚫 Spam / Trash ]` -> Saves rule `SPAM_DROP`, deletes email.
+
+This will build a highly accurate, user-trained system that completely eliminates AI hallucinations in routing!

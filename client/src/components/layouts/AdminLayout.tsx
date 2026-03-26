@@ -18,6 +18,7 @@ import {
   BrainCircuit,
   ShieldCheck,
   ChevronDown,
+  Inbox,
 } from "lucide-react";
 import {
   Sidebar,
@@ -63,6 +64,7 @@ const commsNavItems = [
 
 const executiveNavItems = [
   { title: "AI Smart Inbox", url: "/admin/executive", icon: BrainCircuit },
+  { title: "Triage Inbox",   url: "/admin/triage-inbox", icon: Inbox },
 ];
 
 const financeNavItems = [

@@ -481,7 +481,7 @@ export function AdminAccountsPayable() {
     mutationFn: async ({ invoiceIds, senderEmail, supplierName }: { invoiceIds: string[]; senderEmail: string; supplierName?: string }) => {
       const ops: Promise<any>[] = [
         ...(senderEmail ? [apiRequest("PUT", `/api/email-routing-rules/${encodeURIComponent(senderEmail)}`, {
-          action: "IGNORE",
+          action: "SPAM_DROP",
           supplierName: supplierName ?? null,
         })] : []),
         ...invoiceIds.map(id =>
@@ -1275,18 +1275,26 @@ export function AdminAccountsPayable() {
                         <td className="py-2.5 px-4">
                           <span
                             className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
-                              rule.action === "ALLOW"
+                              rule.action === "ALLOW" || rule.action === "ROUTE_TO_AP"
                                 ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
+                                : rule.action === "ROUTE_TO_TODO"
+                                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400"
+                                : rule.action === "FYI_ARCHIVE"
+                                ? "bg-muted text-muted-foreground"
                                 : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400"
                             }`}
                             data-testid={`text-rule-action-${rule.email}`}
                           >
-                            {rule.action === "ALLOW" ? (
+                            {(rule.action === "ALLOW" || rule.action === "ROUTE_TO_AP") ? (
                               <CheckCircle className="h-3 w-3" />
                             ) : (
                               <Ban className="h-3 w-3" />
                             )}
-                            {rule.action}
+                            {rule.action === "ROUTE_TO_AP" ? "Payables"
+                              : rule.action === "ROUTE_TO_TODO" ? "To-Do"
+                              : rule.action === "FYI_ARCHIVE" ? "FYI"
+                              : rule.action === "SPAM_DROP" ? "Spam"
+                              : rule.action}
                           </span>
                         </td>
                         <td className="py-2.5 px-4 text-xs text-muted-foreground whitespace-nowrap">

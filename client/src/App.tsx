@@ -25,6 +25,7 @@ import { AdminWeeklyPayroll } from "@/pages/admin/WeeklyPayroll";
 import { AdminNotices } from "@/pages/admin/Notices";
 import { AdminExecutiveDashboard } from "@/pages/admin/ExecutiveDashboard";
 import { AdminAccessControl } from "@/pages/admin/AccessControl";
+import { AdminTriageInbox } from "@/pages/admin/TriageInbox";
 
 import { MobileInterview } from "@/pages/mobile/Interview";
 import { MobileOnboarding } from "@/pages/mobile/Onboarding";
@@ -59,6 +60,7 @@ function Router() {
       <Route path="/admin/finance" component={AdminFinance} />
       <Route path="/admin/notices" component={AdminNotices} />
       <Route path="/admin/executive" component={AdminExecutiveDashboard} />
+      <Route path="/admin/triage-inbox" component={AdminTriageInbox} />
       <Route path="/admin/settings/access-control" component={AdminAccessControl} />
       
       <Route path="/m/interview" component={MobileInterview} />

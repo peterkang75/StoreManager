@@ -29,8 +29,9 @@ import {
   stores, candidates, employees, employeeStoreAssignments, employeeOnboardingTokens, employeeDocuments,
   rosterPeriods, shifts, rosters, rosterPublications, timeLogs, timesheets, payrolls,
   dailyClosings, cashSalesDetails, dailyCloseForms, suppliers, supplierInvoices, supplierPayments,
-  quarantinedEmails, emailRoutingRules,
+  quarantinedEmails, emailRoutingRules, universalInbox,
   todos,
+  type UniversalInboxItem, type InsertUniversalInbox,
   financialTransactions, shiftTimesheets, notices, intercompanySettlements, adminPermissions,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
@@ -137,6 +138,12 @@ export interface IStorage {
   updateTodo(id: string, data: Partial<InsertTodo>): Promise<Todo | undefined>;
   deleteTodo(id: string): Promise<boolean>;
 
+  getUniversalInboxItems(status?: string): Promise<UniversalInboxItem[]>;
+  getUniversalInboxItem(id: string): Promise<UniversalInboxItem | undefined>;
+  createUniversalInboxItem(data: InsertUniversalInbox): Promise<UniversalInboxItem>;
+  updateUniversalInboxItem(id: string, data: Partial<InsertUniversalInbox>): Promise<UniversalInboxItem | undefined>;
+  deleteUniversalInboxItem(id: string): Promise<boolean>;
+
   getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]>;
   getNotice(id: string): Promise<Notice | undefined>;
   createNotice(data: InsertNotice): Promise<Notice>;
@@ -200,6 +207,7 @@ export class MemStorage implements IStorage {
   private quarantinedEmails: Map<string, QuarantinedEmail>;
   private emailRoutingRulesMap: Map<string, EmailRoutingRule>;
   private todosMap: Map<string, Todo>;
+  private universalInboxMap: Map<string, UniversalInboxItem>;
   private noticesMap: Map<string, Notice>;
   private employeeStoreAssignments: Map<string, EmployeeStoreAssignment>;
   private financialTransactions: Map<string, FinancialTransaction>;
@@ -225,6 +233,7 @@ export class MemStorage implements IStorage {
     this.quarantinedEmails = new Map();
     this.emailRoutingRulesMap = new Map();
     this.todosMap = new Map();
+    this.universalInboxMap = new Map();
     this.noticesMap = new Map();
     this.financialTransactions = new Map();
     this.rostersMap = new Map();
@@ -1062,6 +1071,45 @@ export class MemStorage implements IStorage {
     return this.todosMap.delete(id);
   }
 
+  async getUniversalInboxItems(status?: string): Promise<UniversalInboxItem[]> {
+    let list = Array.from(this.universalInboxMap.values());
+    if (status) list = list.filter(i => i.status === status);
+    return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async getUniversalInboxItem(id: string): Promise<UniversalInboxItem | undefined> {
+    return this.universalInboxMap.get(id);
+  }
+
+  async createUniversalInboxItem(data: InsertUniversalInbox): Promise<UniversalInboxItem> {
+    const id = randomUUID();
+    const item: UniversalInboxItem = {
+      id,
+      senderEmail: data.senderEmail,
+      senderName: data.senderName ?? null,
+      subject: data.subject,
+      body: data.body,
+      hasAttachment: data.hasAttachment ?? false,
+      rawPayload: data.rawPayload ?? null,
+      status: data.status ?? "NEEDS_ROUTING",
+      createdAt: new Date(),
+    };
+    this.universalInboxMap.set(id, item);
+    return item;
+  }
+
+  async updateUniversalInboxItem(id: string, data: Partial<InsertUniversalInbox>): Promise<UniversalInboxItem | undefined> {
+    const existing = this.universalInboxMap.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...data };
+    this.universalInboxMap.set(id, updated);
+    return updated;
+  }
+
+  async deleteUniversalInboxItem(id: string): Promise<boolean> {
+    return this.universalInboxMap.delete(id);
+  }
+
   async getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]> {
     let list = Array.from(this.noticesMap.values());
     if (filters?.activeOnly) list = list.filter(n => n.isActive);
@@ -1853,6 +1901,34 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTodo(id: string): Promise<boolean> {
     const result = await db.delete(todos).where(eq(todos.id, id));
+    return (result as any).rowCount > 0;
+  }
+
+  async getUniversalInboxItems(status?: string): Promise<UniversalInboxItem[]> {
+    const query = status
+      ? db.select().from(universalInbox).where(eq(universalInbox.status, status))
+      : db.select().from(universalInbox);
+    const rows = await query;
+    return rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async getUniversalInboxItem(id: string): Promise<UniversalInboxItem | undefined> {
+    const [row] = await db.select().from(universalInbox).where(eq(universalInbox.id, id));
+    return row;
+  }
+
+  async createUniversalInboxItem(data: InsertUniversalInbox): Promise<UniversalInboxItem> {
+    const [row] = await db.insert(universalInbox).values(data).returning();
+    return row;
+  }
+
+  async updateUniversalInboxItem(id: string, data: Partial<InsertUniversalInbox>): Promise<UniversalInboxItem | undefined> {
+    const [row] = await db.update(universalInbox).set(data).where(eq(universalInbox.id, id)).returning();
+    return row;
+  }
+
+  async deleteUniversalInboxItem(id: string): Promise<boolean> {
+    const result = await db.delete(universalInbox).where(eq(universalInbox.id, id));
     return (result as any).rowCount > 0;
   }
 

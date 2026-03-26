@@ -509,13 +509,32 @@ export const insertQuarantinedEmailSchema = createInsertSchema(quarantinedEmails
 export type InsertQuarantinedEmail = z.infer<typeof insertQuarantinedEmailSchema>;
 export type QuarantinedEmail = typeof quarantinedEmails.$inferSelect;
 
-// Email routing rules — manager-set ALLOW/IGNORE decisions for inbound invoice senders
+// Email routing rules — human-trained deterministic rules engine
+// Actions: ROUTE_TO_AP | ROUTE_TO_TODO | FYI_ARCHIVE | SPAM_DROP
+// Legacy: ALLOW (treated as ROUTE_TO_AP) | IGNORE (treated as SPAM_DROP)
 export const emailRoutingRules = pgTable("email_routing_rules", {
   email: text("email").primaryKey(), // normalized lowercase sender email
-  action: text("action").notNull(), // 'ALLOW' | 'IGNORE'
+  action: text("action").notNull(), // 'ROUTE_TO_AP' | 'ROUTE_TO_TODO' | 'FYI_ARCHIVE' | 'SPAM_DROP'
   supplierName: text("supplier_name"), // optional: display name from the email header
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// Universal Inbox — raw emails from unknown senders awaiting human routing decision
+export const universalInbox = pgTable("universal_inbox", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  senderEmail: text("sender_email").notNull(),
+  senderName: text("sender_name"),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  hasAttachment: boolean("has_attachment").default(false).notNull(),
+  rawPayload: jsonb("raw_payload"),  // Full Cloudmailin payload — stored for re-processing
+  status: text("status").default("NEEDS_ROUTING").notNull(), // 'NEEDS_ROUTING' | 'PROCESSED' | 'DROPPED'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertUniversalInboxSchema = createInsertSchema(universalInbox).omit({ id: true, createdAt: true });
+export type InsertUniversalInbox = z.infer<typeof insertUniversalInboxSchema>;
+export type UniversalInboxItem = typeof universalInbox.$inferSelect;
 
 export const insertEmailRoutingRuleSchema = createInsertSchema(emailRoutingRules).omit({
   createdAt: true,

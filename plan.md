@@ -234,33 +234,39 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
   - **To Pay** — existing supplier accordion + bulk pay (unchanged).
   - **Review Inbox (Supplier-Centric)** — invoices grouped by AI-extracted `supplierName`. One card per unique supplier name showing invoice count + total amount + individual invoice list. **Webhook smart-match**: after AI extracts supplier name, ILIKE match against `suppliers` table; if found → create as PENDING/PAID directly (skip REVIEW). **Backend sweep**: `POST /api/invoices/review/approve-group` creates supplier + runs `sweepReviewInvoicesBySupplierName` to UPDATE all matching REVIEW invoices to PENDING in one call. **Ignore Supplier** quarantines ALL invoices in the group. **Approve & Add Supplier** opens pre-filled modal + approves all group invoices at once.
   - **Paid History** — existing flat paid invoice list (unchanged).
-  - **Email Rules** — data table (Email, Supplier Name, ALLOW/IGNORE badge, Created date, Delete button). Delete removes rule so sender is treated as unknown again.
+  - **Email Rules** — data table (Email, Supplier Name, Action badge, Created date, Delete button). Delete removes rule so sender is treated as unknown again. Actions: `ROUTE_TO_AP` | `ROUTE_TO_TODO` | `FYI_ARCHIVE` | `SPAM_DROP` (+ legacy `ALLOW` → AP, `IGNORE` → Spam).
   - Store filter row + summary cards only shown on To Pay and Paid History tabs.
 
-### 3.11 AI Executive Assistant — Email → Task Pipeline ✅ BACKEND COMPLETE
+### 3.11 Email Routing — Human-Trained Rules Engine ✅ COMPLETE
 
-- **Trigger**: Same inbound webhook `POST /api/webhooks/inbound-invoices` now receives ALL forwarded emails.
-- **TWO-STEP PIPELINE** (refactored for strict isolation):
-  - **Step 1 — Triage** (`triageEmail`): GPT-4o call, single-word response only. Returns `INVOICE | TASK | JUNK`. Never extracts data.
-  - **Step 2A — INVOICE branch**: Completely isolated AP pipeline. Sub-routes:
-    - `matchedSupplier` (email sender = DB supplier): `parseInvoiceWithAI` → PENDING (supplierId confirmed).
-    - `isAllowlisted` forwarder (e.g. CEO): `parseInvoiceFromUnknownSender` → name-match → PENDING if matched, REVIEW if not.
-    - Unknown sender + PDF: `parseInvoiceFromUnknownSender` → name-match → PENDING if matched, REVIEW if not.
-    - No PDF (any): quarantine or REVIEW placeholder. **CRITICAL: No supplierId = always REVIEW, never PENDING.**
-  - **Step 2B — TASK branch**: Completely isolated from AP. `summarizeTaskFromEmail` (GPT-4o-mini) → Korean title/description → save to `todos` ONLY. NEVER touches AP pipeline.
-  - **JUNK**: silently ignored (with attachment → quarantine).
-- **`todos` table** (`shared/schema.ts`): `id`, `title`, `description`, `sourceEmail`, `dueDate` (timestamp, nullable), `status` (`REVIEW` | `TODO` | `IN_PROGRESS` | `DONE`), `createdAt`.
-- **API endpoints**:
-  - `GET /api/todos` — list all todos, newest first.
-  - `POST /api/todos` — create todo manually.
-  - `PATCH /api/todos/:id` — update status/title/description/dueDate.
-  - `DELETE /api/todos/:id` — delete a todo (used by Ignore Sender action).
-- **Webhook TASK routing** ✅: checks `emailRoutingRules` before creating todo. IGNORE → discard silently. ALLOW → `status:"TODO"`. Unknown sender → `status:"REVIEW"`.
-- **Frontend** ✅ COMPLETE: `/admin/executive` — AI Smart Inbox with tab structure:
-  - **Active Tasks** tab: TODO/IN_PROGRESS tasks, stat cards (All Active / To Do / In Progress), overdue sorting, DONE collapsible section.
-  - **Review Inbox** tab: REVIEW todos grouped by unknown sender. "Ignore Sender" button → sets routing rule IGNORE + deletes todo. "Allow & Add to To-Do" button → sets routing rule ALLOW + patches status to TODO (moves to Active Tasks). Badge count on tab header. Task title/description auto-translated to Korean by GPT.
-- **AI Korean translation** ✅: `classifyAndParseEmail` prompt updated — TASK title and description are now generated in Korean.
-- **Auto-Pay (Direct Debit)** ✅: `isAutoPay` boolean on `suppliers`. Auto-creates PAID invoice + AUTO_DEBIT payment on webhook/manual creation. Revert endpoint `POST /api/invoices/:id/revert` deletes payments and moves back to PENDING. Suppliers.tsx: Auto-Pay toggle + amber badge. AccountsPayable.tsx: isAutoPay toggle in Approve modal + Auto-Paid badge + Revert button + AlertDialog confirmation in Paid History tab.
+**Architecture**: Replaced GPT-4o triage step with a deterministic routing engine. Manager-defined routing rules control all email processing — no AI classification needed.
+
+- **Webhook** `POST /api/webhooks/inbound-invoices`:
+  1. Extract sender from `headers.from` (never `envelope.from`)
+  2. Look up `emailRoutingRules` for sender email
+  3. Route based on rule action (backward-compat: `ALLOW` → `ROUTE_TO_AP`, `IGNORE` → `SPAM_DROP`):
+     - **`ROUTE_TO_AP`**: AP pipeline → match supplier by email → `parseInvoiceWithAI` (direct supplier) or `parseInvoiceFromUnknownSender` (forwarder). **CRITICAL: No supplierId = always REVIEW.**
+     - **`ROUTE_TO_TODO`**: Task pipeline → `summarizeTaskFromEmail` → create todo with `status:"TODO"`. NEVER touches AP.
+     - **`FYI_ARCHIVE`**: Acknowledge silently, no processing.
+     - **`SPAM_DROP`**: Drop silently.
+     - **Unknown sender (no rule)**: Save raw email to `universal_inbox` table for human triage.
+
+- **`universal_inbox` table** (`shared/schema.ts`): `id`, `senderEmail`, `senderName`, `subject`, `body`, `hasAttachment`, `rawPayload` (jsonb — full Cloudmailin payload for re-processing), `status` (`NEEDS_ROUTING` | `PROCESSED` | `DROPPED`), `createdAt`.
+
+- **Triage Inbox** `GET /api/universal-inbox` + `POST /api/universal-inbox/:id/route`:
+  - When manager routes an item, routing rule is saved AND current email is re-processed immediately.
+  - Item status updated to `PROCESSED` or `DROPPED`.
+
+- **Frontend** `/admin/triage-inbox` (`TriageInbox.tsx`) — sidebar under "Executive":
+  - 3 tabs: Needs Routing (badge count) / Processed / Dropped.
+  - Each card: sender name/email, subject, body preview, attachment indicator, received time.
+  - 4 action buttons per card: Payables → ROUTE_TO_AP, To-Do → ROUTE_TO_TODO, FYI → FYI_ARCHIVE, Spam → SPAM_DROP.
+  - Confirm dialog before routing. Toast on success.
+  - Explanation panel (Korean) describing how the rules engine works.
+
+- **todos** `GET/POST/PATCH/DELETE /api/todos`: unchanged.
+- **AI Korean translation** ✅: task titles/descriptions generated in Korean by GPT.
+- **Auto-Pay (Direct Debit)** ✅: `isAutoPay` boolean on `suppliers`. Auto-creates PAID invoice + AUTO_DEBIT payment on webhook/manual creation.
 
 ### 3.12 Employee Portal (Mobile)
 - **Login**: `/mobile/portal` — employee selects store, finds their name, enters PIN.
