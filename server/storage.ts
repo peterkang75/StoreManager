@@ -1883,8 +1883,9 @@ export class DatabaseStorage implements IStorage {
 
   async sweepReviewInvoicesByIds(ids: string[], supplierId: string): Promise<number> {
     // Fast ID-based sweep — no raw_extracted_data JSON scan, no TOAST decompression.
-    // Approves REVIEW invoices by known ID (passed from frontend). Skips duplicates via NOT EXISTS.
-    // Quarantines remaining matched IDs where a conflict prevents approval.
+    // Approves REVIEW invoices by known ID. Skips duplicates via NOT EXISTS.
+    // IMPORTANT: TRIAGE-prefixed invoice numbers are un-expanded placeholders (amount=0, no real data).
+    //   These are quarantined rather than approved, to avoid creating $0 junk PENDING invoices.
     if (!ids || ids.length === 0) return 0;
     const idList = ids.map(id => `'${id.replace(/'/g, "''")}'`).join(",");
     const result = await db.execute(sql`
@@ -1893,6 +1894,7 @@ export class DatabaseStorage implements IStorage {
         FROM supplier_invoices
         WHERE id IN (${sql.raw(idList)})
           AND status = 'REVIEW'
+          AND (invoice_number IS NULL OR invoice_number NOT LIKE 'TRIAGE-%')
           AND NOT EXISTS (
             SELECT 1 FROM supplier_invoices ex
             WHERE ex.supplier_id = ${supplierId}
@@ -1908,7 +1910,7 @@ export class DatabaseStorage implements IStorage {
       )
       UPDATE supplier_invoices
       SET status = 'QUARANTINE',
-          notes = 'Duplicate invoice number — quarantined during supplier approval.'
+          notes = 'Placeholder or duplicate invoice — quarantined during supplier approval.'
       WHERE id IN (${sql.raw(idList)})
         AND status = 'REVIEW'
         AND id NOT IN (SELECT id FROM approved)

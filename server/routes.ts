@@ -4890,26 +4890,36 @@ export async function registerRoutes(
                       if (!parsed.invoiceNumber && !parsed.totalAmount) continue;
                       if (parsed.invoiceNumber && existingNumbers.has(parsed.invoiceNumber)) continue;
                       const storeId = parsed.storeCode === "SUSHI" ? sushiStore?.id ?? null : parsed.storeCode === "SANDWICH" ? sandwichStore?.id ?? null : null;
-                      if (!firstCreated) {
-                        // Upgrade the placeholder for the first invoice
-                        await upgradeToFinal(
-                          `Routed from Triage Inbox.`,
-                          { senderEmail, subject, supplier: { supplierName: matchedSupplier.name } },
-                          "PENDING",
-                          { supplierId: matchedSupplier.id, storeId, invoiceNumber: parsed.invoiceNumber, invoiceDate: parsed.issueDate, dueDate: parsed.dueDate ?? undefined, amount: parsed.totalAmount },
-                        );
-                        firstCreated = true;
-                      } else {
-                        // Additional invoices in the same email
-                        await storage.createSupplierInvoice({
-                          supplierId: matchedSupplier.id, storeId,
-                          invoiceNumber: parsed.invoiceNumber,
-                          invoiceDate: parsed.issueDate,
-                          dueDate: parsed.dueDate ?? undefined,
-                          amount: parsed.totalAmount,
-                          status: "PENDING",
-                          notes: `Routed from Triage Inbox.\nFrom: ${senderEmail}\nSubject: ${subject}`,
-                        });
+                      try {
+                        if (!firstCreated) {
+                          // Upgrade the placeholder for the first invoice
+                          await upgradeToFinal(
+                            `Routed from Triage Inbox.`,
+                            { senderEmail, subject, supplier: { supplierName: matchedSupplier.name } },
+                            "PENDING",
+                            { supplierId: matchedSupplier.id, storeId, invoiceNumber: parsed.invoiceNumber, invoiceDate: parsed.issueDate, dueDate: parsed.dueDate ?? undefined, amount: parsed.totalAmount },
+                          );
+                          firstCreated = true;
+                        } else {
+                          // Additional invoices in the same email
+                          await storage.createSupplierInvoice({
+                            supplierId: matchedSupplier.id, storeId,
+                            invoiceNumber: parsed.invoiceNumber,
+                            invoiceDate: parsed.issueDate,
+                            dueDate: parsed.dueDate ?? undefined,
+                            amount: parsed.totalAmount,
+                            status: "PENDING",
+                            notes: `Routed from Triage Inbox.\nFrom: ${senderEmail}\nSubject: ${subject}`,
+                          });
+                        }
+                        if (parsed.invoiceNumber) existingNumbers.add(parsed.invoiceNumber);
+                      } catch (dupErr: any) {
+                        if (dupErr?.code === "23505" || dupErr?.message?.includes("unique constraint")) {
+                          console.warn(`[TriageRoute/bg] Skipping duplicate invoice ${parsed.invoiceNumber} for supplier ${matchedSupplier.id}`);
+                          if (!firstCreated) firstCreated = false; // rollback firstCreated if placeholder update failed
+                        } else {
+                          throw dupErr;
+                        }
                       }
                     }
                     if (!firstCreated) {
@@ -5516,6 +5526,17 @@ Rules:
               }
             } else { throw dupErr; }
           }
+        }
+
+        // If ALL statement line items were duplicates, the placeholder was never updated.
+        // Quarantine it so the sweep step doesn't pick it up as a $0 invoice.
+        if (!firstDone && lineItems.length > 1) {
+          console.warn(`[Review/approve-group] All ${lineItems.length} statement items are duplicates for supplier ${supplier.id} — quarantining placeholder ${reviewInv!.id}`);
+          await storage.updateSupplierInvoice(reviewInv!.id, {
+            status: "QUARANTINE",
+            supplierId: supplier.id,
+            notes: "All statement invoices already exist for this supplier — quarantined to avoid duplicate $0 entry.",
+          });
         }
       }
 
