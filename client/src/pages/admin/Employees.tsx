@@ -27,6 +27,11 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Employee, Store, EmployeeStoreAssignment } from "@shared/schema";
 
+const STORE_BRAND: Record<string, string> = {
+  Sushi: "#EE864A",
+  Sandwich: "#D13535",
+};
+
 export function AdminEmployees() {
   const [, setLocation] = useLocation();
   const [linkCopied, setLinkCopied] = useState(false);
@@ -323,7 +328,22 @@ export function AdminEmployees() {
                         {employee.nickname || `${employee.firstName} ${employee.lastName}`}
                       </TableCell>
                       <TableCell data-testid={`text-store-${employee.id}`}>
-                        {getStoreNames(employee.id)}
+                        <div className="flex flex-wrap gap-1">
+                          {(empStoreMap.get(employee.id) ?? []).map(sid => {
+                            const name = storeMap.get(sid)?.name ?? "Unknown";
+                            const color = STORE_BRAND[name];
+                            return (
+                              <span
+                                key={sid}
+                                className="text-[10px] font-semibold px-2 py-0.5 rounded-full text-white"
+                                style={{ backgroundColor: color ?? "#6366f1" }}
+                              >
+                                {name}
+                              </span>
+                            );
+                          })}
+                          {(empStoreMap.get(employee.id) ?? []).length === 0 && <span className="text-muted-foreground">—</span>}
+                        </div>
                       </TableCell>
                       <TableCell data-testid={`text-rate-${employee.id}`}>
                         {employee.rate || "—"}

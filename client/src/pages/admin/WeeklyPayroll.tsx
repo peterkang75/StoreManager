@@ -122,8 +122,8 @@ interface WeeklyPayrollResponse {
 }
 
 const STORE_COLORS: Record<string, string> = {
-  Sushi: "#16a34a",
-  Sandwich: "#dc2626",
+  Sushi: "#EE864A",
+  Sandwich: "#D13535",
 };
 function storeColor(name: string): string {
   return STORE_COLORS[name] ?? "#6366f1";

@@ -83,6 +83,60 @@ function fmtDate(d: string): string {
   }
 }
 
+// ─── Brand design system ─────────────────────────────────────────────────────
+const BRAND = {
+  sushi:    { sales: "#EE864A", cogs: "#9A460C" },
+  sandwich: { sales: "#D13535", cogs: "#7A1A1A" },
+};
+
+// ─── Payroll cycle (2-week) chart helpers ────────────────────────────────────
+type DailyRow = { date: string; sales: number; cogs: number };
+type CycleRow = { cycle: string; sortKey: string; Sales: number; COGS: number };
+type StackedRow = { cycle: string; sortKey: string; SushiSales: number; SandwichSales: number; SushiCogs: number; SandwichCogs: number };
+
+function getCycleStart(dateStr: string, anchorStr: string): string {
+  const anchor = new Date(anchorStr + "T00:00:00");
+  const d      = new Date(dateStr  + "T00:00:00");
+  const diff   = Math.floor((d.getTime() - anchor.getTime()) / 86400000);
+  const idx    = Math.max(0, Math.floor(diff / 14));
+  const cs     = new Date(anchor);
+  cs.setDate(anchor.getDate() + idx * 14);
+  return cs.toISOString().slice(0, 10);
+}
+
+function fmtCycleLabel(isoDate: string): string {
+  const d = new Date(isoDate + "T00:00:00");
+  return d.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+}
+
+function buildSingleCycles(rows: DailyRow[], anchor: string): CycleRow[] {
+  const map = new Map<string, CycleRow>();
+  for (const row of rows) {
+    const key = getCycleStart(row.date, anchor);
+    const cur = map.get(key) ?? { cycle: fmtCycleLabel(key), sortKey: key, Sales: 0, COGS: 0 };
+    cur.Sales += row.sales;
+    cur.COGS  += row.cogs;
+    map.set(key, cur);
+  }
+  return Array.from(map.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+}
+
+function buildStackedCycles(sushi: DailyRow[], sandwich: DailyRow[], anchor: string): StackedRow[] {
+  const map = new Map<string, StackedRow>();
+  const process = (rows: DailyRow[], isSushi: boolean) => {
+    for (const row of rows) {
+      const key = getCycleStart(row.date, anchor);
+      const cur = map.get(key) ?? { cycle: fmtCycleLabel(key), sortKey: key, SushiSales: 0, SandwichSales: 0, SushiCogs: 0, SandwichCogs: 0 };
+      if (isSushi) { cur.SushiSales += row.sales; cur.SushiCogs += row.cogs; }
+      else         { cur.SandwichSales += row.sales; cur.SandwichCogs += row.cogs; }
+      map.set(key, cur);
+    }
+  };
+  process(sushi, true);
+  process(sandwich, false);
+  return Array.from(map.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+}
+
 function getVisaDaysLeft(visaExpiry: string | null | undefined): number | null {
   if (!visaExpiry) return null;
   const expiry = parseVisaDate(visaExpiry);
@@ -302,6 +356,9 @@ export function AdminDashboard() {
 
   const activeStoreList = (stores ?? []).filter(s => s.active);
 
+  const sushiStoreId    = useMemo(() => activeStoreList.find(s => s.name.toLowerCase().includes("sushi"))?.id,    [activeStoreList]);
+  const sandwichStoreId = useMemo(() => activeStoreList.find(s => s.name.toLowerCase().includes("sandwich"))?.id, [activeStoreList]);
+
   const effectiveStoreId = useMemo(() => {
     if (selectedTypes.length === 0 || selectedTypes.length === 2) return "ALL";
     const match = activeStoreList.find(s =>
@@ -316,6 +373,18 @@ export function AdminDashboard() {
     return p.toString();
   }, [startDate, endDate, effectiveStoreId]);
 
+  const sushiParams = useMemo(() => {
+    const p = new URLSearchParams({ startDate, endDate });
+    if (sushiStoreId) p.set("storeId", sushiStoreId);
+    return p.toString();
+  }, [startDate, endDate, sushiStoreId]);
+
+  const sandwichParams = useMemo(() => {
+    const p = new URLSearchParams({ startDate, endDate });
+    if (sandwichStoreId) p.set("storeId", sandwichStoreId);
+    return p.toString();
+  }, [startDate, endDate, sandwichStoreId]);
+
   const { data: summary, isLoading: summaryLoading } = useQuery<DashboardSummary>({
     queryKey: ["/api/dashboard/summary", startDate, endDate, effectiveStoreId],
     queryFn: async () => {
@@ -323,6 +392,28 @@ export function AdminDashboard() {
       if (!res.ok) throw new Error("Failed to fetch summary");
       return res.json();
     },
+  });
+
+  const { data: sushiSummary } = useQuery<DashboardSummary>({
+    queryKey: ["/api/dashboard/summary", startDate, endDate, sushiStoreId],
+    queryFn: async () => {
+      const res = await fetch(`/api/dashboard/summary?${sushiParams}`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: !!sushiStoreId,
+    staleTime: 60_000,
+  });
+
+  const { data: sandwichSummary } = useQuery<DashboardSummary>({
+    queryKey: ["/api/dashboard/summary", startDate, endDate, sandwichStoreId],
+    queryFn: async () => {
+      const res = await fetch(`/api/dashboard/summary?${sandwichParams}`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: !!sandwichStoreId,
+    staleTime: 60_000,
   });
 
   // ── HR stats ──────────────────────────────────────────────────────────────
@@ -344,12 +435,19 @@ export function AdminDashboard() {
   const urgentAlerts = visaAlerts.filter(({ daysLeft }) => daysLeft !== null && daysLeft <= 14);
   const amberAlerts  = visaAlerts.filter(({ daysLeft }) => daysLeft !== null && daysLeft > 14 && daysLeft <= 60);
 
-  // ── Chart data ────────────────────────────────────────────────────────────
-  const chartData = (summary?.dailyTrend ?? []).map(row => ({
-    date: fmtDate(row.date),
-    Sales: row.sales,
-    COGS: row.cogs,
-  }));
+  // ── Chart data — 2-week payroll cycles ───────────────────────────────────
+  const isBothSelected    = selectedTypes.includes("Sushi") && selectedTypes.includes("Sandwich");
+  const isSushiOnly       = selectedTypes.includes("Sushi") && !selectedTypes.includes("Sandwich");
+  const isSandwichOnly    = !selectedTypes.includes("Sushi") && selectedTypes.includes("Sandwich");
+
+  const chartData = useMemo(() => {
+    if (isBothSelected) {
+      return buildStackedCycles(sushiSummary?.dailyTrend ?? [], sandwichSummary?.dailyTrend ?? [], startDate);
+    }
+    if (isSushiOnly)    return buildSingleCycles(sushiSummary?.dailyTrend ?? [], startDate);
+    if (isSandwichOnly) return buildSingleCycles(sandwichSummary?.dailyTrend ?? [], startDate);
+    return buildSingleCycles(summary?.dailyTrend ?? [], startDate);
+  }, [isBothSelected, isSushiOnly, isSandwichOnly, sushiSummary, sandwichSummary, summary, startDate]);
 
   // ── Triage: needs routing ─────────────────────────────────────────────────
   const needsRouting = allTriageItems.filter(i => i.status === "NEEDS_ROUTING");
@@ -436,19 +534,21 @@ export function AdminDashboard() {
             <div className="flex items-center gap-2 ml-2">
               {(["Sushi", "Sandwich"] as const).map(type => {
                 const isOn = selectedTypes.includes(type);
+                const brandColor = type === "Sushi" ? BRAND.sushi.sales : BRAND.sandwich.sales;
                 return (
-                  <Button
+                  <button
                     key={type}
-                    size="sm"
-                    variant={isOn ? "default" : "outline"}
-                    className={isOn ? (type === "Sushi" ? "bg-green-600 border-green-600 text-white" : "bg-red-600 border-red-600 text-white") : ""}
                     onClick={() => setSelectedTypes(prev =>
                       prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
                     )}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
+                      isOn ? "text-white border-transparent" : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40"
+                    }`}
+                    style={isOn ? { backgroundColor: brandColor } : {}}
                     data-testid={`button-store-${type.toLowerCase()}`}
                   >
                     {type}
-                  </Button>
+                  </button>
                 );
               })}
             </div>
@@ -499,7 +599,9 @@ export function AdminDashboard() {
           {/* Chart */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Daily Sales vs COGS</CardTitle>
+              <CardTitle className="text-base">
+                {isBothSelected ? "Sales & COGS by Payroll Cycle (Stacked)" : "Sales vs COGS by Payroll Cycle"}
+              </CardTitle>
             </CardHeader>
             <CardContent>
               {summaryLoading ? (
@@ -511,15 +613,14 @@ export function AdminDashboard() {
                   No data for the selected period
                 </div>
               ) : (
-                <ResponsiveContainer width="100%" height={220}>
+                <ResponsiveContainer width="100%" height={240}>
                   <ComposedChart data={chartData} margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                     <XAxis
-                      dataKey="date"
+                      dataKey="cycle"
                       tick={{ fontSize: 11 }}
                       tickLine={false}
                       axisLine={false}
-                      interval="preserveStartEnd"
                     />
                     <YAxis
                       tick={{ fontSize: 11 }}
@@ -530,8 +631,19 @@ export function AdminDashboard() {
                     />
                     <Tooltip content={<ChartTooltip />} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey="Sales" fill="#3b82f6" radius={[3, 3, 0, 0]} maxBarSize={32} />
-                    <Bar dataKey="COGS"  fill="#a855f7" radius={[3, 3, 0, 0]} maxBarSize={32} />
+                    {isBothSelected ? (
+                      <>
+                        <Bar dataKey="SushiSales"    name="Sushi Sales"    fill={BRAND.sushi.sales}    stackId="sales" radius={[0, 0, 0, 0]} maxBarSize={40} />
+                        <Bar dataKey="SandwichSales" name="Sandwich Sales" fill={BRAND.sandwich.sales} stackId="sales" radius={[3, 3, 0, 0]} maxBarSize={40} />
+                        <Bar dataKey="SushiCogs"     name="Sushi COGS"    fill={BRAND.sushi.cogs}     stackId="cogs"  radius={[0, 0, 0, 0]} maxBarSize={40} />
+                        <Bar dataKey="SandwichCogs"  name="Sandwich COGS" fill={BRAND.sandwich.cogs}  stackId="cogs"  radius={[3, 3, 0, 0]} maxBarSize={40} />
+                      </>
+                    ) : (
+                      <>
+                        <Bar dataKey="Sales" fill={isSandwichOnly ? BRAND.sandwich.sales : BRAND.sushi.sales} radius={[3, 3, 0, 0]} maxBarSize={36} />
+                        <Bar dataKey="COGS"  fill={isSandwichOnly ? BRAND.sandwich.cogs  : BRAND.sushi.cogs}  radius={[3, 3, 0, 0]} maxBarSize={36} />
+                      </>
+                    )}
                   </ComposedChart>
                 </ResponsiveContainer>
               )}

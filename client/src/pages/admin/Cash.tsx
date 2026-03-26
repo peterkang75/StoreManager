@@ -1,16 +1,10 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -24,6 +18,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Wallet, Receipt, AlertTriangle } from "lucide-react";
 import type { Store, DailyClosing, CashSalesDetail } from "@shared/schema";
 
+const STORE_BRAND: Record<string, string> = {
+  Sushi: "#EE864A",
+  Sandwich: "#D13535",
+};
+
 export function AdminCash() {
   const [storeFilter, setStoreFilter] = useState<string>("all");
   const [startDate, setStartDate] = useState("");
@@ -32,6 +31,8 @@ export function AdminCash() {
   const { data: stores } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
   });
+
+  const activeStores = useMemo(() => (stores ?? []).filter(s => s.active), [stores]);
 
   const buildQuery = () => {
     const params = new URLSearchParams();
@@ -86,17 +87,25 @@ export function AdminCash() {
             <div className="flex flex-wrap items-center justify-between gap-4">
               <CardTitle className="text-base">Filter</CardTitle>
               <div className="flex flex-wrap items-center gap-4">
-                <Select value={storeFilter} onValueChange={setStoreFilter}>
-                  <SelectTrigger className="w-40" data-testid="select-store-filter">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Stores</SelectItem>
-                    {stores?.filter(s => s.active).map(store => (
-                      <SelectItem key={store.id} value={store.id}>{store.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center gap-1 flex-wrap">
+                  {[{ id: "all", name: "All Stores" }, ...activeStores].map(store => {
+                    const isActive = storeFilter === store.id;
+                    const brandColor = STORE_BRAND[store.name] ?? null;
+                    return (
+                      <button
+                        key={store.id}
+                        onClick={() => setStoreFilter(store.id)}
+                        className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
+                          isActive ? "text-white border-transparent" : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40"
+                        }`}
+                        style={isActive ? { backgroundColor: brandColor ?? "#1a1a1a" } : {}}
+                        data-testid={`button-store-filter-${store.id}`}
+                      >
+                        {store.name}
+                      </button>
+                    );
+                  })}
+                </div>
                 <div className="flex items-center gap-2">
                   <Label className="text-sm whitespace-nowrap">From:</Label>
                   <Input

@@ -1346,20 +1346,27 @@ export function AdminAccountsPayable() {
         {/* ── Store Filter (To Pay + History only) ──────────────────────── */}
         {showStoreFilter && (
           <div className="flex items-center gap-1 flex-wrap">
-            {[...filteredStores.map(s => ({ id: s.id, label: s.name })), { id: "ALL", label: "All Stores" }].map(opt => (
-              <button
-                key={opt.id}
-                onClick={() => { setStoreFilter(opt.id); clearSelection(); }}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
-                  storeFilter === opt.id
-                    ? "bg-foreground text-background border-foreground"
-                    : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40"
-                }`}
-                data-testid={`button-store-filter-${opt.id}`}
-              >
-                {opt.label}
-              </button>
-            ))}
+            {[...filteredStores.map(s => ({ id: s.id, label: s.name })), { id: "ALL", label: "All Stores" }].map(opt => {
+              const isActive = storeFilter === opt.id;
+              const brandColor =
+                opt.label.toLowerCase().includes("sushi") ? "#EE864A" :
+                opt.label.toLowerCase().includes("sandwich") ? "#D13535" : null;
+              return (
+                <button
+                  key={opt.id}
+                  onClick={() => { setStoreFilter(opt.id); clearSelection(); }}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
+                    isActive
+                      ? "text-white border-transparent"
+                      : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40"
+                  }`}
+                  style={isActive ? { backgroundColor: brandColor ?? "#1a1a1a", borderColor: brandColor ?? "#1a1a1a" } : {}}
+                  data-testid={`button-store-filter-${opt.id}`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
           </div>
         )}
 

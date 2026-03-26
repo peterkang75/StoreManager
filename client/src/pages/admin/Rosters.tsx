@@ -114,8 +114,8 @@ function isOutsideHours(start: string, end: string, open: string, close: string)
 
 // ─── Store brand colours ──────────────────────────────────────────────────────
 const STORE_COLORS: Record<string, string> = {
-  Sushi:    "#16a34a",  // green-600
-  Sandwich: "#dc2626",  // red-600
+  Sushi:    "#EE864A",
+  Sandwich: "#D13535",
 };
 
 // ─── Cell editor popover ─────────────────────────────────────────────────────

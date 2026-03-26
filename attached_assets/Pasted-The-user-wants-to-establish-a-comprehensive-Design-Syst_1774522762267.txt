@@ -1,0 +1,33 @@
+The user wants to establish a comprehensive "Design System" based on brand colors for two stores (Sushime and Eat'em Sandwich) and apply these colors globally across the app. Additionally, the Dashboard's "Daily Sales vs COGS" chart needs a major refactoring to display data in 2-week Payroll cycles with stacked bars.
+
+Please implement the following updates in the project:
+
+### 1. Create design.md
+Create a `design.md` file in the root directory to document the exact brand colors:
+
+# Brand Color System
+1. Sushime (Sushi Store)
+- Income (Sales): #EE864A (Signature Orange)
+- Operational Cost (COGS): #9A460C (Deep Terracotta)
+
+2. Eat'em Sandwich (Sandwich Store)
+- Income (Sales): #D13535 (Signature Red)
+- Operational Cost (COGS): #7A1A1A (Burgundy Red)
+
+### 2. Apply Global Store Colors to UI Components
+Apply these exact colors to the following components to clearly differentiate the stores:
+- Accounts Payable & Roster: Update the active background color of the Store Selection buttons (Sushi = #EE864A, Sandwich = #D13535).
+- Cash Flow & Cash Close: Create/Update the Store Selection toggle and apply the same active background colors.
+- Pending Approvals & Attendance History: Add a colored bullet/dot next to the store name or employee name (Sushi = #EE864A, Sandwich = #D13535). If an employee belongs to both, show two bullets side-by-side.
+- Employee Page: Change the "Stores" column in the table to display colored badges (bg #EE864A for Sushi, bg #D13535 for Sandwich).
+
+### 3. Refactor Dashboard Graph (Sales vs COGS)
+Update the Recharts component on the Dashboard with the following logic:
+- Time Interval (Payroll Cycle): Group the data into 2-week (14-day) payroll cycles instead of daily. 
+- X-Axis Formatting: Display the start date of the 2-week cycle on the X-axis (e.g., format as 'd MMM' like "9 Mar").
+- Dynamic Bar Rendering & Stacking:
+  * If ONLY Sushime is selected: Show standard side-by-side bars. Sales fill = #EE864A, COGS fill = #9A460C.
+  * If ONLY Sandwich is selected: Show standard side-by-side bars. Sales fill = #D13535, COGS fill = #7A1A1A.
+  * If BOTH are selected: Show STACKED bar charts. The 'Sales' bar should stack Sushi (#EE864A) on bottom and Sandwich (#D13535) on top. The 'COGS' bar should stack Sushi (#9A460C) on bottom and Sandwich (#7A1A1A) on top.
+
+Please implement these UI/UX color system updates and the chart logic refactoring immediately!

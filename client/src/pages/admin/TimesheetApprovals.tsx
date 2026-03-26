@@ -142,8 +142,8 @@ function adjustTime(time: string, deltaMinutes: number): string {
 }
 
 const STORE_COLORS: Record<string, string> = {
-  Sushi: "#16a34a",
-  Sandwich: "#dc2626",
+  Sushi: "#EE864A",
+  Sandwich: "#D13535",
 };
 function storeColor(n: string): string {
   return STORE_COLORS[n] ?? "#6366f1";
