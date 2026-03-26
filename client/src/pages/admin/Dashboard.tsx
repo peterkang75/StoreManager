@@ -508,149 +508,157 @@ export function AdminDashboard() {
         </section>
 
         {/* ── Section: Triage — Needs Routing ─────────────────────────── */}
-        <section className="space-y-4" data-testid="section-triage-widget">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="text-xl font-semibold tracking-tight flex items-center gap-2">
-                <Mail className="w-5 h-5 text-amber-500" />
-                Needs Routing
-                {needsRouting.length > 0 && (
-                  <Badge variant="destructive" className="ml-1" data-testid="badge-triage-count">
-                    {needsRouting.length}
-                  </Badge>
-                )}
-              </h2>
-              <p className="text-sm text-muted-foreground">라우팅 규칙이 없는 미처리 이메일</p>
-            </div>
-            <Link href="/admin/triage">
-              <Button variant="outline" size="sm" data-testid="link-view-triage">
-                View Triage Inbox
-                <ChevronRight className="w-3.5 h-3.5 ml-1" />
-              </Button>
-            </Link>
-          </div>
-
-          {triageLoading ? (
-            <div className="space-y-2">
-              {[1, 2].map((i) => <Skeleton key={i} className="h-14 w-full rounded-lg" />)}
-            </div>
-          ) : needsRouting.length === 0 ? (
-            <div className="flex items-center gap-3 rounded-lg border border-green-500/30 bg-green-500/5 px-4 py-3" data-testid="triage-all-clear">
-              <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
-              <p className="text-sm text-green-700 dark:text-green-400">모든 이메일이 라우팅되었습니다.</p>
-            </div>
-          ) : (
-            <div className="space-y-2" data-testid="list-triage-items">
-              {needsRouting.slice(0, 5).map((item) => (
-                <Link key={item.id} href="/admin/triage">
-                  <div
-                    className="flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-background px-4 py-3 hover-elevate cursor-pointer"
-                    data-testid={`triage-row-${item.id}`}
-                  >
-                    <Mail className="w-4 h-4 text-amber-500 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">
-                        {item.senderName || item.senderEmail || "Unknown sender"}
+        <section data-testid="section-triage-widget">
+          <Card>
+            <CardHeader className="flex flex-row items-start justify-between gap-3 flex-wrap pb-4">
+              <div>
+                <h2 className="text-xl font-semibold tracking-tight flex items-center gap-2">
+                  <Mail className="w-5 h-5 text-amber-500" />
+                  Needs Routing
+                  {needsRouting.length > 0 && (
+                    <Badge variant="destructive" className="ml-1" data-testid="badge-triage-count">
+                      {needsRouting.length}
+                    </Badge>
+                  )}
+                </h2>
+                <p className="text-sm text-muted-foreground mt-0.5">라우팅 규칙이 없는 미처리 이메일</p>
+              </div>
+              <Link href="/admin/triage">
+                <Button variant="outline" size="sm" data-testid="link-view-triage">
+                  View Triage Inbox
+                  <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                </Button>
+              </Link>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {triageLoading ? (
+                <div className="space-y-2">
+                  {[1, 2].map((i) => <Skeleton key={i} className="h-14 w-full rounded-lg" />)}
+                </div>
+              ) : needsRouting.length === 0 ? (
+                <div className="flex items-center gap-3 rounded-lg border border-green-500/30 bg-green-500/5 px-4 py-3" data-testid="triage-all-clear">
+                  <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                  <p className="text-sm text-green-700 dark:text-green-400">모든 이메일이 라우팅되었습니다.</p>
+                </div>
+              ) : (
+                <div className="space-y-2" data-testid="list-triage-items">
+                  {needsRouting.slice(0, 5).map((item) => (
+                    <Link key={item.id} href="/admin/triage">
+                      <div
+                        className="flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-background px-4 py-3 hover-elevate cursor-pointer"
+                        data-testid={`triage-row-${item.id}`}
+                      >
+                        <Mail className="w-4 h-4 text-amber-500 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {item.senderName || item.senderEmail || "Unknown sender"}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {item.subject || "No subject"}
+                          </p>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                      </div>
+                    </Link>
+                  ))}
+                  {needsRouting.length > 5 && (
+                    <Link href="/admin/triage">
+                      <p className="text-xs text-muted-foreground text-center py-1 hover:text-foreground transition-colors cursor-pointer">
+                        + {needsRouting.length - 5} more → View All
                       </p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {item.subject || "No subject"}
-                      </p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-                  </div>
-                </Link>
-              ))}
-              {needsRouting.length > 5 && (
-                <Link href="/admin/triage">
-                  <p className="text-xs text-muted-foreground text-center py-1 hover:text-foreground transition-colors cursor-pointer">
-                    + {needsRouting.length - 5} more → View All
-                  </p>
-                </Link>
+                    </Link>
+                  )}
+                </div>
               )}
-            </div>
-          )}
+            </CardContent>
+          </Card>
         </section>
 
         {/* ── Section: AP Review Inbox ─────────────────────────────────── */}
-        <section className="space-y-4" data-testid="section-ap-review-widget">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="text-xl font-semibold tracking-tight flex items-center gap-2">
-                <FileText className="w-5 h-5 text-blue-500" />
-                AP Review Inbox
-                {reviewGroups.length > 0 && (
-                  <Badge className="bg-blue-500 text-white ml-1" data-testid="badge-review-count">
-                    {reviewGroups.length}
-                  </Badge>
-                )}
-              </h2>
-              <p className="text-sm text-muted-foreground">인보이스 확인 및 공급업체 등록 대기 중</p>
-            </div>
-            <Link href="/admin/ap">
-              <Button variant="outline" size="sm" data-testid="link-view-ap">
-                View Review Inbox
-                <ChevronRight className="w-3.5 h-3.5 ml-1" />
-              </Button>
-            </Link>
-          </div>
-
-          {reviewLoading ? (
-            <div className="space-y-2">
-              {[1, 2].map((i) => <Skeleton key={i} className="h-14 w-full rounded-lg" />)}
-            </div>
-          ) : reviewGroups.length === 0 ? (
-            <div className="flex items-center gap-3 rounded-lg border border-green-500/30 bg-green-500/5 px-4 py-3" data-testid="ap-review-all-clear">
-              <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
-              <p className="text-sm text-green-700 dark:text-green-400">검토 대기 중인 인보이스가 없습니다.</p>
-            </div>
-          ) : (
-            <div className="space-y-2" data-testid="list-ap-review-items">
-              {reviewGroups.slice(0, 5).map((group) => (
-                <Link key={group.key} href="/admin/ap">
-                  <div
-                    className="flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-background px-4 py-3 hover-elevate cursor-pointer"
-                    data-testid={`ap-review-row-${group.key}`}
-                  >
-                    <FileText className="w-4 h-4 text-blue-500 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{group.supplierName}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {group.count} invoice{group.count !== 1 ? "s" : ""}
-                        {group.total > 0 ? ` · $${group.total.toFixed(2)}` : ""}
+        <section data-testid="section-ap-review-widget">
+          <Card>
+            <CardHeader className="flex flex-row items-start justify-between gap-3 flex-wrap pb-4">
+              <div>
+                <h2 className="text-xl font-semibold tracking-tight flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-blue-500" />
+                  AP Review Inbox
+                  {reviewGroups.length > 0 && (
+                    <Badge className="bg-blue-500 text-white ml-1" data-testid="badge-review-count">
+                      {reviewGroups.length}
+                    </Badge>
+                  )}
+                </h2>
+                <p className="text-sm text-muted-foreground mt-0.5">인보이스 확인 및 공급업체 등록 대기 중</p>
+              </div>
+              <Link href="/admin/ap">
+                <Button variant="outline" size="sm" data-testid="link-view-ap">
+                  View Review Inbox
+                  <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                </Button>
+              </Link>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {reviewLoading ? (
+                <div className="space-y-2">
+                  {[1, 2].map((i) => <Skeleton key={i} className="h-14 w-full rounded-lg" />)}
+                </div>
+              ) : reviewGroups.length === 0 ? (
+                <div className="flex items-center gap-3 rounded-lg border border-green-500/30 bg-green-500/5 px-4 py-3" data-testid="ap-review-all-clear">
+                  <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                  <p className="text-sm text-green-700 dark:text-green-400">검토 대기 중인 인보이스가 없습니다.</p>
+                </div>
+              ) : (
+                <div className="space-y-2" data-testid="list-ap-review-items">
+                  {reviewGroups.slice(0, 5).map((group) => (
+                    <Link key={group.key} href="/admin/ap">
+                      <div
+                        className="flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-background px-4 py-3 hover-elevate cursor-pointer"
+                        data-testid={`ap-review-row-${group.key}`}
+                      >
+                        <FileText className="w-4 h-4 text-blue-500 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{group.supplierName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {group.count} invoice{group.count !== 1 ? "s" : ""}
+                            {group.total > 0 ? ` · $${group.total.toFixed(2)}` : ""}
+                          </p>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                      </div>
+                    </Link>
+                  ))}
+                  {reviewGroups.length > 5 && (
+                    <Link href="/admin/ap">
+                      <p className="text-xs text-muted-foreground text-center py-1 hover:text-foreground transition-colors cursor-pointer">
+                        + {reviewGroups.length - 5} more → View All
                       </p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-                  </div>
-                </Link>
-              ))}
-              {reviewGroups.length > 5 && (
-                <Link href="/admin/ap">
-                  <p className="text-xs text-muted-foreground text-center py-1 hover:text-foreground transition-colors cursor-pointer">
-                    + {reviewGroups.length - 5} more → View All
-                  </p>
-                </Link>
+                    </Link>
+                  )}
+                </div>
               )}
-            </div>
-          )}
+            </CardContent>
+          </Card>
         </section>
 
         {/* ── Section: AI Smart Inbox Summary ────────────────────────── */}
-        <section className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="text-xl font-semibold tracking-tight flex items-center gap-2">
-                <BrainCircuit className="w-5 h-5 text-primary" />
-                AI Smart Inbox: Critical Action Items
-              </h2>
-              <p className="text-sm text-muted-foreground">AI가 이메일에서 추출한 긴급 할 일 목록</p>
-            </div>
-            <Link href="/admin/executive">
-              <Button variant="outline" size="sm" data-testid="link-view-all-tasks">
-                View All Tasks
-                <ChevronRight className="w-3.5 h-3.5 ml-1" />
-              </Button>
-            </Link>
-          </div>
+        <section>
+          <Card>
+            <CardHeader className="flex flex-row items-start justify-between gap-3 flex-wrap pb-4">
+              <div>
+                <h2 className="text-xl font-semibold tracking-tight flex items-center gap-2">
+                  <BrainCircuit className="w-5 h-5 text-primary" />
+                  AI Smart Inbox: Critical Action Items
+                </h2>
+                <p className="text-sm text-muted-foreground mt-0.5">AI가 이메일에서 추출한 긴급 할 일 목록</p>
+              </div>
+              <Link href="/admin/executive">
+                <Button variant="outline" size="sm" data-testid="link-view-all-tasks">
+                  View All Tasks
+                  <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                </Button>
+              </Link>
+            </CardHeader>
+            <CardContent className="space-y-2">
 
           {todosLoading ? (
             <div className="space-y-2">
@@ -746,6 +754,8 @@ export function AdminDashboard() {
               )}
             </div>
           )}
+            </CardContent>
+            </Card>
         </section>
 
         {/* ── Section: Intercompany Settlements ───────────────────────── */}
