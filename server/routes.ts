@@ -4489,13 +4489,13 @@ export async function registerRoutes(
                   status: "REVIEW",
                   rawExtractedData: {
                     senderEmail, subject, pdfBase64: pdfResult.pdfBase64,
-                    supplier: { supplierName: pdfSupplierName },
+                    supplier: { supplierName: pdfSupplierName, abn: parsedItems[0]?.abn ?? null },
                     invoices: parsedItems.map(p => ({
                       invoiceNumber: p.invoiceNumber, issueDate: p.issueDate,
                       dueDate: p.dueDate, totalAmount: p.totalAmount, storeCode: p.storeCode,
                     })),
                   },
-                  notes: `Supplier mismatch: email from "${currentSupplier.name}" but PDF identifies "${pdfSupplierName}".\nAttachment: ${attName}\nFrom: ${senderEmail}\nSubject: ${subject}`,
+                  notes: `Supplier mismatch: email from "${currentSupplier.name}" but PDF identifies "${pdfSupplierName}"${parsedItems[0]?.abn ? ` (ABN: ${parsedItems[0].abn})` : ""}.\nAttachment: ${attName}\nFrom: ${senderEmail}\nSubject: ${subject}`,
                 });
                 reviewCount++;
                 created.push(inv.id);

@@ -8,8 +8,12 @@ export interface ParsedInvoice {
   dueDate: string | null;
   totalAmount: number;
   storeCode: "SUSHI" | "SANDWICH" | "UNKNOWN";
-  /** Supplier/vendor company name as it appears on the PDF itself (not the hint passed in) */
+  /** Supplier/vendor company name as it appears on the PDF itself (not the hint passed in).
+   *  For aggregator-platform invoices (Ordermentum, Fresho…), this is the real underlying
+   *  supplier extracted from the "From:" / "Vendor:" section — NOT the platform name. */
   extractedSupplierName?: string;
+  /** ABN of the real supplier, if found in the PDF (e.g. "12 345 678 901") */
+  abn?: string | null;
   /** Raw delivery/ship-to/bill-to address or store name from the PDF — used for fuzzy store matching */
   deliveryLocation?: string | null;
 }
@@ -92,9 +96,22 @@ CRITICAL RULES:
    - If it contains "eatem pty ltd" or "eatem sandwich" → storeCode = "SANDWICH"
    - Otherwise → storeCode = "UNKNOWN"
 5. For deliveryLocation, copy the EXACT text of the "Delivery Address", "Ship To", "Deliver To", "Bill To", or "Attention" field as it appears on the document. This is the raw address of the receiving store. Return null if not found.
-6. Return ONLY valid JSON with no extra text, code fences, or explanation.`;
+6. Return ONLY valid JSON with no extra text, code fences, or explanation.
 
-  const userPrompt = `Supplier hint (from email routing — may be WRONG if the email was forwarded): ${supplierName}
+WARNING — AGGREGATOR / MARKETPLACE PLATFORMS:
+Some invoices are generated and delivered by a marketplace or ordering platform (e.g. "Ordermentum", "Fresho", "MarketPlacer", or similar). In these cases the platform name appears prominently at the top of the PDF and in the email sender — but the platform is NOT the supplier. It is merely a delivery channel.
+You MUST identify the REAL underlying supplier — the business that actually produced or delivered the goods — by searching the PDF text for sections such as:
+  • "From:" or "From" block (typically near the top of the invoice body)
+  • "Vendor:" or "Vendor Details:"
+  • "Supplier:" or "Supplier Details:"
+  • "Sold by:" or "Issued by:"
+  • Any block containing an ABN (Australian Business Number) that belongs to the vendor, NOT the platform
+Extract the business name and ABN from this "From / Vendor / Supplier" section and use it as extractedSupplierName. Ignore the platform name entirely for supplier identification. The PDF body ALWAYS overrides the email sender and the hint.`;
+
+  const userPrompt = `Supplier hint (from email routing — may be WRONG if the email was forwarded OR if the email was sent via an aggregator platform like Ordermentum/Fresho): ${supplierName}
+
+IMPORTANT — PDF CONTENT TAKES ABSOLUTE PRIORITY:
+The PDF text below is the ground truth. The supplier hint above is only a fallback. If the PDF clearly identifies a real supplier (via a "From:", "Vendor:", "Supplier Details:", or ABN block), use that name — even if it completely contradicts the hint.
 
 PDF text:
 ${rawText.slice(0, 8000)}
@@ -102,7 +119,8 @@ ${rawText.slice(0, 8000)}
 Extract all invoices and return as a JSON ARRAY. Each item must have:
 [
   {
-    "extractedSupplierName": "string (the ACTUAL supplier/vendor company name as printed on the PDF — ignore the hint above)",
+    "extractedSupplierName": "string (the ACTUAL underlying supplier/vendor as found inside the PDF body — NOT the platform name like Ordermentum or Fresho, NOT the hint above)",
+    "abn": "string or null (ABN of the real supplier if found in the PDF, e.g. '12 345 678 901')",
     "invoiceNumber": "string (the invoice or reference number)",
     "issueDate": "YYYY-MM-DD (date the invoice was issued)",
     "dueDate": "YYYY-MM-DD or null (payment due date if present)",
@@ -112,7 +130,7 @@ Extract all invoices and return as a JSON ARRAY. Each item must have:
   }
 ]
 
-IMPORTANT: extractedSupplierName must come from the PDF content itself, not from the hint.
+REMINDER: If the invoice was sent via an aggregator platform (Ordermentum, Fresho, etc.), the real supplier is in the "From:" or "Vendor:" section of the PDF — return THAT name, not the platform name.
 If a field cannot be found, use null for optional fields or an empty string for required ones.`;
 
   try {
@@ -179,6 +197,7 @@ If a field cannot be found, use null for optional fields or an empty string for 
           ? item.storeCode
           : "UNKNOWN") as ParsedInvoice["storeCode"],
         extractedSupplierName: item.extractedSupplierName ? String(item.extractedSupplierName).trim() : undefined,
+        abn: item.abn ? String(item.abn).trim() : null,
         deliveryLocation: item.deliveryLocation ? String(item.deliveryLocation).trim() : null,
       }));
 
