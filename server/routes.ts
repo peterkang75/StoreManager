@@ -4104,17 +4104,20 @@ export async function registerRoutes(
         return null;
       }
 
-      // ── Lookup routing rule ───────────────────────────────────────────────────
-      const routingRule = await storage.getEmailRoutingRule(senderEmail);
+      // ── Lookup routing rule + check if direct supplier ────────────────────────
+      const [routingRule, matchedSupplier] = await Promise.all([
+        storage.getEmailRoutingRule(senderEmail),
+        storage.findSupplierByEmail(senderEmail),
+      ]);
       let action = routingRule?.action ?? null;
 
       // Backward-compat: map legacy ALLOW/IGNORE → new actions
       if (action === "ALLOW") action = "ROUTE_TO_AP";
       if (action === "IGNORE") action = "SPAM_DROP";
 
-      console.log(`[Webhook] Sender=${senderEmail} action=${action ?? "UNKNOWN"} subject="${subject}"`);
+      console.log(`[Webhook] Sender=${senderEmail} action=${action ?? "UNKNOWN"} directSupplier=${!!matchedSupplier} subject="${subject}"`);
 
-      // ── SPAM_DROP / FYI_ARCHIVE — acknowledge silently ────────────────────────
+      // ── SPAM_DROP / FYI_ARCHIVE — acknowledge silently (no human review needed) ──
       if (action === "SPAM_DROP") {
         return res.status(200).json({ received: true, action: "spam_dropped", sender: senderEmail });
       }
@@ -4122,212 +4125,93 @@ export async function registerRoutes(
         return res.status(200).json({ received: true, action: "fyi_archived", sender: senderEmail });
       }
 
-      // ── UNKNOWN SENDER — save to Universal Inbox for human triage ─────────────
-      if (!action) {
-        console.log(`[Webhook] Unknown sender — saving to Universal Inbox: ${senderEmail}`);
+      // ── TRIAGE GATE ────────────────────────────────────────────────────────────
+      // Auto-process ONLY when the sender is a confirmed direct supplier in the DB
+      // (highest-confidence match: email address registered to a real supplier).
+      // ALL other senders — even those with ROUTE_TO_AP / ROUTE_TO_TODO rules —
+      // go to Triage Inbox first so the manager can review before processing.
+      // Exceptions: SPAM_DROP and FYI_ARCHIVE (handled above, no human review needed).
+      if (!matchedSupplier) {
         const senderName = rawHeaderFrom.includes("<")
           ? rawHeaderFrom.split("<")[0].trim().replace(/^"/, "").replace(/"$/, "")
           : null;
+        console.log(`[Webhook] Not a direct supplier — routing to Triage Inbox: ${senderEmail} (suggestedAction=${action ?? "none"})`);
         await storage.createUniversalInboxItem({
           senderEmail,
           senderName: senderName || null,
           subject,
           body: emailBody.slice(0, 8000),
           hasAttachment,
-          rawPayload: payload,
+          rawPayload: { ...payload, _suggestedAction: action },
           status: "NEEDS_ROUTING",
         });
-        return res.status(200).json({ received: true, action: "saved_to_universal_inbox", sender: senderEmail });
+        return res.status(200).json({ received: true, action: "saved_to_triage_inbox", sender: senderEmail, suggestedAction: action });
       }
 
       // ══════════════════════════════════════════════════════════════════════════
-      // ROUTE_TO_TODO — Task / Action Item pipeline (Rule 2: never touches AP)
+      // DIRECT SUPPLIER — auto-process AP pipeline
+      // Reaching here means matchedSupplier is truthy (triage gate passed).
+      // supplierId is confirmed → PENDING is allowed. No PDF → REVIEW.
       // ══════════════════════════════════════════════════════════════════════════
-      if (action === "ROUTE_TO_TODO") {
-        console.log(`[Webhook] ROUTE_TO_TODO — summarizing task from ${senderEmail}`);
-        const taskData = await summarizeTaskFromEmail(subject, emailBody);
-        if (!taskData?.title) {
-          console.warn(`[Webhook] Task extraction returned no data from ${senderEmail}`);
-          return res.status(200).json({ received: true, action: "task_no_data", sender: senderEmail });
-        }
-        // ROUTE_TO_TODO is an explicit manager decision — create as TODO (not REVIEW)
-        const todo = await storage.createTodo({
-          title: taskData.title,
-          description: taskData.description || null,
-          sourceEmail: senderEmail,
-          senderEmail,
-          originalSubject: subject,
-          originalBody: emailBody.slice(0, 8000),
-          dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
-          status: "TODO",
+      console.log(`[Webhook] Direct supplier: "${matchedSupplier.name}" — auto-processing AP`);
+
+      if (!hasAttachment) {
+        const placeholder = await storage.createSupplierInvoice({
+          supplierId: matchedSupplier.id, storeId: null,
+          invoiceNumber: `EMAIL-${Date.now()}`,
+          invoiceDate: new Date().toISOString().split("T")[0],
+          dueDate: undefined, amount: 0, status: "REVIEW",
+          notes: `No PDF attached. Please review and enter amount manually.\nFrom: ${senderEmail}\nSubject: ${subject}`,
         });
-        console.log(`[Webhook] Task created: ${todo.id} — "${todo.title}"`);
-        return res.status(200).json({ received: true, action: "task_created", todoId: todo.id, sender: senderEmail });
+        return res.status(200).json({ received: true, action: "matched_no_attachment_placeholder", supplier: matchedSupplier.name, invoiceId: placeholder.id });
       }
 
-      // ══════════════════════════════════════════════════════════════════════════
-      // ROUTE_TO_AP — Accounts Payable pipeline
-      // Rule 1: supplierId MUST be confirmed to create PENDING. No ID → REVIEW.
-      // ══════════════════════════════════════════════════════════════════════════
-      if (action === "ROUTE_TO_AP") {
-        console.log(`[Webhook] ROUTE_TO_AP — AP pipeline for ${senderEmail}`);
-
-        // Check if this sender IS a registered supplier in the DB (email match)
-        const matchedSupplier = await storage.findSupplierByEmail(senderEmail);
-
-        // ── Branch A: Direct Supplier ─────────────────────────────────────────
-        if (matchedSupplier) {
-          console.log(`[Webhook] Direct supplier: "${matchedSupplier.name}"`);
-
-          if (!hasAttachment) {
-            const placeholder = await storage.createSupplierInvoice({
-              supplierId: matchedSupplier.id, storeId: null,
-              invoiceNumber: `EMAIL-${Date.now()}`,
-              invoiceDate: new Date().toISOString().split("T")[0],
-              dueDate: undefined, amount: 0, status: "REVIEW",
-              notes: `No PDF attached. Please review and enter amount manually.\nFrom: ${senderEmail}\nSubject: ${subject}`,
-            });
-            return res.status(200).json({ received: true, action: "matched_no_attachment_placeholder", supplier: matchedSupplier.name, invoiceId: placeholder.id });
-          }
-
-          const pdfResult = await extractPdfFromAttachments();
-          if (!pdfResult) {
-            const placeholder = await storage.createSupplierInvoice({
-              supplierId: matchedSupplier.id, storeId: null,
-              invoiceNumber: `EMAIL-${Date.now()}`,
-              invoiceDate: new Date().toISOString().split("T")[0],
-              dueDate: undefined, amount: 0, status: "REVIEW",
-              notes: `PDF could not be read. Please enter manually.\nFrom: ${senderEmail}\nSubject: ${subject}`,
-            });
-            return res.status(200).json({ received: true, action: "matched_no_pdf_placeholder", supplier: matchedSupplier.name, invoiceId: placeholder.id });
-          }
-
-          const parsedItems = await parseInvoiceWithAI(pdfResult.text, matchedSupplier.name);
-          if (!parsedItems || parsedItems.length === 0) {
-            return res.status(200).json({ received: true, action: "ai_parse_failed", supplier: matchedSupplier.name });
-          }
-
-          const existing = await storage.getSupplierInvoices({ supplierId: matchedSupplier.id });
-          const existingNumbers = new Set(existing.map(inv => inv.invoiceNumber));
-          const created: string[] = [];
-          const skipped: string[] = [];
-          const isAutoPay = matchedSupplier.isAutoPay ?? false;
-
-          for (const parsed of parsedItems) {
-            if (!parsed.invoiceNumber && !parsed.issueDate && !parsed.totalAmount) continue;
-            if (parsed.invoiceNumber && existingNumbers.has(parsed.invoiceNumber)) { skipped.push(parsed.invoiceNumber); continue; }
-            const invStatus = isAutoPay ? "PAID" : "PENDING";
-            const newInv = await storage.createSupplierInvoice({
-              supplierId: matchedSupplier.id,
-              storeId: resolveStoreId(parsed.storeCode),
-              invoiceNumber: parsed.invoiceNumber,
-              invoiceDate: parsed.issueDate,
-              dueDate: parsed.dueDate ?? undefined,
-              amount: parsed.totalAmount,
-              status: invStatus,
-              notes: isAutoPay
-                ? `Auto-paid (Direct Debit) via email from ${senderEmail}. Subject: ${subject}`
-                : `Auto-imported via email from ${senderEmail}. Subject: ${subject}`,
-            });
-            if (isAutoPay) {
-              const today = new Date().toISOString().split("T")[0];
-              await storage.createSupplierPayment({ supplierId: matchedSupplier.id, invoiceId: newInv.id, paymentDate: parsed.issueDate ?? today, amount: parsed.totalAmount ?? 0, method: "AUTO_DEBIT", notes: `Automatic direct debit — ${senderEmail}` });
-            }
-            created.push(newInv.id);
-          }
-          return res.status(200).json({ received: true, action: "invoices_created", created: created.length, skipped: skipped.length, supplier: matchedSupplier.name });
-        }
-
-        // ── Branch B: Trusted Forwarder (ROUTE_TO_AP but not in suppliers DB) ──
-        // e.g. CEO forwarding invoices from other suppliers via email
-        const forwarderLabel = routingRule?.supplierName ?? senderEmail;
-        console.log(`[Webhook] ROUTE_TO_AP forwarder (not a direct supplier): ${forwarderLabel}`);
-
-        if (!hasAttachment) {
-          const placeholder = await storage.createSupplierInvoice({
-            supplierId: undefined, storeId: null,
-            invoiceNumber: `EMAIL-${Date.now()}`,
-            invoiceDate: new Date().toISOString().split("T")[0],
-            dueDate: undefined, amount: 0, status: "REVIEW",
-            notes: `No PDF attached. Forwarded by ${forwarderLabel}.\nFrom: ${senderEmail}\nSubject: ${subject}`,
-          });
-          return res.status(200).json({ received: true, action: "forwarder_no_attachment_placeholder", forwarder: forwarderLabel, invoiceId: placeholder.id });
-        }
-
-        const pdfResultFwd = await extractPdfFromAttachments();
-        if (!pdfResultFwd) {
-          const placeholder = await storage.createSupplierInvoice({
-            supplierId: undefined, storeId: null,
-            invoiceNumber: `EMAIL-${Date.now()}`,
-            invoiceDate: new Date().toISOString().split("T")[0],
-            dueDate: undefined, amount: 0, status: "REVIEW",
-            notes: `PDF unreadable. Forwarded by ${forwarderLabel}.\nFrom: ${senderEmail}\nSubject: ${subject}`,
-          });
-          return res.status(200).json({ received: true, action: "forwarder_no_pdf_placeholder", forwarder: forwarderLabel, invoiceId: placeholder.id });
-        }
-
-        const unknownParsed = await parseInvoiceFromUnknownSender(pdfResultFwd.text);
-        if (!unknownParsed || unknownParsed.invoices.length === 0) {
-          return res.status(200).json({ received: true, action: "forwarder_parse_failed", forwarder: forwarderLabel });
-        }
-
-        const pdfSupplierName = unknownParsed.supplier.supplierName;
-        const nameMatchedSupplier = pdfSupplierName ? await storage.findSupplierByName(pdfSupplierName) : undefined;
-
-        if (nameMatchedSupplier) {
-          const existing = await storage.getSupplierInvoices({ supplierId: nameMatchedSupplier.id });
-          const existingNumbers = new Set(existing.map(inv => inv.invoiceNumber));
-          const created: string[] = [];
-          const skipped: string[] = [];
-          const isAutoPayMatch = nameMatchedSupplier.isAutoPay ?? false;
-
-          for (const item of unknownParsed.invoices) {
-            if (!item.invoiceNumber && !item.totalAmount) continue;
-            if (item.invoiceNumber && existingNumbers.has(item.invoiceNumber)) { skipped.push(item.invoiceNumber); continue; }
-            const invStatus = isAutoPayMatch ? "PAID" : "PENDING";
-            const newInv = await storage.createSupplierInvoice({
-              supplierId: nameMatchedSupplier.id,
-              storeId: resolveStoreId(item.storeCode),
-              invoiceNumber: item.invoiceNumber,
-              invoiceDate: item.issueDate,
-              dueDate: item.dueDate ?? undefined,
-              amount: item.totalAmount,
-              status: invStatus,
-              notes: `Auto-matched supplier "${nameMatchedSupplier.name}". Forwarded by ${forwarderLabel} (${senderEmail}). Subject: ${subject}`,
-            });
-            if (isAutoPayMatch) {
-              const today = new Date().toISOString().split("T")[0];
-              await storage.createSupplierPayment({ supplierId: nameMatchedSupplier.id, invoiceId: newInv.id, paymentDate: item.issueDate ?? today, amount: item.totalAmount ?? 0, method: "AUTO_DEBIT", notes: `Auto-debit — name-matched "${nameMatchedSupplier.name}" via ${senderEmail}` });
-            }
-            created.push(newInv.id);
-          }
-          return res.status(200).json({ received: true, action: "forwarder_name_matched", created: created.length, skipped: skipped.length, supplier: nameMatchedSupplier.name });
-        }
-
-        // Supplier not found in DB → REVIEW
-        const reviewCreated: string[] = [];
-        for (const item of unknownParsed.invoices) {
-          if (!item.invoiceNumber && !item.totalAmount) continue;
-          const rawExtractedData = { senderEmail, subject, supplier: unknownParsed.supplier, invoiceNumber: item.invoiceNumber, issueDate: item.issueDate, dueDate: item.dueDate, totalAmount: item.totalAmount, storeCode: item.storeCode };
-          const reviewInv = await storage.createSupplierInvoice({
-            supplierId: undefined,
-            storeId: resolveStoreId(item.storeCode),
-            invoiceNumber: item.invoiceNumber || `REVIEW-${Date.now()}`,
-            invoiceDate: item.issueDate,
-            dueDate: item.dueDate ?? undefined,
-            amount: item.totalAmount,
-            status: "REVIEW",
-            notes: `Unknown supplier "${pdfSupplierName}". Assign supplier before paying.\nForwarded by ${forwarderLabel} (${senderEmail}). Subject: ${subject}`,
-            rawExtractedData,
-          });
-          reviewCreated.push(reviewInv.id);
-        }
-        return res.status(200).json({ received: true, action: "forwarder_review_created", created: reviewCreated.length, supplierName: pdfSupplierName, forwarder: forwarderLabel });
+      const pdfResult = await extractPdfFromAttachments();
+      if (!pdfResult) {
+        const placeholder = await storage.createSupplierInvoice({
+          supplierId: matchedSupplier.id, storeId: null,
+          invoiceNumber: `EMAIL-${Date.now()}`,
+          invoiceDate: new Date().toISOString().split("T")[0],
+          dueDate: undefined, amount: 0, status: "REVIEW",
+          notes: `PDF could not be read. Please enter manually.\nFrom: ${senderEmail}\nSubject: ${subject}`,
+        });
+        return res.status(200).json({ received: true, action: "matched_no_pdf_placeholder", supplier: matchedSupplier.name, invoiceId: placeholder.id });
       }
 
-      // Fallback — unrecognised action value
-      console.warn(`[Webhook] Unrecognised action "${action}" for ${senderEmail} — ignoring`);
-      return res.status(200).json({ received: true, action: "unrecognised_action", sender: senderEmail });
+      const parsedItems = await parseInvoiceWithAI(pdfResult.text, matchedSupplier.name);
+      if (!parsedItems || parsedItems.length === 0) {
+        return res.status(200).json({ received: true, action: "ai_parse_failed", supplier: matchedSupplier.name });
+      }
+
+      const existing = await storage.getSupplierInvoices({ supplierId: matchedSupplier.id });
+      const existingNumbers = new Set(existing.map(inv => inv.invoiceNumber));
+      const created: string[] = [];
+      const skipped: string[] = [];
+      const isAutoPay = matchedSupplier.isAutoPay ?? false;
+
+      for (const parsed of parsedItems) {
+        if (!parsed.invoiceNumber && !parsed.issueDate && !parsed.totalAmount) continue;
+        if (parsed.invoiceNumber && existingNumbers.has(parsed.invoiceNumber)) { skipped.push(parsed.invoiceNumber); continue; }
+        const invStatus = isAutoPay ? "PAID" : "PENDING";
+        const newInv = await storage.createSupplierInvoice({
+          supplierId: matchedSupplier.id,
+          storeId: resolveStoreId(parsed.storeCode),
+          invoiceNumber: parsed.invoiceNumber,
+          invoiceDate: parsed.issueDate,
+          dueDate: parsed.dueDate ?? undefined,
+          amount: parsed.totalAmount,
+          status: invStatus,
+          notes: isAutoPay
+            ? `Auto-paid (Direct Debit) via email from ${senderEmail}. Subject: ${subject}`
+            : `Auto-imported via email from ${senderEmail}. Subject: ${subject}`,
+        });
+        if (isAutoPay) {
+          const today = new Date().toISOString().split("T")[0];
+          await storage.createSupplierPayment({ supplierId: matchedSupplier.id, invoiceId: newInv.id, paymentDate: parsed.issueDate ?? today, amount: parsed.totalAmount ?? 0, method: "AUTO_DEBIT", notes: `Automatic direct debit — ${senderEmail}` });
+        }
+        created.push(newInv.id);
+      }
+      return res.status(200).json({ received: true, action: "invoices_created", created: created.length, skipped: skipped.length, supplier: matchedSupplier.name });
 
     } catch (err) {
       console.error("[Webhook/inbound-invoices] Unhandled error:", err);
@@ -4439,7 +4323,12 @@ export async function registerRoutes(
     try {
       const status = req.query.status as string | undefined;
       const items = await storage.getUniversalInboxItems(status);
-      res.json(items);
+      // Enrich each item with suggestedAction extracted from stored rawPayload metadata
+      const enriched = items.map(item => ({
+        ...item,
+        suggestedAction: (item.rawPayload as any)?._suggestedAction ?? null,
+      }));
+      res.json(enriched);
     } catch (err) {
       console.error("Error fetching universal inbox:", err);
       res.status(500).json({ error: "Failed to fetch universal inbox" });

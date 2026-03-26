@@ -243,13 +243,15 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 
 - **Webhook** `POST /api/webhooks/inbound-invoices`:
   1. Extract sender from `headers.from` (never `envelope.from`)
-  2. Look up `emailRoutingRules` for sender email
-  3. Route based on rule action (backward-compat: `ALLOW` → `ROUTE_TO_AP`, `IGNORE` → `SPAM_DROP`):
-     - **`ROUTE_TO_AP`**: AP pipeline → match supplier by email → `parseInvoiceWithAI` (direct supplier) or `parseInvoiceFromUnknownSender` (forwarder). **CRITICAL: No supplierId = always REVIEW.**
-     - **`ROUTE_TO_TODO`**: Task pipeline → `summarizeTaskFromEmail` → create todo with `status:"TODO"`. NEVER touches AP.
-     - **`FYI_ARCHIVE`**: Acknowledge silently, no processing.
-     - **`SPAM_DROP`**: Drop silently.
-     - **Unknown sender (no rule)**: Save raw email to `universal_inbox` table for human triage.
+  2. Look up routing rule AND check if sender email matches any supplier's `contactEmails` (both in parallel)
+  3. Backward-compat: `ALLOW` → `ROUTE_TO_AP`, `IGNORE` → `SPAM_DROP`
+  4. **TRIAGE GATE** — auto-process ONLY when sender is a confirmed direct supplier (email in supplier `contactEmails` DB):
+     - **`SPAM_DROP`**: Drop silently (no Triage needed).
+     - **`FYI_ARCHIVE`**: Acknowledge silently (no Triage needed).
+     - **Direct supplier** (email in `contactEmails`): Auto-process AP pipeline regardless of routing rule. No supplierId → REVIEW. PDF + AI parse → PENDING.
+     - **Everything else** (CEO forwarder, ROUTE_TO_TODO, unknown sender): Save to `universal_inbox` with `_suggestedAction` from routing rule stored in `rawPayload`. Human reviews in Triage Inbox.
+  5. Routing rules from old system (ALLOW/ROUTE_TO_AP) no longer auto-process non-supplier senders. Only explicit `contactEmails` DB match bypasses Triage.
+  6. **Key**: CEO with ROUTE_TO_AP rule but NOT in `contactEmails` → Triage Inbox with suggestedAction badge.
 
 - **`universal_inbox` table** (`shared/schema.ts`): `id`, `senderEmail`, `senderName`, `subject`, `body`, `hasAttachment`, `rawPayload` (jsonb — full Cloudmailin payload for re-processing), `status` (`NEEDS_ROUTING` | `PROCESSED` | `DROPPED`), `createdAt`.
 

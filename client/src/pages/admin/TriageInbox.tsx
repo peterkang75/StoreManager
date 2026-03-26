@@ -34,6 +34,9 @@ import type { UniversalInboxItem } from "@shared/schema";
 
 type RouteAction = "ROUTE_TO_AP" | "ROUTE_TO_TODO" | "FYI_ARCHIVE" | "SPAM_DROP";
 
+// API enriches items with suggestedAction from stored routing rule
+type TriageItem = UniversalInboxItem & { suggestedAction?: RouteAction | null };
+
 interface ActionConfig {
   label: string;
   description: string;
@@ -92,17 +95,25 @@ interface ConfirmDialog {
   senderEmail: string;
 }
 
+const SUGGESTED_ACTION_LABEL: Record<RouteAction, string> = {
+  ROUTE_TO_AP: "Payables",
+  ROUTE_TO_TODO: "To-Do",
+  FYI_ARCHIVE: "FYI",
+  SPAM_DROP: "Spam",
+};
+
 function InboxItemCard({
   item,
   onAction,
   isPending,
 }: {
-  item: UniversalInboxItem;
+  item: TriageItem;
   onAction: (id: string, action: RouteAction) => void;
   isPending: boolean;
 }) {
   const isProcessed = item.status !== "NEEDS_ROUTING";
   const bodyPreview = item.body.slice(0, 280).trim();
+  const suggested = item.suggestedAction as RouteAction | null | undefined;
 
   return (
     <Card
@@ -130,6 +141,15 @@ function InboxItemCard({
               <Badge variant="outline" className="gap-1 text-xs shrink-0">
                 <Paperclip className="w-3 h-3" />
                 Attachment
+              </Badge>
+            )}
+            {suggested && !isProcessed && (
+              <Badge
+                variant="secondary"
+                className="text-xs shrink-0 bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                data-testid={`badge-suggested-${item.id}`}
+              >
+                기존 규칙: {SUGGESTED_ACTION_LABEL[suggested]}
               </Badge>
             )}
             {item.status === "PROCESSED" && (
@@ -168,23 +188,30 @@ function InboxItemCard({
         {!isProcessed && (
           <>
             <Separator />
+            {suggested && (
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                이 발신자에 대한 기존 규칙이 있습니다. 아래에서 확인하거나 다른 액션을 선택하세요.
+              </p>
+            )}
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-muted-foreground font-medium">Route this sender:</span>
               {(Object.keys(ACTION_CONFIG) as RouteAction[]).map((action) => {
                 const cfg = ACTION_CONFIG[action];
                 const Icon = cfg.icon;
+                const isSuggested = action === suggested;
                 return (
                   <Button
                     key={action}
                     size="sm"
-                    variant={cfg.variant}
+                    variant={isSuggested ? "default" : cfg.variant}
                     disabled={isPending}
                     onClick={() => onAction(item.id, action)}
                     data-testid={`button-${action.toLowerCase()}-${item.id}`}
-                    className="gap-1.5"
+                    className={`gap-1.5 ${isSuggested ? "ring-2 ring-offset-1 ring-primary" : ""}`}
                   >
                     <Icon className="w-3.5 h-3.5" />
                     {cfg.label}
+                    {isSuggested && <span className="text-xs opacity-75">(추천)</span>}
                   </Button>
                 );
               })}
@@ -201,7 +228,7 @@ export function AdminTriageInbox() {
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialog | null>(null);
   const [activeTab, setActiveTab] = useState("needs-routing");
 
-  const { data: allItems = [], isLoading, refetch } = useQuery<UniversalInboxItem[]>({
+  const { data: allItems = [], isLoading, refetch } = useQuery<TriageItem[]>({
     queryKey: ["/api/universal-inbox"],
   });
 
