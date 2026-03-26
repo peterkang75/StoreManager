@@ -239,10 +239,16 @@ export function AdminTriageInbox() {
       queryClient.invalidateQueries({ queryKey: ["/api/universal-inbox"] });
       queryClient.invalidateQueries({ queryKey: ["/api/todos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices"] });
+      // Refresh AP Review Inbox immediately so the new placeholder is visible
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       const cfg = ACTION_CONFIG[action];
+      const isAP = action === "ROUTE_TO_AP";
       toast({
         title: "Routing rule saved",
-        description: `Sender routed to "${cfg.label}". Future emails from this sender will be handled automatically.`,
+        description: isAP
+          ? `Sent to Payables. The invoice will appear in the Review Inbox shortly.`
+          : `Sender routed to "${cfg.label}". Future emails from this sender will be handled automatically.`,
       });
     },
     onError: () => {

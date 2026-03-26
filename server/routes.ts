@@ -4534,25 +4534,37 @@ export async function registerRoutes(
       // 2. Process the email based on the chosen action
       let processResult: any = { action };
 
+      // 3. Mark item as processed or dropped immediately (before heavy AI work)
+      const newStatus = (action === "SPAM_DROP" || action === "FYI_ARCHIVE") ? "DROPPED" : "PROCESSED";
+      await storage.updateUniversalInboxItem(id, { status: newStatus });
+
       if (action === "ROUTE_TO_TODO") {
+        // TODO: fire summarization in background so response is immediate
         const subject = item.subject;
         const emailBody = item.body;
-
-        const taskData = await summarizeTaskFromEmail(subject, emailBody);
-        if (taskData?.title) {
-          const todo = await storage.createTodo({
-            title: taskData.title,
-            description: taskData.description || null,
-            sourceEmail: item.senderEmail,
-            senderEmail: item.senderEmail,
-            originalSubject: subject,
-            originalBody: emailBody.slice(0, 8000),
-            dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
-            status: "TODO",
-          });
-          processResult.todoId = todo.id;
-          processResult.title = todo.title;
-        }
+        // Respond now, summarize in background
+        res.json({ success: true, ...processResult, status: "processing" });
+        setImmediate(async () => {
+          try {
+            const taskData = await summarizeTaskFromEmail(subject, emailBody);
+            if (taskData?.title) {
+              await storage.createTodo({
+                title: taskData.title,
+                description: taskData.description || null,
+                sourceEmail: item.senderEmail,
+                senderEmail: item.senderEmail,
+                originalSubject: subject,
+                originalBody: emailBody.slice(0, 8000),
+                dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
+                status: "TODO",
+              });
+              console.log(`[TriageRoute] TODO created in background: "${taskData.title}"`);
+            }
+          } catch (err) {
+            console.error("[TriageRoute] Background TODO creation failed:", err);
+          }
+        });
+        return; // already sent response
       } else if (action === "ROUTE_TO_AP") {
         const rawPayload = item.rawPayload as any;
         const subject = item.subject;
@@ -4566,123 +4578,162 @@ export async function registerRoutes(
           return name.toLowerCase().endsWith(".pdf") || type.toLowerCase().includes("pdf");
         });
 
-        // Helper: always ensure a REVIEW placeholder exists so the AP inbox
-        // always shows something the manager can act on.
-        const createReviewPlaceholder = async (reason: string, rawExtractedData?: any) => {
-          const inv = await storage.createSupplierInvoice({
-            supplierId: undefined, storeId: null,
-            invoiceNumber: `TRIAGE-${Date.now()}`,
-            invoiceDate: new Date().toISOString().split("T")[0],
-            dueDate: undefined, amount: rawExtractedData?.invoices?.[0]?.totalAmount ?? 0,
-            status: "REVIEW",
-            notes: `${reason}\nFrom: ${senderEmail}\nSubject: ${subject}`,
-            rawExtractedData: rawExtractedData ?? null,
-          });
-          processResult.invoiceId = inv.id;
-          processResult.reviewCreated = true;
-          console.log(`[TriageRoute] REVIEW placeholder created (${reason}): ${inv.id}`);
-          return inv;
-        };
+        // Create a REVIEW placeholder immediately so the AP Inbox shows the
+        // item right away, before the slow AI parse completes.
+        const reviewInv = await storage.createSupplierInvoice({
+          supplierId: undefined,
+          storeId: null,
+          invoiceNumber: `TRIAGE-${Date.now()}`,
+          invoiceDate: new Date().toISOString().split("T")[0],
+          dueDate: undefined,
+          amount: 0,
+          status: "REVIEW",
+          notes: `Routed from Triage Inbox. Parsing in progress…\nFrom: ${senderEmail}\nSubject: ${subject}`,
+          rawExtractedData: { senderEmail, subject, supplier: { supplierName: item.senderName ?? "" }, body: item.body?.slice(0, 8000) },
+        });
+        processResult.invoiceId = reviewInv.id;
+        processResult.reviewCreated = true;
 
-        if (pdfAttachment) {
-          const rawContent = pdfAttachment.content ?? pdfAttachment.data ?? pdfAttachment.body ?? "";
-          let pdfProcessed = false;
+        // Respond to the client immediately — AP Review Inbox will show the
+        // placeholder instantly. Background job upgrades it if AI can parse.
+        res.json({ success: true, ...processResult, status: "processing" });
+
+        // ── Background AI parsing ──────────────────────────────────────────
+        setImmediate(async () => {
           try {
-            const buf: Buffer = typeof rawContent === "string" ? Buffer.from(rawContent, "base64") : rawContent;
-            const pdfText = await extractPdfText(buf);
+            // Helper to upgrade or create final invoice(s) after AI parse
+            const upgradeToFinal = async (reason: string, rawExtractedData: any, finalStatus: "REVIEW" | "PENDING", extraFields?: Partial<Parameters<typeof storage.createSupplierInvoice>[0]>) => {
+              // Update the placeholder we already created
+              await storage.updateSupplierInvoice(reviewInv.id, {
+                status: finalStatus,
+                notes: `${reason}\nFrom: ${senderEmail}\nSubject: ${subject}`,
+                rawExtractedData,
+                ...extraFields,
+              });
+              console.log(`[TriageRoute/bg] Placeholder ${reviewInv.id} upgraded → ${finalStatus}`);
+            };
 
-            if (pdfText.trim()) {
-              const matchedSupplier = await storage.findSupplierByEmail(senderEmail);
-              if (matchedSupplier) {
-                // Known supplier — try to create PENDING invoices
-                const parsedItems = await parseInvoiceWithAI(pdfText, matchedSupplier.name);
-                const created: string[] = [];
-                if (parsedItems?.length) {
-                  const existing = await storage.getSupplierInvoices({ supplierId: matchedSupplier.id });
-                  const existingNumbers = new Set(existing.map(inv => inv.invoiceNumber));
-                  const allStores = await storage.getStores();
-                  const sushiStore = allStores.find(s => s.name.toLowerCase().includes("sushi"));
-                  const sandwichStore = allStores.find(s => s.name.toLowerCase().includes("sandwich"));
-                  for (const parsed of parsedItems) {
-                    if (!parsed.invoiceNumber && !parsed.totalAmount) continue;
-                    if (parsed.invoiceNumber && existingNumbers.has(parsed.invoiceNumber)) continue;
-                    const storeId = parsed.storeCode === "SUSHI" ? sushiStore?.id ?? null : parsed.storeCode === "SANDWICH" ? sandwichStore?.id ?? null : null;
-                    const newInv = await storage.createSupplierInvoice({
-                      supplierId: matchedSupplier.id, storeId,
-                      invoiceNumber: parsed.invoiceNumber,
-                      invoiceDate: parsed.issueDate,
-                      dueDate: parsed.dueDate ?? undefined,
-                      amount: parsed.totalAmount,
-                      status: "PENDING",
-                      notes: `Routed from Triage Inbox.\nFrom: ${senderEmail}\nSubject: ${subject}`,
-                    });
-                    created.push(newInv.id);
-                  }
-                  if (created.length > 0) {
-                    processResult.invoicesCreated = created.length;
-                    pdfProcessed = true;
-                  }
-                }
-                // If AI returned nothing for a known supplier → REVIEW so manager can enter manually
-                if (!pdfProcessed) {
-                  const rawExtractedData = { senderEmail, subject, supplier: { supplierName: matchedSupplier.name } };
-                  await createReviewPlaceholder(`PDF parsed but no invoice data extracted.`, rawExtractedData);
-                  pdfProcessed = true;
-                }
-              } else {
-                // Unknown sender — parse supplier + invoice from PDF
-                const unknownParsed = await parseInvoiceFromUnknownSender(pdfText);
-                if (unknownParsed?.invoices?.length) {
-                  const nameMatch = unknownParsed.supplier.supplierName
-                    ? await storage.findSupplierByName(unknownParsed.supplier.supplierName)
-                    : undefined;
-                  if (nameMatch) {
-                    // Name-matched existing supplier
-                    processResult.supplierNameMatched = nameMatch.name;
-                    const inv = await storage.createSupplierInvoice({
-                      supplierId: nameMatch.id, storeId: null,
-                      invoiceNumber: unknownParsed.invoices[0]?.invoiceNumber || `TRIAGE-${Date.now()}`,
-                      invoiceDate: unknownParsed.invoices[0]?.issueDate,
-                      dueDate: undefined, amount: unknownParsed.invoices[0]?.totalAmount,
-                      status: "PENDING",
-                      notes: `Routed from Triage Inbox.\nFrom: ${senderEmail}\nSubject: ${subject}`,
-                    });
-                    processResult.invoiceId = inv.id;
-                    pdfProcessed = true;
+            if (pdfAttachment) {
+              const rawContent = pdfAttachment.content ?? pdfAttachment.data ?? pdfAttachment.body ?? "";
+              const buf: Buffer = typeof rawContent === "string" ? Buffer.from(rawContent, "base64") : rawContent;
+              const pdfText = await extractPdfText(buf);
+
+              if (pdfText.trim()) {
+                const matchedSupplier = await storage.findSupplierByEmail(senderEmail);
+
+                if (matchedSupplier) {
+                  // Known supplier — try to parse PENDING invoices
+                  const parsedItems = await parseInvoiceWithAI(pdfText, matchedSupplier.name);
+                  if (parsedItems?.length) {
+                    const existing = await storage.getSupplierInvoices({ supplierId: matchedSupplier.id });
+                    const existingNumbers = new Set(existing.map(inv => inv.invoiceNumber));
+                    const allStores = await storage.getStores();
+                    const sushiStore = allStores.find(s => s.name.toLowerCase().includes("sushi"));
+                    const sandwichStore = allStores.find(s => s.name.toLowerCase().includes("sandwich"));
+
+                    let firstCreated = false;
+                    for (const parsed of parsedItems) {
+                      if (!parsed.invoiceNumber && !parsed.totalAmount) continue;
+                      if (parsed.invoiceNumber && existingNumbers.has(parsed.invoiceNumber)) continue;
+                      const storeId = parsed.storeCode === "SUSHI" ? sushiStore?.id ?? null : parsed.storeCode === "SANDWICH" ? sandwichStore?.id ?? null : null;
+                      if (!firstCreated) {
+                        // Upgrade the placeholder for the first invoice
+                        await upgradeToFinal(
+                          `Routed from Triage Inbox.`,
+                          { senderEmail, subject, supplier: { supplierName: matchedSupplier.name } },
+                          "PENDING",
+                          { supplierId: matchedSupplier.id, storeId, invoiceNumber: parsed.invoiceNumber, invoiceDate: parsed.issueDate, dueDate: parsed.dueDate ?? undefined, amount: parsed.totalAmount },
+                        );
+                        firstCreated = true;
+                      } else {
+                        // Additional invoices in the same email
+                        await storage.createSupplierInvoice({
+                          supplierId: matchedSupplier.id, storeId,
+                          invoiceNumber: parsed.invoiceNumber,
+                          invoiceDate: parsed.issueDate,
+                          dueDate: parsed.dueDate ?? undefined,
+                          amount: parsed.totalAmount,
+                          status: "PENDING",
+                          notes: `Routed from Triage Inbox.\nFrom: ${senderEmail}\nSubject: ${subject}`,
+                        });
+                      }
+                    }
+                    if (!firstCreated) {
+                      // AI returned items but all were duplicates
+                      await upgradeToFinal(
+                        `Duplicate invoices — already in system.`,
+                        { senderEmail, subject, supplier: { supplierName: matchedSupplier.name } },
+                        "REVIEW",
+                      );
+                    }
                   } else {
-                    // No supplier match → REVIEW with AI-extracted data
-                    const rawExtractedData = { senderEmail, subject, supplier: unknownParsed.supplier, invoices: unknownParsed.invoices };
-                    await createReviewPlaceholder(`Unknown supplier. Please review and add.`, rawExtractedData);
-                    pdfProcessed = true;
+                    await upgradeToFinal(
+                      `PDF parsed but no invoice data extracted.`,
+                      { senderEmail, subject, supplier: { supplierName: matchedSupplier.name } },
+                      "REVIEW",
+                    );
                   }
                 } else {
-                  // AI returned no invoices from PDF
-                  const rawExtractedData = unknownParsed?.supplier ? { senderEmail, subject, supplier: unknownParsed.supplier } : undefined;
-                  await createReviewPlaceholder(`PDF found but could not extract invoice data.`, rawExtractedData);
-                  pdfProcessed = true;
+                  // Unknown sender — full parse
+                  const unknownParsed = await parseInvoiceFromUnknownSender(pdfText);
+                  if (unknownParsed?.invoices?.length) {
+                    const nameMatch = unknownParsed.supplier.supplierName
+                      ? await storage.findSupplierByName(unknownParsed.supplier.supplierName)
+                      : undefined;
+                    if (nameMatch) {
+                      await upgradeToFinal(
+                        `Routed from Triage Inbox.`,
+                        { senderEmail, subject, supplier: unknownParsed.supplier },
+                        "PENDING",
+                        {
+                          supplierId: nameMatch.id,
+                          storeId: null,
+                          invoiceNumber: unknownParsed.invoices[0]?.invoiceNumber || `TRIAGE-${Date.now()}`,
+                          invoiceDate: unknownParsed.invoices[0]?.issueDate,
+                          amount: unknownParsed.invoices[0]?.totalAmount,
+                        },
+                      );
+                    } else {
+                      await upgradeToFinal(
+                        `Unknown supplier. Please review and add.`,
+                        { senderEmail, subject, supplier: unknownParsed.supplier, invoices: unknownParsed.invoices },
+                        "REVIEW",
+                      );
+                    }
+                  } else {
+                    const rawExtractedData = unknownParsed?.supplier
+                      ? { senderEmail, subject, supplier: unknownParsed.supplier }
+                      : { senderEmail, subject, supplier: { supplierName: "" } };
+                    await upgradeToFinal(
+                      `PDF found but could not extract invoice data.`,
+                      rawExtractedData,
+                      "REVIEW",
+                    );
+                  }
                 }
+              } else {
+                // Scanned/image PDF — leave as REVIEW with a clear message
+                await upgradeToFinal(
+                  `PDF attachment found but could not be read (scanned image). Please add invoice details manually.`,
+                  { senderEmail, subject, supplier: { supplierName: "" } },
+                  "REVIEW",
+                );
               }
             } else {
-              // PDF found but text extraction returned empty (image-based/scanned PDF)
-              console.warn("[TriageRoute] PDF text empty (possibly scanned image)");
+              // No PDF — upgrade placeholder with cleaner note
+              await upgradeToFinal(
+                `No PDF attachment. Please review and enter invoice details manually.`,
+                { senderEmail, subject, supplier: { supplierName: item.senderName ?? "" }, body: item.body?.slice(0, 8000) },
+                "REVIEW",
+              );
             }
-          } catch (pdfErr) {
-            console.warn("[TriageRoute] PDF extraction failed:", pdfErr);
-            processResult.pdfError = true;
+          } catch (bgErr) {
+            console.error("[TriageRoute/bg] Background AP processing failed:", bgErr);
+            // Leave the REVIEW placeholder as-is so the manager can handle it
           }
-          // Fallback: if PDF was found but nothing was processed (empty text, extraction error, etc.)
-          if (!pdfProcessed && !processResult.reviewCreated) {
-            await createReviewPlaceholder(`PDF attachment found but could not be read. Please add invoice details manually.`, { senderEmail, subject });
-          }
-        } else {
-          // No PDF attachment → REVIEW placeholder (still pass sender info for modal pre-fill)
-          await createReviewPlaceholder(`No PDF attachment. Please review and enter invoice details manually.`, { senderEmail, subject });
-        }
+        });
+        return; // already sent response
       }
-
-      // 3. Mark item as processed or dropped
-      const newStatus = (action === "SPAM_DROP" || action === "FYI_ARCHIVE") ? "DROPPED" : "PROCESSED";
-      await storage.updateUniversalInboxItem(id, { status: newStatus });
 
       res.json({ success: true, ...processResult });
     } catch (err) {
