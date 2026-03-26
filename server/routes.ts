@@ -4471,7 +4471,7 @@ export async function registerRoutes(
             invoiceNumber: `TRIAGE-${Date.now()}`,
             invoiceDate: new Date().toISOString().split("T")[0],
             dueDate: undefined, amount: 0, status: "REVIEW",
-            notes: `No PDF. Routed from Triage Inbox. From: ${senderEmail}. Subject: ${subject}`,
+            notes: `No PDF. Routed from Triage Inbox.\nFrom: ${senderEmail}\nSubject: ${subject}`,
           });
           processResult.invoiceId = inv.id;
           processResult.reviewCreated = true;

@@ -103,6 +103,12 @@ function parseNotesEmailInfo(notes: string | null | undefined): { from: string |
     if (m) from = m[1];
   }
 
+  // Inline: "From: email@domain.com" anywhere in text (not just line-start)
+  if (!from) {
+    const m = notes.match(/\bFrom:\s*([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/i);
+    if (m) from = m[1];
+  }
+
   // Inline: "). Subject: text" or "Subject: text" anywhere
   if (!subject) {
     const m = notes.match(/[.;]\s*Subject:\s*(.+)/i) || notes.match(/Subject:\s*(.+)/i);
@@ -127,6 +133,21 @@ function fmt(dateStr: string | null | undefined): string {
 
 function fmtAUD(amount: number): string {
   return new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(amount);
+}
+
+function fmtReceived(date: Date | string | null | undefined): string {
+  if (!date) return "";
+  const d = new Date(date);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return "just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return d.toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 function isOverdue(dueDate: string | null | undefined, status: string): boolean {
@@ -1118,7 +1139,7 @@ export function AdminAccountsPayable() {
                               <div key={inv.id} className="py-2 border-t border-border/20 first:border-t-0">
                                 <div className="flex items-start justify-between gap-2">
                                   <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                                    {/* Invoice # + amount */}
+                                    {/* Invoice # + amount + received time */}
                                     <div className="flex items-center gap-3 flex-wrap">
                                       <span className="text-muted-foreground font-mono text-xs">
                                         {ir?.invoiceNumber ? `#${ir.invoiceNumber}` : "No invoice #"}
@@ -1126,6 +1147,11 @@ export function AdminAccountsPayable() {
                                       {ir?.issueDate && <span className="text-muted-foreground text-xs">{fmt(ir.issueDate)}</span>}
                                       {ir?.totalAmount !== undefined && ir.totalAmount > 0 && (
                                         <span className="font-medium tabular-nums text-xs">{fmtAUD(ir.totalAmount)}</span>
+                                      )}
+                                      {inv.createdAt && (
+                                        <span className="text-muted-foreground/60 text-xs ml-auto">
+                                          Received {fmtReceived(inv.createdAt)}
+                                        </span>
                                       )}
                                     </div>
                                     {/* Email subject — always show if available */}
