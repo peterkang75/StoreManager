@@ -85,8 +85,8 @@ function fmtDate(d: string): string {
 
 // ─── Brand design system ─────────────────────────────────────────────────────
 const BRAND = {
-  sushi:    { sales: "#EE864A", cogs: "#9A460C" },
-  sandwich: { sales: "#D13535", cogs: "#7A1A1A" },
+  sushi:    { sales: "#EE864A", cogs: "#1E3A5F" },
+  sandwich: { sales: "#D13535", cogs: "#14452F" },
 };
 
 // ─── Payroll cycle (2-week) chart helpers ────────────────────────────────────
