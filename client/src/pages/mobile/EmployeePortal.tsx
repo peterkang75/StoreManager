@@ -205,25 +205,31 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
     <div className="flex flex-col items-center justify-between flex-1 px-4 py-8 gap-6">
 
       {/* Logo card */}
-      <div className="flex flex-col items-center justify-center w-full max-w-xs rounded-2xl bg-white dark:bg-white shadow-sm border border-border/40 px-8 py-10 gap-8">
-        {/* Sushime circular logo */}
-        <img
-          src={sushimeLogo}
-          alt="Sushime"
-          className="h-28 w-auto object-contain"
-          data-testid="img-logo-sushime"
-        />
+      <div className="flex flex-col items-center justify-center w-full max-w-xs rounded-2xl bg-white dark:bg-white shadow-sm border border-border/40 px-6 py-8 gap-6">
+        {/* Sushime circular logo — clipped zoom to remove transparent padding */}
+        <div className="relative overflow-hidden flex items-center justify-center h-36 w-36 shrink-0">
+          <img
+            src={sushimeLogo}
+            alt="Sushime"
+            className="absolute inset-0 w-full h-full object-contain"
+            style={{ transform: "scale(2.8)", transformOrigin: "center" }}
+            data-testid="img-logo-sushime"
+          />
+        </div>
 
         {/* Divider */}
-        <div className="w-16 h-px bg-border/50" />
+        <div className="w-12 h-px bg-border/40" />
 
-        {/* Eat'em text logo */}
-        <img
-          src={eatemLogo}
-          alt="Eat'em"
-          className="h-20 w-auto object-contain"
-          data-testid="img-logo-eatem"
-        />
+        {/* Eat'em text logo — clipped zoom to remove transparent padding */}
+        <div className="relative overflow-hidden flex items-center justify-center h-20 w-56 shrink-0">
+          <img
+            src={eatemLogo}
+            alt="Eat'em"
+            className="absolute inset-0 w-full h-full object-contain"
+            style={{ transform: "scale(1.9)", transformOrigin: "center" }}
+            data-testid="img-logo-eatem"
+          />
+        </div>
 
         {/* Welcome text */}
         <div className="text-center">
