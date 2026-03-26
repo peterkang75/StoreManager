@@ -24,6 +24,7 @@ export interface UploadParsedInvoice {
 /** Structured supplier details extracted from an invoice by GPT-4o */
 export interface ExtractedSupplierInfo {
   supplierName: string;
+  supplierEmail: string | null;
   supplierAddress: string | null;
   supplierPhone: string | null;
   abn: string | null;
@@ -426,6 +427,7 @@ Return this exact structure:
 {
   "supplier": {
     "supplierName": "string",
+    "supplierEmail": "string or null (the supplier's own email address as printed on the document — NOT the recipient/forwarding email)",
     "supplierAddress": "string or null",
     "supplierPhone": "string or null",
     "abn": "string or null (Australian Business Number, digits only or formatted)",
@@ -497,6 +499,7 @@ export async function parseInvoiceFromUnknownSender(
     const supplierRaw = parsed.supplier ?? {};
     const supplier: ExtractedSupplierInfo = {
       supplierName: String(supplierRaw.supplierName ?? "Unknown Supplier"),
+      supplierEmail: supplierRaw.supplierEmail ? String(supplierRaw.supplierEmail) : null,
       supplierAddress: supplierRaw.supplierAddress ? String(supplierRaw.supplierAddress) : null,
       supplierPhone: supplierRaw.supplierPhone ? String(supplierRaw.supplierPhone) : null,
       abn: supplierRaw.abn ? String(supplierRaw.abn) : null,

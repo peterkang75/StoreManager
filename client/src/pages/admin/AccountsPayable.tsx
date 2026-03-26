@@ -60,6 +60,7 @@ type EnrichedInvoice = SupplierInvoice & { supplier: Supplier | null };
 // ── rawExtractedData shape from webhook ──────────────────────────────────────
 interface ExtractedSupplierInfo {
   supplierName: string;
+  supplierEmail?: string | null;
   senderEmail?: string;
   // Server field names (from parseInvoiceFromUnknownSender)
   supplierAddress?: string | null;
@@ -219,7 +220,10 @@ function groupBySupplier(invoices: EnrichedInvoice[]): SupplierGroup[] {
 //   3. senderEmail domain                      (e.g. greenstarfood.com.au → "Greenstarfood")
 //   4. notes field                             (last-resort regex parse)
 //
-function extractSupplierHint(raw: ReviewRawData | null, notes: string | null): { name: string; email: string } {
+function extractSupplierHint(
+  raw: ReviewRawData | null,
+  notes: string | null
+): { name: string; email: string; rawSenderEmail: string } {
   // ── 1. AI-extracted supplier name (best case) ─────────────────────────────
   const aiName = raw?.supplier?.supplierName?.trim() ?? "";
 
@@ -259,7 +263,19 @@ function extractSupplierHint(raw: ReviewRawData | null, notes: string | null): {
   // Pick best name: AI > clean subject (if plausible length) > domain
   const name = aiName || (subjectClean.length > 2 && subjectClean.length <= 60 ? subjectClean : "") || domainName;
 
-  return { name, email: senderEmail };
+  // ── 5. Contact email: prefer PDF-extracted supplier email over sender email ──
+  // The senderEmail may be an internal forwarder (e.g. accounts@eatem.com.au).
+  // If the AI extracted the supplier's own email from the document, use that instead.
+  const pdfEmail = raw?.supplier?.supplierEmail?.trim() ?? "";
+  const isInternalForwarder = (email: string) =>
+    /@eatem\.com\.au$/i.test(email) || email === "peterkang75@gmail.com";
+  const contactEmail = (pdfEmail && !isInternalForwarder(pdfEmail))
+    ? pdfEmail
+    : senderEmail;
+
+  // rawSenderEmail is the actual From: address (may be a forwarder).
+  // Used to sweep existing REVIEW invoices by their stored senderEmail.
+  return { name, email: contactEmail, rawSenderEmail: senderEmail };
 }
 
 // ── Approve Supplier Modal (Group-based) ─────────────────────────────────────
@@ -322,7 +338,9 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
       if (!firstInvoice) throw new Error("No invoices in group");
       const r = firstInvoice.rawExtractedData as ReviewRawData | null;
       const h = extractSupplierHint(r, firstInvoice.notes ?? null);
-      const senderEmail = h.email;
+      // rawSenderEmail is the actual From: address used to find REVIEW invoices for sweep.
+      // h.email may be a PDF-extracted supplier email, not the forwarder address.
+      const senderEmail = h.rawSenderEmail;
       const supplierName = r?.supplier?.supplierName ?? data.name;
 
       const emailsArray = data.contactEmails
@@ -737,7 +755,8 @@ export function AdminAccountsPayable() {
     supplierName: string;
     invoices: SupplierInvoice[];
     totalAmount: number;
-    senderEmail: string;
+    senderEmail: string;       // PDF-extracted supplier email (or forwarder if not found)
+    rawSenderEmail: string;    // Actual From: address — used for email routing rules
     rawFirst: ReviewRawData | null;
   }
   const reviewGroups = useMemo<ReviewGroup[]>(() => {
@@ -748,12 +767,14 @@ export function AdminAccountsPayable() {
       const hint = extractSupplierHint(r, inv.notes ?? null);
       const name = hint.name || "Unknown Supplier";
       const senderEmail = hint.email;
+      const rawSenderEmail = hint.rawSenderEmail;
       if (!map.has(name)) {
         map.set(name, {
           supplierName: name,
           invoices: [],
           totalAmount: 0,
           senderEmail,
+          rawSenderEmail,
           rawFirst: r,
         });
       }
@@ -762,6 +783,7 @@ export function AdminAccountsPayable() {
       g.totalAmount += r?.totalAmount ?? 0;
       // Use earliest available senderEmail
       if (!g.senderEmail && senderEmail) g.senderEmail = senderEmail;
+      if (!g.rawSenderEmail && rawSenderEmail) g.rawSenderEmail = rawSenderEmail;
     }
     return Array.from(map.values());
   }, [reviewInvoices]);
@@ -1317,7 +1339,7 @@ export function AdminAccountsPayable() {
                           onClick={() =>
                             ignoreSenderMutation.mutate({
                               invoiceIds: group.invoices.map(i => i.id),
-                              senderEmail: group.senderEmail,
+                              senderEmail: group.rawSenderEmail,
                               supplierName: group.supplierName !== "Unknown Supplier" ? group.supplierName : undefined,
                             })
                           }
