@@ -432,7 +432,7 @@ Return this exact structure:
 {
   "supplier": {
     "supplierName": "string",
-    "supplierEmail": "string or null (the supplier's own email address as printed on the document — NOT the recipient/forwarding email)",
+    "supplierEmail": "string or null — ONLY include if the supplier's own email address is explicitly printed in the document body (e.g. on the invoice header or footer). Return null if no email is visible. NEVER use or guess an email from the To/From email headers; those may belong to a forwarding service, not the supplier.",
     "supplierAddress": "string or null",
     "supplierPhone": "string or null",
     "abn": "string or null (Australian Business Number, digits only or formatted)",

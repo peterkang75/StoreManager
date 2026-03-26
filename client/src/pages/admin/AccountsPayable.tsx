@@ -264,15 +264,21 @@ function extractSupplierHint(
   // Pick best name: AI > clean subject (if plausible length) > domain
   const name = aiName || (subjectClean.length > 2 && subjectClean.length <= 60 ? subjectClean : "") || domainName;
 
-  // ── 5. Contact email: prefer PDF-extracted supplier email over sender email ──
-  // The senderEmail may be an internal forwarder (e.g. accounts@eatem.com.au).
-  // If the AI extracted the supplier's own email from the document, use that instead.
+  // ── 5. Contact email: use PDF-extracted supplier email ONLY if it is external ──
+  // STRICT RULE: never pollute the contact email field with an internal forwarder
+  // address (e.g. accounts@eatem.com.au). If no real external email is found, leave blank.
   const pdfEmail = raw?.supplier?.supplierEmail?.trim() ?? "";
   const isInternalForwarder = (email: string) =>
-    /@eatem\.com\.au$/i.test(email) || email === "peterkang75@gmail.com";
-  const contactEmail = (pdfEmail && !isInternalForwarder(pdfEmail))
-    ? pdfEmail
-    : senderEmail;
+    !email || /@eatem\.com\.au$/i.test(email) || /^peterkang75@gmail\.com$/i.test(email);
+
+  // Priority: PDF-extracted external email > sender email (only if truly external) > ""
+  let contactEmail = "";
+  if (pdfEmail && !isInternalForwarder(pdfEmail)) {
+    contactEmail = pdfEmail;
+  } else if (senderEmail && !isInternalForwarder(senderEmail)) {
+    contactEmail = senderEmail;
+  }
+  // else: contactEmail stays "" — user must fill in manually
 
   // rawSenderEmail is the actual From: address (may be a forwarder).
   // Used to sweep existing REVIEW invoices by their stored senderEmail.
