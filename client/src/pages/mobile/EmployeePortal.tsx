@@ -235,7 +235,7 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
 
         {/* Welcome text */}
         <div className="text-center">
-          <p className="text-sm font-semibold text-foreground leading-snug">
+          <p className="font-semibold text-foreground text-[19px]">
             Welcome to the Eat'em &amp; Sushime
           </p>
           <p className="text-xs text-muted-foreground mt-0.5">Team Portal</p>
