@@ -5475,7 +5475,27 @@ Rules:
               if (invNum) existingNumbers.add(invNum);
             } catch (dupErr: any) {
               if (dupErr?.code === "23505" || dupErr?.message?.includes("unique constraint")) {
-                console.warn(`[Review/approve-group] Skipping duplicate (placeholder update) ${invNum}`);
+                // Ghost invoice: a row with (supplierId, invNum) already exists.
+                // Adopt it — link the ghost to the supplier and re-activate if DELETED.
+                const adoptResult = await db.execute(sql`
+                  UPDATE supplier_invoices
+                  SET supplier_id = ${supplier.id},
+                      status = CASE WHEN status = 'DELETED' THEN 'PENDING' ELSE status END,
+                      notes = COALESCE(notes, ${baseNotes})
+                  WHERE invoice_number = ${invNum}
+                    AND (supplier_id IS NULL OR supplier_id = ${supplier.id})
+                    AND status != 'REVIEW'
+                  RETURNING id, status
+                `);
+                const adoptedRows = (adoptResult as any).rows ?? [];
+                if (adoptedRows.length > 0) {
+                  console.log(`[Review/approve-group] Adopted ghost invoice ${invNum} (status: ${adoptedRows[0].status})`);
+                  firstDone = true;
+                  expandedCount++;
+                } else {
+                  console.warn(`[Review/approve-group] Skipping duplicate (placeholder update) ${invNum}`);
+                }
+                if (invNum) existingNumbers.add(invNum);
               } else { throw dupErr; }
             }
           } else {
@@ -5494,26 +5514,15 @@ Rules:
           }
         }
 
-        // Bulk insert all remaining items in a single DB round-trip
+        // Bulk insert remaining items — ON CONFLICT DO NOTHING prevents duplicate key crashes
+        // and eliminates the expensive fallback individual-insert loop (was 300 × 100ms = 30s hang).
         if (bulkInserts.length > 0) {
-          try {
-            await db.insert(supplierInvoices).values(bulkInserts);
-            expandedCount += bulkInserts.length;
-          } catch (dupErr: any) {
-            if (dupErr?.code === "23505" || dupErr?.message?.includes("unique constraint")) {
-              // Fall back to individual inserts so we can skip just the duplicates
-              for (const row of bulkInserts) {
-                try {
-                  await db.insert(supplierInvoices).values(row);
-                  expandedCount++;
-                } catch (e2: any) {
-                  if (e2?.code === "23505" || e2?.message?.includes("unique constraint")) {
-                    console.warn(`[Review/approve-group] Skipping duplicate bulk invoice ${row.invoiceNumber}`);
-                  } else { throw e2; }
-                }
-              }
-            } else { throw dupErr; }
-          }
+          const insertResult = await db.insert(supplierInvoices)
+            .values(bulkInserts)
+            .onConflictDoNothing()
+            .returning({ id: supplierInvoices.id });
+          expandedCount += insertResult.length;
+          console.log(`[Review/approve-group] Bulk inserted ${insertResult.length}/${bulkInserts.length} new invoices (${bulkInserts.length - insertResult.length} duplicates skipped).`);
         }
 
         // If ALL statement line items were duplicates, the placeholder was never updated.

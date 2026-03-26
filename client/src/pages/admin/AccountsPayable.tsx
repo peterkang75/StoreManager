@@ -429,7 +429,7 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
         reviewInvoiceIds: invoices.map(inv => inv.id),
         // Link mode: pass existingSupplierId to skip creation
         existingSupplierId: mode === "link" ? (linkedSupplierId ?? undefined) : undefined,
-      });
+      }, { timeoutMs: 45_000 });
     },
     onSuccess: (result: any) => {
       const count = result?.sweptCount ?? invoices.length;
