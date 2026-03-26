@@ -470,3 +470,51 @@ export async function parseInvoiceFromUnknownSender(
     return null;
   }
 }
+
+/**
+ * Fast AI micro-classifier: determines if a document is a payment request
+ * (INVOICE) or a non-payable document (CONFIRMATION/receipt/order confirmation).
+ * Uses gpt-4o-mini for speed and low cost.
+ * Fails SAFE: returns "INVOICE" on any error so we never accidentally discard a real invoice.
+ */
+export async function classifyDocumentForAP(
+  text: string
+): Promise<"INVOICE" | "CONFIRMATION"> {
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a strict document classifier for an accounts payable system. " +
+            "Reply with exactly one word: INVOICE or CONFIRMATION. No punctuation, no explanation.",
+        },
+        {
+          role: "user",
+          content:
+            "Classify this document:\n" +
+            "- INVOICE: A bill or invoice that requests payment. Has an amount due, " +
+            "invoice number, and/or payment terms. The business must pay this.\n" +
+            "- CONFIRMATION: An order confirmation, delivery receipt, dispatch notice, " +
+            "order acknowledgement, or any document where no payment is currently due.\n\n" +
+            `Document (first 3000 chars):\n${text.slice(0, 3000)}\n\n` +
+            "Reply ONLY with INVOICE or CONFIRMATION.",
+        },
+      ],
+      max_tokens: 5,
+      temperature: 0,
+    });
+
+    const result = response.choices[0]?.message?.content?.trim().toUpperCase();
+    if (result === "INVOICE" || result === "CONFIRMATION") {
+      console.log(`[classifyDocumentForAP] Result: ${result}`);
+      return result;
+    }
+    console.warn(`[classifyDocumentForAP] Unexpected response "${result}", defaulting to INVOICE`);
+    return "INVOICE";
+  } catch (err) {
+    console.warn("[classifyDocumentForAP] AI call failed, defaulting to INVOICE (fail-safe):", err);
+    return "INVOICE";
+  }
+}

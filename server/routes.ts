@@ -3,7 +3,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage, generateSecureToken } from "./storage";
 import { PAYROLL_CYCLE_ANCHOR, getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "../shared/payrollCycle";
-import { extractPdfText, parseInvoiceWithAI, parseUploadedFile, parseInvoiceFromUnknownSender, triageEmail, summarizeTaskFromEmail } from "./invoiceParser";
+import { extractPdfText, parseInvoiceWithAI, parseUploadedFile, parseInvoiceFromUnknownSender, triageEmail, summarizeTaskFromEmail, classifyDocumentForAP } from "./invoiceParser";
 import { 
   insertStoreSchema, 
   insertCandidateSchema, 
@@ -4212,29 +4212,50 @@ export async function registerRoutes(
       // Reaching here means matchedSupplier is truthy (triage gate passed).
       // supplierId is confirmed → PENDING is allowed. No PDF → REVIEW.
       // ══════════════════════════════════════════════════════════════════════════
-      console.log(`[Webhook] Direct supplier: "${matchedSupplier.name}" — auto-processing AP`);
+      console.log(`[Webhook] Direct supplier: "${matchedSupplier.name}" — running Micro-Filter`);
 
-      if (!hasAttachment) {
-        const placeholder = await storage.createSupplierInvoice({
-          supplierId: matchedSupplier.id, storeId: null,
-          invoiceNumber: `EMAIL-${Date.now()}`,
-          invoiceDate: new Date().toISOString().split("T")[0],
-          dueDate: undefined, amount: 0, status: "REVIEW",
-          notes: `No PDF attached. Please review and enter amount manually.${forwarderEmail ? ` Forwarded by ${forwarderEmail}.` : ""}\nFrom: ${senderEmail}\nSubject: ${subject}`,
-        });
-        return res.status(200).json({ received: true, action: "matched_no_attachment_placeholder", supplier: matchedSupplier.name, invoiceId: placeholder.id });
+      // ── Micro-Filter Step 1: Physical attachment check ─────────────────────
+      // Emails with no PDF/image attachment are almost always order confirmations
+      // or text updates — NOT invoices. Silently archive them to keep AP clean.
+      const invoiceAttachment = attachments.find((a: any) => {
+        const name = (a.file_name ?? a.filename ?? a.name ?? "").toLowerCase();
+        const type = (a.content_type ?? a.contentType ?? a.mimeType ?? a.type ?? "").toLowerCase();
+        return name.endsWith(".pdf") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png")
+          || type.includes("pdf") || type.includes("jpeg") || type.includes("png");
+      });
+
+      if (!invoiceAttachment) {
+        console.log(`[Webhook] Micro-Filter: No valid attachment → FYI_ARCHIVE (${matchedSupplier.name})`);
+        return res.status(200).json({ received: true, action: "fyi_archived_no_attachment", supplier: matchedSupplier.name, reason: "No PDF/image attachment — likely an order confirmation or text update" });
       }
 
+      // ── Micro-Filter Step 2: Extract text for classification ───────────────
       const pdfResult = await extractPdfFromAttachments();
+      // Use PDF text if available; fall back to email body for image attachments
+      const classifyText = pdfResult?.text.trim() ? pdfResult.text : emailBody;
+
+      // ── Micro-Filter Step 3: Fast AI document classifier ──────────────────
+      // gpt-4o-mini call — very fast and cheap (~$0.0001 per call)
+      console.log(`[Webhook] Micro-Filter: Classifying document for "${matchedSupplier.name}"...`);
+      const docType = await classifyDocumentForAP(classifyText);
+
+      if (docType === "CONFIRMATION") {
+        console.log(`[Webhook] Micro-Filter: Classified as CONFIRMATION → FYI_ARCHIVE (${matchedSupplier.name})`);
+        return res.status(200).json({ received: true, action: "fyi_archived_confirmation", supplier: matchedSupplier.name, reason: "Document classified as order confirmation — not a payable invoice" });
+      }
+
+      console.log(`[Webhook] Micro-Filter: Classified as INVOICE → proceeding with AP extraction (${matchedSupplier.name})`);
+
+      // ── Full AP extraction (INVOICE confirmed) ─────────────────────────────
       if (!pdfResult) {
         const placeholder = await storage.createSupplierInvoice({
           supplierId: matchedSupplier.id, storeId: null,
           invoiceNumber: `EMAIL-${Date.now()}`,
           invoiceDate: new Date().toISOString().split("T")[0],
           dueDate: undefined, amount: 0, status: "REVIEW",
-          notes: `PDF could not be read. Please enter manually.\nFrom: ${senderEmail}\nSubject: ${subject}`,
+          notes: `Invoice attachment found but could not be read. Please enter manually.\nFrom: ${senderEmail}\nSubject: ${subject}`,
         });
-        return res.status(200).json({ received: true, action: "matched_no_pdf_placeholder", supplier: matchedSupplier.name, invoiceId: placeholder.id });
+        return res.status(200).json({ received: true, action: "matched_no_pdf_text_placeholder", supplier: matchedSupplier.name, invoiceId: placeholder.id });
       }
 
       const parsedItems = await parseInvoiceWithAI(pdfResult.text, matchedSupplier.name);
