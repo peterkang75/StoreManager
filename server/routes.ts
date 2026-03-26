@@ -4061,7 +4061,7 @@ export async function registerRoutes(
       // ── Extract sender (use headers.from only — envelope.from has Gmail artifacts) ──
       const rawHeaderFrom: string = payload?.headers?.from ?? "";
       const angleMatch = rawHeaderFrom.match(/<([^>]+)>/);
-      const senderEmail = (angleMatch ? angleMatch[1] : rawHeaderFrom).trim().toLowerCase();
+      let senderEmail = (angleMatch ? angleMatch[1] : rawHeaderFrom).trim().toLowerCase();
       console.log("[Webhook] Sender:", senderEmail);
 
       if (!senderEmail) {
@@ -4069,10 +4069,69 @@ export async function registerRoutes(
       }
 
       // ── Extract subject, body, attachments ────────────────────────────────────
-      const subject: string = payload?.headers?.subject ?? "(no subject)";
+      let subject: string = payload?.headers?.subject ?? "(no subject)";
       const emailBody: string = payload?.plain ?? payload?.html?.replace(/<[^>]*>/g, " ") ?? "";
       const attachments: any[] = Array.isArray(payload?.attachments) ? payload.attachments : [];
       const hasAttachment = attachments.length > 0;
+
+      // ── Smart Forward Detector ────────────────────────────────────────────────
+      // When an internal forwarder (e.g. CEO) forwards a supplier email, the
+      // senderEmail becomes the forwarder's address, breaking routing.
+      // We extract the original sender from the forwarded block and override.
+      const INTERNAL_FORWARDER_EMAILS = [
+        "peter.kang@eatem.com.au",
+        "peterkang75@gmail.com",
+      ];
+      let forwarderEmail: string | null = null; // track who forwarded (for notes)
+
+      if (INTERNAL_FORWARDER_EMAILS.includes(senderEmail)) {
+        // ── Pattern A: Standard forwarded block separator (Gmail EN/KO, Outlook) ──
+        // Matches:  "---------- Forwarded message ---------" or
+        //           "---------- 전달된 메일 ---------" or
+        //           "-----Original Message-----"
+        // Then finds the first From/보낸사람/발신 field within ~300 chars
+        const blockPattern =
+          /(?:[-=]{4,}[^<\n]{0,60}(?:forward|전달된|original\s*message|forwarded)[^<\n]{0,60}[-=]{4,}|begin forwarded message)[^\n]*\n[\s\S]{0,300}?(?:from|보낸사람|발신자?\s*:?)[\s:]*(?:[^<\n]*?<)?([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})>?/i;
+
+        const blockMatch = emailBody.match(blockPattern);
+        if (blockMatch?.[1]) {
+          forwarderEmail = senderEmail;
+          senderEmail = blockMatch[1].toLowerCase();
+          console.log(`[Webhook] Forward detected (block): ${forwarderEmail} → ${senderEmail}`);
+        }
+
+        // ── Pattern B: Subject starts with "Fwd:" — simpler body scan ──
+        // Look for first "From: Name <email>" or "보낸사람: Name <email>" in body
+        if (!forwarderEmail && /^fwd:/i.test(subject)) {
+          const simplePattern =
+            /(?:from|보낸사람|발신자?\s*:?)[\s:]*(?:[^\n<]{0,60}<)?([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})>/i;
+          const simpleMatch = emailBody.match(simplePattern);
+          if (simpleMatch?.[1] && !INTERNAL_FORWARDER_EMAILS.includes(simpleMatch[1].toLowerCase())) {
+            forwarderEmail = senderEmail;
+            senderEmail = simpleMatch[1].toLowerCase();
+            console.log(`[Webhook] Forward detected (fwd-subject): ${forwarderEmail} → ${senderEmail}`);
+          }
+        }
+
+        // ── Extract original subject from the forwarded block ──
+        if (forwarderEmail) {
+          const subjPattern =
+            /(?:subject|제목|주제)[\s:]+(.+?)(?:\r?\n|$)/i;
+          const subjMatch = emailBody.match(subjPattern);
+          if (subjMatch?.[1]) {
+            const extracted = subjMatch[1].trim();
+            // Only use if it looks like a real subject (not just whitespace/artifacts)
+            if (extracted.length > 1) {
+              subject = extracted;
+              console.log(`[Webhook] Forward: original subject extracted: "${subject}"`);
+            }
+          }
+          // If no subject in body, strip "Fwd:" prefix from outer subject
+          if (!subjMatch && /^fwd:/i.test(subject)) {
+            subject = subject.replace(/^(?:fwd:\s*)+/i, "").trim();
+          }
+        }
+      }
 
       // ── Helper: extract first PDF from attachments ────────────────────────────
       async function extractPdfFromAttachments(): Promise<{ text: string } | null> {
@@ -4161,7 +4220,7 @@ export async function registerRoutes(
           invoiceNumber: `EMAIL-${Date.now()}`,
           invoiceDate: new Date().toISOString().split("T")[0],
           dueDate: undefined, amount: 0, status: "REVIEW",
-          notes: `No PDF attached. Please review and enter amount manually.\nFrom: ${senderEmail}\nSubject: ${subject}`,
+          notes: `No PDF attached. Please review and enter amount manually.${forwarderEmail ? ` Forwarded by ${forwarderEmail}.` : ""}\nFrom: ${senderEmail}\nSubject: ${subject}`,
         });
         return res.status(200).json({ received: true, action: "matched_no_attachment_placeholder", supplier: matchedSupplier.name, invoiceId: placeholder.id });
       }
