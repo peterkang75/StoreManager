@@ -4576,11 +4576,11 @@ export async function registerRoutes(
           }
           // Fallback: if PDF was found but nothing was processed (empty text, extraction error, etc.)
           if (!pdfProcessed && !processResult.reviewCreated) {
-            await createReviewPlaceholder(`PDF attachment found but could not be read. Please add invoice details manually.`);
+            await createReviewPlaceholder(`PDF attachment found but could not be read. Please add invoice details manually.`, { senderEmail, subject });
           }
         } else {
-          // No PDF attachment → REVIEW placeholder
-          await createReviewPlaceholder(`No PDF attachment.`);
+          // No PDF attachment → REVIEW placeholder (still pass sender info for modal pre-fill)
+          await createReviewPlaceholder(`No PDF attachment. Please review and enter invoice details manually.`, { senderEmail, subject });
         }
       }
 

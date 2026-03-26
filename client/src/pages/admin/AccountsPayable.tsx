@@ -196,6 +196,59 @@ function groupBySupplier(invoices: EnrichedInvoice[]): SupplierGroup[] {
   return Array.from(map.values()).sort((a, b) => b.totalAmount - a.totalAmount);
 }
 
+// ── Supplier hint extraction from rawExtractedData + notes fallback ──────────
+//
+// When a CEO forwards a supplier invoice, the system creates a REVIEW
+// placeholder with rawExtractedData = { senderEmail, subject }.
+// The supplier name is NOT in the PDF-parsed fields, so we derive it from:
+//   1. rawExtractedData.supplier.supplierName  (AI-extracted — best)
+//   2. subject string                          (strip [forwarder] prefix + inv# suffix)
+//   3. senderEmail domain                      (e.g. greenstarfood.com.au → "Greenstarfood")
+//   4. notes field                             (last-resort regex parse)
+//
+function extractSupplierHint(raw: ReviewRawData | null, notes: string | null): { name: string; email: string } {
+  // ── 1. AI-extracted supplier name (best case) ─────────────────────────────
+  const aiName = raw?.supplier?.supplierName?.trim() ?? "";
+
+  // ── 2. Sender email (from rawExtractedData or notes fallback) ─────────────
+  let senderEmail = raw?.senderEmail?.trim() ?? raw?.supplier?.senderEmail?.trim() ?? "";
+  if (!senderEmail && notes) {
+    const m = notes.match(/(?:^|\n)From:\s*([\w.+%-]+@[\w.-]+\.\w+)/i);
+    if (m) senderEmail = m[1].trim();
+  }
+
+  // ── 3. Subject string (clean up forwarding artefacts) ─────────────────────
+  let subjectRaw = raw?.subject?.trim() ?? "";
+  if (!subjectRaw && notes) {
+    const m = notes.match(/(?:^|\n)Subject:\s*(.+)/i);
+    if (m) subjectRaw = m[1].trim();
+  }
+  // Strip "[forwarder@email.com]" prefix added by Smart Forward Detector
+  const subjectClean = subjectRaw
+    .replace(/^\[[\w.@+%-]+\]\s*/i, "")           // remove [email@...] prefix
+    .replace(/\s*inv[a-z]*\s*\d+\s*$/i, "")        // remove trailing "inv0365559"
+    .replace(/\s*#?\d{4,}\s*$/, "")                // remove trailing bare numbers
+    .trim();
+
+  // ── 4. Domain-derived name (last resort) ─────────────────────────────────
+  let domainName = "";
+  if (senderEmail) {
+    const domain = senderEmail.split("@")[1] ?? "";
+    const base = domain.replace(/\.(com\.au|com|net\.au|net|org\.au|org|au)$/i, "");
+    // "greenstarfood" → "Green Star Food" (split on common word boundaries)
+    domainName = base
+      .replace(/[._-]/g, " ")
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .replace(/\b\w/g, c => c.toUpperCase())
+      .trim();
+  }
+
+  // Pick best name: AI > clean subject (if plausible length) > domain
+  const name = aiName || (subjectClean.length > 2 && subjectClean.length <= 60 ? subjectClean : "") || domainName;
+
+  return { name, email: senderEmail };
+}
+
 // ── Approve Supplier Modal (Group-based) ─────────────────────────────────────
 
 interface ApproveSupplierModalProps {
@@ -222,12 +275,15 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
   const raw = firstInvoice?.rawExtractedData as ReviewRawData | null;
   const [isAutoPay, setIsAutoPay] = useState(false);
 
+  // Smart pre-fill: AI extraction → subject cleanup → email domain fallback
+  const hint = extractSupplierHint(raw, firstInvoice?.notes ?? null);
+
   const { register, handleSubmit, reset, formState: { errors } } = useForm<SupplierFormValues>({
     defaultValues: {
-      name: raw?.supplier?.supplierName ?? "",
+      name: hint.name,
       abn: raw?.supplier?.abn ?? "",
       contactName: raw?.supplier?.contactName ?? "",
-      contactEmails: raw?.senderEmail ?? raw?.supplier?.senderEmail ?? "",
+      contactEmails: hint.email,
       bsb: raw?.supplier?.bsb ?? "",
       accountNumber: raw?.supplier?.accountNumber ?? "",
       address: raw?.supplier?.address ?? "",
@@ -238,11 +294,12 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
   useEffect(() => {
     if (firstInvoice) {
       const r = firstInvoice.rawExtractedData as ReviewRawData | null;
+      const h = extractSupplierHint(r, firstInvoice.notes ?? null);
       reset({
-        name: r?.supplier?.supplierName ?? "",
+        name: h.name,
         abn: r?.supplier?.abn ?? "",
         contactName: r?.supplier?.contactName ?? "",
-        contactEmails: r?.senderEmail ?? r?.supplier?.senderEmail ?? "",
+        contactEmails: h.email,
         bsb: r?.supplier?.bsb ?? "",
         accountNumber: r?.supplier?.accountNumber ?? "",
         address: r?.supplier?.address ?? "",
@@ -256,7 +313,8 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
     mutationFn: async (data: SupplierFormValues) => {
       if (!firstInvoice) throw new Error("No invoices in group");
       const r = firstInvoice.rawExtractedData as ReviewRawData | null;
-      const senderEmail = r?.senderEmail ?? "";
+      const h = extractSupplierHint(r, firstInvoice.notes ?? null);
+      const senderEmail = h.email;
       const supplierName = r?.supplier?.supplierName ?? data.name;
 
       const emailsArray = data.contactEmails
@@ -657,10 +715,10 @@ export function AdminAccountsPayable() {
     const map = new Map<string, ReviewGroup>();
     for (const inv of reviewInvoices) {
       const r = inv.rawExtractedData as ReviewRawData | null;
-      const name = r?.supplier?.supplierName ?? "Unknown Supplier";
-      // Extract senderEmail from notes when rawExtractedData is unavailable
-      const notesInfo = parseNotesEmailInfo(inv.notes);
-      const senderEmail = r?.senderEmail ?? notesInfo.from ?? "";
+      // Smart hint: AI name > subject cleanup > email domain > "Unknown Supplier"
+      const hint = extractSupplierHint(r, inv.notes ?? null);
+      const name = hint.name || "Unknown Supplier";
+      const senderEmail = hint.email;
       if (!map.has(name)) {
         map.set(name, {
           supplierName: name,
