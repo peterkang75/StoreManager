@@ -5514,15 +5514,39 @@ Rules:
           }
         }
 
-        // Bulk insert remaining items — ON CONFLICT DO NOTHING prevents duplicate key crashes
-        // and eliminates the expensive fallback individual-insert loop (was 300 × 100ms = 30s hang).
+        // Bulk upsert remaining items in TWO fast steps:
+        // Step 1: Re-animate any DELETED ghost invoices (deleted when supplier was deleted).
+        // Step 2: Insert genuinely new invoices — ON CONFLICT DO NOTHING skips active ones.
         if (bulkInserts.length > 0) {
+          const bulkInvNums = bulkInserts.map((r: any) => r.invoiceNumber).filter(Boolean) as string[];
+
+          // Step 1: Re-animate DELETED ghosts (single UPDATE — instant)
+          if (bulkInvNums.length > 0) {
+            const inList = bulkInvNums.map(n => `'${n.replace(/'/g, "''")}'`).join(",");
+            const reanimated = await db.execute(sql`
+              UPDATE supplier_invoices
+              SET status = 'PENDING',
+                  supplier_id = ${supplier.id}
+              WHERE (supplier_id = ${supplier.id} OR supplier_id IS NULL)
+                AND invoice_number IN (${sql.raw(inList)})
+                AND status = 'DELETED'
+            `);
+            const reanimCount = (reanimated as any).rowCount ?? 0;
+            if (reanimCount > 0) {
+              console.log(`[Review/approve-group] Re-animated ${reanimCount} DELETED ghost invoices to PENDING.`);
+              expandedCount += reanimCount;
+            }
+          }
+
+          // Step 2: Insert genuinely new invoices (ON CONFLICT DO NOTHING skips active duplicates)
           const insertResult = await db.insert(supplierInvoices)
             .values(bulkInserts)
             .onConflictDoNothing()
             .returning({ id: supplierInvoices.id });
           expandedCount += insertResult.length;
-          console.log(`[Review/approve-group] Bulk inserted ${insertResult.length}/${bulkInserts.length} new invoices (${bulkInserts.length - insertResult.length} duplicates skipped).`);
+          if (bulkInserts.length > 0) {
+            console.log(`[Review/approve-group] Bulk: ${insertResult.length} new + ${bulkInserts.length - insertResult.length} already-active (skipped).`);
+          }
         }
 
         // If ALL statement line items were duplicates, the placeholder was never updated.
