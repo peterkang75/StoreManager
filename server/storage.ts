@@ -1814,7 +1814,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteSupplier(id: string): Promise<boolean> {
-    const result = await db.delete(suppliers).where(eq(suppliers.id, id));
+    // Soft-delete: set active = false to avoid FK constraint violations from linked invoices.
+    const result = await db.update(suppliers)
+      .set({ active: false })
+      .where(eq(suppliers.id, id));
     return (result.rowCount ?? 0) > 0;
   }
 
