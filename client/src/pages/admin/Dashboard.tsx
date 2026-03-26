@@ -359,13 +359,15 @@ export function AdminDashboard() {
   const sushiStoreId    = useMemo(() => activeStoreList.find(s => s.name.toLowerCase().includes("sushi"))?.id,    [activeStoreList]);
   const sandwichStoreId = useMemo(() => activeStoreList.find(s => s.name.toLowerCase().includes("sandwich"))?.id, [activeStoreList]);
 
+  const noneSelected = selectedTypes.length === 0;
+
   const effectiveStoreId = useMemo(() => {
-    if (selectedTypes.length === 0 || selectedTypes.length === 2) return "ALL";
+    if (noneSelected || selectedTypes.length === 2) return "ALL";
     const match = activeStoreList.find(s =>
       selectedTypes.some(t => s.name.toLowerCase().includes(t.toLowerCase()))
     );
     return match ? match.id : "ALL";
-  }, [selectedTypes, activeStoreList]);
+  }, [noneSelected, selectedTypes, activeStoreList]);
 
   const params = useMemo(() => {
     const p = new URLSearchParams({ startDate, endDate });
@@ -440,14 +442,17 @@ export function AdminDashboard() {
   const isSushiOnly       = selectedTypes.includes("Sushi") && !selectedTypes.includes("Sandwich");
   const isSandwichOnly    = !selectedTypes.includes("Sushi") && selectedTypes.includes("Sandwich");
 
+  const displaySummary = noneSelected ? null : summary;
+
   const chartData = useMemo(() => {
+    if (noneSelected) return [];
     if (isBothSelected) {
       return buildStackedCycles(sushiSummary?.dailyTrend ?? [], sandwichSummary?.dailyTrend ?? [], startDate);
     }
     if (isSushiOnly)    return buildSingleCycles(sushiSummary?.dailyTrend ?? [], startDate);
     if (isSandwichOnly) return buildSingleCycles(sandwichSummary?.dailyTrend ?? [], startDate);
-    return buildSingleCycles(summary?.dailyTrend ?? [], startDate);
-  }, [isBothSelected, isSushiOnly, isSandwichOnly, sushiSummary, sandwichSummary, summary, startDate]);
+    return [];
+  }, [noneSelected, isBothSelected, isSushiOnly, isSandwichOnly, sushiSummary, sandwichSummary, startDate]);
 
   // ── Triage: needs routing ─────────────────────────────────────────────────
   const needsRouting = allTriageItems.filter(i => i.status === "NEEDS_ROUTING");
@@ -558,39 +563,39 @@ export function AdminDashboard() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <KpiCard
               title="Total Sales"
-              amount={summary?.salesTotal ?? 0}
+              amount={displaySummary?.salesTotal ?? 0}
               icon={DollarSign}
               colorClass="bg-blue-500"
-              isLoading={summaryLoading}
+              isLoading={summaryLoading && !noneSelected}
               testId="text-kpi-sales"
               subtitle="from daily closings"
             />
             <KpiCard
               title="Total Labor"
-              amount={summary?.laborTotal ?? 0}
-              percent={summary?.laborPercent}
+              amount={displaySummary?.laborTotal ?? 0}
+              percent={displaySummary?.laborPercent}
               icon={Briefcase}
               colorClass="bg-orange-500"
-              isLoading={summaryLoading}
+              isLoading={summaryLoading && !noneSelected}
               testId="text-kpi-labor"
             />
             <KpiCard
               title="Total COGS"
-              amount={summary?.cogsTotal ?? 0}
-              percent={summary?.cogsPercent}
+              amount={displaySummary?.cogsTotal ?? 0}
+              percent={displaySummary?.cogsPercent}
               icon={ShoppingCart}
               colorClass="bg-purple-500"
-              isLoading={summaryLoading}
+              isLoading={summaryLoading && !noneSelected}
               testId="text-kpi-cogs"
               subtitle="supplier invoices"
             />
             <KpiCard
               title="Gross Profit"
-              amount={summary?.grossProfit ?? 0}
-              percent={summary?.grossProfitPercent}
-              icon={(summary?.grossProfit ?? 0) >= 0 ? TrendingUp : TrendingDown}
-              colorClass={(summary?.grossProfit ?? 0) >= 0 ? "bg-green-500" : "bg-red-500"}
-              isLoading={summaryLoading}
+              amount={displaySummary?.grossProfit ?? 0}
+              percent={displaySummary?.grossProfitPercent}
+              icon={(displaySummary?.grossProfit ?? 0) >= 0 ? TrendingUp : TrendingDown}
+              colorClass={(displaySummary?.grossProfit ?? 0) >= 0 ? "bg-green-500" : "bg-red-500"}
+              isLoading={summaryLoading && !noneSelected}
               testId="text-kpi-profit"
               subtitle="Sales − Labor − COGS"
             />
