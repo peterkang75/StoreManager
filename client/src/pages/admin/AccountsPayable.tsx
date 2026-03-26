@@ -137,6 +137,13 @@ function fmt(dateStr: string | null | undefined): string {
   }
 }
 
+/** Returns the invoice number for display. Hides auto-generated TRIAGE-/EMAIL- placeholders. */
+function displayInvNumber(n: string | null | undefined): string {
+  if (!n) return "—";
+  if (/^(TRIAGE|EMAIL|PLACEHOLDER)-/i.test(n)) return "—";
+  return n;
+}
+
 function fmtAUD(amount: number): string {
   return new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(amount);
 }
@@ -1088,7 +1095,7 @@ export function AdminAccountsPayable() {
                                         )}
                                       </td>
                                       <td className="py-2.5 px-3 font-mono text-xs text-muted-foreground">
-                                        {inv.invoiceNumber || "—"}
+                                        {displayInvNumber(inv.invoiceNumber)}
                                       </td>
                                       <td className="py-2.5 px-3 text-xs text-muted-foreground whitespace-nowrap">
                                         {store?.name ?? "—"}
@@ -1225,7 +1232,7 @@ export function AdminAccountsPayable() {
                             const ir = inv.rawExtractedData as ReviewRawData | null;
                             const emailInfo = parseNotesEmailInfo(inv.notes);
                             const isDeleting = deleteInvoiceMutation.isPending && deleteInvoiceMutation.variables === inv.id;
-                            const hasUsefulInvoiceData = ir?.invoiceNumber || ir?.totalAmount;
+                            const hasUsefulInvoiceData = displayInvNumber(ir?.invoiceNumber) !== "—" || ir?.totalAmount;
                             return (
                               <div key={inv.id} className="py-2 border-t border-border/20 first:border-t-0">
                                 <div className="flex items-start justify-between gap-2">
@@ -1233,7 +1240,7 @@ export function AdminAccountsPayable() {
                                     {/* Invoice # + amount + received time */}
                                     <div className="flex items-center gap-3 flex-wrap">
                                       <span className="text-muted-foreground font-mono text-xs">
-                                        {ir?.invoiceNumber ? `#${ir.invoiceNumber}` : "No invoice #"}
+                                        {displayInvNumber(ir?.invoiceNumber) !== "—" ? `#${ir?.invoiceNumber}` : "No invoice #"}
                                       </span>
                                       {ir?.issueDate && <span className="text-muted-foreground text-xs">{fmt(ir.issueDate)}</span>}
                                       {ir?.totalAmount !== undefined && ir.totalAmount > 0 && (
@@ -1382,7 +1389,7 @@ export function AdminAccountsPayable() {
                           </td>
                           <td className="py-2.5 px-4 text-muted-foreground whitespace-nowrap">{fmt(inv.invoiceDate)}</td>
                           <td className="py-2.5 px-4 font-semibold tabular-nums text-right whitespace-nowrap">{fmtAUD(inv.amount ?? 0)}</td>
-                          <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground">{inv.invoiceNumber || "—"}</td>
+                          <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground">{displayInvNumber(inv.invoiceNumber)}</td>
                           <td className="py-2.5 px-4 text-xs text-muted-foreground">{store?.name ?? "—"}</td>
                           <td className="py-2.5 px-4">
                             {isAutoDebit ? (
@@ -1551,7 +1558,7 @@ export function AdminAccountsPayable() {
                             {enrichedInv.supplier?.name ?? enrichedInv.rawExtractedData?.supplier?.supplierName ?? "Unknown Supplier"}
                           </td>
                           <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground">
-                            {inv.invoiceNumber || "—"}
+                            {displayInvNumber(inv.invoiceNumber)}
                           </td>
                           <td className="py-2.5 px-4 text-muted-foreground whitespace-nowrap">
                             {fmt(inv.invoiceDate)}
@@ -1609,7 +1616,7 @@ export function AdminAccountsPayable() {
             <AlertDialogDescription>
               This will move{" "}
               <strong>{revertInvoice?.supplier?.name ?? "this invoice"}</strong>{" "}
-              {revertInvoice?.invoiceNumber ? `(#${revertInvoice.invoiceNumber})` : ""} back to the{" "}
+              {displayInvNumber(revertInvoice?.invoiceNumber) !== "—" ? `(#${revertInvoice?.invoiceNumber})` : ""} back to the{" "}
               <strong>To Pay</strong> list and permanently remove its payment record.
               {revertInvoice?.supplier?.isAutoPay && (
                 <span className="block mt-2 text-amber-600 dark:text-amber-400">
@@ -1657,7 +1664,7 @@ export function AdminAccountsPayable() {
                     <DialogTitle className="text-base leading-snug">{subject}</DialogTitle>
                     <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
                       <span><span className="text-foreground/50 w-14 inline-block">From:</span> {from}</span>
-                      {viewEmailInvoice.invoiceNumber && (
+                      {displayInvNumber(viewEmailInvoice.invoiceNumber) !== "—" && (
                         <span><span className="text-foreground/50 w-14 inline-block">Invoice:</span> {viewEmailInvoice.invoiceNumber}</span>
                       )}
                       {viewEmailInvoice.createdAt && (
