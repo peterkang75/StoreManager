@@ -2,6 +2,9 @@ import express from "express";
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage, generateSecureToken } from "./storage";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
+import { supplierInvoices } from "@shared/schema";
 import { PAYROLL_CYCLE_ANCHOR, getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "../shared/payrollCycle";
 import { extractPdfText, parseInvoiceWithAI, parseUploadedFile, parseInvoiceFromUnknownSender, triageEmail, summarizeTaskFromEmail, classifyDocumentForAP } from "./invoiceParser";
 import { 
@@ -5396,7 +5399,15 @@ Rules:
 
       // 3a. Expand any REVIEW invoices that contain multiple line-items in rawExtractedData.invoices
       //     (happens when a Statement PDF is parsed with parseInvoiceFromUnknownSender)
-      const allStores = await storage.getStores();
+      const [allStores, existingInvRows] = await Promise.all([
+        storage.getStores(),
+        // Lightweight: only fetch invoice_number column for this supplier (no blob data)
+        db.execute(sql`
+          SELECT invoice_number FROM supplier_invoices
+          WHERE supplier_id = ${supplier.id}
+            AND status != 'DELETED'
+        `),
+      ]);
       const sushiStore  = allStores.find(s => s.name.toLowerCase().includes("sushi"));
       const sandwichStore = allStores.find(s => s.name.toLowerCase().includes("sandwich"));
       function storeIdForCode(code: string): string | null {
@@ -5405,64 +5416,95 @@ Rules:
         return null;
       }
 
-      const reviewInvoices = await storage.getSupplierInvoices({ status: "REVIEW" });
-      const matchingReview = reviewInvoices.filter(inv => {
-        const raw = inv.rawExtractedData as any;
-        const name: string = raw?.supplier?.supplierName ?? "";
-        return name.toLowerCase().includes(supplierName.toLowerCase()) || supplierName.toLowerCase().includes(name.toLowerCase());
-      });
+      // Build existing invoice number set once, outside any loop
+      const existingNumbers = new Set<string | null>(
+        (existingInvRows as any).rows.map((r: any) => r.invoice_number as string | null)
+      );
+
+      // Fetch only REVIEW invoices that match by supplier name (lightweight — no JOIN, but filtered in SQL)
+      const matchingReview = (await db.execute(sql`
+        SELECT id, invoice_number, invoice_date, amount, raw_extracted_data
+        FROM supplier_invoices
+        WHERE status = 'REVIEW'
+          AND (
+            raw_extracted_data->'supplier'->>'supplierName' ILIKE ${'%' + supplierName + '%'}
+            OR ${supplierName} ILIKE '%' || (raw_extracted_data->'supplier'->>'supplierName') || '%'
+          )
+      `)) as any;
 
       let expandedCount = 0;
-      for (const reviewInv of matchingReview) {
-        const raw = reviewInv.rawExtractedData as any;
+      for (const reviewInv of (matchingReview.rows ?? [])) {
+        const raw = reviewInv.raw_extracted_data as any;
         const lineItems: any[] = Array.isArray(raw?.invoices) ? raw.invoices : [];
         if (lineItems.length <= 1) continue; // single-item handled by sweep below
 
-        // Expand into individual invoices
-        const existing = await storage.getSupplierInvoices({ supplierId: supplier.id });
-        const existingNumbers = new Set(existing.map(i => i.invoiceNumber));
         const pdfBase64 = raw?.pdfBase64 as string | undefined;
+        const baseNotes = `Imported from statement — approved via Review Inbox.\nFrom: ${raw?.senderEmail ?? ""}\nSubject: ${raw?.subject ?? ""}`;
 
+        // Collect items to create in bulk (skip the first which updates the placeholder)
+        const bulkInserts: any[] = [];
         let firstDone = false;
+
         for (const item of lineItems) {
           const invNum = item.invoiceNumber || null;
           if (invNum && existingNumbers.has(invNum)) continue; // skip pre-existing duplicates
           const storeId = storeIdForCode(item.storeCode ?? "UNKNOWN");
-          try {
-            if (!firstDone) {
-              // Upgrade the placeholder itself
+
+          if (!firstDone) {
+            // Update the placeholder in-place (single row update, no INSERT needed)
+            try {
               await storage.updateSupplierInvoice(reviewInv.id, {
                 supplierId: supplier.id, status: "PENDING",
-                invoiceNumber: invNum || reviewInv.invoiceNumber,
-                invoiceDate: item.issueDate || reviewInv.invoiceDate,
+                invoiceNumber: invNum || reviewInv.invoice_number,
+                invoiceDate: item.issueDate || reviewInv.invoice_date,
                 dueDate: item.dueDate ?? undefined, amount: item.totalAmount ?? reviewInv.amount,
                 storeId,
                 rawExtractedData: pdfBase64 ? { ...raw, pdfBase64 } : raw,
-                notes: `Imported from statement — approved via Review Inbox.\nFrom: ${raw?.senderEmail ?? ""}\nSubject: ${raw?.subject ?? ""}`,
+                notes: baseNotes,
               });
               firstDone = true;
               expandedCount++;
-            } else {
-              await storage.createSupplierInvoice({
-                supplierId: supplier.id, storeId,
-                invoiceNumber: invNum,
-                invoiceDate: item.issueDate,
-                dueDate: item.dueDate ?? undefined,
-                amount: item.totalAmount,
-                status: "PENDING",
-                rawExtractedData: pdfBase64 ? { pdfBase64, senderEmail: raw?.senderEmail, subject: raw?.subject } : undefined,
-                notes: `Imported from statement — approved via Review Inbox.\nFrom: ${raw?.senderEmail ?? ""}\nSubject: ${raw?.subject ?? ""}`,
-              });
-              expandedCount++;
+              if (invNum) existingNumbers.add(invNum);
+            } catch (dupErr: any) {
+              if (dupErr?.code === "23505" || dupErr?.message?.includes("unique constraint")) {
+                console.warn(`[Review/approve-group] Skipping duplicate (placeholder update) ${invNum}`);
+              } else { throw dupErr; }
             }
-            // Track within-loop to avoid duplicate invoice numbers in the same statement
-            if (invNum) existingNumbers.add(invNum);
+          } else {
+            // Queue for bulk insert
+            bulkInserts.push({
+              supplierId: supplier.id, storeId,
+              invoiceNumber: invNum,
+              invoiceDate: item.issueDate,
+              dueDate: item.dueDate ?? undefined,
+              amount: item.totalAmount,
+              status: "PENDING" as const,
+              rawExtractedData: pdfBase64 ? { pdfBase64, senderEmail: raw?.senderEmail, subject: raw?.subject } : undefined,
+              notes: baseNotes,
+            });
+            if (invNum) existingNumbers.add(invNum); // track within-loop duplicates
+          }
+        }
+
+        // Bulk insert all remaining items in a single DB round-trip
+        if (bulkInserts.length > 0) {
+          try {
+            await db.insert(supplierInvoices).values(bulkInserts);
+            expandedCount += bulkInserts.length;
           } catch (dupErr: any) {
             if (dupErr?.code === "23505" || dupErr?.message?.includes("unique constraint")) {
-              console.warn(`[Review/approve-group] Skipping duplicate invoice ${invNum} for supplier ${supplier.id}`);
-            } else {
-              throw dupErr; // re-throw non-duplicate errors
-            }
+              // Fall back to individual inserts so we can skip just the duplicates
+              for (const row of bulkInserts) {
+                try {
+                  await db.insert(supplierInvoices).values(row);
+                  expandedCount++;
+                } catch (e2: any) {
+                  if (e2?.code === "23505" || e2?.message?.includes("unique constraint")) {
+                    console.warn(`[Review/approve-group] Skipping duplicate bulk invoice ${row.invoiceNumber}`);
+                  } else { throw e2; }
+                }
+              }
+            } else { throw dupErr; }
           }
         }
       }
