@@ -1,15 +1,18 @@
 # Brand Color System
 
 ## 1. Sushime (Sushi Store)
-- Income (Sales): `#EE864A` — Signature Orange
-- Operational Cost (COGS): `#1E3A5F` — Midnight Navy
+- Sales (Income): `#EE864A` — Signature Orange
+- COGS (Operational Cost): `#1E3A5F` — Midnight Navy
+- Labour (Payroll/Wages): `#FCD34D` — Amber Yellow
 
 ## 2. Eat'em Sandwich (Sandwich Store)
-- Income (Sales): `#D13535` — Signature Red
-- Operational Cost (COGS): `#14452F` — Deep Forest Green
+- Sales (Income): `#D13535` — Signature Red
+- COGS (Operational Cost): `#14452F` — Deep Forest Green
+- Labour (Payroll/Wages): `#F87171` — Coral Pink
 
 ## Usage
 - Store selection buttons (active state): Sales color (Sushi = #EE864A, Sandwich = #D13535)
-- Chart bars (single store): Sales bar = Sales color, COGS bar = COGS color
-- Chart bars (both stores, stacked): Sushi stacked on bottom, Sandwich on top
+- Chart bars (single store): 3 side-by-side bars — Sales / COGS / Labour
+- Chart bars (both stores, stacked): 3 stacked groups — Sales stack / COGS stack / Labour stack
+  - Each group: Sushi on bottom, Sandwich on top
 - Store identification dots/badges: Sales color per store

@@ -85,14 +85,19 @@ function fmtDate(d: string): string {
 
 // ─── Brand design system ─────────────────────────────────────────────────────
 const BRAND = {
-  sushi:    { sales: "#EE864A", cogs: "#1E3A5F" },
-  sandwich: { sales: "#D13535", cogs: "#14452F" },
+  sushi:    { sales: "#EE864A", cogs: "#1E3A5F", labour: "#FCD34D" },
+  sandwich: { sales: "#D13535", cogs: "#14452F", labour: "#F87171" },
 };
 
 // ─── Payroll cycle (2-week) chart helpers ────────────────────────────────────
-type DailyRow = { date: string; sales: number; cogs: number };
-type CycleRow = { cycle: string; sortKey: string; Sales: number; COGS: number };
-type StackedRow = { cycle: string; sortKey: string; SushiSales: number; SandwichSales: number; SushiCogs: number; SandwichCogs: number };
+type DailyRow = { date: string; sales: number; cogs: number; labor: number };
+type CycleRow = { cycle: string; sortKey: string; Sales: number; COGS: number; Labour: number };
+type StackedRow = {
+  cycle: string; sortKey: string;
+  SushiSales: number; SandwichSales: number;
+  SushiCogs: number;  SandwichCogs: number;
+  SushiLabour: number; SandwichLabour: number;
+};
 
 function getCycleStart(dateStr: string, anchorStr: string): string {
   const anchor = new Date(anchorStr + "T00:00:00");
@@ -113,9 +118,10 @@ function buildSingleCycles(rows: DailyRow[], anchor: string): CycleRow[] {
   const map = new Map<string, CycleRow>();
   for (const row of rows) {
     const key = getCycleStart(row.date, anchor);
-    const cur = map.get(key) ?? { cycle: fmtCycleLabel(key), sortKey: key, Sales: 0, COGS: 0 };
-    cur.Sales += row.sales;
-    cur.COGS  += row.cogs;
+    const cur = map.get(key) ?? { cycle: fmtCycleLabel(key), sortKey: key, Sales: 0, COGS: 0, Labour: 0 };
+    cur.Sales  += row.sales;
+    cur.COGS   += row.cogs;
+    cur.Labour += row.labor;
     map.set(key, cur);
   }
   return Array.from(map.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
@@ -126,9 +132,21 @@ function buildStackedCycles(sushi: DailyRow[], sandwich: DailyRow[], anchor: str
   const process = (rows: DailyRow[], isSushi: boolean) => {
     for (const row of rows) {
       const key = getCycleStart(row.date, anchor);
-      const cur = map.get(key) ?? { cycle: fmtCycleLabel(key), sortKey: key, SushiSales: 0, SandwichSales: 0, SushiCogs: 0, SandwichCogs: 0 };
-      if (isSushi) { cur.SushiSales += row.sales; cur.SushiCogs += row.cogs; }
-      else         { cur.SandwichSales += row.sales; cur.SandwichCogs += row.cogs; }
+      const cur = map.get(key) ?? {
+        cycle: fmtCycleLabel(key), sortKey: key,
+        SushiSales: 0, SandwichSales: 0,
+        SushiCogs: 0,  SandwichCogs: 0,
+        SushiLabour: 0, SandwichLabour: 0,
+      };
+      if (isSushi) {
+        cur.SushiSales   += row.sales;
+        cur.SushiCogs    += row.cogs;
+        cur.SushiLabour  += row.labor;
+      } else {
+        cur.SandwichSales   += row.sales;
+        cur.SandwichCogs    += row.cogs;
+        cur.SandwichLabour  += row.labor;
+      }
       map.set(key, cur);
     }
   };
@@ -275,7 +293,7 @@ interface DashboardSummary {
   laborPercent: number;
   cogsPercent: number;
   grossProfitPercent: number;
-  dailyTrend: { date: string; sales: number; cogs: number }[];
+  dailyTrend: { date: string; sales: number; cogs: number; labor: number }[];
 }
 
 function isOverdue(date: string | Date | null): boolean {
@@ -638,15 +656,18 @@ export function AdminDashboard() {
                     <Legend wrapperStyle={{ fontSize: 12 }} />
                     {isBothSelected ? (
                       <>
-                        <Bar dataKey="SushiSales"    name="Sushi Sales"    fill={BRAND.sushi.sales}    stackId="sales" radius={[0, 0, 0, 0]} maxBarSize={40} />
-                        <Bar dataKey="SandwichSales" name="Sandwich Sales" fill={BRAND.sandwich.sales} stackId="sales" radius={[3, 3, 0, 0]} maxBarSize={40} />
-                        <Bar dataKey="SushiCogs"     name="Sushi COGS"    fill={BRAND.sushi.cogs}     stackId="cogs"  radius={[0, 0, 0, 0]} maxBarSize={40} />
-                        <Bar dataKey="SandwichCogs"  name="Sandwich COGS" fill={BRAND.sandwich.cogs}  stackId="cogs"  radius={[3, 3, 0, 0]} maxBarSize={40} />
+                        <Bar dataKey="SushiSales"      name="Sushi Sales"      fill={BRAND.sushi.sales}      stackId="sales"  radius={[0, 0, 0, 0]} maxBarSize={36} />
+                        <Bar dataKey="SandwichSales"   name="Sandwich Sales"   fill={BRAND.sandwich.sales}   stackId="sales"  radius={[3, 3, 0, 0]} maxBarSize={36} />
+                        <Bar dataKey="SushiCogs"       name="Sushi COGS"       fill={BRAND.sushi.cogs}       stackId="cogs"   radius={[0, 0, 0, 0]} maxBarSize={36} />
+                        <Bar dataKey="SandwichCogs"    name="Sandwich COGS"    fill={BRAND.sandwich.cogs}    stackId="cogs"   radius={[3, 3, 0, 0]} maxBarSize={36} />
+                        <Bar dataKey="SushiLabour"     name="Sushi Labour"     fill={BRAND.sushi.labour}     stackId="labour" radius={[0, 0, 0, 0]} maxBarSize={36} />
+                        <Bar dataKey="SandwichLabour"  name="Sandwich Labour"  fill={BRAND.sandwich.labour}  stackId="labour" radius={[3, 3, 0, 0]} maxBarSize={36} />
                       </>
                     ) : (
                       <>
-                        <Bar dataKey="Sales" fill={isSandwichOnly ? BRAND.sandwich.sales : BRAND.sushi.sales} radius={[3, 3, 0, 0]} maxBarSize={36} />
-                        <Bar dataKey="COGS"  fill={isSandwichOnly ? BRAND.sandwich.cogs  : BRAND.sushi.cogs}  radius={[3, 3, 0, 0]} maxBarSize={36} />
+                        <Bar dataKey="Sales"  fill={isSandwichOnly ? BRAND.sandwich.sales   : BRAND.sushi.sales}   radius={[3, 3, 0, 0]} maxBarSize={30} />
+                        <Bar dataKey="COGS"   fill={isSandwichOnly ? BRAND.sandwich.cogs    : BRAND.sushi.cogs}    radius={[3, 3, 0, 0]} maxBarSize={30} />
+                        <Bar dataKey="Labour" fill={isSandwichOnly ? BRAND.sandwich.labour  : BRAND.sushi.labour}  radius={[3, 3, 0, 0]} maxBarSize={30} />
                       </>
                     )}
                   </ComposedChart>

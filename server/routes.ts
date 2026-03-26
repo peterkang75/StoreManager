@@ -2888,17 +2888,25 @@ export async function registerRoutes(
       const pct = (v: number) =>
         salesTotal > 0 ? Math.round((v / salesTotal) * 1000) / 10 : 0;
 
-      // Daily trend: merge daily-closings (sales) and invoices (cogs) by date
-      const dateMap = new Map<string, { date: string; sales: number; cogs: number }>();
+      // Daily trend: merge daily-closings (sales), invoices (cogs), and payrolls (labor) by date
+      const dateMap = new Map<string, { date: string; sales: number; cogs: number; labor: number }>();
       for (const c of closings) {
-        const row = dateMap.get(c.date) ?? { date: c.date, sales: 0, cogs: 0 };
+        const row = dateMap.get(c.date) ?? { date: c.date, sales: 0, cogs: 0, labor: 0 };
         row.sales += c.salesTotal ?? 0;
         dateMap.set(c.date, row);
       }
       for (const inv of filteredInvoices) {
-        const row = dateMap.get(inv.invoiceDate) ?? { date: inv.invoiceDate, sales: 0, cogs: 0 };
+        const row = dateMap.get(inv.invoiceDate) ?? { date: inv.invoiceDate, sales: 0, cogs: 0, labor: 0 };
         row.cogs += inv.amount ?? 0;
         dateMap.set(inv.invoiceDate, row);
+      }
+      // Allocate each payroll's gross amount to its periodStart date so it groups into the correct cycle
+      for (const p of filteredPayrolls) {
+        const key = p.periodStart;
+        if (!key) continue;
+        const row = dateMap.get(key) ?? { date: key, sales: 0, cogs: 0, labor: 0 };
+        row.labor += p.grossAmount ?? 0;
+        dateMap.set(key, row);
       }
       const dailyTrend = Array.from(dateMap.values()).sort((a, b) =>
         a.date.localeCompare(b.date)
