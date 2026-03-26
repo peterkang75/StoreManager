@@ -48,6 +48,7 @@ import {
   UserPlus,
   Zap,
   Undo2,
+  ExternalLink,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import AddInvoiceModal from "@/components/AddInvoiceModal";
@@ -73,6 +74,7 @@ interface ExtractedSupplierInfo {
 interface ReviewRawData {
   senderEmail: string;
   subject?: string;
+  body?: string;
   supplier: ExtractedSupplierInfo;
   invoiceNumber?: string;
   issueDate?: string;
@@ -478,6 +480,7 @@ export function AdminAccountsPayable() {
   const [approveInvoiceGroup, setApproveInvoiceGroup] = useState<SupplierInvoice[]>([]);
   const [revertInvoice, setRevertInvoice] = useState<EnrichedInvoice | null>(null);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
+  const [viewEmailInvoice, setViewEmailInvoice] = useState<SupplierInvoice | null>(null);
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const { data: allInvoices = [], isLoading } = useQuery<EnrichedInvoice[]>({
@@ -1261,21 +1264,33 @@ export function AdminAccountsPayable() {
                                       </p>
                                     )}
                                   </div>
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-6 w-6 text-muted-foreground hover:text-destructive shrink-0 mt-0.5"
-                                    disabled={isDeleting}
-                                    onClick={() => deleteInvoiceMutation.mutate(inv.id)}
-                                    data-testid={`button-delete-invoice-${inv.id}`}
-                                    title="Delete invoice"
-                                  >
-                                    {isDeleting ? (
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                    ) : (
-                                      <Trash2 className="h-3 w-3" />
-                                    )}
-                                  </Button>
+                                  <div className="flex items-center gap-0.5 shrink-0 mt-0.5">
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-6 w-6 text-muted-foreground/50 hover:text-foreground"
+                                      onClick={() => setViewEmailInvoice(inv)}
+                                      data-testid={`button-view-email-${inv.id}`}
+                                      title="View full email"
+                                    >
+                                      <ExternalLink className="h-3 w-3" />
+                                    </Button>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                                      disabled={isDeleting}
+                                      onClick={() => deleteInvoiceMutation.mutate(inv.id)}
+                                      data-testid={`button-delete-invoice-${inv.id}`}
+                                      title="Delete invoice"
+                                    >
+                                      {isDeleting ? (
+                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                      ) : (
+                                        <Trash2 className="h-3 w-3" />
+                                      )}
+                                    </Button>
+                                  </div>
                                 </div>
                               </div>
                             );
@@ -1620,6 +1635,77 @@ export function AdminAccountsPayable() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Email View Dialog ─────────────────────────────────────────────────── */}
+      {viewEmailInvoice && (() => {
+        const raw = viewEmailInvoice.rawExtractedData as ReviewRawData | null;
+        const emailInfo = parseNotesEmailInfo(viewEmailInvoice.notes);
+        const from = raw?.senderEmail || emailInfo.from || "—";
+        const subject = raw?.subject || emailInfo.subject || "—";
+        const body = raw?.body || viewEmailInvoice.notes || "";
+
+        return (
+          <Dialog open={!!viewEmailInvoice} onOpenChange={open => !open && setViewEmailInvoice(null)}>
+            <DialogContent
+              className="max-w-2xl max-h-[85vh] flex flex-col p-0 gap-0"
+              data-testid="dialog-view-email"
+            >
+              {/* Header */}
+              <DialogHeader className="px-5 pt-5 pb-3 border-b border-border/40 shrink-0">
+                <div className="flex items-start justify-between gap-3 pr-6">
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <DialogTitle className="text-base leading-snug">{subject}</DialogTitle>
+                    <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+                      <span><span className="text-foreground/50 w-14 inline-block">From:</span> {from}</span>
+                      {viewEmailInvoice.invoiceNumber && (
+                        <span><span className="text-foreground/50 w-14 inline-block">Invoice:</span> {viewEmailInvoice.invoiceNumber}</span>
+                      )}
+                      {viewEmailInvoice.createdAt && (
+                        <span><span className="text-foreground/50 w-14 inline-block">Received:</span> {new Date(viewEmailInvoice.createdAt).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" })}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </DialogHeader>
+
+              {/* Body */}
+              <div className="flex-1 overflow-y-auto px-5 py-4 min-h-0">
+                {body ? (
+                  <pre className="text-xs text-foreground/80 whitespace-pre-wrap font-sans leading-relaxed break-words">
+                    {body}
+                  </pre>
+                ) : (
+                  <p className="text-sm text-muted-foreground italic">No email body available.</p>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border/40 shrink-0 bg-muted/10">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setViewEmailInvoice(null)}
+                  data-testid="button-close-view-email"
+                >
+                  Close
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setViewEmailInvoice(null);
+                    setApproveInvoiceGroup([viewEmailInvoice]);
+                  }}
+                  data-testid="button-view-email-approve"
+                  className="gap-1.5"
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                  Approve & Add Supplier
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
 
       {/* ── Bulk Delete Confirmation Dialog ───────────────────────────────────── */}
       <AlertDialog open={bulkDeleteConfirmOpen} onOpenChange={open => !open && setBulkDeleteConfirmOpen(false)}>
