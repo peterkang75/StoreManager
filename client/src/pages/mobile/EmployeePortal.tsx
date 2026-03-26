@@ -204,39 +204,41 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
   return (
     <div className="flex flex-col items-center justify-between flex-1 px-4 py-8 gap-6">
 
-      {/* Logo card */}
-      <div className="flex flex-col items-center justify-center w-full max-w-xs rounded-2xl bg-white dark:bg-white shadow-sm border border-border/40 px-6 py-8 gap-6">
-        {/* Sushime circular logo — clipped zoom to remove transparent padding */}
-        <div className="relative overflow-hidden flex items-center justify-center h-36 w-36 shrink-0">
-          <img
-            src={sushimeLogo}
-            alt="Sushime"
-            className="absolute inset-0 w-full h-full object-contain"
-            style={{ transform: "scale(2.8)", transformOrigin: "center" }}
-            data-testid="img-logo-sushime"
-          />
-        </div>
+      {/* Logos — horizontal row, no box */}
+      <div className="flex flex-col items-center gap-4 w-full">
+        <div className="flex flex-row items-center justify-center gap-2 w-full">
+          {/* Sushime circular logo */}
+          <div className="relative overflow-hidden flex items-center justify-center h-28 w-28 shrink-0">
+            <img
+              src={sushimeLogo}
+              alt="Sushime"
+              className="absolute inset-0 w-full h-full object-contain"
+              style={{ transform: "scale(2.8)", transformOrigin: "center" }}
+              data-testid="img-logo-sushime"
+            />
+          </div>
 
-        {/* Divider */}
-        <div className="w-12 h-px bg-border/40" />
+          {/* Vertical divider */}
+          <div className="h-16 w-px bg-border/40 shrink-0" />
 
-        {/* Eat'em text logo — clipped zoom to remove transparent padding */}
-        <div className="relative overflow-hidden flex items-center justify-center h-20 w-56 shrink-0">
-          <img
-            src={eatemLogo}
-            alt="Eat'em"
-            className="absolute inset-0 w-full h-full object-contain"
-            style={{ transform: "scale(1.9)", transformOrigin: "center" }}
-            data-testid="img-logo-eatem"
-          />
+          {/* Eat'em text logo */}
+          <div className="relative overflow-hidden flex items-center justify-center h-20 w-40 shrink-0">
+            <img
+              src={eatemLogo}
+              alt="Eat'em"
+              className="absolute inset-0 w-full h-full object-contain"
+              style={{ transform: "scale(1.9)", transformOrigin: "center" }}
+              data-testid="img-logo-eatem"
+            />
+          </div>
         </div>
 
         {/* Welcome text */}
         <div className="text-center">
-          <p className="text-sm font-semibold text-gray-700 leading-snug">
+          <p className="text-sm font-semibold text-foreground leading-snug">
             Welcome to the Eat'em &amp; Sushime
           </p>
-          <p className="text-xs text-gray-400 mt-0.5">Team Portal</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Team Portal</p>
         </div>
       </div>
 
