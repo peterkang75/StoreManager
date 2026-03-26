@@ -47,11 +47,12 @@ import {
   Mail,
   ChevronRight,
   Loader2,
+  FileText,
 } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Store as StoreType, Candidate, Employee, Todo } from "@shared/schema";
+import type { Store as StoreType, Candidate, Employee, Todo, UniversalInboxItem, SupplierInvoice } from "@shared/schema";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -263,6 +264,16 @@ export function AdminDashboard() {
     refetchOnMount: true,
   });
 
+  const { data: allTriageItems = [], isLoading: triageLoading } = useQuery<UniversalInboxItem[]>({
+    queryKey: ["/api/universal-inbox"],
+    staleTime: 30_000,
+  });
+
+  const { data: reviewInvoices = [], isLoading: reviewLoading } = useQuery<SupplierInvoice[]>({
+    queryKey: ["/api/invoices/review"],
+    staleTime: 30_000,
+  });
+
   const markDoneMutation = useMutation({
     mutationFn: (id: string) => apiRequest("PATCH", `/api/todos/${id}`, { status: "DONE" }),
     onSuccess: () => {
@@ -328,6 +339,36 @@ export function AdminDashboard() {
   }));
 
   const activeStoreList = (stores ?? []).filter(s => s.active);
+
+  // ── Triage: needs routing ─────────────────────────────────────────────────
+  const needsRouting = allTriageItems.filter(i => i.status === "NEEDS_ROUTING");
+
+  // ── AP Review: group review invoices by supplier name ─────────────────────
+  interface DashReviewGroup {
+    key: string;
+    supplierName: string;
+    count: number;
+    total: number;
+  }
+  const reviewGroupMap = new Map<string, DashReviewGroup>();
+  for (const inv of reviewInvoices) {
+    const r = inv.rawExtractedData as any;
+    const name: string =
+      r?.supplier?.supplierName ||
+      r?.supplierName ||
+      r?.subject?.replace(/^(FWD?:|RE:|Fwd:)\s*/i, "").trim() ||
+      inv.notes?.replace(/^(FWD?:|RE:|Fwd:)\s*/i, "").trim() ||
+      "Unknown Supplier";
+    const key = (r?.abn ? `abn:${r.abn}` : `name:${name}`);
+    const prev = reviewGroupMap.get(key);
+    if (prev) {
+      prev.count += 1;
+      prev.total += inv.totalAmount ?? 0;
+    } else {
+      reviewGroupMap.set(key, { key, supplierName: name, count: 1, total: inv.totalAmount ?? 0 });
+    }
+  }
+  const reviewGroups = Array.from(reviewGroupMap.values());
 
   return (
     <AdminLayout title="Dashboard">
@@ -466,237 +507,131 @@ export function AdminDashboard() {
           </Card>
         </section>
 
-        {/* ── Section: HR Overview ─────────────────────────────────────── */}
-        <section className="space-y-4">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight">Staff Overview</h2>
-            <p className="text-sm text-muted-foreground">매장, 후보자, 직원을 한 곳에서 관리하세요.</p>
+        {/* ── Section: Triage — Needs Routing ─────────────────────────── */}
+        <section className="space-y-4" data-testid="section-triage-widget">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight flex items-center gap-2">
+                <Mail className="w-5 h-5 text-amber-500" />
+                Needs Routing
+                {needsRouting.length > 0 && (
+                  <Badge variant="destructive" className="ml-1" data-testid="badge-triage-count">
+                    {needsRouting.length}
+                  </Badge>
+                )}
+              </h2>
+              <p className="text-sm text-muted-foreground">라우팅 규칙이 없는 미처리 이메일</p>
+            </div>
+            <Link href="/admin/triage">
+              <Button variant="outline" size="sm" data-testid="link-view-triage">
+                View Triage Inbox
+                <ChevronRight className="w-3.5 h-3.5 ml-1" />
+              </Button>
+            </Link>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <StatCard title="Active Stores"      value={activeStores}      icon={Store}         href="/admin/stores"     isLoading={storesLoading} />
-            <StatCard title="Pending Candidates" value={pendingCandidates} icon={Users}         href="/admin/candidates" isLoading={candidatesLoading} />
-            <StatCard title="Active Employees"   value={activeEmployees}   icon={UserCheck}     href="/admin/employees"  isLoading={employeesLoading} />
-            <StatCard title="Recent Hires"       value={recentHires}       icon={ClipboardList} href="/admin/candidates" isLoading={candidatesLoading} />
-          </div>
-
-          {/* Visa compliance alerts */}
-          {!employeesLoading && visaAlerts.length > 0 && (
-            <Card className="border-orange-400/50" data-testid="compliance-alert-widget">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-orange-500" />
-                  Visa Compliance Alerts
-                  {urgentAlerts.length > 0 && (
-                    <Badge className="bg-destructive text-destructive-foreground ml-1" data-testid="badge-urgent-count">
-                      {urgentAlerts.length} URGENT
-                    </Badge>
-                  )}
-                  {amberAlerts.length > 0 && (
-                    <Badge className="bg-orange-500 text-white ml-1" data-testid="badge-amber-count">
-                      {amberAlerts.length} Expiring Soon
-                    </Badge>
-                  )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {visaAlerts.map(({ employee: emp, daysLeft }) => {
-                  const isUrgent  = daysLeft !== null && daysLeft <= 14;
-                  const isExpired = daysLeft !== null && daysLeft <= 0;
-                  return (
-                    <Link key={emp.id} href={`/admin/employees/${emp.id}`}>
-                      <div
-                        className={`flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2.5 hover-elevate cursor-pointer ${
-                          isUrgent
-                            ? "border-destructive/50 bg-destructive/8"
-                            : "border-orange-400/40 bg-orange-400/8"
-                        }`}
-                        data-testid={`compliance-alert-${emp.id}`}
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <AlertTriangle
-                            className={`h-4 w-4 shrink-0 ${isUrgent ? "text-destructive" : "text-orange-500"}`}
-                          />
-                          <div className="min-w-0">
-                            <p className={`text-sm font-medium ${isUrgent ? "text-destructive" : "text-orange-700 dark:text-orange-400"}`}>
-                              {emp.nickname || emp.firstName} {emp.lastName}
-                            </p>
-                            <p className="text-xs text-muted-foreground truncate">
-                              {emp.visaType}{emp.visaSubclass ? ` (${emp.visaSubclass})` : ""} — Expires: {emp.visaExpiry || "Unknown"}
-                            </p>
-                          </div>
-                        </div>
-                        <Badge
-                          className={`shrink-0 ${
-                            isExpired
-                              ? "bg-destructive text-destructive-foreground"
-                              : isUrgent
-                              ? "bg-destructive/80 text-destructive-foreground"
-                              : "bg-orange-500 text-white"
-                          }`}
-                          data-testid={`badge-visa-status-${emp.id}`}
-                        >
-                          {isExpired ? "EXPIRED" : `${daysLeft}d left`}
-                        </Badge>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          )}
-          {!employeesLoading && visaAlerts.length === 0 && employees && employees.length > 0 && (
-            <div
-              className="flex items-center gap-2 rounded-md border border-green-500/30 bg-green-500/8 px-4 py-3"
-              data-testid="compliance-all-clear"
-            >
-              <ShieldCheck className="h-4 w-4 text-green-600 shrink-0" />
-              <p className="text-sm text-green-700 dark:text-green-400">
-                All visa compliance checks clear — no employees expiring within 60 days.
-              </p>
+          {triageLoading ? (
+            <div className="space-y-2">
+              {[1, 2].map((i) => <Skeleton key={i} className="h-14 w-full rounded-lg" />)}
+            </div>
+          ) : needsRouting.length === 0 ? (
+            <div className="flex items-center gap-3 rounded-lg border border-green-500/30 bg-green-500/5 px-4 py-3" data-testid="triage-all-clear">
+              <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+              <p className="text-sm text-green-700 dark:text-green-400">모든 이메일이 라우팅되었습니다.</p>
+            </div>
+          ) : (
+            <div className="space-y-2" data-testid="list-triage-items">
+              {needsRouting.slice(0, 5).map((item) => (
+                <Link key={item.id} href="/admin/triage">
+                  <div
+                    className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-400/40 bg-amber-500/5 px-4 py-3 hover-elevate cursor-pointer"
+                    data-testid={`triage-row-${item.id}`}
+                  >
+                    <Mail className="w-4 h-4 text-amber-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">
+                        {item.senderName || item.senderEmail || "Unknown sender"}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {item.subject || "No subject"}
+                      </p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                  </div>
+                </Link>
+              ))}
+              {needsRouting.length > 5 && (
+                <Link href="/admin/triage">
+                  <p className="text-xs text-muted-foreground text-center py-1 hover:text-foreground transition-colors cursor-pointer">
+                    + {needsRouting.length - 5} more → View All
+                  </p>
+                </Link>
+              )}
             </div>
           )}
         </section>
 
-        {/* ── Section: Intercompany Settlements ───────────────────────── */}
-        {!settlementsLoading && pendingSettlements && pendingSettlements.length > 0 && (
-          <section className="space-y-4">
+        {/* ── Section: AP Review Inbox ─────────────────────────────────── */}
+        <section className="space-y-4" data-testid="section-ap-review-widget">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 className="text-xl font-semibold tracking-tight">Intercompany Settlements</h2>
-              <p className="text-sm text-muted-foreground">매장 간 인건비 정산 대기 목록</p>
-            </div>
-            <Card className="border-blue-400/50" data-testid="widget-settlements">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <ArrowRightLeft className="h-4 w-4 text-blue-500" />
-                  Pending Settlements
-                  <Badge className="bg-blue-500 text-white ml-1" data-testid="badge-settlement-count">
-                    {pendingSettlements.length}
+              <h2 className="text-xl font-semibold tracking-tight flex items-center gap-2">
+                <FileText className="w-5 h-5 text-blue-500" />
+                AP Review Inbox
+                {reviewGroups.length > 0 && (
+                  <Badge className="bg-blue-500 text-white ml-1" data-testid="badge-review-count">
+                    {reviewGroups.length}
                   </Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {pendingSettlements.map(s => (
-                  <div
-                    key={s.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-blue-400/30 bg-blue-400/5 px-3 py-2.5"
-                    data-testid={`settlement-row-${s.id}`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <ArrowRightLeft className="h-4 w-4 shrink-0 text-blue-500" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground">
-                          {s.employeeName}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {s.fromStoreName} → {s.toStoreName}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <span className="text-sm font-semibold text-blue-700 dark:text-blue-400" data-testid={`text-settlement-due-${s.id}`}>
-                        ${s.totalAmountDue.toFixed(2)}
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setSettlementTarget(s)}
-                        data-testid={`button-settle-${s.id}`}
-                      >
-                        Settle
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          </section>
-        )}
-
-        {/* ── Section: Quick Links ─────────────────────────────────────── */}
-        <section>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Quick Actions</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <Link href="/admin/stores">
-                  <div className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer" data-testid="link-manage-stores">
-                    <Store className="h-5 w-5 text-primary" />
-                    <div>
-                      <p className="font-medium">Manage Stores</p>
-                      <p className="text-sm text-muted-foreground">매장 위치 추가 또는 수정</p>
-                    </div>
-                  </div>
-                </Link>
-                <Link href="/admin/candidates">
-                  <div className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer" data-testid="link-review-candidates">
-                    <Users className="h-5 w-5 text-primary" />
-                    <div>
-                      <p className="font-medium">Review Candidates</p>
-                      <p className="text-sm text-muted-foreground">면접 결과 확인 및 처리</p>
-                    </div>
-                  </div>
-                </Link>
-                <Link href="/admin/employees">
-                  <div className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer" data-testid="link-view-employees">
-                    <UserCheck className="h-5 w-5 text-primary" />
-                    <div>
-                      <p className="font-medium">View Employees</p>
-                      <p className="text-sm text-muted-foreground">직원 정보 및 상태 관리</p>
-                    </div>
-                  </div>
-                </Link>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Smartphone className="h-4 w-4" />
-                  Mobile Forms
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <Link href="/m/interview">
-                  <div className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer" data-testid="link-mobile-interview">
-                    <ClipboardList className="h-5 w-5 text-primary" />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium">Interview Form</p>
-                      <p className="text-sm text-muted-foreground">현장 후보자 면접</p>
-                    </div>
-                    <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  </div>
-                </Link>
-                <Link href="/m/register">
-                  <div className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer" data-testid="link-mobile-register">
-                    <UserPlus className="h-5 w-5 text-primary" />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium">Direct Register</p>
-                      <p className="text-sm text-muted-foreground">신규 직원 직접 등록</p>
-                    </div>
-                    <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  </div>
-                </Link>
-                <Link href="/m/portal">
-                  <div className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer" data-testid="link-mobile-portal">
-                    <KeyRound className="h-5 w-5 text-primary" />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium">Employee Portal</p>
-                      <p className="text-sm text-muted-foreground">직원 출퇴근 타임시트 입력</p>
-                    </div>
-                    <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  </div>
-                </Link>
-                <div className="p-3 rounded-md bg-muted/50 mt-3">
-                  <p className="text-sm text-muted-foreground">
-                    직원에게 이 링크를 공유하여 모바일로 접근할 수 있습니다. 온보딩 링크는 Candidates 페이지에서 후보자별로 생성됩니다.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+                )}
+              </h2>
+              <p className="text-sm text-muted-foreground">인보이스 확인 및 공급업체 등록 대기 중</p>
+            </div>
+            <Link href="/admin/ap">
+              <Button variant="outline" size="sm" data-testid="link-view-ap">
+                View Review Inbox
+                <ChevronRight className="w-3.5 h-3.5 ml-1" />
+              </Button>
+            </Link>
           </div>
+
+          {reviewLoading ? (
+            <div className="space-y-2">
+              {[1, 2].map((i) => <Skeleton key={i} className="h-14 w-full rounded-lg" />)}
+            </div>
+          ) : reviewGroups.length === 0 ? (
+            <div className="flex items-center gap-3 rounded-lg border border-green-500/30 bg-green-500/5 px-4 py-3" data-testid="ap-review-all-clear">
+              <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+              <p className="text-sm text-green-700 dark:text-green-400">검토 대기 중인 인보이스가 없습니다.</p>
+            </div>
+          ) : (
+            <div className="space-y-2" data-testid="list-ap-review-items">
+              {reviewGroups.slice(0, 5).map((group) => (
+                <Link key={group.key} href="/admin/ap">
+                  <div
+                    className="flex flex-wrap items-center gap-3 rounded-lg border border-blue-400/30 bg-blue-500/5 px-4 py-3 hover-elevate cursor-pointer"
+                    data-testid={`ap-review-row-${group.key}`}
+                  >
+                    <FileText className="w-4 h-4 text-blue-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{group.supplierName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {group.count} invoice{group.count !== 1 ? "s" : ""}
+                        {group.total > 0 ? ` · $${group.total.toFixed(2)}` : ""}
+                      </p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                  </div>
+                </Link>
+              ))}
+              {reviewGroups.length > 5 && (
+                <Link href="/admin/ap">
+                  <p className="text-xs text-muted-foreground text-center py-1 hover:text-foreground transition-colors cursor-pointer">
+                    + {reviewGroups.length - 5} more → View All
+                  </p>
+                </Link>
+              )}
+            </div>
+          )}
         </section>
 
         {/* ── Section: AI Smart Inbox Summary ────────────────────────── */}
@@ -812,6 +747,61 @@ export function AdminDashboard() {
             </div>
           )}
         </section>
+
+        {/* ── Section: Intercompany Settlements ───────────────────────── */}
+        {!settlementsLoading && pendingSettlements && pendingSettlements.length > 0 && (
+          <section className="space-y-4">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight">Intercompany Settlements</h2>
+              <p className="text-sm text-muted-foreground">매장 간 인건비 정산 대기 목록</p>
+            </div>
+            <Card className="border-blue-400/50" data-testid="widget-settlements">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ArrowRightLeft className="h-4 w-4 text-blue-500" />
+                  Pending Settlements
+                  <Badge className="bg-blue-500 text-white ml-1" data-testid="badge-settlement-count">
+                    {pendingSettlements.length}
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {pendingSettlements.map(s => (
+                  <div
+                    key={s.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-blue-400/30 bg-blue-400/5 px-3 py-2.5"
+                    data-testid={`settlement-row-${s.id}`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <ArrowRightLeft className="h-4 w-4 shrink-0 text-blue-500" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground">
+                          {s.employeeName}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {s.fromStoreName} → {s.toStoreName}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="text-sm font-semibold text-blue-700 dark:text-blue-400" data-testid={`text-settlement-due-${s.id}`}>
+                        ${s.totalAmountDue.toFixed(2)}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setSettlementTarget(s)}
+                        data-testid={`button-settle-${s.id}`}
+                      >
+                        Settle
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </section>
+        )}
 
       </div>
 
