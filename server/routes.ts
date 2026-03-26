@@ -2973,6 +2973,46 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/supplier-invoices/:id/reparse-pdf
+  // Re-runs parseInvoiceFromUnknownSender on the stored pdfBase64 for a REVIEW invoice.
+  // Used when the AI previously missed some invoice rows (e.g. future-dated rows).
+  app.post("/api/supplier-invoices/:id/reparse-pdf", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const inv = await storage.getSupplierInvoice(id);
+      if (!inv) return res.status(404).json({ error: "Invoice not found" });
+      if (inv.status !== "REVIEW") return res.status(400).json({ error: "Invoice is not in REVIEW status" });
+
+      const raw = inv.rawExtractedData as any;
+      const pdfBase64: string | undefined = raw?.pdfBase64;
+      if (!pdfBase64) return res.status(400).json({ error: "No PDF stored for this invoice" });
+
+      const buf = Buffer.from(pdfBase64, "base64");
+      const pdfText = await extractPdfText(buf);
+      if (!pdfText.trim()) return res.status(400).json({ error: "Could not extract text from stored PDF" });
+
+      const reparsed = await parseInvoiceFromUnknownSender(pdfText);
+      if (!reparsed?.invoices?.length) {
+        return res.status(422).json({ error: "Re-parse did not return any invoices" });
+      }
+
+      // Merge back: keep existing supplier/senderEmail/subject/pdfBase64, update invoices
+      const updated = await storage.updateSupplierInvoice(id, {
+        rawExtractedData: {
+          ...raw,
+          supplier: reparsed.supplier,
+          invoices: reparsed.invoices,
+        },
+      });
+
+      console.log(`[reparse-pdf] Invoice ${id}: re-extracted ${reparsed.invoices.length} invoice items`);
+      res.json({ invoiceCount: reparsed.invoices.length, supplier: reparsed.supplier, updated });
+    } catch (error) {
+      console.error("Error re-parsing invoice PDF:", error);
+      res.status(500).json({ error: "Failed to re-parse invoice PDF" });
+    }
+  });
+
   app.delete("/api/supplier-invoices/:id", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;

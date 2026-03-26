@@ -84,9 +84,9 @@ The text you receive is extracted from a PDF — table layouts may be broken or 
 CRITICAL RULES:
 1. You ALWAYS return a JSON ARRAY of invoice objects, never a single object.
 2. If the document is a single INVOICE, return an array with exactly 1 item.
-3. If the document is a STATEMENT listing multiple invoices, extract EACH individual invoice as a separate array item. DO NOT return the statement's grand total as a single invoice.
-4. For storeCode, inspect the "Bill To", "Invoice To", or "Deliver To" name in the document:
-   - If it contains "olitin" or "sushime" → storeCode = "SUSHI"
+3. If the document is a STATEMENT listing multiple invoices, extract EACH individual invoice as a separate array item — including future-dated invoices and those with partial payments. DO NOT return the statement's grand total as a single invoice. Do NOT skip rows with future due dates or $0 balance.
+4. For storeCode, inspect the "Bill To", "Invoice To", "Deliver To", or "Attention" name in the document:
+   - If it contains "olitin", "sushim", "sushme", or "kogarah" → storeCode = "SUSHI"
    - If it contains "eatem pty ltd" or "eatem sandwich" → storeCode = "SANDWICH"
    - Otherwise → storeCode = "UNKNOWN"
 5. Return ONLY valid JSON with no extra text, code fences, or explanation.`;
@@ -414,13 +414,18 @@ An email with a PDF invoice/statement has arrived from an UNKNOWN sender. Extrac
 CRITICAL RULES:
 1. Return ONLY a single JSON object (no arrays at top level, no code fences, no explanation).
 2. Extract the SUPPLIER (the company issuing the invoice) — not the customer/recipient.
-3. For storeCode per invoice, look at the "Bill To" / "Invoice To" / "Deliver To" name:
-   - Contains "olitin" or "sushime" → "SUSHI"
+3. For storeCode per invoice, look at the "Bill To" / "Invoice To" / "Deliver To" / "Attention" name:
+   - Contains "olitin", "sushim", "sushme", or "kogarah" → "SUSHI"
    - Contains "eatem" or "sandwich" → "SANDWICH"
    - Otherwise → "UNKNOWN"
 4. Dates must be in YYYY-MM-DD format. Use null if unclear.
 5. Amounts must be numbers (float, no currency symbols).
-6. The document may be a STATEMENT with multiple invoice line items — extract ALL of them.
+6. The document may be a STATEMENT listing multiple invoices — you MUST extract EVERY SINGLE ROW from the table, including:
+   - Future-dated invoices (due date after the statement date)
+   - Invoices with $0 payment made
+   - Invoices with partial payments already made
+   - ALL rows regardless of balance, due date, or payment status
+   Do NOT stop after overdue items. Do NOT skip rows with future due dates.
 7. If a field is not visible or cannot be determined, use null.
 
 Return this exact structure:
@@ -460,11 +465,11 @@ export async function parseInvoiceFromUnknownSender(
         { role: "system", content: UNKNOWN_SENDER_SYSTEM_PROMPT },
         {
           role: "user",
-          content: `Extract all fields from this invoice/statement:\n\n${pdfText.slice(0, 12000)}`,
+          content: `Extract ALL fields from this invoice/statement. If it is a STATEMENT, count every row in the table and return an invoice entry for EACH row — do not skip any rows with future due dates or zero balances:\n\n${pdfText.slice(0, 16000)}`,
         },
       ],
       temperature: 0,
-      max_tokens: 3000,
+      max_tokens: 4000,
     });
 
     const raw = response.choices[0]?.message?.content?.trim() ?? "";

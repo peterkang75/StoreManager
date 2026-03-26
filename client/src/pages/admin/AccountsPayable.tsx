@@ -49,6 +49,7 @@ import {
   Zap,
   Undo2,
   ExternalLink,
+  RefreshCw,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import AddInvoiceModal from "@/components/AddInvoiceModal";
@@ -719,6 +720,20 @@ export function AdminAccountsPayable() {
     onError: () => toast({ title: "Failed to delete rule", variant: "destructive" }),
   });
 
+  const reparsePdfMutation = useMutation({
+    mutationFn: async (invoiceId: string) => {
+      return apiRequest("POST", `/api/supplier-invoices/${invoiceId}/reparse-pdf`);
+    },
+    onSuccess: (result: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
+      toast({
+        title: "PDF re-parsed",
+        description: `${result?.invoiceCount ?? 0} invoice rows extracted. Approve again to apply.`,
+      });
+    },
+    onError: () => toast({ title: "Re-parse failed", description: "Could not re-extract from the stored PDF.", variant: "destructive" }),
+  });
+
   // ── Selection helpers ───────────────────────────────────────────────────────
   function toggleOne(id: string) {
     setSelected(prev => {
@@ -1356,6 +1371,27 @@ export function AdminAccountsPayable() {
                           )}
                           Ignore Supplier
                         </Button>
+                        {/* Re-parse PDF button — only for groups that have a stored PDF */}
+                        {group.invoices.some(i => (i.rawExtractedData as any)?.pdfBase64) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const invWithPdf = group.invoices.find(i => (i.rawExtractedData as any)?.pdfBase64);
+                              if (invWithPdf) reparsePdfMutation.mutate(invWithPdf.id);
+                            }}
+                            disabled={reparsePdfMutation.isPending}
+                            data-testid={`button-reparse-${groupKey}`}
+                            className="gap-1.5"
+                          >
+                            {reparsePdfMutation.isPending ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <RefreshCw className="h-3.5 w-3.5" />
+                            )}
+                            Re-parse PDF
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           onClick={() => setApproveInvoiceGroup(group.invoices)}
