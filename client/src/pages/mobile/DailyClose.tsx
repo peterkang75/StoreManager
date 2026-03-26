@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { MobileLayout } from "@/components/layouts/MobileLayout";
 import { Button } from "@/components/ui/button";
@@ -15,13 +15,12 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { useMobileSession, MobileSession } from "@/hooks/use-mobile-session";
+import { useMobileSession } from "@/hooks/use-mobile-session";
 import {
   Wallet,
   CheckCircle2,
   Loader2,
   AlertTriangle,
-  KeyRound,
   LogOut,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -48,105 +47,9 @@ function emptyNotes(): NoteCounts {
   };
 }
 
-function PinEntry({ onSuccess, setSession }: { onSuccess: () => void; setSession: (s: MobileSession) => void }) {
-  const { toast } = useToast();
-  const [pin, setPin] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => { inputRef.current?.focus(); }, []);
-
-  const handleDigit = (d: string) => {
-    if (pin.length >= 4) return;
-    const next = pin + d;
-    setPin(next);
-    setError("");
-    if (next.length === 4) submit(next);
-  };
-
-  const submit = async (p: string) => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/mobile/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin: p }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setPin("");
-        setError(data.error || "Invalid PIN");
-        setLoading(false);
-        return;
-      }
-      setSession(data);
-      onSuccess();
-    } catch {
-      setPin("");
-      setError("Network error. Please try again.");
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 gap-8">
-      <div className="text-center">
-        <KeyRound className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-        <h1 className="text-2xl font-bold">Daily Close</h1>
-        <p className="text-muted-foreground mt-1">Enter your PIN</p>
-      </div>
-
-      <div className="flex gap-3">
-        {[0, 1, 2, 3].map(i => (
-          <div
-            key={i}
-            className={`w-14 h-14 rounded-md border-2 flex items-center justify-center text-2xl font-bold transition-colors ${
-              pin.length > i ? "border-primary bg-primary/10" : "border-border"
-            }`}
-          >
-            {pin.length > i ? "•" : ""}
-          </div>
-        ))}
-      </div>
-
-      {error && (
-        <p className="text-destructive text-sm font-medium -mt-4">{error}</p>
-      )}
-
-      <div className="grid grid-cols-3 gap-3 w-full max-w-xs">
-        {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((d, i) => (
-          <Button
-            key={i}
-            variant={d === "" ? "ghost" : "outline"}
-            className="h-16 text-xl font-semibold"
-            disabled={loading || d === ""}
-            onClick={() => {
-              if (d === "⌫") { setPin(p => p.slice(0, -1)); setError(""); }
-              else if (d) handleDigit(d);
-            }}
-            data-testid={d === "⌫" ? "button-backspace" : d ? `button-digit-${d}` : undefined}
-          >
-            {loading && d === "0" ? <Loader2 className="w-5 h-5 animate-spin" /> : d}
-          </Button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export function MobileDailyClose() {
   const { toast } = useToast();
-  const { session, setSession, clearSession } = useMobileSession();
-  // Invalidate legacy sessions that pre-date storeIds field
-  const isValidSession = !!session && Array.isArray(session.storeIds);
-  const [pinDone, setPinDone] = useState(isValidSession);
-
-  useEffect(() => {
-    if (session && !isValidSession) {
-      clearSession();
-    }
-  }, []);
+  const { session, clearSession } = useMobileSession();
 
   const [storeId, setStoreId] = useState<string>("");
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
@@ -270,10 +173,6 @@ export function MobileDailyClose() {
     setNotes(emptyNotes());
   };
 
-  if (!pinDone || !isValidSession) {
-    return <PinEntry setSession={setSession} onSuccess={() => setPinDone(true)} />;
-  }
-
   if (storesLoading) {
     return (
       <MobileLayout title="Daily Close">
@@ -299,7 +198,6 @@ export function MobileDailyClose() {
               </Button>
               <Button variant="outline" className="w-full h-12" onClick={() => {
                 clearSession();
-                setPinDone(false);
               }} data-testid="button-logout">
                 <LogOut className="w-4 h-4 mr-2" />
                 Sign Out
@@ -326,7 +224,7 @@ export function MobileDailyClose() {
             <p className="text-sm font-semibold">{session?.name ?? "Unknown"}</p>
             <p className="text-xs text-muted-foreground capitalize">{(session?.role ?? "").toLowerCase()}</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => { clearSession(); setPinDone(false); }} data-testid="button-signout">
+          <Button variant="ghost" size="sm" onClick={() => { clearSession(); }} data-testid="button-signout">
             <LogOut className="w-4 h-4 mr-1" />
             Sign Out
           </Button>
