@@ -89,8 +89,8 @@ The text you receive is extracted from a PDF — table layouts may be broken or 
 
 STEP 1 — DETERMINE DOCUMENT TYPE:
 Before extracting any fields, decide whether this document is:
-  (A) A SINGLE INVOICE — one payable document for one order/delivery. Contains a single invoice number and a single total amount payable.
-  (B) A STATEMENT OF ACCOUNT — a summary document listing MULTIPLE past invoices as separate line items, each with its own invoice number, date, and individual amount. Usually has a header like "Statement of Account", "Account Statement", or "Tax Invoice Statement". Contains a "Grand Total", "Total Due", "Closing Balance", or "Statement Balance" at the bottom that SUMS all line items.
+  (A) A SINGLE INVOICE — one payable document for one order/delivery. Contains a single invoice number and a single total amount payable. Does NOT use the word "STATEMENT" as a heading.
+  (B) A STATEMENT OF ACCOUNT — a summary document (usually headed "STATEMENT", "Statement of Account", or "Account Statement") listing one or more past invoices as separate table rows, each row with its own invoice number, date, and individual row amount. May have 1 row or many rows. Contains a "Grand Total", "Total", "Total Due", "Closing Balance", or "Amount Owing" at the bottom. Columns are often labelled "DOC DATE", "DETAILS", "SOURCE DOC", "BALANCE", "OUTSTANDING" etc.
 
 CRITICAL RULES:
 1. You ALWAYS return a JSON ARRAY of invoice objects, never a single object.
@@ -102,6 +102,12 @@ STATEMENT EXTRACTION RULES — READ CAREFULLY:
 - The "Grand Total", "Total Due", "Closing Balance", "Statement Balance", "Amount Owing", or any summary total at the BOTTOM of the document is NOT a separate invoice and must NEVER be used as the "totalAmount" for any individual line item.
 - NEVER mix fields from different rows. Invoice #26031116 must only get the amount from ITS OWN row, not the Grand Total row.
 - If a statement has 2 line item rows, return exactly 2 array objects. If it has 5 rows, return 5 objects.
+
+COLUMN NAME ALIASES — statements use many different header names:
+- The AMOUNT for each row may appear under columns labelled: "AMOUNT", "TOTAL", "BALANCE", "OUTSTANDING", "AMOUNT DUE", "BALANCE DUE", "AMOUNT OWING", "CURRENT", "CHARGES" — always use the value from the DATA ROW, never from any summary/total row.
+- The INVOICE NUMBER for each row may appear under columns labelled: "INVOICE #", "INVOICE NO", "INVOICE NUMBER", "DOC NO", "DOC #", "DOCUMENT NO", "REFERENCE", "REF", "REF #", "SOURCE DOC", "DETAILS", "DESCRIPTION" — extract the alphanumeric document reference from this column.
+- The INVOICE DATE for each row may appear under columns labelled: "DATE", "INVOICE DATE", "ISSUE DATE", "DOC DATE", "DOCUMENT DATE", "TRANS DATE", "TRANSACTION DATE".
+- The DUE DATE for each row may appear under columns labelled: "DUE DATE", "DUE", "PAYMENT DUE", "PAY BY".
 
 4. For storeCode, inspect the "Bill To", "Invoice To", "Deliver To", or "Attention" name in the document:
    - If it contains "olitin", "sushim", "sushme", or "kogarah" → storeCode = "SUSHI"
@@ -232,8 +238,8 @@ Extract the key fields from the invoice image or text provided.
 
 STEP 1 — DETERMINE DOCUMENT TYPE:
 First decide if this document is:
-  (A) A SINGLE INVOICE — one payable document with a single invoice number and total amount.
-  (B) A STATEMENT OF ACCOUNT — a summary listing MULTIPLE invoices as separate line item rows, each with its own invoice number, date, and individual amount. Usually has a heading like "Statement of Account" or "Account Statement". Contains a "Grand Total", "Total Due", or "Closing Balance" at the bottom that SUMS all line items.
+  (A) A SINGLE INVOICE — one payable document with a single invoice number and total amount. Does NOT use the word "STATEMENT" as a heading.
+  (B) A STATEMENT OF ACCOUNT — a summary document (usually headed "STATEMENT", "Statement of Account", or "Account Statement") listing one or more invoices as separate table rows. May have 1 row or many rows. Contains a "Grand Total", "Total", "Total Due", "Closing Balance", or "Amount Owing" summary at the bottom. Columns are often labelled "DOC DATE", "DETAILS", "SOURCE DOC", "BALANCE", "OUTSTANDING", etc.
 
 CRITICAL RULES:
 1. If document is type (A) SINGLE INVOICE → return a JSON ARRAY with exactly 1 object.
@@ -247,6 +253,12 @@ CRITICAL RULES:
 6. Return ONLY valid JSON with no extra text, code fences, or explanation.
 
 STATEMENT RULE: Each line item must only use fields from ITS OWN ROW. Never mix the invoice number from one row with the amount from another row or the grand total.
+
+COLUMN NAME ALIASES — statements use many different header names:
+- The AMOUNT for each row may appear under columns labelled: "AMOUNT", "TOTAL", "BALANCE", "OUTSTANDING", "AMOUNT DUE", "BALANCE DUE", "AMOUNT OWING", "CURRENT", "CHARGES" — always use the value from the DATA ROW, never from any summary/total row at the bottom.
+- The INVOICE NUMBER for each row may appear under columns labelled: "INVOICE #", "INVOICE NO", "INVOICE NUMBER", "DOC NO", "DOC #", "DOCUMENT NO", "REFERENCE", "REF", "REF #", "SOURCE DOC", "DETAILS", "DESCRIPTION" — extract the alphanumeric document reference from this column.
+- The INVOICE DATE for each row may appear under columns labelled: "DATE", "INVOICE DATE", "ISSUE DATE", "DOC DATE", "DOCUMENT DATE", "TRANS DATE", "TRANSACTION DATE".
+- The DUE DATE for each row may appear under columns labelled: "DUE DATE", "DUE", "PAYMENT DUE", "PAY BY".
 
 Return a JSON ARRAY where each item has this structure:
 [
