@@ -5298,13 +5298,14 @@ Rules:
   // ── Approve supplier group — creates/links supplier + sweeps ALL matching REVIEW invoices ──
   app.post("/api/invoices/review/approve-group", async (req: Request, res: Response) => {
     try {
-      const { supplierData, senderEmail, supplierName, existingSupplierId } = req.body as {
+      const { supplierData, senderEmail, supplierName, existingSupplierId, reviewInvoiceIds } = req.body as {
         supplierData: {
           name: string; abn?: string; contactName?: string; contactEmails?: string[];
           bsb?: string; accountNumber?: string; address?: string; notes?: string; isAutoPay?: boolean;
         };
         senderEmail?: string;
         supplierName: string;
+        reviewInvoiceIds?: string[]; // Specific REVIEW invoice IDs to process (avoids JSON blob scan)
         existingSupplierId?: string; // If set, link to this supplier instead of creating new
       };
 
@@ -5421,20 +5422,29 @@ Rules:
         (existingInvRows as any).rows.map((r: any) => r.invoice_number as string | null)
       );
 
-      // Fetch only REVIEW invoices that match by supplier name (lightweight — no JOIN, but filtered in SQL)
-      const matchingReview = (await db.execute(sql`
-        SELECT id, invoice_number, invoice_date, amount, raw_extracted_data
+      // Step 1: Lightweight scan — only REVIEW invoices with multi-item arrays, NO blob columns
+      const multiItemIdRows = (await db.execute(sql`
+        SELECT id, raw_extracted_data->'supplier'->>'supplierName' AS inv_supplier_name
         FROM supplier_invoices
         WHERE status = 'REVIEW'
-          AND (
-            raw_extracted_data->'supplier'->>'supplierName' ILIKE ${'%' + supplierName + '%'}
-            OR ${supplierName} ILIKE '%' || (raw_extracted_data->'supplier'->>'supplierName') || '%'
-          )
+          AND jsonb_array_length(COALESCE(raw_extracted_data->'invoices', '[]'::jsonb)) > 1
       `)) as any;
 
+      // Step 2: Filter by supplier name in JS (fast — very few multi-item REVIEW invoices exist)
+      const matchingIds: string[] = (multiItemIdRows.rows ?? [])
+        .filter((r: any) => {
+          const name: string = (r.inv_supplier_name ?? "").toLowerCase();
+          const target = supplierName.toLowerCase();
+          return name.includes(target) || target.includes(name);
+        })
+        .map((r: any) => r.id as string);
+
+      // Step 3: Fetch full invoice data ONLY for the 1-3 matching IDs
+      const matchingFull = await Promise.all(matchingIds.map(id => storage.getSupplierInvoice(id)));
+
       let expandedCount = 0;
-      for (const reviewInv of (matchingReview.rows ?? [])) {
-        const raw = reviewInv.raw_extracted_data as any;
+      for (const reviewInv of matchingFull.filter(Boolean)) {
+        const raw = reviewInv!.rawExtractedData as any;
         const lineItems: any[] = Array.isArray(raw?.invoices) ? raw.invoices : [];
         if (lineItems.length <= 1) continue; // single-item handled by sweep below
 
@@ -5453,11 +5463,11 @@ Rules:
           if (!firstDone) {
             // Update the placeholder in-place (single row update, no INSERT needed)
             try {
-              await storage.updateSupplierInvoice(reviewInv.id, {
+              await storage.updateSupplierInvoice(reviewInv!.id, {
                 supplierId: supplier.id, status: "PENDING",
-                invoiceNumber: invNum || reviewInv.invoice_number,
-                invoiceDate: item.issueDate || reviewInv.invoice_date,
-                dueDate: item.dueDate ?? undefined, amount: item.totalAmount ?? reviewInv.amount,
+                invoiceNumber: invNum || reviewInv!.invoiceNumber,
+                invoiceDate: item.issueDate || reviewInv!.invoiceDate,
+                dueDate: item.dueDate ?? undefined, amount: item.totalAmount ?? reviewInv!.amount,
                 storeId,
                 rawExtractedData: pdfBase64 ? { ...raw, pdfBase64 } : raw,
                 notes: baseNotes,
@@ -5509,18 +5519,25 @@ Rules:
         }
       }
 
-      // 3b. Sweep by AI-extracted supplier name (PDF-parsed invoices — single-item)
-      const sweptByName = await storage.sweepReviewInvoicesBySupplierName(supplierName, supplier.id);
-
-      // 3c. Sweep by senderEmail (forwarded / no-PDF invoices where supplier.supplierName is absent)
-      //     Only runs if a senderEmail is present — avoids false matches on empty strings.
+      // 3b. Sweep remaining REVIEW invoices → PENDING.
+      //     Prefer ID-based sweep (fast, no JSON/blob scan) when the frontend passes known IDs.
+      //     Fallback to name/email scan only when IDs are unavailable (e.g. old clients).
+      let sweptByName = 0;
       let sweptByEmail = 0;
-      if (senderEmail) {
-        sweptByEmail = await storage.sweepReviewInvoicesBySenderEmail(senderEmail, supplier.id);
+      let sweptByIds = 0;
+
+      if (reviewInvoiceIds && reviewInvoiceIds.length > 0) {
+        sweptByIds = await storage.sweepReviewInvoicesByIds(reviewInvoiceIds, supplier.id);
+      } else {
+        // Legacy path: name-based + email-based scan (slow on large tables with blob data)
+        sweptByName = await storage.sweepReviewInvoicesBySupplierName(supplierName, supplier.id);
+        if (senderEmail) {
+          sweptByEmail = await storage.sweepReviewInvoicesBySenderEmail(senderEmail, supplier.id);
+        }
       }
 
-      const sweptCount = sweptByName + sweptByEmail + expandedCount;
-      console.log(`[Review/approve-group] Supplier "${supplier.name}" (${supplier.id}). Expanded ${expandedCount} + swept ${sweptByName} by name + ${sweptByEmail} by email = ${sweptCount} invoice(s) → PENDING.`);
+      const sweptCount = sweptByIds + sweptByName + sweptByEmail + expandedCount;
+      console.log(`[Review/approve-group] Supplier "${supplier.name}" (${supplier.id}). IDs=${sweptByIds} expanded=${expandedCount} name=${sweptByName} email=${sweptByEmail} → ${sweptCount} invoice(s) PENDING.`);
       res.json({ supplier, sweptCount });
     } catch (err: any) {
       console.error("Error approving supplier group:", err);

@@ -426,6 +426,7 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
         },
         senderEmail: senderEmail || null,
         supplierName,
+        reviewInvoiceIds: invoices.map(inv => inv.id),
         // Link mode: pass existingSupplierId to skip creation
         existingSupplierId: mode === "link" ? (linkedSupplierId ?? undefined) : undefined,
       });

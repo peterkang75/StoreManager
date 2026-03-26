@@ -125,6 +125,7 @@ export interface IStorage {
   findSupplierByEmail(email: string): Promise<Supplier | undefined>;
   findSupplierByName(name: string): Promise<Supplier | undefined>;
   findSupplierByNameAny(name: string): Promise<Supplier | undefined>;
+  sweepReviewInvoicesByIds(ids: string[], supplierId: string): Promise<number>;
   sweepReviewInvoicesBySupplierName(supplierName: string, supplierId: string): Promise<number>;
   sweepReviewInvoicesBySenderEmail(senderEmail: string, supplierId: string): Promise<number>;
   getQuarantinedEmails(): Promise<QuarantinedEmail[]>;
@@ -979,6 +980,29 @@ export class MemStorage implements IStorage {
     return Array.from(this.suppliers.values()).find(s =>
       s.name.toLowerCase() === lower
     );
+  }
+
+  async sweepReviewInvoicesByIds(ids: string[], supplierId: string): Promise<number> {
+    if (!ids || ids.length === 0) return 0;
+    const idSet = new Set(ids);
+    const existingNumbers = new Set<string>();
+    for (const inv of this.supplierInvoices.values()) {
+      if (inv.supplierId === supplierId && inv.status !== "REVIEW" && inv.status !== "DELETED" && inv.invoiceNumber) {
+        existingNumbers.add(inv.invoiceNumber);
+      }
+    }
+    let count = 0;
+    for (const [id, inv] of this.supplierInvoices.entries()) {
+      if (idSet.has(id) && inv.status === "REVIEW") {
+        if (inv.invoiceNumber && existingNumbers.has(inv.invoiceNumber)) {
+          this.supplierInvoices.set(id, { ...inv, status: "QUARANTINE", notes: "Duplicate invoice number — quarantined during supplier approval." });
+        } else {
+          this.supplierInvoices.set(id, { ...inv, supplierId, status: "PENDING" });
+          count++;
+        }
+      }
+    }
+    return count;
   }
 
   async sweepReviewInvoicesBySupplierName(supplierName: string, supplierId: string): Promise<number> {
@@ -1857,12 +1881,44 @@ export class DatabaseStorage implements IStorage {
     return supplier;
   }
 
+  async sweepReviewInvoicesByIds(ids: string[], supplierId: string): Promise<number> {
+    // Fast ID-based sweep — no raw_extracted_data JSON scan, no TOAST decompression.
+    // Approves REVIEW invoices by known ID (passed from frontend). Skips duplicates via NOT EXISTS.
+    // Quarantines remaining matched IDs where a conflict prevents approval.
+    if (!ids || ids.length === 0) return 0;
+    const idList = ids.map(id => `'${id.replace(/'/g, "''")}'`).join(",");
+    const result = await db.execute(sql`
+      WITH to_approve AS (
+        SELECT id, invoice_number
+        FROM supplier_invoices
+        WHERE id IN (${sql.raw(idList)})
+          AND status = 'REVIEW'
+          AND NOT EXISTS (
+            SELECT 1 FROM supplier_invoices ex
+            WHERE ex.supplier_id = ${supplierId}
+              AND ex.invoice_number = supplier_invoices.invoice_number
+              AND ex.status NOT IN ('REVIEW', 'DELETED')
+          )
+      ),
+      approved AS (
+        UPDATE supplier_invoices
+        SET supplier_id = ${supplierId}, status = 'PENDING'
+        WHERE id IN (SELECT id FROM to_approve)
+        RETURNING id
+      )
+      UPDATE supplier_invoices
+      SET status = 'QUARANTINE',
+          notes = 'Duplicate invoice number — quarantined during supplier approval.'
+      WHERE id IN (${sql.raw(idList)})
+        AND status = 'REVIEW'
+        AND id NOT IN (SELECT id FROM approved)
+    `);
+    return (result as any).rowCount ?? 0;
+  }
+
   async sweepReviewInvoicesBySupplierName(supplierName: string, supplierId: string): Promise<number> {
-    // Use a CTE to:
-    //   1. Rank REVIEW invoices by invoice_number (ROW_NUMBER) to de-duplicate within the REVIEW set.
-    //   2. Also exclude invoice_numbers that already exist as non-REVIEW for this supplier.
-    // Only rn=1 (first occurrence per invoice_number) that is not a pre-existing duplicate → PENDING.
-    // Everything else remaining in REVIEW → QUARANTINE.
+    // Single multi-CTE statement: scans raw_extracted_data ONCE, then does both APPROVE + QUARANTINE.
+    // Avoids the expensive TOAST decompression cost of running two separate full-table scans.
     const result = await db.execute(sql`
       WITH review_set AS (
         SELECT id, invoice_number,
@@ -1881,18 +1937,18 @@ export class DatabaseStorage implements IStorage {
               AND ex.invoice_number = rs.invoice_number
               AND ex.status != 'REVIEW'
           )
+      ),
+      approved AS (
+        UPDATE supplier_invoices
+        SET supplier_id = ${supplierId}, status = 'PENDING'
+        WHERE id IN (SELECT id FROM to_approve)
+        RETURNING id
       )
-      UPDATE supplier_invoices
-      SET supplier_id = ${supplierId}, status = 'PENDING'
-      WHERE id IN (SELECT id FROM to_approve)
-    `);
-    // Quarantine all remaining REVIEW invoices that matched the supplier name but weren't approved
-    await db.execute(sql`
       UPDATE supplier_invoices
       SET status = 'QUARANTINE',
           notes = 'Duplicate or already-existing invoice — quarantined during supplier approval.'
-      WHERE status = 'REVIEW'
-        AND raw_extracted_data->'supplier'->>'supplierName' ILIKE ${supplierName}
+      WHERE id IN (SELECT id FROM review_set)
+        AND id NOT IN (SELECT id FROM approved)
     `);
     return (result as any).rowCount ?? 0;
   }
