@@ -32,6 +32,19 @@ import {
 } from "@/components/ui/accordion";
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   ChevronDown,
   Plus,
   CheckCircle,
@@ -50,6 +63,9 @@ import {
   Undo2,
   ExternalLink,
   RefreshCw,
+  Link2,
+  ChevronsUpDown,
+  Check,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import AddInvoiceModal from "@/components/AddInvoiceModal";
@@ -304,15 +320,25 @@ interface SupplierFormValues {
   notes: string;
 }
 
+type ApproveMode = "create" | "link";
+
 function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierModalProps) {
   const { toast } = useToast();
-  // Use the first invoice's raw data for form pre-fill
   const firstInvoice = invoices[0] ?? null;
   const raw = firstInvoice?.rawExtractedData as ReviewRawData | null;
   const [isAutoPay, setIsAutoPay] = useState(false);
+  const [mode, setMode] = useState<ApproveMode>("create");
+  const [linkedSupplierId, setLinkedSupplierId] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
-  // Build form values from rawExtractedData, handling both server field names
-  // (supplierAddress, supplierPhone) and legacy field names (address, contactName)
+  // Query all active suppliers for the link dropdown
+  const { data: allSuppliers = [] } = useQuery<Supplier[]>({
+    queryKey: ["/api/suppliers"],
+    staleTime: 60_000,
+  });
+
+  const linkedSupplier = allSuppliers.find(s => s.id === linkedSupplierId) ?? null;
+
   function buildFormValues(r: ReviewRawData | null, notes: string | null) {
     const h = extractSupplierHint(r, notes);
     const s = r?.supplier;
@@ -328,6 +354,19 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
     };
   }
 
+  function buildFormFromSupplier(sup: Supplier): SupplierFormValues {
+    return {
+      name: sup.name,
+      abn: sup.abn ?? "",
+      contactName: sup.contactName ?? "",
+      contactEmails: (sup.contactEmails ?? []).join(", "),
+      bsb: sup.bsb ?? "",
+      accountNumber: sup.accountNumber ?? "",
+      address: sup.address ?? "",
+      notes: "",
+    };
+  }
+
   const { register, handleSubmit, reset, formState: { errors } } = useForm<SupplierFormValues>({
     defaultValues: buildFormValues(raw, firstInvoice?.notes ?? null),
   });
@@ -337,16 +376,32 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
       const r = firstInvoice.rawExtractedData as ReviewRawData | null;
       reset(buildFormValues(r, firstInvoice.notes ?? null));
       setIsAutoPay(false);
+      setMode("create");
+      setLinkedSupplierId(null);
     }
   }, [firstInvoice?.id, reset]);
+
+  // When a supplier is selected in link mode, pre-fill the form with their data
+  // But if their email is blank, pre-fill with the incoming sender email
+  function handleLinkSupplier(sup: Supplier) {
+    setLinkedSupplierId(sup.id);
+    setPickerOpen(false);
+    setIsAutoPay(sup.isAutoPay ?? false);
+
+    const formVals = buildFormFromSupplier(sup);
+    // If supplier has no email yet, auto-populate with the incoming email hint
+    if (!formVals.contactEmails) {
+      const h = extractSupplierHint(raw, firstInvoice?.notes ?? null);
+      formVals.contactEmails = h.email;
+    }
+    reset(formVals);
+  }
 
   const approveMutation = useMutation({
     mutationFn: async (data: SupplierFormValues) => {
       if (!firstInvoice) throw new Error("No invoices in group");
       const r = firstInvoice.rawExtractedData as ReviewRawData | null;
       const h = extractSupplierHint(r, firstInvoice.notes ?? null);
-      // rawSenderEmail is the actual From: address used to find REVIEW invoices for sweep.
-      // h.email may be a PDF-extracted supplier email, not the forwarder address.
       const senderEmail = h.rawSenderEmail;
       const supplierName = r?.supplier?.supplierName ?? data.name;
 
@@ -355,7 +410,6 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
         .map(e => e.trim())
         .filter(Boolean);
 
-      // Single API call: create supplier + sweep all matching REVIEW invoices
       return apiRequest("POST", "/api/invoices/review/approve-group", {
         supplierData: {
           name: data.name,
@@ -370,11 +424,14 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
         },
         senderEmail: senderEmail || null,
         supplierName,
+        // Link mode: pass existingSupplierId to skip creation
+        existingSupplierId: mode === "link" ? (linkedSupplierId ?? undefined) : undefined,
       });
     },
     onSuccess: (result: any) => {
       const count = result?.sweptCount ?? invoices.length;
-      toast({ title: `Supplier created — ${count} invoice${count !== 1 ? "s" : ""} moved to Pending` });
+      const action = mode === "link" ? "linked to existing supplier" : "created";
+      toast({ title: `Supplier ${action} — ${count} invoice${count !== 1 ? "s" : ""} moved to Pending` });
       queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/email-routing-rules"] });
@@ -387,6 +444,10 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
   });
 
   function onSubmit(data: SupplierFormValues) {
+    if (mode === "link" && !linkedSupplierId) {
+      toast({ title: "Select a supplier to link to", variant: "destructive" });
+      return;
+    }
     approveMutation.mutate(data);
   }
 
@@ -394,18 +455,108 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
     <Dialog open={invoices.length > 0} onOpenChange={open => !open && onClose()}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="dialog-approve-supplier">
         <DialogHeader>
-          <DialogTitle>Approve & Add Supplier</DialogTitle>
+          <DialogTitle>Approve Invoices</DialogTitle>
           <p className="text-sm text-muted-foreground">
-            Review and confirm the AI-extracted supplier details before creating.
             {invoices.length > 1 && (
-              <span className="block mt-1 font-medium text-foreground">
-                This will approve all {invoices.length} pending invoices from this supplier.
-              </span>
+              <span>All {invoices.length} invoices from this sender will move to Pending.</span>
             )}
           </p>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-2">
+        {/* Mode toggle */}
+        <div className="flex rounded-md border border-border overflow-hidden">
+          <button
+            type="button"
+            onClick={() => { setMode("create"); setLinkedSupplierId(null); reset(buildFormValues(raw, firstInvoice?.notes ?? null)); }}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors ${
+              mode === "create"
+                ? "bg-primary text-primary-foreground"
+                : "bg-background text-muted-foreground hover-elevate"
+            }`}
+            data-testid="button-mode-create"
+          >
+            <UserPlus className="h-3.5 w-3.5" />
+            Create New Supplier
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("link")}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors ${
+              mode === "link"
+                ? "bg-primary text-primary-foreground"
+                : "bg-background text-muted-foreground hover-elevate"
+            }`}
+            data-testid="button-mode-link"
+          >
+            <Link2 className="h-3.5 w-3.5" />
+            Link to Existing
+          </button>
+        </div>
+
+        {/* Supplier search — shown only in link mode */}
+        {mode === "link" && (
+          <div className="space-y-1.5">
+            <Label>Select Existing Supplier</Label>
+            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={pickerOpen}
+                  className="w-full justify-between"
+                  data-testid="button-supplier-picker"
+                >
+                  {linkedSupplier ? linkedSupplier.name : "Search suppliers…"}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-full p-0" style={{ width: "var(--radix-popover-trigger-width)" }}>
+                <Command>
+                  <CommandInput placeholder="Type to search…" data-testid="input-supplier-search" />
+                  <CommandList>
+                    <CommandEmpty>No supplier found.</CommandEmpty>
+                    <CommandGroup>
+                      {allSuppliers
+                        .filter(s => s.active !== false)
+                        .map(s => (
+                          <CommandItem
+                            key={s.id}
+                            value={s.name}
+                            onSelect={() => handleLinkSupplier(s)}
+                            data-testid={`option-supplier-${s.id}`}
+                          >
+                            <Check
+                              className={`mr-2 h-4 w-4 ${linkedSupplierId === s.id ? "opacity-100" : "opacity-0"}`}
+                            />
+                            <span>{s.name}</span>
+                            {(!s.contactEmails || s.contactEmails.length === 0) && (
+                              <span className="ml-auto text-xs text-amber-600 font-medium">No email</span>
+                            )}
+                          </CommandItem>
+                        ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {linkedSupplier && (!linkedSupplier.contactEmails || linkedSupplier.contactEmails.length === 0) && (
+              <p className="text-xs text-amber-600 flex items-center gap-1">
+                <AlertCircle className="h-3 w-3" />
+                This supplier has no email on file — the incoming email will be saved automatically.
+              </p>
+            )}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          {mode === "create" && (
+            <p className="text-xs text-muted-foreground">Review and confirm the AI-extracted supplier details before creating.</p>
+          )}
+          {mode === "link" && linkedSupplier && (
+            <p className="text-xs text-muted-foreground">Fields below show the existing supplier's data. Fill in any blanks to update missing info.</p>
+          )}
+
           <div className="grid grid-cols-1 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="sup-name">Supplier Name <span className="text-red-500">*</span></Label>
@@ -414,7 +565,8 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
                 {...register("name", { required: true })}
                 placeholder="Supplier name"
                 data-testid="input-supplier-name"
-                className={errors.name ? "border-red-500" : ""}
+                readOnly={mode === "link" && !!linkedSupplierId}
+                className={errors.name ? "border-red-500" : mode === "link" && !!linkedSupplierId ? "bg-muted/40" : ""}
               />
             </div>
 
@@ -482,9 +634,15 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
             <Button type="button" variant="outline" onClick={onClose} disabled={approveMutation.isPending}>
               Cancel
             </Button>
-            <Button type="submit" disabled={approveMutation.isPending} data-testid="button-confirm-approve-supplier">
+            <Button
+              type="submit"
+              disabled={approveMutation.isPending || (mode === "link" && !linkedSupplierId)}
+              data-testid="button-confirm-approve-supplier"
+            >
               {approveMutation.isPending ? (
-                <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Creating…</>
+                <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />{mode === "link" ? "Linking…" : "Creating…"}</>
+              ) : mode === "link" ? (
+                <><Link2 className="h-3.5 w-3.5 mr-1.5" />Link Supplier & Approve</>
               ) : (
                 <><UserPlus className="h-3.5 w-3.5 mr-1.5" />Create Supplier & Approve</>
               )}

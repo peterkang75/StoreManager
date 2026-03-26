@@ -5077,63 +5077,106 @@ Rules:
     }
   });
 
-  // ── Approve supplier group — creates supplier + sweeps ALL matching REVIEW invoices ──
+  // ── Approve supplier group — creates/links supplier + sweeps ALL matching REVIEW invoices ──
   app.post("/api/invoices/review/approve-group", async (req: Request, res: Response) => {
     try {
-      const { supplierData, senderEmail, supplierName } = req.body as {
+      const { supplierData, senderEmail, supplierName, existingSupplierId } = req.body as {
         supplierData: {
           name: string; abn?: string; contactName?: string; contactEmails?: string[];
           bsb?: string; accountNumber?: string; address?: string; notes?: string; isAutoPay?: boolean;
         };
         senderEmail?: string;
         supplierName: string;
+        existingSupplierId?: string; // If set, link to this supplier instead of creating new
       };
 
       if (!supplierData?.name || !supplierName) {
         return res.status(400).json({ error: "supplierData.name and supplierName are required" });
       }
 
-      // 1. Find or create supplier — also handles soft-deleted (active=false) suppliers
-      //    to avoid unique constraint violations on the name column.
-      let supplier = await storage.findSupplierByNameAny(supplierData.name);
-      if (supplier) {
-        console.log(`[Review/approve-group] Supplier "${supplier.name}" (${supplier.active ? "active" : "inactive"}) (${supplier.id}) — reactivating/updating.`);
-        // Reactivate if soft-deleted and update with any new details from the form
-        supplier = (await storage.updateSupplier(supplier.id, {
+      const isInternal = (email: string) =>
+        !email || /@eatem\.com\.au$/i.test(email) || /^peterkang75@gmail\.com$/i.test(email);
+
+      let supplier: any;
+
+      if (existingSupplierId) {
+        // ── LINK mode: attach invoices to an existing supplier ──────────────────
+        supplier = await storage.getSupplier(existingSupplierId);
+        if (!supplier) return res.status(404).json({ error: "Existing supplier not found" });
+
+        console.log(`[Review/approve-group] Linking to existing supplier "${supplier.name}" (${supplier.id})`);
+
+        // Build the email list to save: merge form emails into existing emails
+        const formEmails = (supplierData.contactEmails ?? []).filter(Boolean);
+        const existingEmails = supplier.contactEmails ?? [];
+        const mergedEmails = Array.from(new Set([...existingEmails, ...formEmails]));
+
+        // Auto-heal: if supplier has no email yet but senderEmail is external, add it
+        if (mergedEmails.length === 0 && senderEmail && !isInternal(senderEmail)) {
+          mergedEmails.push(senderEmail);
+          console.log(`[Review/approve-group] Auto-healing supplier email → ${senderEmail}`);
+        }
+
+        // Update supplier with merged data (only fill blanks, don't overwrite existing)
+        supplier = (await storage.updateSupplier(existingSupplierId, {
           active: true,
-          abn: supplierData.abn || supplier.abn,
-          contactName: supplierData.contactName || supplier.contactName,
-          contactEmails: supplierData.contactEmails && supplierData.contactEmails.length > 0
-            ? supplierData.contactEmails
-            : supplier.contactEmails,
-          bsb: supplierData.bsb || supplier.bsb,
-          accountNumber: supplierData.accountNumber || supplier.accountNumber,
-          address: supplierData.address || supplier.address,
-          notes: supplierData.notes || supplier.notes,
-          isAutoPay: supplierData.isAutoPay ?? supplier.isAutoPay,
+          abn: supplier.abn || supplierData.abn || null,
+          contactName: supplier.contactName || supplierData.contactName || null,
+          contactEmails: mergedEmails.length > 0 ? mergedEmails : supplier.contactEmails,
+          bsb: supplier.bsb || supplierData.bsb || null,
+          accountNumber: supplier.accountNumber || supplierData.accountNumber || null,
+          address: supplier.address || supplierData.address || null,
+          isAutoPay: supplier.isAutoPay ?? supplierData.isAutoPay ?? false,
         })) ?? supplier;
+
       } else {
-        supplier = await storage.createSupplier({
-          name: supplierData.name,
-          abn: supplierData.abn || null,
-          contactName: supplierData.contactName || null,
-          contactEmails: supplierData.contactEmails && supplierData.contactEmails.length > 0 ? supplierData.contactEmails : null,
-          bsb: supplierData.bsb || null,
-          accountNumber: supplierData.accountNumber || null,
-          address: supplierData.address || null,
-          notes: supplierData.notes || null,
-          active: true,
-          isAutoPay: supplierData.isAutoPay ?? false,
-        });
+        // ── CREATE mode: find-or-create supplier by name ───────────────────────
+        supplier = await storage.findSupplierByNameAny(supplierData.name);
+        if (supplier) {
+          console.log(`[Review/approve-group] Supplier "${supplier.name}" (${supplier.active ? "active" : "inactive"}) (${supplier.id}) — reactivating/updating.`);
+          supplier = (await storage.updateSupplier(supplier.id, {
+            active: true,
+            abn: supplierData.abn || supplier.abn,
+            contactName: supplierData.contactName || supplier.contactName,
+            contactEmails: supplierData.contactEmails && supplierData.contactEmails.length > 0
+              ? supplierData.contactEmails
+              : supplier.contactEmails,
+            bsb: supplierData.bsb || supplier.bsb,
+            accountNumber: supplierData.accountNumber || supplier.accountNumber,
+            address: supplierData.address || supplier.address,
+            notes: supplierData.notes || supplier.notes,
+            isAutoPay: supplierData.isAutoPay ?? supplier.isAutoPay,
+          })) ?? supplier;
+        } else {
+          supplier = await storage.createSupplier({
+            name: supplierData.name,
+            abn: supplierData.abn || null,
+            contactName: supplierData.contactName || null,
+            contactEmails: supplierData.contactEmails && supplierData.contactEmails.length > 0 ? supplierData.contactEmails : null,
+            bsb: supplierData.bsb || null,
+            accountNumber: supplierData.accountNumber || null,
+            address: supplierData.address || null,
+            notes: supplierData.notes || null,
+            active: true,
+            isAutoPay: supplierData.isAutoPay ?? false,
+          });
+        }
       }
 
-      // 2. Set ALLOW routing rule for the sender email (if we have a non-forwarded address)
-      if (senderEmail) {
+      // 2. Set ALLOW routing rule for the sender email (if external)
+      //    Also auto-register form emails that aren't already rules
+      const emailsToRegister = new Set<string>();
+      if (senderEmail && !isInternal(senderEmail)) emailsToRegister.add(senderEmail);
+      for (const e of supplierData.contactEmails ?? []) {
+        if (e && !isInternal(e)) emailsToRegister.add(e);
+      }
+      for (const email of emailsToRegister) {
         await storage.upsertEmailRoutingRule({
-          email: senderEmail,
+          email,
           action: "ALLOW",
-          supplierName: supplierData.name,
+          supplierName: supplier.name,
         });
+        console.log(`[Review/approve-group] ALLOW rule → ${email}`);
       }
 
       // 3a. Expand any REVIEW invoices that contain multiple line-items in rawExtractedData.invoices
