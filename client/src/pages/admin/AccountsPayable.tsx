@@ -347,7 +347,7 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
     return {
       name: h.name,
       abn: s?.abn ?? "",
-      contactName: s?.supplierPhone ?? s?.contactName ?? "",
+      contactName: s?.contactName ?? "",
       contactEmails: h.email,
       bsb: s?.bsb ?? "",
       accountNumber: s?.accountNumber ?? "",
@@ -1612,10 +1612,10 @@ export function AdminAccountsPayable() {
                             <span className="font-medium font-mono">{raw.supplier.accountNumber}</span>
                           </div>
                         )}
-                        {raw?.supplier?.address && (
+                        {(raw?.supplier?.supplierAddress ?? raw?.supplier?.address) && (
                           <div className="flex gap-2 col-span-2">
                             <span className="text-muted-foreground shrink-0 w-20">Address</span>
-                            <span className="font-medium">{raw.supplier.address}</span>
+                            <span className="font-medium">{raw!.supplier.supplierAddress ?? raw!.supplier.address}</span>
                           </div>
                         )}
                       </div>

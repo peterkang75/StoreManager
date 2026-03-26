@@ -4910,31 +4910,71 @@ export async function registerRoutes(
                       );
                     }
                   } else {
-                    const rawExtractedData = unknownParsed?.supplier
-                      ? { senderEmail, subject, supplier: unknownParsed.supplier }
-                      : { senderEmail, subject, supplier: { supplierName: "" } };
+                    // PDF found but no invoice items — use supplier info if AI got it,
+                    // otherwise fall back to parsing the email body
+                    let supplierInfo = unknownParsed?.supplier?.supplierName && unknownParsed.supplier.supplierName !== "Unknown Supplier"
+                      ? unknownParsed.supplier
+                      : null;
+                    if (!supplierInfo && item.body?.trim()) {
+                      const bodyParsed = await parseInvoiceFromUnknownSender(item.body.slice(0, 8000)).catch(() => null);
+                      if (bodyParsed?.supplier?.supplierName && bodyParsed.supplier.supplierName !== "Unknown Supplier") {
+                        supplierInfo = bodyParsed.supplier;
+                      }
+                    }
                     await upgradeToFinal(
-                      `PDF found but could not extract invoice data.`,
-                      rawExtractedData,
+                      `PDF found but could not extract invoice data. Please review and add details.`,
+                      { senderEmail, subject, supplier: supplierInfo ?? { supplierName: item.senderName ?? "" } },
                       "REVIEW",
                     );
                   }
                 }
               } else {
-                // Scanned/image PDF — leave as REVIEW with a clear message
+                // Scanned/image PDF — try email body as fallback for supplier info
+                let scannedSupplier: any = null;
+                if (item.body?.trim()) {
+                  const bodyParsed = await parseInvoiceFromUnknownSender(item.body.slice(0, 8000)).catch(() => null);
+                  if (bodyParsed?.supplier?.supplierName && bodyParsed.supplier.supplierName !== "Unknown Supplier") {
+                    scannedSupplier = bodyParsed.supplier;
+                  }
+                }
+                if (scannedSupplier) {
+                  await upgradeToFinal(
+                    `PDF is a scanned image (unreadable). Supplier info extracted from email body. Please verify and add invoice details.`,
+                    { senderEmail, subject, supplier: scannedSupplier },
+                    "REVIEW",
+                  );
+                } else {
+                  await upgradeToFinal(
+                    `PDF attachment found but could not be read (scanned image). Please add invoice details manually.`,
+                    { senderEmail, subject, supplier: { supplierName: item.senderName ?? "" } },
+                    "REVIEW",
+                  );
+                }
+              }
+            } else {
+              // No PDF — try parsing email body for supplier info
+              let bodySupplier: any = null;
+              let bodyInvoices: any[] = [];
+              if (item.body?.trim()) {
+                const bodyParsed = await parseInvoiceFromUnknownSender(item.body.slice(0, 8000)).catch(() => null);
+                if (bodyParsed?.supplier?.supplierName && bodyParsed.supplier.supplierName !== "Unknown Supplier") {
+                  bodySupplier = bodyParsed.supplier;
+                  bodyInvoices = bodyParsed.invoices ?? [];
+                }
+              }
+              if (bodySupplier) {
                 await upgradeToFinal(
-                  `PDF attachment found but could not be read (scanned image). Please add invoice details manually.`,
-                  { senderEmail, subject, supplier: { supplierName: "" } },
+                  `No PDF attachment. Supplier info extracted from email body. Please verify and add invoice details.`,
+                  { senderEmail, subject, supplier: bodySupplier, invoices: bodyInvoices, body: item.body?.slice(0, 8000) },
+                  "REVIEW",
+                );
+              } else {
+                await upgradeToFinal(
+                  `No PDF attachment. Please review and enter invoice details manually.`,
+                  { senderEmail, subject, supplier: { supplierName: item.senderName ?? "" }, body: item.body?.slice(0, 8000) },
                   "REVIEW",
                 );
               }
-            } else {
-              // No PDF — upgrade placeholder with cleaner note
-              await upgradeToFinal(
-                `No PDF attachment. Please review and enter invoice details manually.`,
-                { senderEmail, subject, supplier: { supplierName: item.senderName ?? "" }, body: item.body?.slice(0, 8000) },
-                "REVIEW",
-              );
             }
           } catch (bgErr) {
             console.error("[TriageRoute/bg] Background AP processing failed:", bgErr);
