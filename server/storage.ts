@@ -125,6 +125,7 @@ export interface IStorage {
   findSupplierByEmail(email: string): Promise<Supplier | undefined>;
   findSupplierByName(name: string): Promise<Supplier | undefined>;
   sweepReviewInvoicesBySupplierName(supplierName: string, supplierId: string): Promise<number>;
+  sweepReviewInvoicesBySenderEmail(senderEmail: string, supplierId: string): Promise<number>;
   getQuarantinedEmails(): Promise<QuarantinedEmail[]>;
   createQuarantinedEmail(email: InsertQuarantinedEmail): Promise<QuarantinedEmail>;
 
@@ -983,12 +984,27 @@ export class MemStorage implements IStorage {
         const invName: string = raw?.supplier?.supplierName ?? "";
         if (invName.toLowerCase() === lower) {
           if (inv.invoiceNumber && existingNumbers.has(inv.invoiceNumber)) {
-            // Duplicate — quarantine instead
             this.supplierInvoices.set(id, { ...inv, status: "QUARANTINE", notes: "Duplicate invoice number — already exists for this supplier." });
           } else {
             this.supplierInvoices.set(id, { ...inv, supplierId, status: "PENDING" });
             count++;
           }
+        }
+      }
+    }
+    return count;
+  }
+
+  async sweepReviewInvoicesBySenderEmail(senderEmail: string, supplierId: string): Promise<number> {
+    // Matches REVIEW invoices whose rawExtractedData.senderEmail equals the given email.
+    // Used for CEO-forwarded emails where no PDF was attached, so supplier.supplierName is absent.
+    let count = 0;
+    for (const [id, inv] of this.supplierInvoices.entries()) {
+      if (inv.status === "REVIEW") {
+        const raw = inv.rawExtractedData as any;
+        if (raw?.senderEmail && raw.senderEmail.toLowerCase() === senderEmail.toLowerCase()) {
+          this.supplierInvoices.set(id, { ...inv, supplierId, status: "PENDING" });
+          count++;
         }
       }
     }
@@ -1849,6 +1865,20 @@ export class DatabaseStorage implements IStorage {
           notes = 'Duplicate or already-existing invoice — quarantined during supplier approval.'
       WHERE status = 'REVIEW'
         AND raw_extracted_data->'supplier'->>'supplierName' ILIKE ${supplierName}
+    `);
+    return (result as any).rowCount ?? 0;
+  }
+
+  async sweepReviewInvoicesBySenderEmail(senderEmail: string, supplierId: string): Promise<number> {
+    // Matches REVIEW invoices by rawExtractedData.senderEmail (top-level, not nested under supplier).
+    // This handles CEO-forwarded emails where no PDF was parsed, so supplier.supplierName is absent.
+    // Only updates invoices that don't already have a supplierId set (i.e. truly unmatched).
+    const result = await db.execute(sql`
+      UPDATE supplier_invoices
+      SET supplier_id = ${supplierId}, status = 'PENDING'
+      WHERE status = 'REVIEW'
+        AND supplier_id IS NULL
+        AND raw_extracted_data->>'senderEmail' ILIKE ${senderEmail}
     `);
     return (result as any).rowCount ?? 0;
   }

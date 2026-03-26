@@ -4925,10 +4925,18 @@ Rules:
         });
       }
 
-      // 3. Sweep: update ALL REVIEW invoices whose rawExtractedData.supplier.supplierName matches
-      const sweptCount = await storage.sweepReviewInvoicesBySupplierName(supplierName, supplier.id);
+      // 3a. Sweep by AI-extracted supplier name (PDF-parsed invoices)
+      const sweptByName = await storage.sweepReviewInvoicesBySupplierName(supplierName, supplier.id);
 
-      console.log(`[Review/approve-group] Supplier "${supplier.name}" created (${supplier.id}). Swept ${sweptCount} REVIEW invoice(s) → PENDING.`);
+      // 3b. Sweep by senderEmail (forwarded / no-PDF invoices where supplier.supplierName is absent)
+      //     Only runs if a senderEmail is present — avoids false matches on empty strings.
+      let sweptByEmail = 0;
+      if (senderEmail) {
+        sweptByEmail = await storage.sweepReviewInvoicesBySenderEmail(senderEmail, supplier.id);
+      }
+
+      const sweptCount = sweptByName + sweptByEmail;
+      console.log(`[Review/approve-group] Supplier "${supplier.name}" (${supplier.id}). Swept ${sweptByName} by name + ${sweptByEmail} by email = ${sweptCount} REVIEW invoice(s) → PENDING.`);
       res.json({ supplier, sweptCount });
     } catch (err: any) {
       console.error("Error approving supplier group:", err);
