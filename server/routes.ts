@@ -4144,6 +4144,13 @@ export async function registerRoutes(
   // │  Rule 2 (Task): A TASK email MUST NEVER enter the AP pipeline.         │
   // │                 It belongs ONLY in the todos table / Smart Inbox.      │
   // └─────────────────────────────────────────────────────────────────────────┘
+
+  // ── Webhook deduplication ────────────────────────────────────────────────
+  // Email providers retry on slow responses. We deduplicate by Message-ID
+  // (or fallback: sha hash of sender+subject). Entries expire after 10 minutes.
+  const _webhookProcessed = new Map<string, number>(); // key → timestamp
+  const WEBHOOK_DEDUP_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
   app.post("/api/webhooks/inbound-invoices", async (req: Request, res: Response) => {
     try {
       // ── Body parsing ─────────────────────────────────────────────────────────
@@ -4156,6 +4163,40 @@ export async function registerRoutes(
       }
 
       console.log("[Webhook] Received POST — Content-Type:", req.headers["content-type"]);
+
+      // ── Deduplication: prevent processing the same email twice ───────────────
+      // Email providers retry on slow responses (AI processing can take 3–8s).
+      // We use Message-ID (globally unique per RFC 2822) as the dedup key.
+      // Fallback: hash of sender+subject for providers that strip Message-ID.
+      {
+        const msgId: string = (
+          payload?.headers?.["message-id"] ??
+          payload?.headers?.["Message-ID"] ??
+          payload?.headers?.message_id ??
+          payload?.message_id ??
+          ""
+        ).toString().trim();
+
+        const rawFrom = (payload?.headers?.from ?? payload?.from ?? "").toString().trim();
+        const rawSubj = (payload?.headers?.subject ?? payload?.subject ?? "").toString().trim();
+        // Generate a stable dedup key
+        const dedupKey = msgId
+          ? `msgid:${msgId}`
+          : `fallback:${rawFrom}|${rawSubj}`;
+
+        // Purge expired entries (older than 10 minutes)
+        const now = Date.now();
+        for (const [k, ts] of _webhookProcessed.entries()) {
+          if (now - ts > WEBHOOK_DEDUP_TTL_MS) _webhookProcessed.delete(k);
+        }
+
+        if (_webhookProcessed.has(dedupKey)) {
+          console.log(`[Webhook] DUPLICATE detected (${dedupKey}) — returning 200 immediately`);
+          return res.status(200).json({ received: true, action: "duplicate_skipped", dedupKey });
+        }
+        _webhookProcessed.set(dedupKey, now);
+        console.log(`[Webhook] Dedup key registered: ${dedupKey}`);
+      }
 
       // ── Extract sender (use headers.from only — envelope.from has Gmail artifacts) ──
       const rawHeaderFrom: string = payload?.headers?.from ?? "";
@@ -4482,7 +4523,13 @@ export async function registerRoutes(
             console.log(`[Webhook] Attachment "${attName}": invoice ${parsed.invoiceNumber} → store UNKNOWN (storeCode=${parsed.storeCode}, delivery="${parsed.deliveryLocation ?? "n/a"}")`);
           }
 
-          const invStatus = isAutoPay ? "PAID" : "PENDING";
+          // If amount is $0 and no invoice number, AI extraction failed partially.
+          // Force REVIEW so the manager can fill in the amount manually.
+          const amountMissing = !parsed.totalAmount || parsed.totalAmount === 0;
+          const numberMissing = !parsed.invoiceNumber;
+          const needsReview = amountMissing && numberMissing;
+
+          const invStatus = needsReview ? "REVIEW" : (isAutoPay ? "PAID" : "PENDING");
           const newInv = await storage.createSupplierInvoice({
             supplierId: currentSupplier.id,
             storeId,
@@ -4492,9 +4539,11 @@ export async function registerRoutes(
             amount: parsed.totalAmount,
             status: invStatus,
             rawExtractedData: { pdfBase64: pdfResult.pdfBase64, senderEmail, subject, deliveryLocation: parsed.deliveryLocation ?? null },
-            notes: isAutoPay
-              ? `Auto-paid (Direct Debit) via email from ${senderEmail}. Subject: ${subject}. Attachment: ${attName}`
-              : `Auto-imported via email from ${senderEmail}. Subject: ${subject}. Attachment: ${attName}`,
+            notes: needsReview
+              ? `AI could not extract invoice number or amount — please review and fill in manually.\nFrom: ${senderEmail}\nSubject: ${subject}\nAttachment: ${attName}`
+              : isAutoPay
+                ? `Auto-paid (Direct Debit) via email from ${senderEmail}. Subject: ${subject}. Attachment: ${attName}`
+                : `Auto-imported via email from ${senderEmail}. Subject: ${subject}. Attachment: ${attName}`,
           });
 
           if (isAutoPay) {
