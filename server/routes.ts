@@ -4275,10 +4275,12 @@ export async function registerRoutes(
           /(?:[-=]{4,}[^<\n]{0,60}(?:forward|전달된|original\s*message|forwarded)[^<\n]{0,60}[-=]{4,}|begin forwarded message)[^\n]*\n[\s\S]{0,300}?(?:from|보낸사람|발신자?\s*:?)[\s:]*(?:[^<\n]*?<)?([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})>?/i;
 
         const blockMatch = emailBody.match(blockPattern);
-        if (blockMatch?.[1]) {
+        if (blockMatch?.[1] && !isInternalForwarder(blockMatch[1].toLowerCase())) {
           forwarderEmail = senderEmail;
           senderEmail = blockMatch[1].toLowerCase();
           console.log(`[Webhook] Forward detected (block): ${forwarderEmail} → ${senderEmail}`);
+        } else if (blockMatch?.[1] && isInternalForwarder(blockMatch[1].toLowerCase())) {
+          console.log(`[Webhook] Forward block found but extracted sender is also internal (${blockMatch[1]}) — keeping original forwarder for Triage`);
         }
 
         // ── Pattern B: Subject starts with "Fwd:" — simpler body scan ──
@@ -4362,6 +4364,25 @@ export async function registerRoutes(
           }
         }
         return null;
+      }
+
+      // ── Safety: if senderEmail is still an internal forwarder after all detection,
+      // we can't determine the true supplier — send straight to Triage ────────────
+      if (isInternalForwarder(senderEmail)) {
+        console.log(`[Webhook] senderEmail is still internal (${senderEmail}) after forward detection — routing to Triage`);
+        const senderNameFallback = rawHeaderFrom.includes("<")
+          ? rawHeaderFrom.split("<")[0].trim().replace(/^"/, "").replace(/"$/, "")
+          : null;
+        await storage.createUniversalInboxItem({
+          senderEmail,
+          senderName: senderNameFallback || null,
+          subject,
+          body: emailBody.slice(0, 8000),
+          hasAttachment,
+          rawPayload: { ...payload, _suggestedAction: "ROUTE_TO_AP" },
+          status: "NEEDS_ROUTING",
+        });
+        return res.status(200).json({ received: true, action: "saved_to_triage_inbox_internal_sender", sender: senderEmail });
       }
 
       // ── Lookup routing rule + check if direct supplier ────────────────────────
