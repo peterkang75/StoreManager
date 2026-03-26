@@ -5409,7 +5409,10 @@ Rules:
       }
 
       // 3a. Expand any REVIEW invoices that contain multiple line-items in rawExtractedData.invoices
-      //     (happens when a Statement PDF is parsed with parseInvoiceFromUnknownSender)
+      //     (happens when a Statement PDF is parsed with parseInvoiceFromUnknownSender).
+      //
+      //     PERFORMANCE: We use reviewInvoiceIds (from the frontend) for targeted PK lookups ONLY.
+      //     No full-table JSON scan — that caused 60-second TOAST decompression on every call.
       const [allStores, existingInvRows] = await Promise.all([
         storage.getStores(),
         // Lightweight: only fetch invoice_number column for this supplier (no blob data)
@@ -5432,25 +5435,10 @@ Rules:
         (existingInvRows as any).rows.map((r: any) => r.invoice_number as string | null)
       );
 
-      // Step 1: Lightweight scan — only REVIEW invoices with multi-item arrays, NO blob columns
-      const multiItemIdRows = (await db.execute(sql`
-        SELECT id, raw_extracted_data->'supplier'->>'supplierName' AS inv_supplier_name
-        FROM supplier_invoices
-        WHERE status = 'REVIEW'
-          AND jsonb_array_length(COALESCE(raw_extracted_data->'invoices', '[]'::jsonb)) > 1
-      `)) as any;
-
-      // Step 2: Filter by supplier name in JS (fast — very few multi-item REVIEW invoices exist)
-      const matchingIds: string[] = (multiItemIdRows.rows ?? [])
-        .filter((r: any) => {
-          const name: string = (r.inv_supplier_name ?? "").toLowerCase();
-          const target = supplierName.toLowerCase();
-          return name.includes(target) || target.includes(name);
-        })
-        .map((r: any) => r.id as string);
-
-      // Step 3: Fetch full invoice data ONLY for the 1-3 matching IDs
-      const matchingFull = await Promise.all(matchingIds.map(id => storage.getSupplierInvoice(id)));
+      // Fetch ONLY the specific REVIEW invoices the user is approving (by PK — instant).
+      // No table scan, no TOAST decompression of other rows.
+      const candidateIds = reviewInvoiceIds && reviewInvoiceIds.length > 0 ? reviewInvoiceIds : [];
+      const matchingFull = await Promise.all(candidateIds.map(id => storage.getSupplierInvoice(id)));
 
       let expandedCount = 0;
       for (const reviewInv of matchingFull.filter(Boolean)) {
