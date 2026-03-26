@@ -658,6 +658,7 @@ export function AdminAccountsPayable() {
       await apiRequest("PATCH", `/api/supplier-invoices/${id}/soft-delete`);
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/deleted"] });
       toast({ title: "Invoice moved to Trash", description: "You can restore it from the Trash tab." });
@@ -688,6 +689,7 @@ export function AdminAccountsPayable() {
       await apiRequest("PATCH", `/api/supplier-invoices/${id}/restore`);
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/deleted"] });
       toast({ title: "Invoice restored", description: "The invoice has been moved back." });
