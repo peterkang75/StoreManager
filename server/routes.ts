@@ -2793,14 +2793,40 @@ export async function registerRoutes(
 
       res.status(201).json(invoice);
     } catch (err: any) {
-      // Unique constraint violation → 409 so the frontend can distinguish from real errors
+      // Unique constraint violation → try ghost re-animation first, then 409
       const isUniqueViolation =
-        err?.code === "23505" ||                          // PostgreSQL unique_violation
+        err?.code === "23505" ||
         err?.message?.includes("unique") ||
         err?.message?.includes("duplicate") ||
         err?.message?.includes("already exists");
       if (isUniqueViolation) {
         const invoiceNumber = req.body?.invoiceNumber ?? "unknown";
+        const supplierId = req.body?.supplierId;
+        // If the conflicting row is a DELETED ghost, re-animate it instead of rejecting.
+        if (supplierId && invoiceNumber !== "unknown") {
+          try {
+            const reanimResult = await db.execute(sql`
+              UPDATE supplier_invoices
+              SET status     = ${invoiceStatus},
+                  supplier_id = ${supplierId},
+                  amount      = ${req.body.amount ?? null},
+                  invoice_date = ${req.body.invoiceDate ?? null},
+                  due_date    = ${req.body.dueDate ?? null},
+                  store_id    = ${req.body.storeId ?? null}
+              WHERE invoice_number = ${invoiceNumber}
+                AND (supplier_id IS NULL OR supplier_id = ${supplierId})
+                AND status = 'DELETED'
+              RETURNING *
+            `);
+            const reanimRows = (reanimResult as any).rows ?? [];
+            if (reanimRows.length > 0) {
+              console.log(`[POST /api/invoices] Ghost re-animated: ${invoiceNumber} → ${invoiceStatus}`);
+              return res.status(200).json(reanimRows[0]);
+            }
+          } catch (reanimErr) {
+            console.error("[POST /api/invoices] Ghost re-animation failed:", reanimErr);
+          }
+        }
         console.warn(`[POST /api/invoices] duplicate invoice: ${invoiceNumber}`);
         return res.status(409).json({ error: "DUPLICATE_INVOICE", invoiceNumber });
       }
