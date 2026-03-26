@@ -87,10 +87,22 @@ export async function parseInvoiceWithAI(
   const systemPrompt = `You are an invoice data extraction assistant for an Australian retail business.
 The text you receive is extracted from a PDF — table layouts may be broken or read vertically.
 
+STEP 1 — DETERMINE DOCUMENT TYPE:
+Before extracting any fields, decide whether this document is:
+  (A) A SINGLE INVOICE — one payable document for one order/delivery. Contains a single invoice number and a single total amount payable.
+  (B) A STATEMENT OF ACCOUNT — a summary document listing MULTIPLE past invoices as separate line items, each with its own invoice number, date, and individual amount. Usually has a header like "Statement of Account", "Account Statement", or "Tax Invoice Statement". Contains a "Grand Total", "Total Due", "Closing Balance", or "Statement Balance" at the bottom that SUMS all line items.
+
 CRITICAL RULES:
 1. You ALWAYS return a JSON ARRAY of invoice objects, never a single object.
-2. If the document is a single INVOICE, return an array with exactly 1 item.
-3. If the document is a STATEMENT listing multiple invoices, extract EACH individual invoice as a separate array item — including future-dated invoices and those with partial payments. DO NOT return the statement's grand total as a single invoice. Do NOT skip rows with future due dates or $0 balance.
+2. If the document is type (A) SINGLE INVOICE → return an array with exactly 1 item using the invoice's own total amount.
+3. If the document is type (B) STATEMENT OF ACCOUNT → you MUST return one array item PER LINE ITEM ROW. Each row in the statement table is a separate invoice. Extract each row's own invoice number, date, and individual line amount separately. Do NOT skip rows. Do NOT merge rows.
+
+STATEMENT EXTRACTION RULES — READ CAREFULLY:
+- Each line item row in a statement has its OWN invoice number (e.g. "26031116"), its OWN date (e.g. "11/03/2026"), and its OWN individual amount (e.g. "$795.30").
+- The "Grand Total", "Total Due", "Closing Balance", "Statement Balance", "Amount Owing", or any summary total at the BOTTOM of the document is NOT a separate invoice and must NEVER be used as the "totalAmount" for any individual line item.
+- NEVER mix fields from different rows. Invoice #26031116 must only get the amount from ITS OWN row, not the Grand Total row.
+- If a statement has 2 line item rows, return exactly 2 array objects. If it has 5 rows, return 5 objects.
+
 4. For storeCode, inspect the "Bill To", "Invoice To", "Deliver To", or "Attention" name in the document:
    - If it contains "olitin", "sushim", "sushme", or "kogarah" → storeCode = "SUSHI"
    - If it contains "eatem pty ltd" or "eatem sandwich" → storeCode = "SANDWICH"
@@ -116,21 +128,23 @@ The PDF text below is the ground truth. The supplier hint above is only a fallba
 PDF text:
 ${rawText.slice(0, 8000)}
 
-Extract all invoices and return as a JSON ARRAY. Each item must have:
+First determine if this is a SINGLE INVOICE or a STATEMENT OF ACCOUNT (see system rules).
+Then extract all invoices and return as a JSON ARRAY. Each item must have:
 [
   {
     "extractedSupplierName": "string (the ACTUAL underlying supplier/vendor as found inside the PDF body — NOT the platform name like Ordermentum or Fresho, NOT the hint above)",
     "abn": "string or null (ABN of the real supplier if found in the PDF, e.g. '12 345 678 901')",
-    "invoiceNumber": "string (the invoice or reference number)",
-    "issueDate": "YYYY-MM-DD (date the invoice was issued)",
-    "dueDate": "YYYY-MM-DD or null (payment due date if present)",
-    "totalAmount": number (total amount due as a float, no currency symbols),
+    "invoiceNumber": "string (for a Statement: the invoice number from THIS specific line item row only)",
+    "issueDate": "YYYY-MM-DD (for a Statement: the date from THIS specific line item row only)",
+    "dueDate": "YYYY-MM-DD or null (payment due date if present for this line item)",
+    "totalAmount": number (for a Statement: the individual amount from THIS specific line item row only — NEVER the Grand Total/Closing Balance),
     "storeCode": "SUSHI" | "SANDWICH" | "UNKNOWN",
     "deliveryLocation": "string or null (exact text of the Delivery/Ship To/Bill To/Attention field — the receiving store's address or name)"
   }
 ]
 
-REMINDER: If the invoice was sent via an aggregator platform (Ordermentum, Fresho, etc.), the real supplier is in the "From:" or "Vendor:" section of the PDF — return THAT name, not the platform name.
+REMINDER FOR STATEMENTS: If this is a Statement, every object in the returned array must use amounts from its OWN row only. The Grand Total / Closing Balance at the bottom of the statement must NOT appear as any object's totalAmount.
+REMINDER FOR PLATFORMS: If the invoice was sent via an aggregator platform (Ordermentum, Fresho, etc.), the real supplier is in the "From:" or "Vendor:" section of the PDF — return THAT name, not the platform name.
 If a field cannot be found, use null for optional fields or an empty string for required ones.`;
 
   try {
@@ -141,7 +155,7 @@ If a field cannot be found, use null for optional fields or an empty string for 
         { role: "user", content: userPrompt },
       ],
       temperature: 0,
-      max_tokens: 3000,
+      max_tokens: 4000,
     });
 
     const raw = response.choices[0]?.message?.content?.trim() ?? "";
