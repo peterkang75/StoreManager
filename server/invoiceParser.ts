@@ -89,17 +89,21 @@ The text you receive is extracted from a PDF — table layouts may be broken or 
 
 STEP 1 — DETERMINE DOCUMENT TYPE:
 Before extracting any fields, decide whether this document is:
-  (A) A SINGLE INVOICE — one payable document for one order/delivery. Contains a single invoice number and a single total amount payable. Does NOT use the word "STATEMENT" as a heading.
-  (B) A STATEMENT OF ACCOUNT — a summary document (usually headed "STATEMENT", "Statement of Account", or "Account Statement") listing one or more past invoices as separate table rows, each row with its own invoice number, date, and individual row amount. May have 1 row or many rows. Contains a "Grand Total", "Total", "Total Due", "Closing Balance", or "Amount Owing" at the bottom. Columns are often labelled "DOC DATE", "DETAILS", "SOURCE DOC", "BALANCE", "OUTSTANDING" etc.
+  (A) A SINGLE INVOICE — one payable document for one order/delivery. Has ONE invoice number in the header. Its table rows list PRODUCTS or LINE ITEMS (with columns like Description, Qty, UOM, Unit Price, GST %, Amount per item). The final total appears at the bottom as "Total", "Total AUD Incl. GST", "Invoice Total", "Amount Payable", "Amount Due", etc. This type does NOT use "STATEMENT" as a heading.
+  (B) A STATEMENT OF ACCOUNT — a summary document (usually headed "STATEMENT", "Statement of Account", or "Account Statement") whose table rows each represent a PAST INVOICE or TRANSACTION REFERENCE — i.e. each row has its own invoice/document number, its own transaction date, and its own row amount. May have 1 row or many rows. Contains a "Grand Total", "Total", "Total Due", "Closing Balance", or "Amount Owing" summary at the bottom. Columns are often labelled "DOC DATE", "DETAILS", "SOURCE DOC", "BALANCE", "OUTSTANDING", etc.
+
+KEY DISTINCTION — How to tell (A) from (B):
+- If the table rows contain PRODUCT DESCRIPTIONS with Qty / Unit Price / GST → it is type (A) SINGLE INVOICE, even if there are many rows.
+- If the table rows contain INVOICE/DOCUMENT REFERENCES (invoice numbers, transaction references, dates, outstanding balances per row) → it is type (B) STATEMENT.
 
 CRITICAL RULES:
 1. You ALWAYS return a JSON ARRAY of invoice objects, never a single object.
-2. If the document is type (A) SINGLE INVOICE → return an array with exactly 1 item using the invoice's own total amount.
+2. If the document is type (A) SINGLE INVOICE → return an array with exactly 1 item. For totalAmount, use the FINAL BOTTOM TOTAL: "Total AUD Incl. GST", "Total Amount Payable", "Amount Due", "Invoice Total", "Grand Total" — whichever label appears at the bottom of the invoice. This IS the correct totalAmount for a single invoice.
 3. If the document is type (B) STATEMENT OF ACCOUNT → you MUST return one array item PER LINE ITEM ROW. Each row in the statement table is a separate invoice. Extract each row's own invoice number, date, and individual line amount separately. Do NOT skip rows. Do NOT merge rows.
 
 STATEMENT EXTRACTION RULES — READ CAREFULLY:
 - Each line item row in a statement has its OWN invoice number (e.g. "26031116"), its OWN date (e.g. "11/03/2026"), and its OWN individual amount (e.g. "$795.30").
-- The "Grand Total", "Total Due", "Closing Balance", "Statement Balance", "Amount Owing", or any summary total at the BOTTOM of the document is NOT a separate invoice and must NEVER be used as the "totalAmount" for any individual line item.
+- The "Grand Total", "Total Due", "Closing Balance", "Statement Balance", "Amount Owing", or any summary total at the BOTTOM of the document is NOT a separate invoice and must NEVER be used as the "totalAmount" for any individual line item IN A STATEMENT.
 - NEVER mix fields from different rows. Invoice #26031116 must only get the amount from ITS OWN row, not the Grand Total row.
 - If a statement has 2 line item rows, return exactly 2 array objects. If it has 5 rows, return 5 objects.
 
@@ -149,7 +153,8 @@ Then extract all invoices and return as a JSON ARRAY. Each item must have:
   }
 ]
 
-REMINDER FOR STATEMENTS: If this is a Statement, every object in the returned array must use amounts from its OWN row only. The Grand Total / Closing Balance at the bottom of the statement must NOT appear as any object's totalAmount.
+REMINDER FOR SINGLE INVOICES: If this is a single invoice (type A), the totalAmount MUST be the final payable total at the bottom of the document — look for labels like "Total AUD Incl. GST", "Total Amount Payable", "Amount Due", "Invoice Total", "Amount Payable", "Total Owing". Do NOT use individual product line amounts. Do NOT return 0 unless the invoice truly shows $0.
+REMINDER FOR STATEMENTS: If this is a Statement (type B), every object in the returned array must use amounts from its OWN row only. The Grand Total / Closing Balance at the bottom of the statement must NOT appear as any object's totalAmount.
 REMINDER FOR PLATFORMS: If the invoice was sent via an aggregator platform (Ordermentum, Fresho, etc.), the real supplier is in the "From:" or "Vendor:" section of the PDF — return THAT name, not the platform name.
 If a field cannot be found, use null for optional fields or an empty string for required ones.`;
 
@@ -238,11 +243,15 @@ Extract the key fields from the invoice image or text provided.
 
 STEP 1 — DETERMINE DOCUMENT TYPE:
 First decide if this document is:
-  (A) A SINGLE INVOICE — one payable document with a single invoice number and total amount. Does NOT use the word "STATEMENT" as a heading.
-  (B) A STATEMENT OF ACCOUNT — a summary document (usually headed "STATEMENT", "Statement of Account", or "Account Statement") listing one or more invoices as separate table rows. May have 1 row or many rows. Contains a "Grand Total", "Total", "Total Due", "Closing Balance", or "Amount Owing" summary at the bottom. Columns are often labelled "DOC DATE", "DETAILS", "SOURCE DOC", "BALANCE", "OUTSTANDING", etc.
+  (A) A SINGLE INVOICE — one payable document with a single invoice number in the header. Its table rows list PRODUCTS or LINE ITEMS (Description, Qty, Unit Price, GST, Amount per item). The TOTAL at the bottom ("Total AUD Incl. GST", "Total Amount Payable", "Invoice Total", "Amount Due") is the correct invoice amount. Does NOT use "STATEMENT" as a heading.
+  (B) A STATEMENT OF ACCOUNT — a summary document (usually headed "STATEMENT", "Statement of Account", or "Account Statement") whose table rows each represent a PAST INVOICE REFERENCE (each row has its own invoice/document number, date, and outstanding balance). May have 1 row or many rows. Contains a "Grand Total", "Total", "Closing Balance", or "Amount Owing" summary at the bottom. Columns are often labelled "DOC DATE", "DETAILS", "SOURCE DOC", "BALANCE", "OUTSTANDING", etc.
+
+KEY DISTINCTION:
+- Rows list PRODUCTS (Qty, Unit Price, GST) → type (A) SINGLE INVOICE
+- Rows list INVOICE/DOCUMENT REFERENCES (invoice numbers, transaction refs, dates, balance per row) → type (B) STATEMENT
 
 CRITICAL RULES:
-1. If document is type (A) SINGLE INVOICE → return a JSON ARRAY with exactly 1 object.
+1. If document is type (A) SINGLE INVOICE → return a JSON ARRAY with exactly 1 object. For "amount", use the FINAL bottom total ("Total AUD Incl. GST", "Total Amount Payable", "Invoice Total", "Amount Due") — this is the correct amount, not individual line amounts.
 2. If document is type (B) STATEMENT → return a JSON ARRAY with ONE object PER LINE ITEM ROW. Each row has its own invoice number, date, and individual line amount. NEVER use the Grand Total / Closing Balance / Statement Total as the amount for any individual line item.
 3. For storeCode, look for the "Bill To", "Invoice To", or "Deliver To" name:
    - Contains "olitin" or "sushime" → "SUSHI"

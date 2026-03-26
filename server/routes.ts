@@ -4562,11 +4562,11 @@ export async function registerRoutes(
             console.log(`[Webhook] Attachment "${attName}": invoice ${parsed.invoiceNumber} → store UNKNOWN (storeCode=${parsed.storeCode}, delivery="${parsed.deliveryLocation ?? "n/a"}")`);
           }
 
-          // If amount is $0 and no invoice number, AI extraction failed partially.
-          // Force REVIEW so the manager can fill in the amount manually.
+          // If amount is $0, AI extraction failed — force REVIEW so manager can fill in manually.
+          // A real $0 invoice is extremely rare; guarding on amount alone is safest.
           const amountMissing = !parsed.totalAmount || parsed.totalAmount === 0;
           const numberMissing = !parsed.invoiceNumber;
-          const needsReview = amountMissing && numberMissing;
+          const needsReview = amountMissing; // Amount is required — $0 always goes to REVIEW
 
           const invStatus = needsReview ? "REVIEW" : (isAutoPay ? "PAID" : "PENDING");
           const newInv = await storage.createSupplierInvoice({
@@ -4579,13 +4579,13 @@ export async function registerRoutes(
             status: invStatus,
             rawExtractedData: { pdfBase64: pdfResult.pdfBase64, senderEmail, subject, deliveryLocation: parsed.deliveryLocation ?? null },
             notes: needsReview
-              ? `AI could not extract invoice number or amount — please review and fill in manually.\nFrom: ${senderEmail}\nSubject: ${subject}\nAttachment: ${attName}`
+              ? `AI could not extract the invoice amount${numberMissing ? " or invoice number" : ""} — please review and fill in manually.\nFrom: ${senderEmail}\nSubject: ${subject}\nAttachment: ${attName}`
               : isAutoPay
                 ? `Auto-paid (Direct Debit) via email from ${senderEmail}. Subject: ${subject}. Attachment: ${attName}`
                 : `Auto-imported via email from ${senderEmail}. Subject: ${subject}. Attachment: ${attName}`,
           });
 
-          if (isAutoPay) {
+          if (isAutoPay && !needsReview) {
             await storage.createSupplierPayment({
               supplierId: currentSupplier.id, invoiceId: newInv.id,
               paymentDate: parsed.issueDate ?? today, amount: parsed.totalAmount ?? 0,
