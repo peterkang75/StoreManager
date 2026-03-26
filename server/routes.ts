@@ -2691,6 +2691,27 @@ export async function registerRoutes(
       if (!status || !VALID.includes(status)) {
         return res.status(400).json({ error: `Invalid status. Must be one of: ${VALID.join(", ")}` });
       }
+
+      // ── Backend safety net: block manual PAID marking of Auto-Pay invoices ──
+      // Auto-Pay (Direct Debit) invoices are settled automatically via the webhook.
+      // Manually marking them as PAID risks creating a false double-payment record.
+      // The frontend already prevents selection, but this guard catches any bypass.
+      // Exception: PENDING / OVERDUE / QUARANTINE transitions are still allowed
+      // (needed for bounced direct debit workflows).
+      if (status === "PAID") {
+        const invoice = await storage.getSupplierInvoice(id);
+        if (invoice?.supplierId) {
+          const supplier = await storage.getSupplier(invoice.supplierId);
+          if (supplier?.isAutoPay === true) {
+            console.warn(`[Safety] Blocked manual PAID on auto-pay invoice ${id} (supplier: ${supplier.name})`);
+            return res.status(409).json({
+              error: "This invoice belongs to a Direct Debit supplier and cannot be manually marked as paid.",
+              code: "AUTO_PAY_PROTECTED",
+            });
+          }
+        }
+      }
+
       const updated = await storage.updateSupplierInvoice(id, { status });
       if (!updated) return res.status(404).json({ error: "Invoice not found" });
       res.json(updated);

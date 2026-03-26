@@ -199,6 +199,7 @@ function isDueSoon(dueDate: string | null | undefined, status: string): boolean 
 interface SupplierGroup {
   supplierId: string;
   supplierName: string;
+  isAutoPay: boolean;
   invoices: EnrichedInvoice[];
   totalAmount: number;
   overdueAmount: number;
@@ -212,6 +213,7 @@ function groupBySupplier(invoices: EnrichedInvoice[]): SupplierGroup[] {
       map.set(key, {
         supplierId: key,
         supplierName: inv.supplier?.name ?? "Unknown Supplier",
+        isAutoPay: inv.supplier?.isAutoPay === true,
         invoices: [],
         totalAmount: 0,
         overdueAmount: 0,
@@ -1034,6 +1036,9 @@ export function AdminAccountsPayable() {
 
   // ── Selection helpers ───────────────────────────────────────────────────────
   function toggleOne(id: string) {
+    // Prevent selection of auto-pay invoices
+    const inv = toPayInvoices.find(i => i.id === id);
+    if (inv?.supplier?.isAutoPay === true) return;
     setSelected(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -1043,7 +1048,11 @@ export function AdminAccountsPayable() {
   }
 
   function toggleSupplier(group: SupplierGroup) {
-    const ids = group.invoices.map(i => i.id);
+    // Auto-Pay suppliers: no invoices can be selected
+    if (group.isAutoPay) return;
+    const ids = group.invoices
+      .filter(i => i.supplier?.isAutoPay !== true)
+      .map(i => i.id);
     const allSel = ids.every(id => selected.has(id));
     setSelected(prev => {
       const next = new Set(prev);
@@ -1323,21 +1332,34 @@ export function AdminAccountsPayable() {
                     <AccordionItem
                       key={group.supplierId}
                       value={group.supplierId}
-                      className="border border-border/40 rounded-lg bg-card overflow-hidden"
+                      className={`border rounded-lg bg-card overflow-hidden ${group.isAutoPay ? "border-border/25 opacity-75" : "border-border/40"}`}
                       data-testid={`supplier-group-${group.supplierId}`}
                     >
                       <AccordionPrimitive.Header className="flex items-center px-4 py-3 hover:bg-muted/30 transition-colors">
-                        <Checkbox
-                          checked={allGroupSelected}
-                          data-state={someGroupSelected && !allGroupSelected ? "indeterminate" : undefined}
-                          onCheckedChange={() => toggleSupplier(group)}
-                          aria-label={`Select all invoices for ${group.supplierName}`}
-                          data-testid={`checkbox-supplier-${group.supplierId}`}
-                          className="mr-3 shrink-0"
-                        />
+                        {/* Checkbox: hidden for Auto-Pay suppliers, replaced with spacer */}
+                        {group.isAutoPay ? (
+                          <div className="w-4 h-4 mr-3 shrink-0" aria-hidden="true" />
+                        ) : (
+                          <Checkbox
+                            checked={allGroupSelected}
+                            data-state={someGroupSelected && !allGroupSelected ? "indeterminate" : undefined}
+                            onCheckedChange={() => toggleSupplier(group)}
+                            aria-label={`Select all invoices for ${group.supplierName}`}
+                            data-testid={`checkbox-supplier-${group.supplierId}`}
+                            className="mr-3 shrink-0"
+                          />
+                        )}
                         <AccordionPrimitive.Trigger className="flex flex-1 items-center justify-between gap-2 min-w-0 text-left [&[data-state=open]>svg]:rotate-180">
                           <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm">{group.supplierName}</p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-semibold text-sm">{group.supplierName}</p>
+                              {group.isAutoPay && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300 whitespace-nowrap" data-testid={`badge-autopay-${group.supplierId}`}>
+                                  <Zap className="h-2.5 w-2.5" />
+                                  Direct Debit
+                                </span>
+                              )}
+                            </div>
                             <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                               <span className="text-xs text-muted-foreground">
                                 {group.invoices.length} invoice{group.invoices.length !== 1 ? "s" : ""}
@@ -1391,28 +1413,48 @@ export function AdminAccountsPayable() {
                                   const dueSoon = isDueSoon(inv.dueDate, inv.status);
                                   const isChecked = selected.has(inv.id);
                                   const store = stores.find(s => s.id === inv.storeId);
+                                  const isAutoDebitRow = inv.supplier?.isAutoPay === true;
 
                                   return (
                                     <tr
                                       key={inv.id}
                                       className={`border-b border-border/10 last:border-0 transition-colors ${
-                                        isChecked ? "bg-primary/5" : overdue ? "bg-red-50/40 dark:bg-red-950/10" : "hover:bg-muted/20"
+                                        isAutoDebitRow
+                                          ? "opacity-60"
+                                          : isChecked
+                                            ? "bg-primary/5"
+                                            : overdue
+                                              ? "bg-red-50/40 dark:bg-red-950/10"
+                                              : "hover:bg-muted/20"
                                       }`}
                                       data-testid={`row-invoice-${inv.id}`}
                                     >
                                       <td className="pl-4 py-2.5 w-10">
-                                        <Checkbox
-                                          checked={isChecked}
-                                          onCheckedChange={() => toggleOne(inv.id)}
-                                          aria-label={`Select invoice ${inv.invoiceNumber}`}
-                                          data-testid={`checkbox-invoice-${inv.id}`}
-                                        />
+                                        {isAutoDebitRow ? (
+                                          /* No checkbox for auto-pay invoices — selection is disabled */
+                                          <div className="w-4 h-4" aria-hidden="true" data-testid={`no-checkbox-autopay-${inv.id}`} />
+                                        ) : (
+                                          <Checkbox
+                                            checked={isChecked}
+                                            onCheckedChange={() => toggleOne(inv.id)}
+                                            aria-label={`Select invoice ${inv.invoiceNumber}`}
+                                            data-testid={`checkbox-invoice-${inv.id}`}
+                                          />
+                                        )}
                                       </td>
                                       <td className="py-2.5 px-3 text-muted-foreground whitespace-nowrap">
                                         {fmt(inv.invoiceDate)}
                                       </td>
                                       <td className="py-2.5 px-3 font-semibold tabular-nums text-right whitespace-nowrap">
-                                        {fmtAUD(inv.amount ?? 0)}
+                                        <div className="flex items-center justify-end gap-1.5">
+                                          {fmtAUD(inv.amount ?? 0)}
+                                          {isAutoDebitRow && (
+                                            <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-semibold bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-400 whitespace-nowrap" data-testid={`badge-autopay-row-${inv.id}`}>
+                                              <Zap className="h-2 w-2" />
+                                              DD
+                                            </span>
+                                          )}
+                                        </div>
                                       </td>
                                       <td className="py-2.5 px-3 whitespace-nowrap">
                                         {inv.dueDate ? (
