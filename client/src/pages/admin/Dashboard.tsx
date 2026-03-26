@@ -8,13 +8,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SettlementModal, type EnrichedSettlement } from "@/components/admin/SettlementModal";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   ResponsiveContainer,
   ComposedChart,
   Bar,
@@ -65,6 +58,16 @@ function firstOfMonthYMD(): string {
     new Date().toLocaleString("en-US", { timeZone: "Australia/Sydney" })
   );
   d.setDate(1);
+  return d.toLocaleDateString("en-CA");
+}
+
+function thisWeekStartYMD(): string {
+  const d = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Australia/Sydney" })
+  );
+  const day = d.getDay(); // 0=Sun
+  const diff = day === 0 ? -6 : 1 - day; // back to Monday
+  d.setDate(d.getDate() + diff);
   return d.toLocaleDateString("en-CA");
 }
 
@@ -234,7 +237,7 @@ function fmtTodoDue(date: string | Date | null): string | null {
 export function AdminDashboard() {
   const [startDate, setStartDate] = useState(firstOfMonthYMD);
   const [endDate, setEndDate]     = useState(todayYMD);
-  const [storeId, setStoreId]     = useState("ALL");
+  const [selectedTypes, setSelectedTypes] = useState<string[]>(["Sushi", "Sandwich"]);
   const [settlementTarget, setSettlementTarget] = useState<EnrichedSettlement | null>(null);
   const [markingDoneId, setMarkingDoneId] = useState<string | null>(null);
   const { toast } = useToast();
@@ -297,14 +300,24 @@ export function AdminDashboard() {
     })
     .slice(0, 5);
 
+  const activeStoreList = (stores ?? []).filter(s => s.active);
+
+  const effectiveStoreId = useMemo(() => {
+    if (selectedTypes.length === 0 || selectedTypes.length === 2) return "ALL";
+    const match = activeStoreList.find(s =>
+      selectedTypes.some(t => s.name.toLowerCase().includes(t.toLowerCase()))
+    );
+    return match ? match.id : "ALL";
+  }, [selectedTypes, activeStoreList]);
+
   const params = useMemo(() => {
     const p = new URLSearchParams({ startDate, endDate });
-    if (storeId !== "ALL") p.set("storeId", storeId);
+    if (effectiveStoreId !== "ALL") p.set("storeId", effectiveStoreId);
     return p.toString();
-  }, [startDate, endDate, storeId]);
+  }, [startDate, endDate, effectiveStoreId]);
 
   const { data: summary, isLoading: summaryLoading } = useQuery<DashboardSummary>({
-    queryKey: ["/api/dashboard/summary", startDate, endDate, storeId],
+    queryKey: ["/api/dashboard/summary", startDate, endDate, effectiveStoreId],
     queryFn: async () => {
       const res = await fetch(`/api/dashboard/summary?${params}`);
       if (!res.ok) throw new Error("Failed to fetch summary");
@@ -337,8 +350,6 @@ export function AdminDashboard() {
     Sales: row.sales,
     COGS: row.cogs,
   }));
-
-  const activeStoreList = (stores ?? []).filter(s => s.active);
 
   // ── Triage: needs routing ─────────────────────────────────────────────────
   const needsRouting = allTriageItems.filter(i => i.status === "NEEDS_ROUTING");
@@ -406,19 +417,40 @@ export function AdminDashboard() {
                 data-testid="input-end-date"
               />
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground whitespace-nowrap">Store</span>
-              <Select value={storeId} onValueChange={setStoreId}>
-                <SelectTrigger className="w-36" data-testid="select-store-filter">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All Stores</SelectItem>
-                  {activeStoreList.map(s => (
-                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { setStartDate(thisWeekStartYMD()); setEndDate(todayYMD()); }}
+              data-testid="button-this-week"
+            >
+              This Week
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { setStartDate(firstOfMonthYMD()); setEndDate(todayYMD()); }}
+              data-testid="button-this-month"
+            >
+              This Month
+            </Button>
+            <div className="flex items-center gap-2 ml-2">
+              {(["Sushi", "Sandwich"] as const).map(type => {
+                const isOn = selectedTypes.includes(type);
+                return (
+                  <Button
+                    key={type}
+                    size="sm"
+                    variant={isOn ? "default" : "outline"}
+                    className={isOn ? (type === "Sushi" ? "bg-green-600 border-green-600 text-white" : "bg-red-600 border-red-600 text-white") : ""}
+                    onClick={() => setSelectedTypes(prev =>
+                      prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
+                    )}
+                    data-testid={`button-store-${type.toLowerCase()}`}
+                  >
+                    {type}
+                  </Button>
+                );
+              })}
             </div>
           </div>
 
