@@ -44,11 +44,16 @@ import { useAdminRole, type AdminRole } from "@/contexts/AdminRoleContext";
 
 // ─── Nav item definitions ────────────────────────────────────────────────────
 
-const hiringNavItems = [
-  { title: "Dashboard",   url: "/admin",             icon: LayoutDashboard },
-  { title: "Stores",      url: "/admin/stores",       icon: Store },
-  { title: "Candidates",  url: "/admin/candidates",   icon: Users },
-  { title: "Employees",   url: "/admin/employees",    icon: UserCheck },
+const dashboardNavItem = [
+  { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
+];
+
+const financeNavItems = [
+  { title: "Accounts Payable", url: "/admin/accounts-payable",     icon: CreditCard },
+  { title: "Cash Flow",        url: "/admin/finance",              icon: ArrowLeftRight },
+  { title: "Cash & Close",     url: "/admin/cash",                 icon: Wallet },
+  { title: "Suppliers",        url: "/admin/suppliers",            icon: Truck },
+  { title: "Invoices",         url: "/admin/suppliers/invoices",   icon: FileText },
 ];
 
 const operationsNavItems = [
@@ -58,21 +63,19 @@ const operationsNavItems = [
   { title: "Payroll",           url: "/admin/payrolls",  icon: DollarSign },
 ];
 
+const hiringNavItems = [
+  { title: "Employees",  url: "/admin/employees",    icon: UserCheck },
+  { title: "Candidates", url: "/admin/candidates",   icon: Users },
+  { title: "Stores",     url: "/admin/stores",       icon: Store },
+];
+
 const commsNavItems = [
   { title: "Notices", url: "/admin/notices", icon: Megaphone },
 ];
 
 const executiveNavItems = [
-  { title: "AI Smart Inbox", url: "/admin/executive", icon: BrainCircuit },
+  { title: "AI Smart Inbox", url: "/admin/executive",   icon: BrainCircuit },
   { title: "Triage Inbox",   url: "/admin/triage-inbox", icon: Inbox },
-];
-
-const financeNavItems = [
-  { title: "Cash Flow",       url: "/admin/finance",              icon: ArrowLeftRight },
-  { title: "Cash & Close",    url: "/admin/cash",                 icon: Wallet },
-  { title: "Suppliers",       url: "/admin/suppliers",            icon: Truck },
-  { title: "Invoices",        url: "/admin/suppliers/invoices",   icon: FileText },
-  { title: "Accounts Payable",url: "/admin/accounts-payable",     icon: CreditCard },
 ];
 
 const settingsNavItems = [
@@ -101,7 +104,7 @@ function AdminSidebar() {
     if (visible.length === 0) return null;
     return (
       <SidebarGroup>
-        <SidebarGroupLabel>{label}</SidebarGroupLabel>
+        {label && <SidebarGroupLabel>{label}</SidebarGroupLabel>}
         <SidebarGroupContent>
           <SidebarMenu>
             {visible.map((item) => (
@@ -162,9 +165,10 @@ function AdminSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        {renderGroup("Hiring", hiringNavItems)}
-        {renderGroup("Operations", operationsNavItems)}
+        {renderGroup("", dashboardNavItem)}
         {renderGroup("Finance", financeNavItems)}
+        {renderGroup("Operations", operationsNavItems)}
+        {renderGroup("Hiring", hiringNavItems)}
         {renderGroup("Communications", commsNavItems)}
         {renderGroup("Executive", executiveNavItems)}
         {/* Settings is always visible to ADMIN; hidden to others via hasAccess check */}
