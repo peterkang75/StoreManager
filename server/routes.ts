@@ -4951,18 +4951,136 @@ export async function registerRoutes(
                       ? await storage.findSupplierByName(unknownParsed.supplier.supplierName)
                       : undefined;
                     if (nameMatch) {
-                      await upgradeToFinal(
-                        `Routed from Triage Inbox.`,
-                        { senderEmail, subject, supplier: unknownParsed.supplier, _aiParsed: true },
-                        "PENDING",
-                        {
-                          supplierId: nameMatch.id,
-                          storeId: null,
-                          invoiceNumber: unknownParsed.invoices[0]?.invoiceNumber || `TRIAGE-${Date.now()}`,
-                          invoiceDate: unknownParsed.invoices[0]?.issueDate,
-                          amount: unknownParsed.invoices[0]?.totalAmount,
-                        },
+                      // ── Process ALL invoices in the statement (not just the first) ────
+                      // This is the same two-phase pattern used by approve-group:
+                      //   Phase 1: Upgrade placeholder (first new invoice) — with ghost adoption
+                      //   Phase 2: Bulk ghost re-animation + ON CONFLICT DO NOTHING insert
+                      // rawExtractedData always includes the full invoice list so the
+                      // Review Inbox can display/expand them on approval.
+                      const rawWithAll = {
+                        senderEmail, subject,
+                        supplier: unknownParsed.supplier,
+                        invoices: unknownParsed.invoices,
+                        _aiParsed: true,
+                      };
+                      const baseNotes = `Routed from Triage Inbox.\nFrom: ${senderEmail}\nSubject: ${subject}`;
+
+                      // Fetch existing (non-DELETED) invoices to detect true duplicates.
+                      // DELETED invoices are ghost candidates — handled via re-animation.
+                      const existingForSupplier = await storage.getSupplierInvoices({ supplierId: nameMatch.id });
+                      const existingNums = new Set(
+                        existingForSupplier
+                          .filter(i => i.status !== "DELETED")
+                          .map(i => i.invoiceNumber)
+                          .filter(Boolean)
                       );
+
+                      const bulkInserts: any[] = [];
+                      let firstDone = false;
+                      let placeholderUpgraded = false;
+
+                      for (const parsed of unknownParsed.invoices) {
+                        if (!parsed.invoiceNumber && !parsed.totalAmount) continue;
+                        if (parsed.invoiceNumber && existingNums.has(parsed.invoiceNumber)) {
+                          console.log(`[TriageRoute/bg] Already exists (active): ${parsed.invoiceNumber} — skipping`);
+                          continue;
+                        }
+
+                        if (!firstDone) {
+                          // Phase 1: Upgrade the REVIEW placeholder → PENDING for the first new invoice.
+                          try {
+                            await upgradeToFinal(
+                              `Routed from Triage Inbox.`,
+                              rawWithAll,
+                              "PENDING",
+                              {
+                                supplierId: nameMatch.id, storeId: null,
+                                invoiceNumber: parsed.invoiceNumber,
+                                invoiceDate: parsed.issueDate,
+                                dueDate: parsed.dueDate ?? undefined,
+                                amount: parsed.totalAmount,
+                              },
+                            );
+                            firstDone = true;
+                            placeholderUpgraded = true;
+                          } catch (dupErr: any) {
+                            if (dupErr?.code === "23505" || dupErr?.message?.includes("unique constraint")) {
+                              // Conflict: may be a DELETED ghost. Adopt it (same as approve-group).
+                              const adoptResult = await db.execute(sql`
+                                UPDATE supplier_invoices
+                                SET supplier_id = ${nameMatch.id},
+                                    status = CASE WHEN status = 'DELETED' THEN 'PENDING' ELSE status END,
+                                    notes = COALESCE(notes, ${baseNotes})
+                                WHERE invoice_number = ${parsed.invoiceNumber}
+                                  AND (supplier_id IS NULL OR supplier_id = ${nameMatch.id})
+                                  AND status != 'REVIEW'
+                                RETURNING id, status
+                              `);
+                              const adoptedRows = (adoptResult as any).rows ?? [];
+                              if (adoptedRows.length > 0) {
+                                console.log(`[TriageRoute/bg] Adopted ghost invoice ${parsed.invoiceNumber} (was ${adoptedRows[0].status})`);
+                                firstDone = true; // Ghost handled — placeholder still needs cleanup
+                              } else {
+                                console.warn(`[TriageRoute/bg] True duplicate (non-ghost): ${parsed.invoiceNumber} — skip`);
+                              }
+                            } else { throw dupErr; }
+                          }
+                        } else {
+                          // Phase 2: Queue for bulk insert.
+                          bulkInserts.push({
+                            supplierId: nameMatch.id,
+                            storeId: null,
+                            invoiceNumber: parsed.invoiceNumber,
+                            invoiceDate: parsed.issueDate,
+                            dueDate: parsed.dueDate ?? undefined,
+                            amount: parsed.totalAmount,
+                            status: "PENDING" as const,
+                            notes: baseNotes,
+                          });
+                        }
+                        if (parsed.invoiceNumber) existingNums.add(parsed.invoiceNumber);
+                      }
+
+                      // Bulk upsert remaining items (phases 1+2 of approve-group pattern):
+                      if (bulkInserts.length > 0) {
+                        const bulkNums = bulkInserts.map((r: any) => r.invoiceNumber).filter(Boolean) as string[];
+                        if (bulkNums.length > 0) {
+                          const inList = bulkNums.map(n => `'${n.replace(/'/g, "''")}'`).join(",");
+                          const reanimated = await db.execute(sql`
+                            UPDATE supplier_invoices
+                            SET status = 'PENDING', supplier_id = ${nameMatch.id}
+                            WHERE (supplier_id = ${nameMatch.id} OR supplier_id IS NULL)
+                              AND invoice_number IN (${sql.raw(inList)})
+                              AND status = 'DELETED'
+                          `);
+                          const reanimCount = (reanimated as any).rowCount ?? 0;
+                          if (reanimCount > 0)
+                            console.log(`[TriageRoute/bg] Re-animated ${reanimCount} ghost invoice(s) for ${nameMatch.name}`);
+                        }
+                        const insertResult = await db.insert(supplierInvoices)
+                          .values(bulkInserts)
+                          .onConflictDoNothing()
+                          .returning({ id: supplierInvoices.id });
+                        console.log(`[TriageRoute/bg] Bulk: ${insertResult.length} new invoice(s) for ${nameMatch.name}`);
+                      }
+
+                      if (!firstDone) {
+                        // All invoices already exist — leave placeholder as REVIEW with full info.
+                        await upgradeToFinal(
+                          `All ${unknownParsed.invoices.length} invoice(s) already exist for "${nameMatch.name}". No new invoices added.`,
+                          rawWithAll,
+                          "REVIEW",
+                        );
+                        console.log(`[TriageRoute/bg] All invoices for ${nameMatch.name} are duplicates — REVIEW.`);
+                      } else if (!placeholderUpgraded) {
+                        // firstDone via ghost adoption but placeholder was never upgraded.
+                        // Update it to a summary REVIEW so it's visible and dismissable.
+                        await upgradeToFinal(
+                          `Invoice(s) re-activated from archive for "${nameMatch.name}".`,
+                          rawWithAll,
+                          "REVIEW",
+                        );
+                      }
                     } else {
                       await upgradeToFinal(
                         `Unknown supplier. Please review and add.`,
