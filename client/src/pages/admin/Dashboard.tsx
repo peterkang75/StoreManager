@@ -541,11 +541,11 @@ export function AdminDashboard() {
                   <p className="text-sm text-green-700 dark:text-green-400">모든 이메일이 라우팅되었습니다.</p>
                 </div>
               ) : (
-                <div className="space-y-2" data-testid="list-triage-items">
+                <div className="space-y-3" data-testid="list-triage-items">
                   {needsRouting.slice(0, 5).map((item) => (
                     <Link key={item.id} href="/admin/triage">
                       <div
-                        className="flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-background px-4 py-3 hover-elevate cursor-pointer"
+                        className="flex flex-wrap items-center gap-3 rounded-lg border border-border/50 bg-card shadow-sm px-4 py-3 hover:shadow-md transition-shadow cursor-pointer"
                         data-testid={`triage-row-${item.id}`}
                       >
                         <Mail className="w-4 h-4 text-amber-500 shrink-0" />
@@ -608,11 +608,11 @@ export function AdminDashboard() {
                   <p className="text-sm text-green-700 dark:text-green-400">검토 대기 중인 인보이스가 없습니다.</p>
                 </div>
               ) : (
-                <div className="space-y-2" data-testid="list-ap-review-items">
+                <div className="space-y-3" data-testid="list-ap-review-items">
                   {reviewGroups.slice(0, 5).map((group) => (
                     <Link key={group.key} href="/admin/ap">
                       <div
-                        className="flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-background px-4 py-3 hover-elevate cursor-pointer"
+                        className="flex flex-wrap items-center gap-3 rounded-lg border border-border/50 bg-card shadow-sm px-4 py-3 hover:shadow-md transition-shadow cursor-pointer"
                         data-testid={`ap-review-row-${group.key}`}
                       >
                         <FileText className="w-4 h-4 text-blue-500 shrink-0" />
@@ -674,7 +674,7 @@ export function AdminDashboard() {
               </p>
             </div>
           ) : (
-            <div className="space-y-2" data-testid="list-inbox-tasks">
+            <div className="space-y-3" data-testid="list-inbox-tasks">
               {urgentTodos.map((todo) => {
                 const overdue = isOverdue(todo.dueDate);
                 const dueFmt = fmtTodoDue(todo.dueDate);
@@ -682,7 +682,7 @@ export function AdminDashboard() {
                 return (
                   <div
                     key={todo.id}
-                    className="flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-background px-4 py-3 hover:bg-muted/20 transition-colors"
+                    className="flex flex-wrap items-center gap-3 rounded-lg border border-border/50 bg-card shadow-sm px-4 py-3 hover:shadow-md transition-shadow"
                     data-testid={`inbox-task-${todo.id}`}
                   >
                     <div className="flex-1 min-w-0">
