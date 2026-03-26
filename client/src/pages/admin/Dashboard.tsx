@@ -544,7 +544,7 @@ export function AdminDashboard() {
               {needsRouting.slice(0, 5).map((item) => (
                 <Link key={item.id} href="/admin/triage">
                   <div
-                    className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-400/40 bg-amber-500/5 px-4 py-3 hover-elevate cursor-pointer"
+                    className="flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-background px-4 py-3 hover-elevate cursor-pointer"
                     data-testid={`triage-row-${item.id}`}
                   >
                     <Mail className="w-4 h-4 text-amber-500 shrink-0" />
@@ -608,7 +608,7 @@ export function AdminDashboard() {
               {reviewGroups.slice(0, 5).map((group) => (
                 <Link key={group.key} href="/admin/ap">
                   <div
-                    className="flex flex-wrap items-center gap-3 rounded-lg border border-blue-400/30 bg-blue-500/5 px-4 py-3 hover-elevate cursor-pointer"
+                    className="flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-background px-4 py-3 hover-elevate cursor-pointer"
                     data-testid={`ap-review-row-${group.key}`}
                   >
                     <FileText className="w-4 h-4 text-blue-500 shrink-0" />
