@@ -60,11 +60,15 @@ type EnrichedInvoice = SupplierInvoice & { supplier: Supplier | null };
 interface ExtractedSupplierInfo {
   supplierName: string;
   senderEmail?: string;
-  abn?: string;
-  address?: string;
-  bsb?: string;
-  accountNumber?: string;
-  contactName?: string;
+  // Server field names (from parseInvoiceFromUnknownSender)
+  supplierAddress?: string | null;
+  supplierPhone?: string | null;
+  abn?: string | null;
+  bsb?: string | null;
+  accountNumber?: string | null;
+  // Legacy field names (kept for backward compat)
+  address?: string | null;
+  contactName?: string | null;
 }
 interface ReviewRawData {
   senderEmail: string;
@@ -275,36 +279,31 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
   const raw = firstInvoice?.rawExtractedData as ReviewRawData | null;
   const [isAutoPay, setIsAutoPay] = useState(false);
 
-  // Smart pre-fill: AI extraction → subject cleanup → email domain fallback
-  const hint = extractSupplierHint(raw, firstInvoice?.notes ?? null);
+  // Build form values from rawExtractedData, handling both server field names
+  // (supplierAddress, supplierPhone) and legacy field names (address, contactName)
+  function buildFormValues(r: ReviewRawData | null, notes: string | null) {
+    const h = extractSupplierHint(r, notes);
+    const s = r?.supplier;
+    return {
+      name: h.name,
+      abn: s?.abn ?? "",
+      contactName: s?.supplierPhone ?? s?.contactName ?? "",
+      contactEmails: h.email,
+      bsb: s?.bsb ?? "",
+      accountNumber: s?.accountNumber ?? "",
+      address: s?.supplierAddress ?? s?.address ?? "",
+      notes: "",
+    };
+  }
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<SupplierFormValues>({
-    defaultValues: {
-      name: hint.name,
-      abn: raw?.supplier?.abn ?? "",
-      contactName: raw?.supplier?.contactName ?? "",
-      contactEmails: hint.email,
-      bsb: raw?.supplier?.bsb ?? "",
-      accountNumber: raw?.supplier?.accountNumber ?? "",
-      address: raw?.supplier?.address ?? "",
-      notes: "",
-    },
+    defaultValues: buildFormValues(raw, firstInvoice?.notes ?? null),
   });
 
   useEffect(() => {
     if (firstInvoice) {
       const r = firstInvoice.rawExtractedData as ReviewRawData | null;
-      const h = extractSupplierHint(r, firstInvoice.notes ?? null);
-      reset({
-        name: h.name,
-        abn: r?.supplier?.abn ?? "",
-        contactName: r?.supplier?.contactName ?? "",
-        contactEmails: h.email,
-        bsb: r?.supplier?.bsb ?? "",
-        accountNumber: r?.supplier?.accountNumber ?? "",
-        address: r?.supplier?.address ?? "",
-        notes: "",
-      });
+      reset(buildFormValues(r, firstInvoice.notes ?? null));
       setIsAutoPay(false);
     }
   }, [firstInvoice?.id, reset]);
