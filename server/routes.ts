@@ -3061,12 +3061,14 @@ export async function registerRoutes(
         return res.status(422).json({ error: "Re-parse did not return any invoices" });
       }
 
-      // Merge back: keep existing supplier/senderEmail/subject/pdfBase64, update invoices
+      // Merge back: keep existing senderEmail/subject/pdfBase64, update supplier + invoices.
+      // Set _aiParsed: true so the frontend knows to trust the supplier name for grouping.
       const updated = await storage.updateSupplierInvoice(id, {
         rawExtractedData: {
           ...raw,
           supplier: reparsed.supplier,
           invoices: reparsed.invoices,
+          _aiParsed: true,
         },
       });
 
@@ -4839,7 +4841,11 @@ export async function registerRoutes(
           amount: 0,
           status: "REVIEW",
           notes: `Routed from Triage Inbox. Parsing in progress…\nFrom: ${senderEmail}\nSubject: ${subject}`,
-          rawExtractedData: { senderEmail, subject, supplier: { supplierName: item.senderName ?? "" }, body: item.body?.slice(0, 8000), pdfBase64: triagePdfBase64 },
+          // IMPORTANT: Do NOT use item.senderName here — when an internal forwarder
+          // (e.g. Peter Kang) routes invoices from multiple suppliers, using their
+          // personal name as supplierName groups unrelated suppliers together.
+          // Leave supplierName blank; the background AI parser will fill it in.
+          rawExtractedData: { senderEmail, subject, supplier: { supplierName: "" }, body: item.body?.slice(0, 8000), pdfBase64: triagePdfBase64 },
         });
         processResult.invoiceId = reviewInv.id;
         processResult.reviewCreated = true;
@@ -4895,7 +4901,7 @@ export async function registerRoutes(
                           // Upgrade the placeholder for the first invoice
                           await upgradeToFinal(
                             `Routed from Triage Inbox.`,
-                            { senderEmail, subject, supplier: { supplierName: matchedSupplier.name } },
+                            { senderEmail, subject, supplier: { supplierName: matchedSupplier.name }, _aiParsed: true },
                             "PENDING",
                             { supplierId: matchedSupplier.id, storeId, invoiceNumber: parsed.invoiceNumber, invoiceDate: parsed.issueDate, dueDate: parsed.dueDate ?? undefined, amount: parsed.totalAmount },
                           );
@@ -4926,14 +4932,14 @@ export async function registerRoutes(
                       // AI returned items but all were duplicates
                       await upgradeToFinal(
                         `Duplicate invoices — already in system.`,
-                        { senderEmail, subject, supplier: { supplierName: matchedSupplier.name } },
+                        { senderEmail, subject, supplier: { supplierName: matchedSupplier.name }, _aiParsed: true },
                         "REVIEW",
                       );
                     }
                   } else {
                     await upgradeToFinal(
                       `PDF parsed but no invoice data extracted.`,
-                      { senderEmail, subject, supplier: { supplierName: matchedSupplier.name } },
+                      { senderEmail, subject, supplier: { supplierName: matchedSupplier.name }, _aiParsed: true },
                       "REVIEW",
                     );
                   }
@@ -4947,7 +4953,7 @@ export async function registerRoutes(
                     if (nameMatch) {
                       await upgradeToFinal(
                         `Routed from Triage Inbox.`,
-                        { senderEmail, subject, supplier: unknownParsed.supplier },
+                        { senderEmail, subject, supplier: unknownParsed.supplier, _aiParsed: true },
                         "PENDING",
                         {
                           supplierId: nameMatch.id,
@@ -4960,13 +4966,15 @@ export async function registerRoutes(
                     } else {
                       await upgradeToFinal(
                         `Unknown supplier. Please review and add.`,
-                        { senderEmail, subject, supplier: unknownParsed.supplier, invoices: unknownParsed.invoices },
+                        { senderEmail, subject, supplier: unknownParsed.supplier, invoices: unknownParsed.invoices, _aiParsed: true },
                         "REVIEW",
                       );
                     }
                   } else {
-                    // PDF found but no invoice items — use supplier info if AI got it,
-                    // otherwise fall back to parsing the email body
+                    // PDF found but no invoice items — use supplier info if AI got it.
+                    // IMPORTANT: Never fall back to item.senderName — when forwarded by
+                    // an internal forwarder (e.g. Peter Kang), senderName is the
+                    // forwarder's personal name, not the actual supplier.
                     let supplierInfo = unknownParsed?.supplier?.supplierName && unknownParsed.supplier.supplierName !== "Unknown Supplier"
                       ? unknownParsed.supplier
                       : null;
@@ -4978,7 +4986,7 @@ export async function registerRoutes(
                     }
                     await upgradeToFinal(
                       `PDF found but could not extract invoice data. Please review and add details.`,
-                      { senderEmail, subject, supplier: supplierInfo ?? { supplierName: item.senderName ?? "" } },
+                      { senderEmail, subject, supplier: supplierInfo ?? { supplierName: "" }, _aiParsed: true },
                       "REVIEW",
                     );
                   }
@@ -4995,13 +5003,14 @@ export async function registerRoutes(
                 if (scannedSupplier) {
                   await upgradeToFinal(
                     `PDF is a scanned image (unreadable). Supplier info extracted from email body. Please verify and add invoice details.`,
-                    { senderEmail, subject, supplier: scannedSupplier },
+                    { senderEmail, subject, supplier: scannedSupplier, _aiParsed: true },
                     "REVIEW",
                   );
                 } else {
                   await upgradeToFinal(
                     `PDF attachment found but could not be read (scanned image). Please add invoice details manually.`,
-                    { senderEmail, subject, supplier: { supplierName: item.senderName ?? "" } },
+                    // Never use item.senderName — forwarder's personal name is not the supplier
+                    { senderEmail, subject, supplier: { supplierName: "" }, _aiParsed: true },
                     "REVIEW",
                   );
                 }
@@ -5020,13 +5029,14 @@ export async function registerRoutes(
               if (bodySupplier) {
                 await upgradeToFinal(
                   `No PDF attachment. Supplier info extracted from email body. Please verify and add invoice details.`,
-                  { senderEmail, subject, supplier: bodySupplier, invoices: bodyInvoices, body: item.body?.slice(0, 8000) },
+                  { senderEmail, subject, supplier: bodySupplier, invoices: bodyInvoices, body: item.body?.slice(0, 8000), _aiParsed: true },
                   "REVIEW",
                 );
               } else {
                 await upgradeToFinal(
                   `No PDF attachment. Please review and enter invoice details manually.`,
-                  { senderEmail, subject, supplier: { supplierName: item.senderName ?? "" }, body: item.body?.slice(0, 8000) },
+                  // Never use item.senderName — forwarder's personal name is not the supplier
+                  { senderEmail, subject, supplier: { supplierName: "" }, body: item.body?.slice(0, 8000), _aiParsed: true },
                   "REVIEW",
                 );
               }

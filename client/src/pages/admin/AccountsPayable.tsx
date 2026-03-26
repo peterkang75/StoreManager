@@ -99,6 +99,11 @@ interface ReviewRawData {
   dueDate?: string;
   totalAmount?: number;
   storeCode?: string;
+  /** Set to true once the background AI parser has confirmed supplier identity.
+   *  When absent/false on an invoice from an internal forwarder, the
+   *  supplier.supplierName field may be a placeholder and should not be
+   *  used as a grouping key or pre-filled supplier name. */
+  _aiParsed?: boolean;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -242,18 +247,38 @@ function groupBySupplier(invoices: EnrichedInvoice[]): SupplierGroup[] {
 function extractSupplierHint(
   raw: ReviewRawData | null,
   notes: string | null
-): { name: string; email: string; rawSenderEmail: string } {
-  // ── 1. AI-extracted supplier name (best case) ─────────────────────────────
-  const aiName = raw?.supplier?.supplierName?.trim() ?? "";
+): { name: string; email: string; rawSenderEmail: string; abn: string } {
+  // Internal forwarder check (used throughout this function)
+  const isInternalForwarder = (email: string) =>
+    !email || /@eatem\.com\.au$/i.test(email) || /^peterkang75@gmail\.com$/i.test(email);
 
-  // ── 2. Sender email (from rawExtractedData or notes fallback) ─────────────
+  // ── 1. Sender email (computed first — needed to validate aiName trustworthiness) ──
   let senderEmail = raw?.senderEmail?.trim() ?? raw?.supplier?.senderEmail?.trim() ?? "";
   if (!senderEmail && notes) {
     const m = notes.match(/(?:^|\n)From:\s*([\w.+%-]+@[\w.-]+\.\w+)/i);
     if (m) senderEmail = m[1].trim();
   }
+  const senderIsInternalFwdr = isInternalForwarder(senderEmail);
 
-  // ── 3. Subject string (clean up forwarding artefacts) ─────────────────────
+  // ── 2. AI-extracted supplier name ────────────────────────────────────────
+  // TRUST RULES: The AI name is trustworthy when:
+  //   a) The background AI parser confirmed it (_aiParsed: true), OR
+  //   b) The sender is a real external supplier (not an internal forwarder).
+  //
+  // When an internal forwarder (e.g. peter.kang@eatem.com.au) routes emails,
+  // the initial placeholder may have stored the forwarder's personal name
+  // (e.g. "Peter Kang") as supplier.supplierName before AI parsing ran.
+  // Without _aiParsed, we cannot trust that name — skip it and derive from
+  // subject/domain instead so different suppliers are grouped correctly.
+  const aiName = raw?.supplier?.supplierName?.trim() ?? "";
+  const aiParsed = raw?._aiParsed === true;
+  const aiNameTrusted = aiName && (aiParsed || !senderIsInternalFwdr);
+  const effectiveAiName = aiNameTrusted ? aiName : "";
+
+  // ── 3. ABN (from AI parse) ─────────────────────────────────────────────────
+  const abn = (raw?.supplier as any)?.abn?.trim() ?? "";
+
+  // ── 4. Subject string (clean up forwarding artefacts) ─────────────────────
   let subjectRaw = raw?.subject?.trim() ?? "";
   if (!subjectRaw && notes) {
     const m = notes.match(/(?:^|\n)Subject:\s*(.+)/i);
@@ -266,12 +291,12 @@ function extractSupplierHint(
     .replace(/\s*#?\d{4,}\s*$/, "")                // remove trailing bare numbers
     .trim();
 
-  // ── 4. Domain-derived name (last resort) ─────────────────────────────────
+  // ── 5. Domain-derived name (last resort — only for external senders) ──────
   let domainName = "";
-  if (senderEmail) {
+  if (senderEmail && !senderIsInternalFwdr) {
     const domain = senderEmail.split("@")[1] ?? "";
     const base = domain.replace(/\.(com\.au|com|net\.au|net|org\.au|org|au)$/i, "");
-    // "greenstarfood" → "Green Star Food" (split on common word boundaries)
+    // "greenstarfood" → "Green Star Food"
     domainName = base
       .replace(/[._-]/g, " ")
       .replace(/([a-z])([A-Z])/g, "$1 $2")
@@ -279,28 +304,20 @@ function extractSupplierHint(
       .trim();
   }
 
-  // Pick best name: AI > clean subject (if plausible length) > domain
-  const name = aiName || (subjectClean.length > 2 && subjectClean.length <= 60 ? subjectClean : "") || domainName;
+  // Pick best name: trusted AI > clean subject (if plausible length) > domain
+  const name = effectiveAiName || (subjectClean.length > 2 && subjectClean.length <= 60 ? subjectClean : "") || domainName;
 
-  // ── 5. Contact email: use PDF-extracted supplier email ONLY if it is external ──
-  // STRICT RULE: never pollute the contact email field with an internal forwarder
-  // address (e.g. accounts@eatem.com.au). If no real external email is found, leave blank.
+  // ── 6. Contact email: use PDF-extracted supplier email ONLY if external ────
   const pdfEmail = raw?.supplier?.supplierEmail?.trim() ?? "";
-  const isInternalForwarder = (email: string) =>
-    !email || /@eatem\.com\.au$/i.test(email) || /^peterkang75@gmail\.com$/i.test(email);
-
-  // Priority: PDF-extracted external email > sender email (only if truly external) > ""
   let contactEmail = "";
   if (pdfEmail && !isInternalForwarder(pdfEmail)) {
     contactEmail = pdfEmail;
-  } else if (senderEmail && !isInternalForwarder(senderEmail)) {
+  } else if (senderEmail && !senderIsInternalFwdr) {
     contactEmail = senderEmail;
   }
   // else: contactEmail stays "" — user must fill in manually
 
-  // rawSenderEmail is the actual From: address (may be a forwarder).
-  // Used to sweep existing REVIEW invoices by their stored senderEmail.
-  return { name, email: contactEmail, rawSenderEmail: senderEmail };
+  return { name, email: contactEmail, rawSenderEmail: senderEmail, abn };
 }
 
 // ── Approve Supplier Modal (Group-based) ─────────────────────────────────────
@@ -1082,12 +1099,19 @@ export function AdminAccountsPayable() {
     }
   }, [supplierGroups]);
 
-  // ── Group review invoices by supplier name ───────────────────────────────────
+  // ── Group review invoices by AI-extracted supplier identity ──────────────────
+  // GROUPING STRATEGY: Group by the best available unique supplier identifier.
+  // Priority: ABN (globally unique) > AI-extracted name > subject-derived name.
+  //
+  // CRITICAL: NEVER group by senderEmail when the sender is an internal forwarder
+  // (e.g. peter.kang@eatem.com.au). A single forwarder may route invoices from
+  // multiple different suppliers — grouping by their email merges unrelated suppliers.
   interface ReviewGroup {
     supplierName: string;
+    abn: string;               // AI-extracted ABN (empty if not found)
     invoices: SupplierInvoice[];
     totalAmount: number;
-    senderEmail: string;       // PDF-extracted supplier email (or forwarder if not found)
+    senderEmail: string;       // PDF-extracted supplier email (or blank if internal forwarder)
     rawSenderEmail: string;    // Actual From: address — used for email routing rules
     rawFirst: ReviewRawData | null;
   }
@@ -1095,14 +1119,23 @@ export function AdminAccountsPayable() {
     const map = new Map<string, ReviewGroup>();
     for (const inv of reviewInvoices) {
       const r = inv.rawExtractedData as ReviewRawData | null;
-      // Smart hint: AI name > subject cleanup > email domain > "Unknown Supplier"
+      // Smart hint: trusted AI name > subject cleanup > domain (external only) > "Unknown Supplier"
       const hint = extractSupplierHint(r, inv.notes ?? null);
       const name = hint.name || "Unknown Supplier";
+      const abn = hint.abn;
       const senderEmail = hint.email;
       const rawSenderEmail = hint.rawSenderEmail;
-      if (!map.has(name)) {
-        map.set(name, {
+
+      // Grouping key: prefer ABN (globally unique) over name to avoid false merges
+      // from similar-but-different supplier names. Fall back to name if no ABN.
+      // For truly unknown invoices with no name and no ABN, use invoice ID so they
+      // appear as individual entries rather than merging into one "Unknown Supplier" blob.
+      const groupKey = abn ? `abn:${abn}` : (name !== "Unknown Supplier" ? `name:${name}` : `id:${inv.id}`);
+
+      if (!map.has(groupKey)) {
+        map.set(groupKey, {
           supplierName: name,
+          abn,
           invoices: [],
           totalAmount: 0,
           senderEmail,
@@ -1110,12 +1143,15 @@ export function AdminAccountsPayable() {
           rawFirst: r,
         });
       }
-      const g = map.get(name)!;
+      const g = map.get(groupKey)!;
       g.invoices.push(inv);
       g.totalAmount += r?.totalAmount ?? 0;
-      // Use earliest available senderEmail
+      // Prefer better-quality data from whichever invoice has it
       if (!g.senderEmail && senderEmail) g.senderEmail = senderEmail;
       if (!g.rawSenderEmail && rawSenderEmail) g.rawSenderEmail = rawSenderEmail;
+      // If a later invoice in the same group has a more specific name, prefer it
+      if (g.supplierName === "Unknown Supplier" && name !== "Unknown Supplier") g.supplierName = name;
+      if (!g.abn && abn) g.abn = abn;
     }
     return Array.from(map.values());
   }, [reviewInvoices]);
@@ -1565,7 +1601,8 @@ export function AdminAccountsPayable() {
               {reviewGroups.map(group => {
                 const raw = group.rawFirst;
                 const isPending = ignoreSenderMutation.isPending;
-                const groupKey = group.supplierName;
+                // Use ABN (if known) or first invoice ID as the stable groupKey for React keys and test IDs
+                const groupKey = group.abn || group.invoices[0]?.id || group.supplierName;
 
                 return (
                   <Card key={groupKey} className="overflow-hidden" data-testid={`review-card-${groupKey}`}>
@@ -1578,6 +1615,11 @@ export function AdminAccountsPayable() {
                             <p className="font-semibold text-sm truncate" data-testid={`text-review-supplier-${groupKey}`}>
                               {group.supplierName}
                             </p>
+                            {group.abn && (
+                              <p className="text-xs text-muted-foreground" data-testid={`text-review-abn-${groupKey}`}>
+                                ABN {group.abn}
+                              </p>
+                            )}
                             <p className="text-xs text-muted-foreground" data-testid={`text-review-count-${groupKey}`}>
                               {group.invoices.length === 1
                                 ? "1 pending invoice"
