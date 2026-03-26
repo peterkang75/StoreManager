@@ -19,10 +19,12 @@ import {
   ShieldCheck,
   ChevronDown,
   Inbox,
+  Smartphone,
 } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -196,6 +198,25 @@ function AdminSidebar() {
           </SidebarGroup>
         )}
       </SidebarContent>
+
+      <SidebarFooter className="border-t border-sidebar-border p-2">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              tooltip="Employee Portal"
+            >
+              <Link
+                href="/m/portal"
+                data-testid="link-admin-employee-portal"
+              >
+                <Smartphone className="w-4 h-4" />
+                <span>Employee Portal</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
     </Sidebar>
   );
 }
