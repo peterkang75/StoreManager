@@ -124,6 +124,7 @@ export interface IStorage {
   deleteSupplier(id: string): Promise<boolean>;
   findSupplierByEmail(email: string): Promise<Supplier | undefined>;
   findSupplierByName(name: string): Promise<Supplier | undefined>;
+  findSupplierByNameAny(name: string): Promise<Supplier | undefined>;
   sweepReviewInvoicesBySupplierName(supplierName: string, supplierId: string): Promise<number>;
   sweepReviewInvoicesBySenderEmail(senderEmail: string, supplierId: string): Promise<number>;
   getQuarantinedEmails(): Promise<QuarantinedEmail[]>;
@@ -967,6 +968,13 @@ export class MemStorage implements IStorage {
   }
 
   async findSupplierByName(name: string): Promise<Supplier | undefined> {
+    const lower = name.toLowerCase();
+    return Array.from(this.suppliers.values()).find(s =>
+      s.name.toLowerCase() === lower
+    );
+  }
+
+  async findSupplierByNameAny(name: string): Promise<Supplier | undefined> {
     const lower = name.toLowerCase();
     return Array.from(this.suppliers.values()).find(s =>
       s.name.toLowerCase() === lower
@@ -1836,6 +1844,13 @@ export class DatabaseStorage implements IStorage {
   async findSupplierByName(name: string): Promise<Supplier | undefined> {
     const [supplier] = await db.select().from(suppliers)
       .where(and(eq(suppliers.active, true), ilike(suppliers.name, name)));
+    return supplier;
+  }
+
+  async findSupplierByNameAny(name: string): Promise<Supplier | undefined> {
+    // Includes inactive (soft-deleted) suppliers — used to avoid unique constraint violations
+    const [supplier] = await db.select().from(suppliers)
+      .where(ilike(suppliers.name, name));
     return supplier;
   }
 

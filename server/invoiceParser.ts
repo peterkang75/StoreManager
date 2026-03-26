@@ -118,15 +118,42 @@ If a field cannot be found, use null for optional fields or an empty string for 
         { role: "user", content: userPrompt },
       ],
       temperature: 0,
-      max_tokens: 1000,
+      max_tokens: 3000,
     });
 
     const raw = response.choices[0]?.message?.content?.trim() ?? "";
 
     // Strip any accidental markdown code fences
-    const cleaned = raw.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
+    let cleaned = raw.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
 
-    const parsed = JSON.parse(cleaned);
+    // If the JSON was truncated (unterminated), try to recover the partial array
+    // by closing any open objects and the array
+    let parsed: any;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      // Attempt to salvage a truncated JSON array by closing it properly
+      // Find the last complete object (ending with }) and close the array
+      const lastCompleteObj = cleaned.lastIndexOf("}");
+      if (lastCompleteObj !== -1) {
+        const truncated = cleaned.slice(0, lastCompleteObj + 1);
+        // Find the start of the array to close it
+        const arrayStart = truncated.indexOf("[");
+        if (arrayStart !== -1) {
+          try {
+            parsed = JSON.parse(truncated.slice(arrayStart) + "]");
+            console.warn("[invoiceParser] Recovered truncated JSON array with", Array.isArray(parsed) ? parsed.length : 0, "items");
+          } catch {
+            // Still failed — re-throw original error
+            throw new SyntaxError("Unterminated JSON could not be recovered");
+          }
+        } else {
+          throw new SyntaxError("Unterminated JSON could not be recovered");
+        }
+      } else {
+        throw new SyntaxError("Unterminated JSON could not be recovered");
+      }
+    }
 
     // Accept both array and legacy single-object responses
     const items: any[] = Array.isArray(parsed) ? parsed : [parsed];
@@ -435,12 +462,37 @@ export async function parseInvoiceFromUnknownSender(
         },
       ],
       temperature: 0,
-      max_tokens: 1500,
+      max_tokens: 3000,
     });
 
     const raw = response.choices[0]?.message?.content?.trim() ?? "";
-    const cleaned = raw.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
-    const parsed = JSON.parse(cleaned);
+    let cleaned = raw.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
+
+    // Recover truncated JSON: close the invoices array and the root object if needed
+    let parsed: any;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      const lastObj = cleaned.lastIndexOf("}");
+      if (lastObj !== -1) {
+        let attempt = cleaned.slice(0, lastObj + 1);
+        // Count unclosed brackets to determine what needs closing
+        const opens = (attempt.match(/\[/g) || []).length;
+        const closes = (attempt.match(/\]/g) || []).length;
+        const objOpens = (attempt.match(/\{/g) || []).length;
+        const objCloses = (attempt.match(/\}/g) || []).length;
+        if (opens > closes) attempt += "]";
+        if (objOpens > objCloses) attempt += "}";
+        try {
+          parsed = JSON.parse(attempt);
+          console.warn("[invoiceParser] parseInvoiceFromUnknownSender: recovered truncated JSON");
+        } catch {
+          throw new SyntaxError("Unterminated JSON in unknown-sender response could not be recovered");
+        }
+      } else {
+        throw new SyntaxError("Unterminated JSON in unknown-sender response could not be recovered");
+      }
+    }
 
     const supplierRaw = parsed.supplier ?? {};
     const supplier: ExtractedSupplierInfo = {

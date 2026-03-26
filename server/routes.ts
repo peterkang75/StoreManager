@@ -5053,12 +5053,14 @@ Rules:
         return res.status(400).json({ error: "supplierData.name and supplierName are required" });
       }
 
-      // 1. Find or create supplier (avoid unique constraint violation if already exists)
-      let supplier = await storage.findSupplierByName(supplierData.name);
+      // 1. Find or create supplier — also handles soft-deleted (active=false) suppliers
+      //    to avoid unique constraint violations on the name column.
+      let supplier = await storage.findSupplierByNameAny(supplierData.name);
       if (supplier) {
-        console.log(`[Review/approve-group] Supplier "${supplier.name}" already exists (${supplier.id}) — reusing.`);
-        // Update with any new details from the form
+        console.log(`[Review/approve-group] Supplier "${supplier.name}" (${supplier.active ? "active" : "inactive"}) (${supplier.id}) — reactivating/updating.`);
+        // Reactivate if soft-deleted and update with any new details from the form
         supplier = (await storage.updateSupplier(supplier.id, {
+          active: true,
           abn: supplierData.abn || supplier.abn,
           contactName: supplierData.contactName || supplier.contactName,
           contactEmails: supplierData.contactEmails && supplierData.contactEmails.length > 0
@@ -5094,18 +5096,81 @@ Rules:
         });
       }
 
-      // 3a. Sweep by AI-extracted supplier name (PDF-parsed invoices)
+      // 3a. Expand any REVIEW invoices that contain multiple line-items in rawExtractedData.invoices
+      //     (happens when a Statement PDF is parsed with parseInvoiceFromUnknownSender)
+      const allStores = await storage.getStores();
+      const sushiStore  = allStores.find(s => s.name.toLowerCase().includes("sushi"));
+      const sandwichStore = allStores.find(s => s.name.toLowerCase().includes("sandwich"));
+      function storeIdForCode(code: string): string | null {
+        if (code === "SUSHI" && sushiStore) return sushiStore.id;
+        if (code === "SANDWICH" && sandwichStore) return sandwichStore.id;
+        return null;
+      }
+
+      const reviewInvoices = await storage.getSupplierInvoices({ status: "REVIEW" });
+      const matchingReview = reviewInvoices.filter(inv => {
+        const raw = inv.rawExtractedData as any;
+        const name: string = raw?.supplier?.supplierName ?? "";
+        return name.toLowerCase().includes(supplierName.toLowerCase()) || supplierName.toLowerCase().includes(name.toLowerCase());
+      });
+
+      let expandedCount = 0;
+      for (const reviewInv of matchingReview) {
+        const raw = reviewInv.rawExtractedData as any;
+        const lineItems: any[] = Array.isArray(raw?.invoices) ? raw.invoices : [];
+        if (lineItems.length <= 1) continue; // single-item handled by sweep below
+
+        // Expand into individual invoices
+        const existing = await storage.getSupplierInvoices({ supplierId: supplier.id });
+        const existingNumbers = new Set(existing.map(i => i.invoiceNumber));
+        const pdfBase64 = raw?.pdfBase64 as string | undefined;
+
+        let firstDone = false;
+        for (const item of lineItems) {
+          const invNum = item.invoiceNumber || null;
+          if (invNum && existingNumbers.has(invNum)) continue; // skip duplicates
+          const storeId = storeIdForCode(item.storeCode ?? "UNKNOWN");
+          if (!firstDone) {
+            // Upgrade the placeholder itself
+            await storage.updateSupplierInvoice(reviewInv.id, {
+              supplierId: supplier.id, status: "PENDING",
+              invoiceNumber: invNum || reviewInv.invoiceNumber,
+              invoiceDate: item.issueDate || reviewInv.invoiceDate,
+              dueDate: item.dueDate ?? undefined, amount: item.totalAmount ?? reviewInv.amount,
+              storeId,
+              rawExtractedData: pdfBase64 ? { ...raw, pdfBase64 } : raw,
+              notes: `Imported from statement — approved via Review Inbox.\nFrom: ${raw?.senderEmail ?? ""}\nSubject: ${raw?.subject ?? ""}`,
+            });
+            firstDone = true;
+            expandedCount++;
+          } else {
+            await storage.createSupplierInvoice({
+              supplierId: supplier.id, storeId,
+              invoiceNumber: invNum,
+              invoiceDate: item.issueDate,
+              dueDate: item.dueDate ?? undefined,
+              amount: item.totalAmount,
+              status: "PENDING",
+              rawExtractedData: pdfBase64 ? { pdfBase64, senderEmail: raw?.senderEmail, subject: raw?.subject } : undefined,
+              notes: `Imported from statement — approved via Review Inbox.\nFrom: ${raw?.senderEmail ?? ""}\nSubject: ${raw?.subject ?? ""}`,
+            });
+            expandedCount++;
+          }
+        }
+      }
+
+      // 3b. Sweep by AI-extracted supplier name (PDF-parsed invoices — single-item)
       const sweptByName = await storage.sweepReviewInvoicesBySupplierName(supplierName, supplier.id);
 
-      // 3b. Sweep by senderEmail (forwarded / no-PDF invoices where supplier.supplierName is absent)
+      // 3c. Sweep by senderEmail (forwarded / no-PDF invoices where supplier.supplierName is absent)
       //     Only runs if a senderEmail is present — avoids false matches on empty strings.
       let sweptByEmail = 0;
       if (senderEmail) {
         sweptByEmail = await storage.sweepReviewInvoicesBySenderEmail(senderEmail, supplier.id);
       }
 
-      const sweptCount = sweptByName + sweptByEmail;
-      console.log(`[Review/approve-group] Supplier "${supplier.name}" (${supplier.id}). Swept ${sweptByName} by name + ${sweptByEmail} by email = ${sweptCount} REVIEW invoice(s) → PENDING.`);
+      const sweptCount = sweptByName + sweptByEmail + expandedCount;
+      console.log(`[Review/approve-group] Supplier "${supplier.name}" (${supplier.id}). Expanded ${expandedCount} + swept ${sweptByName} by name + ${sweptByEmail} by email = ${sweptCount} invoice(s) → PENDING.`);
       res.json({ supplier, sweptCount });
     } catch (err: any) {
       console.error("Error approving supplier group:", err);
