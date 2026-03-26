@@ -5897,6 +5897,76 @@ Rules:
     }
   });
 
+  // ── Shopping List ───────────────────────────────────────────────────────────
+
+  // GET /api/shopping/items?storeId=X
+  app.get("/api/shopping/items", async (req: Request, res: Response) => {
+    try {
+      const storeId = req.query.storeId as string | undefined;
+      const items = await storage.getShoppingItems(storeId ?? null);
+      res.json(items);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch shopping items" });
+    }
+  });
+
+  // POST /api/shopping/items — create a new catalog item
+  app.post("/api/shopping/items", async (req: Request, res: Response) => {
+    try {
+      const { name, category, storeId } = req.body;
+      if (!name || !category) return res.status(400).json({ error: "name and category required" });
+      const item = await storage.createShoppingItem({ name: String(name).trim(), category: String(category).trim(), storeId: storeId ?? null, selectionCount: 0 });
+      res.json(item);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to create shopping item" });
+    }
+  });
+
+  // GET /api/shopping/active?storeId=X
+  app.get("/api/shopping/active", async (req: Request, res: Response) => {
+    try {
+      const storeId = req.query.storeId as string | undefined;
+      const list = await storage.getActiveShoppingList(storeId ?? null);
+      res.json(list);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch active list" });
+    }
+  });
+
+  // POST /api/shopping/active — add item to active list & increment count
+  app.post("/api/shopping/active", async (req: Request, res: Response) => {
+    try {
+      const { itemId, storeId } = req.body;
+      if (!itemId) return res.status(400).json({ error: "itemId required" });
+      const entry = await storage.addToActiveShoppingList({ itemId: Number(itemId), storeId: storeId ?? null, isCompleted: false });
+      await storage.incrementShoppingItemCount(Number(itemId));
+      res.json(entry);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to add to list" });
+    }
+  });
+
+  // DELETE /api/shopping/active/:id — remove (cross off) an item
+  app.delete("/api/shopping/active/:id", async (req: Request, res: Response) => {
+    try {
+      await storage.removeFromActiveShoppingList(Number(req.params.id));
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to remove item" });
+    }
+  });
+
+  // DELETE /api/shopping/active — clear the whole list
+  app.delete("/api/shopping/active", async (req: Request, res: Response) => {
+    try {
+      const storeId = req.query.storeId as string | undefined;
+      await storage.clearActiveShoppingList(storeId ?? null);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to clear list" });
+    }
+  });
+
   return httpServer;
 }
 

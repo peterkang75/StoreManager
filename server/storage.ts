@@ -26,6 +26,8 @@ import {
   type Notice, type InsertNotice,
   type IntercompanySettlement, type InsertIntercompanySettlement,
   type AdminPermission, type InsertAdminPermission,
+  type ShoppingItem, type InsertShoppingItem,
+  type ActiveShoppingListItem, type InsertActiveShoppingList,
   stores, candidates, employees, employeeStoreAssignments, employeeOnboardingTokens, employeeDocuments,
   rosterPeriods, shifts, rosters, rosterPublications, timeLogs, timesheets, payrolls,
   dailyClosings, cashSalesDetails, dailyCloseForms, suppliers, supplierInvoices, supplierPayments,
@@ -33,6 +35,7 @@ import {
   todos,
   type UniversalInboxItem, type InsertUniversalInbox,
   financialTransactions, shiftTimesheets, notices, intercompanySettlements, adminPermissions,
+  shoppingItems, activeShoppingList,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import { db } from "./db";
@@ -190,6 +193,15 @@ export interface IStorage {
   // RBAC Permissions
   getPermissions(): Promise<AdminPermission[]>;
   setPermissions(perms: InsertAdminPermission[]): Promise<void>;
+
+  // Shopping List
+  getShoppingItems(storeId?: string | null): Promise<ShoppingItem[]>;
+  createShoppingItem(item: InsertShoppingItem): Promise<ShoppingItem>;
+  incrementShoppingItemCount(id: number): Promise<void>;
+  getActiveShoppingList(storeId?: string | null): Promise<(ActiveShoppingListItem & { item: ShoppingItem })[]>;
+  addToActiveShoppingList(entry: InsertActiveShoppingList): Promise<ActiveShoppingListItem>;
+  removeFromActiveShoppingList(id: number): Promise<void>;
+  clearActiveShoppingList(storeId?: string | null): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -1420,6 +1432,44 @@ export class MemStorage implements IStorage {
 
   async getPermissions(): Promise<AdminPermission[]> { return []; }
   async setPermissions(_perms: InsertAdminPermission[]): Promise<void> {}
+
+  // Shopping List — MemStorage
+  private _shoppingItems: Map<number, ShoppingItem> = new Map();
+  private _activeList: Map<number, ActiveShoppingListItem> = new Map();
+  private _shopIdSeq = 1;
+  private _listIdSeq = 1;
+
+  async getShoppingItems(storeId?: string | null): Promise<ShoppingItem[]> {
+    const all = Array.from(this._shoppingItems.values());
+    return storeId ? all.filter(i => i.storeId === storeId) : all;
+  }
+  async createShoppingItem(item: InsertShoppingItem): Promise<ShoppingItem> {
+    const row: ShoppingItem = { id: this._shopIdSeq++, selectionCount: 0, storeId: item.storeId ?? null, ...item };
+    this._shoppingItems.set(row.id, row);
+    return row;
+  }
+  async incrementShoppingItemCount(id: number): Promise<void> {
+    const item = this._shoppingItems.get(id);
+    if (item) this._shoppingItems.set(id, { ...item, selectionCount: item.selectionCount + 1 });
+  }
+  async getActiveShoppingList(storeId?: string | null): Promise<(ActiveShoppingListItem & { item: ShoppingItem })[]> {
+    const all = Array.from(this._activeList.values());
+    const filtered = storeId ? all.filter(e => e.storeId === storeId) : all;
+    return filtered.map(e => ({ ...e, item: this._shoppingItems.get(e.itemId)! })).filter(e => e.item);
+  }
+  async addToActiveShoppingList(entry: InsertActiveShoppingList): Promise<ActiveShoppingListItem> {
+    const row: ActiveShoppingListItem = { id: this._listIdSeq++, isCompleted: false, storeId: entry.storeId ?? null, ...entry };
+    this._activeList.set(row.id, row);
+    return row;
+  }
+  async removeFromActiveShoppingList(id: number): Promise<void> {
+    this._activeList.delete(id);
+  }
+  async clearActiveShoppingList(storeId?: string | null): Promise<void> {
+    for (const [k, v] of this._activeList.entries()) {
+      if (!storeId || v.storeId === storeId) this._activeList.delete(k);
+    }
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2336,6 +2386,48 @@ export class DatabaseStorage implements IStorage {
     await db.delete(adminPermissions);
     if (perms.length > 0) {
       await db.insert(adminPermissions).values(perms);
+    }
+  }
+
+  // Shopping List — DatabaseStorage
+  async getShoppingItems(storeId?: string | null): Promise<ShoppingItem[]> {
+    const q = db.select().from(shoppingItems);
+    if (storeId) return q.where(eq(shoppingItems.storeId, storeId)).orderBy(desc(shoppingItems.selectionCount), asc(shoppingItems.name));
+    return q.orderBy(desc(shoppingItems.selectionCount), asc(shoppingItems.name));
+  }
+
+  async createShoppingItem(item: InsertShoppingItem): Promise<ShoppingItem> {
+    const [row] = await db.insert(shoppingItems).values(item).returning();
+    return row;
+  }
+
+  async incrementShoppingItemCount(id: number): Promise<void> {
+    await db.update(shoppingItems)
+      .set({ selectionCount: sql`${shoppingItems.selectionCount} + 1` })
+      .where(eq(shoppingItems.id, id));
+  }
+
+  async getActiveShoppingList(storeId?: string | null): Promise<(ActiveShoppingListItem & { item: ShoppingItem })[]> {
+    const rows = storeId
+      ? await db.select().from(activeShoppingList).innerJoin(shoppingItems, eq(activeShoppingList.itemId, shoppingItems.id)).where(eq(activeShoppingList.storeId, storeId))
+      : await db.select().from(activeShoppingList).innerJoin(shoppingItems, eq(activeShoppingList.itemId, shoppingItems.id));
+    return rows.map(r => ({ ...r.active_shopping_list, item: r.shopping_items }));
+  }
+
+  async addToActiveShoppingList(entry: InsertActiveShoppingList): Promise<ActiveShoppingListItem> {
+    const [row] = await db.insert(activeShoppingList).values(entry).returning();
+    return row;
+  }
+
+  async removeFromActiveShoppingList(id: number): Promise<void> {
+    await db.delete(activeShoppingList).where(eq(activeShoppingList.id, id));
+  }
+
+  async clearActiveShoppingList(storeId?: string | null): Promise<void> {
+    if (storeId) {
+      await db.delete(activeShoppingList).where(eq(activeShoppingList.storeId, storeId));
+    } else {
+      await db.delete(activeShoppingList);
     }
   }
 }

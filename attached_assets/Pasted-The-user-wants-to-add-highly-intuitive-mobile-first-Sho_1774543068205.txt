@@ -1,0 +1,26 @@
+The user wants to add highly intuitive, mobile-first "Shopping List" and "Storage List" features to the Employee Portal homepage. The current focus is strictly on building the perfect "Shopping List" UX for staff doing grocery runs.
+
+Please implement this feature with the following architecture and UI/UX requirements:
+
+### 1. Database Schema & Persistence
+To ensure the list survives app restarts, you need to create DB tables/models:
+- `ShoppingItem` (Master Catalog): `id`, `name`, `category` (e.g., Vegetables, Beverages, Meat), `storeId`, and `selectionCount` (integer, default 0).
+- `ActiveShoppingList` (Today's List): `id`, `itemId` (relation to ShoppingItem), `storeId`, and `isCompleted` (boolean).
+
+### 2. UI/UX: The "Today's Shopping List" View (Main Screen)
+- This is the default view. It displays items currently in the `ActiveShoppingList`.
+- **Category Grouping:** Group the active items by their categories with clear, sticky headers (e.g., 🥬 Vegetables, 🥤 Beverages).
+- **Mobile Interaction:** Make crossing off items extremely easy for a user holding a phone in a supermarket. Implement a large UI checkbox/button OR a swipe-to-delete interaction. When checked off, the item should be removed from the active list.
+
+### 3. UI/UX: The "Add Items" View (Master Catalog)
+- A modal or slide-up sheet where staff can build "Today's List".
+- **Smart Sorting:** Fetch all `ShoppingItem`s grouped by category, but SORT them descending by `selectionCount` so the most frequently bought items always appear at the top of their categories.
+- **Quick Add:** Tapping an item here adds it to the `ActiveShoppingList` and increments its `selectionCount` by 1.
+- **Create New Item:** Provide a simple input form to create a brand new item (needs `name` and a `category` dropdown) and instantly add it to the active list.
+
+### 4. General Mobile Styling
+- Use Tailwind CSS to ensure large touch targets (`min-h-12`, large padding).
+- Ensure the layout is a mobile-first column layout, avoiding cluttered horizontal tables.
+- Add tabs at the top for "Shopping List" and "Storage List" (leave Storage List empty as a placeholder for now).
+
+Please build the database schema, API routes, and frontend React components for this feature immediately!

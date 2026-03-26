@@ -57,8 +57,13 @@ import {
   Globe,
   ListChecks,
   Banknote,
+  ShoppingCart,
+  Package,
+  Trash2,
+  CheckCheck,
+  Search,
 } from "lucide-react";
-import type { Notice, ShiftTimesheet } from "@shared/schema";
+import type { Notice, ShiftTimesheet, ShoppingItem, ActiveShoppingListItem } from "@shared/schema";
 import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "@shared/payrollCycle";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -712,7 +717,293 @@ function UnscheduledTimesheetCard({ item }: { item: UnscheduledTimesheetItem }) 
   );
 }
 
+// ── Shopping List ─────────────────────────────────────────────────────────────
+
+type ActiveListEntry = ActiveShoppingListItem & { item: ShoppingItem };
+
+const SHOPPING_CATEGORIES = [
+  "Vegetables", "Fruit", "Meat & Seafood", "Dairy & Eggs", "Beverages",
+  "Pantry & Dry Goods", "Frozen", "Bakery", "Cleaning & Supplies", "Other",
+];
+
+function groupByCat<T extends { item: ShoppingItem }>(entries: T[]): Record<string, T[]> {
+  return entries.reduce<Record<string, T[]>>((acc, e) => {
+    const cat = e.item.category;
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(e);
+    return acc;
+  }, {});
+}
+
+function ShoppingListView({ storeId }: { storeId?: string | null }) {
+  const qc = useQueryClient();
+  const [addSheetOpen, setAddSheetOpen] = useState(false);
+  const [newItemName, setNewItemName] = useState("");
+  const [newItemCategory, setNewItemCategory] = useState("");
+  const [catalogSearch, setCatalogSearch] = useState("");
+
+  const activeQK = ["/api/shopping/active", storeId ?? "all"];
+  const catalogQK = ["/api/shopping/items", storeId ?? "all"];
+
+  const { data: activeList = [], isLoading: listLoading } = useQuery<ActiveListEntry[]>({
+    queryKey: activeQK,
+    queryFn: async () => {
+      const p = storeId ? `?storeId=${storeId}` : "";
+      const res = await fetch(`/api/shopping/active${p}`);
+      return res.ok ? res.json() : [];
+    },
+    staleTime: 0,
+  });
+
+  const { data: catalog = [] } = useQuery<ShoppingItem[]>({
+    queryKey: catalogQK,
+    queryFn: async () => {
+      const p = storeId ? `?storeId=${storeId}` : "";
+      const res = await fetch(`/api/shopping/items${p}`);
+      return res.ok ? res.json() : [];
+    },
+  });
+
+  const invalidateBoth = () => {
+    qc.invalidateQueries({ queryKey: activeQK });
+    qc.invalidateQueries({ queryKey: catalogQK });
+  };
+
+  const removeMutation = useMutation({
+    mutationFn: (id: number) =>
+      fetch(`/api/shopping/active/${id}`, { method: "DELETE" }).then(r => r.json()),
+    onSuccess: () => qc.invalidateQueries({ queryKey: activeQK }),
+  });
+
+  const addMutation = useMutation({
+    mutationFn: (itemId: number) =>
+      fetch("/api/shopping/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId, storeId }),
+      }).then(r => r.json()),
+    onSuccess: invalidateBoth,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const itemRes = await fetch("/api/shopping/items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newItemName.trim(), category: newItemCategory, storeId }),
+      });
+      const item = await itemRes.json();
+      await fetch("/api/shopping/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId: item.id, storeId }),
+      });
+    },
+    onSuccess: () => {
+      invalidateBoth();
+      setNewItemName("");
+      setNewItemCategory("");
+    },
+  });
+
+  const clearMutation = useMutation({
+    mutationFn: () =>
+      fetch(`/api/shopping/active${storeId ? `?storeId=${storeId}` : ""}`, { method: "DELETE" }).then(r => r.json()),
+    onSuccess: () => qc.invalidateQueries({ queryKey: activeQK }),
+  });
+
+  const grouped = groupByCat(activeList);
+  const activeCategories = Object.keys(grouped).sort();
+  const activeItemIds = new Set(activeList.map(e => e.itemId));
+
+  const filteredCatalog = catalog.filter(i =>
+    i.name.toLowerCase().includes(catalogSearch.toLowerCase())
+  );
+  const catalogGrouped = filteredCatalog.reduce<Record<string, ShoppingItem[]>>((acc, i) => {
+    if (!acc[i.category]) acc[i.category] = [];
+    acc[i.category].push(i);
+    return acc;
+  }, {});
+  const catalogCategories = Object.keys(catalogGrouped).sort();
+
+  return (
+    <div className="flex flex-col gap-4 pb-32">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-bold text-lg">Today's List</h3>
+          <p className="text-xs text-muted-foreground">
+            {activeList.length} item{activeList.length !== 1 ? "s" : ""}
+          </p>
+        </div>
+        {activeList.length > 0 && (
+          <button
+            type="button"
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover-elevate rounded-md px-2 py-1"
+            onClick={() => clearMutation.mutate()}
+            disabled={clearMutation.isPending}
+            data-testid="button-clear-list"
+          >
+            <Trash2 className="h-4 w-4" />
+            Clear all
+          </button>
+        )}
+      </div>
+
+      {listLoading && (
+        <div className="flex justify-center py-10">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      )}
+
+      {!listLoading && activeList.length === 0 && (
+        <Card>
+          <CardContent className="py-10 text-center">
+            <ShoppingCart className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+            <p className="font-medium">Your list is empty</p>
+            <p className="text-sm text-muted-foreground mt-1">Tap "Add Items" to build today's shopping list.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {activeCategories.map(category => (
+        <div key={category}>
+          <div className="sticky top-0 bg-background/95 backdrop-blur-sm py-2 z-10">
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{category}</p>
+          </div>
+          <div className="flex flex-col gap-2">
+            {grouped[category].map(entry => (
+              <button
+                key={entry.id}
+                type="button"
+                data-testid={`button-check-item-${entry.id}`}
+                onClick={() => removeMutation.mutate(entry.id)}
+                disabled={removeMutation.isPending}
+                className="flex items-center gap-4 min-h-[3.5rem] w-full px-4 py-3 rounded-xl border bg-card text-left hover-elevate active-elevate-2"
+              >
+                <div className="h-6 w-6 rounded-full border-2 border-muted-foreground/40 shrink-0" />
+                <span className="text-base font-medium flex-1">{entry.item.name}</span>
+                <CheckCheck className="h-4 w-4 text-muted-foreground/30 shrink-0" />
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      <Button
+        className="w-full h-14 text-base gap-2 mt-2"
+        onClick={() => setAddSheetOpen(true)}
+        data-testid="button-open-add-items"
+      >
+        <Plus className="h-5 w-5" />
+        Add Items
+      </Button>
+
+      {/* Add Items Drawer */}
+      <Drawer open={addSheetOpen} onOpenChange={setAddSheetOpen}>
+        <DrawerContent className="max-h-[92vh] flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Add Items</DrawerTitle>
+          </DrawerHeader>
+
+          <div className="flex-1 overflow-y-auto px-4">
+            <div className="relative mb-4 sticky top-0 bg-background pt-1 pb-2 z-10">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search items…"
+                className="pl-9"
+                value={catalogSearch}
+                onChange={e => setCatalogSearch(e.target.value)}
+                data-testid="input-catalog-search"
+              />
+            </div>
+
+            {catalogCategories.map(category => (
+              <div key={category} className="mb-5">
+                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">{category}</p>
+                <div className="flex flex-col gap-2">
+                  {catalogGrouped[category].map(item => {
+                    const inList = activeItemIds.has(item.id);
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        data-testid={`button-catalog-item-${item.id}`}
+                        onClick={() => !inList && addMutation.mutate(item.id)}
+                        disabled={inList || addMutation.isPending}
+                        className={`flex items-center gap-3 min-h-[3rem] w-full px-4 py-3 rounded-xl border text-left transition-all ${
+                          inList
+                            ? "bg-primary/10 border-primary/20 cursor-default"
+                            : "bg-card hover-elevate active-elevate-2"
+                        }`}
+                      >
+                        {inList
+                          ? <CheckCheck className="h-4 w-4 text-primary shrink-0" />
+                          : <Plus className="h-4 w-4 text-muted-foreground shrink-0" />
+                        }
+                        <span className="flex-1 font-medium text-sm">{item.name}</span>
+                        {item.selectionCount > 0 && (
+                          <span className="text-xs text-muted-foreground/60 tabular-nums">{item.selectionCount}×</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+
+            {catalog.length === 0 && !catalogSearch && (
+              <p className="text-sm text-muted-foreground text-center py-4">No items in catalog yet. Create one below.</p>
+            )}
+            {catalog.length > 0 && filteredCatalog.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">No items match "{catalogSearch}".</p>
+            )}
+
+            <div className="border-t mt-4 pt-4 pb-4">
+              <p className="text-sm font-semibold mb-3">Create New Item</p>
+              <div className="flex flex-col gap-3">
+                <Input
+                  placeholder="Item name"
+                  value={newItemName}
+                  onChange={e => setNewItemName(e.target.value)}
+                  data-testid="input-new-item-name"
+                />
+                <Select value={newItemCategory} onValueChange={setNewItemCategory}>
+                  <SelectTrigger data-testid="select-new-item-category">
+                    <SelectValue placeholder="Select category…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SHOPPING_CATEGORIES.map(c => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  className="w-full"
+                  disabled={!newItemName.trim() || !newItemCategory || createMutation.isPending}
+                  onClick={() => createMutation.mutate()}
+                  data-testid="button-create-new-item"
+                >
+                  {createMutation.isPending
+                    ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    : <Plus className="h-4 w-4 mr-2" />}
+                  Add to List
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <DrawerFooter className="shrink-0">
+            <Button variant="outline" onClick={() => setAddSheetOpen(false)}>Done</Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+    </div>
+  );
+}
+
 // ── Tab: Home ─────────────────────────────────────────────────────────────────
+
+type HomeSubTab = "myDay" | "shopping" | "storage";
 
 function HomeTab({ session }: { session: Session }) {
   const today = getTodayStr();
@@ -720,6 +1011,7 @@ function HomeTab({ session }: { session: Session }) {
   const [localTimesheets, setLocalTimesheets] = useState<Record<string, TimesheetInfo>>({});
   const [localUnscheduled, setLocalUnscheduled] = useState<UnscheduledTimesheetItem[]>([]);
   const [unscheduledDrawerOpen, setUnscheduledDrawerOpen] = useState(false);
+  const [homeSubTab, setHomeSubTab] = useState<HomeSubTab>("myDay");
   const qc = useQueryClient();
   const displayName = session.nickname || session.firstName;
 
@@ -774,8 +1066,49 @@ function HomeTab({ session }: { session: Session }) {
         <h2 className="text-2xl font-bold" data-testid="text-employee-name">{displayName}</h2>
       </div>
 
-      {/* TODAY section */}
-      <div>
+      {/* Sub-tab row */}
+      <div className="flex gap-1 rounded-xl bg-muted p-1">
+        {([
+          { id: "myDay", label: "My Day", icon: Home },
+          { id: "shopping", label: "Shopping", icon: ShoppingCart },
+          { id: "storage", label: "Storage", icon: Package },
+        ] as { id: HomeSubTab; label: string; icon: React.ElementType }[]).map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            data-testid={`button-home-subtab-${id}`}
+            onClick={() => setHomeSubTab(id)}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${
+              homeSubTab === id
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover-elevate"
+            }`}
+          >
+            <Icon className="h-3.5 w-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Shopping List tab */}
+      {homeSubTab === "shopping" && (
+        <ShoppingListView storeId={employeeProfile?.storeId ?? null} />
+      )}
+
+      {/* Storage placeholder */}
+      {homeSubTab === "storage" && (
+        <Card>
+          <CardContent className="py-14 text-center">
+            <Package className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+            <p className="font-medium">Storage List</p>
+            <p className="text-sm text-muted-foreground mt-1">Coming soon.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* My Day section */}
+      {homeSubTab === "myDay" && (
+      <><div>
         <div className="flex items-center gap-2 mb-3">
           <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
           <h3 className="font-semibold text-xs uppercase tracking-widest text-muted-foreground">
@@ -902,6 +1235,7 @@ function HomeTab({ session }: { session: Session }) {
           </div>
         </div>
       )}
+      </>)}
 
       <UnscheduledShiftDrawer
         open={unscheduledDrawerOpen}

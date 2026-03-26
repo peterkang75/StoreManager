@@ -682,3 +682,28 @@ export const adminPermissions = pgTable("admin_permissions", {
 
 export type AdminPermission = typeof adminPermissions.$inferSelect;
 export type InsertAdminPermission = typeof adminPermissions.$inferInsert;
+
+// ── Shopping List ──────────────────────────────────────────────────────────────
+
+export const shoppingItems = pgTable("shopping_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  storeId: varchar("store_id").references(() => stores.id),
+  selectionCount: integer("selection_count").notNull().default(0),
+});
+
+export const insertShoppingItemSchema = createInsertSchema(shoppingItems).omit({ id: true });
+export type InsertShoppingItem = z.infer<typeof insertShoppingItemSchema>;
+export type ShoppingItem = typeof shoppingItems.$inferSelect;
+
+export const activeShoppingList = pgTable("active_shopping_list", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  itemId: integer("item_id").notNull().references(() => shoppingItems.id),
+  storeId: varchar("store_id").references(() => stores.id),
+  isCompleted: boolean("is_completed").notNull().default(false),
+});
+
+export const insertActiveShoppingListSchema = createInsertSchema(activeShoppingList).omit({ id: true });
+export type InsertActiveShoppingList = z.infer<typeof insertActiveShoppingListSchema>;
+export type ActiveShoppingListItem = typeof activeShoppingList.$inferSelect;
