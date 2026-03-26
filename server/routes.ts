@@ -4528,6 +4528,7 @@ export async function registerRoutes(
                   status: "REVIEW",
                   rawExtractedData: {
                     senderEmail, subject, pdfBase64: pdfResult.pdfBase64,
+                    body: emailBody?.slice(0, 8000) || null,
                     supplier: { supplierName: pdfSupplierName, abn: parsedItems[0]?.abn ?? null },
                     invoices: parsedItems.map(p => ({
                       invoiceNumber: p.invoiceNumber, issueDate: p.issueDate,
@@ -4828,8 +4829,10 @@ export async function registerRoutes(
           try {
             // Helper to upgrade or create final invoice(s) after AI parse
             const upgradeToFinal = async (reason: string, rawExtractedData: any, finalStatus: "REVIEW" | "PENDING", extraFields?: Partial<Parameters<typeof storage.createSupplierInvoice>[0]>) => {
-              // Always preserve the pdfBase64 so the PDF viewer button works
-              const mergedRaw = triagePdfBase64 ? { ...rawExtractedData, pdfBase64: triagePdfBase64 } : rawExtractedData;
+              // Always preserve the pdfBase64 and email body so the viewer works
+              const mergedRaw: any = { ...rawExtractedData };
+              if (triagePdfBase64) mergedRaw.pdfBase64 = triagePdfBase64;
+              if (item.body && !mergedRaw.body) mergedRaw.body = item.body.slice(0, 8000);
               // Update the placeholder we already created
               await storage.updateSupplierInvoice(reviewInv.id, {
                 status: finalStatus,

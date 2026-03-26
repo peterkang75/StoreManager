@@ -2071,7 +2071,9 @@ export function AdminAccountsPayable() {
         const emailInfo = parseNotesEmailInfo(viewEmailInvoice.notes);
         const from = raw?.senderEmail || emailInfo.from || "—";
         const subject = raw?.subject || emailInfo.subject || "—";
-        const body = raw?.body || viewEmailInvoice.notes || "";
+        const emailBody = raw?.body || "";
+        const systemNotes = viewEmailInvoice.notes || "";
+        const hasPdf = !!(raw as any)?.pdfBase64;
 
         return (
           <Dialog open={!!viewEmailInvoice} onOpenChange={open => !open && setViewEmailInvoice(null)}>
@@ -2098,24 +2100,25 @@ export function AdminAccountsPayable() {
               </DialogHeader>
 
               {/* Body */}
-              <div className="flex-1 overflow-hidden min-h-0">
-                {body ? (() => {
-                  const isHtml = /<\s*(html|body|div|table|p|span|br|a|img|style)\b/i.test(body);
+              <div className="flex-1 overflow-y-auto min-h-0">
+                {/* Actual email body */}
+                {emailBody ? (() => {
+                  const isHtml = /<\s*(html|body|div|table|p|span|br|a|img|style)\b/i.test(emailBody);
                   if (isHtml) {
                     return (
                       <iframe
-                        srcDoc={body}
+                        srcDoc={emailBody}
                         sandbox="allow-same-origin"
                         title="Email content"
-                        className="w-full h-full border-0"
-                        style={{ minHeight: "420px" }}
+                        className="w-full border-0"
+                        style={{ minHeight: "300px", height: "300px" }}
                         onLoad={e => {
                           try {
                             const frame = e.currentTarget;
                             const doc = frame.contentDocument || frame.contentWindow?.document;
                             if (doc) {
                               const h = doc.documentElement.scrollHeight;
-                              frame.style.height = Math.min(Math.max(h, 200), 600) + "px";
+                              frame.style.height = Math.min(Math.max(h, 200), 500) + "px";
                             }
                           } catch { /* cross-origin blocked — use fixed height */ }
                         }}
@@ -2123,41 +2126,67 @@ export function AdminAccountsPayable() {
                     );
                   }
                   return (
-                    <div className="overflow-y-auto h-full px-5 py-4">
+                    <div className="px-5 py-4">
                       <pre className="text-xs text-foreground/80 whitespace-pre-wrap font-sans leading-relaxed break-words">
-                        {body}
+                        {emailBody}
                       </pre>
                     </div>
                   );
                 })() : (
                   <div className="px-5 py-4">
-                    <p className="text-sm text-muted-foreground italic">No email body available.</p>
+                    <p className="text-sm text-muted-foreground italic">No email body stored for this invoice.</p>
+                  </div>
+                )}
+
+                {/* System notes — always shown separately */}
+                {systemNotes && (
+                  <div className={`px-5 py-3 bg-muted/20 ${emailBody ? "border-t border-border/30" : ""}`}>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">System Notes</p>
+                    <pre className="text-xs text-foreground/70 whitespace-pre-wrap font-sans leading-relaxed break-words">
+                      {systemNotes}
+                    </pre>
                   </div>
                 )}
               </div>
 
               {/* Footer */}
-              <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border/40 shrink-0 bg-muted/10">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setViewEmailInvoice(null)}
-                  data-testid="button-close-view-email"
-                >
-                  Close
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setViewEmailInvoice(null);
-                    setApproveInvoiceGroup([viewEmailInvoice]);
-                  }}
-                  data-testid="button-view-email-approve"
-                  className="gap-1.5"
-                >
-                  <UserPlus className="h-3.5 w-3.5" />
-                  Approve & Add Supplier
-                </Button>
+              <div className="flex items-center justify-between gap-2 px-5 py-3 border-t border-border/40 shrink-0 bg-muted/10">
+                <div className="flex items-center gap-2">
+                  {hasPdf && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => window.open(`/api/supplier-invoices/${viewEmailInvoice.id}/pdf`, "_blank")}
+                      data-testid="button-view-email-pdf"
+                      className="gap-1.5"
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                      View PDF
+                    </Button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setViewEmailInvoice(null)}
+                    data-testid="button-close-view-email"
+                  >
+                    Close
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setViewEmailInvoice(null);
+                      setApproveInvoiceGroup([viewEmailInvoice]);
+                    }}
+                    data-testid="button-view-email-approve"
+                    className="gap-1.5"
+                  >
+                    <UserPlus className="h-3.5 w-3.5" />
+                    Approve & Add Supplier
+                  </Button>
+                </div>
               </div>
             </DialogContent>
           </Dialog>
