@@ -4234,16 +4234,9 @@ export async function registerRoutes(
         }
       }
 
-      // ── Helper: extract first PDF from attachments ────────────────────────────
-      async function extractPdfFromAttachments(): Promise<{ text: string; pdfBase64: string } | null> {
-        if (!hasAttachment) return null;
-        const pdfAttachment = attachments.find((a: any) => {
-          const name: string = a.file_name ?? a.filename ?? a.name ?? "";
-          const type: string = a.content_type ?? a.contentType ?? a.mimeType ?? a.type ?? "";
-          return name.toLowerCase().endsWith(".pdf") || type.toLowerCase().includes("pdf");
-        });
-        if (!pdfAttachment) return null;
-        const rawContent = pdfAttachment.content ?? pdfAttachment.data ?? pdfAttachment.body ?? "";
+      // ── Helper: extract PDF text from a specific attachment object ───────────
+      async function extractPdfFromAttachment(att: any): Promise<{ text: string; pdfBase64: string } | null> {
+        const rawContent = att.content ?? att.data ?? att.body ?? "";
         let buf: Buffer;
         let pdfBase64: string;
         if (typeof rawContent === "string") {
@@ -4266,6 +4259,28 @@ export async function registerRoutes(
       function resolveStoreId(code: string): string | null {
         if (code === "SUSHI" && sushiStore) return sushiStore.id;
         if (code === "SANDWICH" && sandwichStore) return sandwichStore.id;
+        return null;
+      }
+
+      // ── Helper: fuzzy-match deliveryLocation text against stores table ────────
+      // Falls back to this when storeCode = "UNKNOWN" — searches store name and address.
+      function resolveStoreFromDelivery(deliveryLocation: string | null | undefined): string | null {
+        if (!deliveryLocation) return null;
+        const dl = deliveryLocation.toLowerCase();
+        for (const store of allStores) {
+          const name = (store.name ?? "").toLowerCase();
+          // Match store name keywords inside the delivery text
+          if (name && dl.includes(name)) return store.id;
+          // Try matching a keyword from the store name (first meaningful word)
+          const keyword = name.split(/\s+/).find((w: string) => w.length >= 4);
+          if (keyword && dl.includes(keyword)) return store.id;
+          // Match store address suburb/street if stored on store record
+          const addr = ((store as any).address ?? "").toLowerCase();
+          if (addr) {
+            const suburb = addr.split(",").pop()?.trim() ?? "";
+            if (suburb.length >= 3 && dl.includes(suburb)) return store.id;
+          }
+        }
         return null;
       }
 
@@ -4322,164 +4337,189 @@ export async function registerRoutes(
       // ══════════════════════════════════════════════════════════════════════════
       console.log(`[Webhook] Direct supplier: "${matchedSupplier.name}" — running Micro-Filter`);
 
-      // ── Micro-Filter Step 1: Physical attachment check ─────────────────────
-      // Emails with no PDF/image attachment are almost always order confirmations
-      // or text updates — NOT invoices. Silently archive them to keep AP clean.
-      const invoiceAttachment = attachments.find((a: any) => {
+      // ── Micro-Filter Step 1: Collect ALL valid invoice attachments ─────────
+      // A single email may include multiple PDFs — one per store. We process each
+      // attachment independently so each spawns its own invoice row.
+      const validInvoiceAttachments = attachments.filter((a: any) => {
         const name = (a.file_name ?? a.filename ?? a.name ?? "").toLowerCase();
         const type = (a.content_type ?? a.contentType ?? a.mimeType ?? a.type ?? "").toLowerCase();
         return name.endsWith(".pdf") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png")
           || type.includes("pdf") || type.includes("jpeg") || type.includes("png");
       });
 
-      if (!invoiceAttachment) {
-        console.log(`[Webhook] Micro-Filter: No valid attachment → FYI_ARCHIVE (${matchedSupplier.name})`);
-        return res.status(200).json({ received: true, action: "fyi_archived_no_attachment", supplier: matchedSupplier.name, reason: "No PDF/image attachment — likely an order confirmation or text update" });
+      if (validInvoiceAttachments.length === 0) {
+        console.log(`[Webhook] Micro-Filter: No valid attachments → FYI_ARCHIVE (${matchedSupplier.name})`);
+        return res.status(200).json({ received: true, action: "fyi_archived_no_attachment", supplier: matchedSupplier.name, reason: "No PDF/image attachments — likely an order confirmation or text update" });
       }
 
-      // ── Micro-Filter Step 2: Extract text for classification ───────────────
-      const pdfResult = await extractPdfFromAttachments();
-      // Use PDF text if available; fall back to email body for image attachments
-      const classifyText = pdfResult?.text.trim() ? pdfResult.text : emailBody;
+      console.log(`[Webhook] Processing ${validInvoiceAttachments.length} attachment(s) for "${matchedSupplier.name}"`);
 
-      // ── Micro-Filter Step 3: Fast AI document classifier ──────────────────
-      // gpt-4o-mini call — very fast and cheap (~$0.0001 per call)
-      console.log(`[Webhook] Micro-Filter: Classifying document for "${matchedSupplier.name}"...`);
-      const docType = await classifyDocumentForAP(classifyText);
+      // ── Supplier name normalizer (for cross-check) ─────────────────────────
+      const normalize = (n: string) =>
+        n.toLowerCase()
+          .replace(/\bpty\.?\s*ltd\.?\b/gi, "")
+          .replace(/\binc\.?\b/gi, "")
+          .replace(/[^a-z0-9\s]/g, "")
+          .replace(/\s+/g, " ")
+          .trim();
+      const significantWords = (n: string) => n.split(" ").filter((w: string) => w.length >= 4);
 
-      if (docType === "CONFIRMATION") {
-        console.log(`[Webhook] Micro-Filter: Classified as CONFIRMATION → FYI_ARCHIVE (${matchedSupplier.name})`);
-        return res.status(200).json({ received: true, action: "fyi_archived_confirmation", supplier: matchedSupplier.name, reason: "Document classified as order confirmation — not a payable invoice" });
-      }
+      // Pre-fetch existing invoice numbers for this supplier (dedup across attachments)
+      const existingForSupplier = await storage.getSupplierInvoices({ supplierId: matchedSupplier.id });
+      const existingNumbers = new Set(existingForSupplier.map(inv => inv.invoiceNumber));
+      const isAutoPay = matchedSupplier.isAutoPay ?? false;
+      const today = new Date().toISOString().split("T")[0];
 
-      console.log(`[Webhook] Micro-Filter: Classified as INVOICE → proceeding with AP extraction (${matchedSupplier.name})`);
-
-      // ── Full AP extraction (INVOICE confirmed) ─────────────────────────────
-      if (!pdfResult) {
-        const placeholder = await storage.createSupplierInvoice({
-          supplierId: matchedSupplier.id, storeId: null,
-          invoiceNumber: `EMAIL-${Date.now()}`,
-          invoiceDate: new Date().toISOString().split("T")[0],
-          dueDate: undefined, amount: 0, status: "REVIEW",
-          notes: `Invoice attachment found but could not be read. Please enter manually.\nFrom: ${senderEmail}\nSubject: ${subject}`,
-        });
-        return res.status(200).json({ received: true, action: "matched_no_pdf_text_placeholder", supplier: matchedSupplier.name, invoiceId: placeholder.id });
-      }
-
-      const parsedItems = await parseInvoiceWithAI(pdfResult.text, matchedSupplier.name);
-      if (!parsedItems || parsedItems.length === 0) {
-        return res.status(200).json({ received: true, action: "ai_parse_failed", supplier: matchedSupplier.name });
-      }
-
-      // ── PDF Supplier Cross-Check ────────────────────────────────────────────
-      // PDF content is the ground truth. Compare the supplier name extracted from
-      // the PDF against the email-matched supplier. If they don't overlap, the
-      // email was likely forwarded and the email-matched supplier is WRONG.
-      const pdfSupplierName = parsedItems[0]?.extractedSupplierName ?? null;
-      if (pdfSupplierName) {
-        const normalize = (n: string) =>
-          n.toLowerCase()
-            .replace(/\bpty\.?\s*ltd\.?\b/gi, "")
-            .replace(/\binc\.?\b/gi, "")
-            .replace(/[^a-z0-9\s]/g, "")
-            .replace(/\s+/g, " ")
-            .trim();
-
-        const normPdf = normalize(pdfSupplierName);
-        const normMatched = normalize(matchedSupplier.name);
-
-        // Two names "overlap" if any significant word (4+ chars) appears in both
-        const significantWords = (n: string) => n.split(" ").filter(w => w.length >= 4);
-        const pdfWords = significantWords(normPdf);
-        const matchedWords = significantWords(normMatched);
-        const hasOverlap =
-          pdfWords.some(w => normMatched.includes(w)) ||
-          matchedWords.some(w => normPdf.includes(w));
-
-        if (!hasOverlap) {
-          console.log(`[Webhook] SUPPLIER MISMATCH — Email→"${matchedSupplier.name}" | PDF→"${pdfSupplierName}"`);
-
-          // Is the correct PDF supplier already in the DB?
-          const pdfSupplier = await storage.findSupplierByName(pdfSupplierName);
-          if (pdfSupplier) {
-            // Found — redirect all invoices to the real supplier
-            console.log(`[Webhook] Cross-check: redirecting to known supplier "${pdfSupplier.name}" (${pdfSupplier.id})`);
-            matchedSupplier = pdfSupplier;
-          } else {
-            // Unknown supplier — send to Review Inbox so the manager can approve
-            console.log(`[Webhook] Cross-check: unknown PDF supplier "${pdfSupplierName}" — routing to REVIEW`);
-            const today = new Date().toISOString().split("T")[0];
-            const reviewCreated: string[] = [];
-            for (const parsed of parsedItems) {
-              const inv = await storage.createSupplierInvoice({
-                supplierId: null,
-                storeId: resolveStoreId(parsed.storeCode),
-                invoiceNumber: parsed.invoiceNumber || `EMAIL-${Date.now()}`,
-                invoiceDate: parsed.issueDate || today,
-                dueDate: parsed.dueDate ?? undefined,
-                amount: parsed.totalAmount,
-                status: "REVIEW",
-                rawExtractedData: {
-                  senderEmail,
-                  subject,
-                  pdfBase64: pdfResult.pdfBase64,
-                  supplier: {
-                    supplierName: pdfSupplierName,
-                  },
-                  invoices: parsedItems.map(p => ({
-                    invoiceNumber: p.invoiceNumber,
-                    issueDate: p.issueDate,
-                    dueDate: p.dueDate,
-                    totalAmount: p.totalAmount,
-                    storeCode: p.storeCode,
-                  })),
-                },
-                notes: `Supplier mismatch: email from "${matchedSupplier.name}" but PDF identifies supplier as "${pdfSupplierName}".\nFrom: ${senderEmail}\nSubject: ${subject}`,
-              });
-              reviewCreated.push(inv.id);
-            }
-            return res.status(200).json({
-              received: true,
-              action: "supplier_mismatch_sent_to_review",
-              emailSupplier: matchedSupplier.name,
-              pdfSupplier: pdfSupplierName,
-              reviewCount: reviewCreated.length,
-            });
-          }
-        }
-      }
-      // ── End PDF Supplier Cross-Check ───────────────────────────────────────
-
-      const existing = await storage.getSupplierInvoices({ supplierId: matchedSupplier.id });
-      const existingNumbers = new Set(existing.map(inv => inv.invoiceNumber));
       const created: string[] = [];
       const skipped: string[] = [];
-      const isAutoPay = matchedSupplier.isAutoPay ?? false;
+      let reviewCount = 0;
+      let confirmationCount = 0;
 
-      for (const parsed of parsedItems) {
-        if (!parsed.invoiceNumber && !parsed.issueDate && !parsed.totalAmount) continue;
-        if (parsed.invoiceNumber && existingNumbers.has(parsed.invoiceNumber)) { skipped.push(parsed.invoiceNumber); continue; }
-        const invStatus = isAutoPay ? "PAID" : "PENDING";
-        const newInv = await storage.createSupplierInvoice({
-          supplierId: matchedSupplier.id,
-          storeId: resolveStoreId(parsed.storeCode),
-          invoiceNumber: parsed.invoiceNumber,
-          invoiceDate: parsed.issueDate,
-          dueDate: parsed.dueDate ?? undefined,
-          amount: parsed.totalAmount,
-          status: invStatus,
-          rawExtractedData: pdfResult?.pdfBase64 ? { pdfBase64: pdfResult.pdfBase64, senderEmail, subject } : undefined,
-          notes: isAutoPay
-            ? `Auto-paid (Direct Debit) via email from ${senderEmail}. Subject: ${subject}`
-            : `Auto-imported via email from ${senderEmail}. Subject: ${subject}`,
-        });
-        if (isAutoPay) {
-          const today = new Date().toISOString().split("T")[0];
-          await storage.createSupplierPayment({ supplierId: matchedSupplier.id, invoiceId: newInv.id, paymentDate: parsed.issueDate ?? today, amount: parsed.totalAmount ?? 0, method: "AUTO_DEBIT", notes: `Automatic direct debit — ${senderEmail}` });
+      // ── Loop: process each attachment independently ─────────────────────────
+      for (let attIdx = 0; attIdx < validInvoiceAttachments.length; attIdx++) {
+        const att = validInvoiceAttachments[attIdx];
+        const attName = att.file_name ?? att.filename ?? att.name ?? `attachment-${attIdx + 1}`;
+        console.log(`[Webhook] Attachment ${attIdx + 1}/${validInvoiceAttachments.length}: "${attName}"`);
+
+        // ── Step 2: Extract PDF text ─────────────────────────────────────────
+        const pdfResult = await extractPdfFromAttachment(att);
+        const classifyText = pdfResult?.text.trim() ? pdfResult.text : (validInvoiceAttachments.length === 1 ? emailBody : "");
+
+        // ── Step 3: Classify (INVOICE vs CONFIRMATION) ───────────────────────
+        const docType = await classifyDocumentForAP(classifyText || "no text available");
+        if (docType === "CONFIRMATION") {
+          console.log(`[Webhook] Attachment "${attName}" classified as CONFIRMATION — skipping`);
+          confirmationCount++;
+          continue;
         }
-        created.push(newInv.id);
+
+        // ── Step 4: Handle unreadable PDF ───────────────────────────────────
+        if (!pdfResult) {
+          const placeholder = await storage.createSupplierInvoice({
+            supplierId: matchedSupplier.id, storeId: null,
+            invoiceNumber: `EMAIL-${Date.now()}-${attIdx}`,
+            invoiceDate: today,
+            dueDate: undefined, amount: 0, status: "REVIEW",
+            notes: `Attachment "${attName}" found but could not be read. Please enter manually.\nFrom: ${senderEmail}\nSubject: ${subject}`,
+          });
+          created.push(placeholder.id);
+          console.log(`[Webhook] Attachment "${attName}" unreadable — created REVIEW placeholder`);
+          continue;
+        }
+
+        // ── Step 5: Parse with AI ────────────────────────────────────────────
+        const parsedItems = await parseInvoiceWithAI(pdfResult.text, matchedSupplier.name);
+        if (!parsedItems || parsedItems.length === 0) {
+          console.log(`[Webhook] Attachment "${attName}" — AI parse returned nothing`);
+          continue;
+        }
+
+        // ── Step 6: PDF Supplier Cross-Check ────────────────────────────────
+        // PDF content is ground truth. If supplier name doesn't match, the
+        // email may have been forwarded from a different supplier.
+        const pdfSupplierName = parsedItems[0]?.extractedSupplierName ?? null;
+        let currentSupplier = matchedSupplier;
+
+        if (pdfSupplierName) {
+          const normPdf = normalize(pdfSupplierName);
+          const normMatched = normalize(currentSupplier.name);
+          const pdfWords = significantWords(normPdf);
+          const matchedWords = significantWords(normMatched);
+          const hasOverlap =
+            pdfWords.some(w => normMatched.includes(w)) ||
+            matchedWords.some(w => normPdf.includes(w));
+
+          if (!hasOverlap) {
+            console.log(`[Webhook] Attachment "${attName}": SUPPLIER MISMATCH — Email→"${currentSupplier.name}" | PDF→"${pdfSupplierName}"`);
+            const pdfSupplier = await storage.findSupplierByName(pdfSupplierName);
+            if (pdfSupplier) {
+              console.log(`[Webhook] Cross-check: redirecting to known supplier "${pdfSupplier.name}"`);
+              currentSupplier = pdfSupplier;
+            } else {
+              // Unknown supplier — route all items from this attachment to REVIEW
+              for (const parsed of parsedItems) {
+                const storeId = resolveStoreId(parsed.storeCode) ?? resolveStoreFromDelivery(parsed.deliveryLocation);
+                const inv = await storage.createSupplierInvoice({
+                  supplierId: null, storeId,
+                  invoiceNumber: parsed.invoiceNumber || `EMAIL-${Date.now()}-${attIdx}`,
+                  invoiceDate: parsed.issueDate || today,
+                  dueDate: parsed.dueDate ?? undefined,
+                  amount: parsed.totalAmount,
+                  status: "REVIEW",
+                  rawExtractedData: {
+                    senderEmail, subject, pdfBase64: pdfResult.pdfBase64,
+                    supplier: { supplierName: pdfSupplierName },
+                    invoices: parsedItems.map(p => ({
+                      invoiceNumber: p.invoiceNumber, issueDate: p.issueDate,
+                      dueDate: p.dueDate, totalAmount: p.totalAmount, storeCode: p.storeCode,
+                    })),
+                  },
+                  notes: `Supplier mismatch: email from "${currentSupplier.name}" but PDF identifies "${pdfSupplierName}".\nAttachment: ${attName}\nFrom: ${senderEmail}\nSubject: ${subject}`,
+                });
+                reviewCount++;
+                created.push(inv.id);
+              }
+              continue; // Done with this attachment
+            }
+          }
+        }
+
+        // ── Step 7: Create invoices for this attachment ──────────────────────
+        for (const parsed of parsedItems) {
+          if (!parsed.invoiceNumber && !parsed.issueDate && !parsed.totalAmount) continue;
+          if (parsed.invoiceNumber && existingNumbers.has(parsed.invoiceNumber)) {
+            console.log(`[Webhook] Attachment "${attName}": duplicate invoice ${parsed.invoiceNumber} — skipping`);
+            skipped.push(parsed.invoiceNumber);
+            continue;
+          }
+
+          // Store resolution: storeCode first, then deliveryLocation fuzzy match
+          const storeId = resolveStoreId(parsed.storeCode) ?? resolveStoreFromDelivery(parsed.deliveryLocation);
+          if (storeId) {
+            const storeName = allStores.find(s => s.id === storeId)?.name ?? storeId;
+            console.log(`[Webhook] Attachment "${attName}": invoice ${parsed.invoiceNumber} → store "${storeName}" (storeCode=${parsed.storeCode}, delivery="${parsed.deliveryLocation ?? "n/a"}")`);
+          } else {
+            console.log(`[Webhook] Attachment "${attName}": invoice ${parsed.invoiceNumber} → store UNKNOWN (storeCode=${parsed.storeCode}, delivery="${parsed.deliveryLocation ?? "n/a"}")`);
+          }
+
+          const invStatus = isAutoPay ? "PAID" : "PENDING";
+          const newInv = await storage.createSupplierInvoice({
+            supplierId: currentSupplier.id,
+            storeId,
+            invoiceNumber: parsed.invoiceNumber,
+            invoiceDate: parsed.issueDate,
+            dueDate: parsed.dueDate ?? undefined,
+            amount: parsed.totalAmount,
+            status: invStatus,
+            rawExtractedData: { pdfBase64: pdfResult.pdfBase64, senderEmail, subject, deliveryLocation: parsed.deliveryLocation ?? null },
+            notes: isAutoPay
+              ? `Auto-paid (Direct Debit) via email from ${senderEmail}. Subject: ${subject}. Attachment: ${attName}`
+              : `Auto-imported via email from ${senderEmail}. Subject: ${subject}. Attachment: ${attName}`,
+          });
+
+          if (isAutoPay) {
+            await storage.createSupplierPayment({
+              supplierId: currentSupplier.id, invoiceId: newInv.id,
+              paymentDate: parsed.issueDate ?? today, amount: parsed.totalAmount ?? 0,
+              method: "AUTO_DEBIT", notes: `Automatic direct debit — ${senderEmail}`,
+            });
+          }
+          created.push(newInv.id);
+          if (parsed.invoiceNumber) existingNumbers.add(parsed.invoiceNumber);
+        }
       }
-      return res.status(200).json({ received: true, action: "invoices_created", created: created.length, skipped: skipped.length, supplier: matchedSupplier.name });
+      // ── End attachment loop ─────────────────────────────────────────────────
+
+      return res.status(200).json({
+        received: true,
+        action: "invoices_created",
+        attachmentsProcessed: validInvoiceAttachments.length,
+        created: created.length,
+        skipped: skipped.length,
+        reviewCount,
+        confirmationCount,
+        supplier: matchedSupplier.name,
+      });
 
     } catch (err) {
       console.error("[Webhook/inbound-invoices] Unhandled error:", err);

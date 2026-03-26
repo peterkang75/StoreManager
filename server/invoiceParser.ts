@@ -10,6 +10,8 @@ export interface ParsedInvoice {
   storeCode: "SUSHI" | "SANDWICH" | "UNKNOWN";
   /** Supplier/vendor company name as it appears on the PDF itself (not the hint passed in) */
   extractedSupplierName?: string;
+  /** Raw delivery/ship-to/bill-to address or store name from the PDF — used for fuzzy store matching */
+  deliveryLocation?: string | null;
 }
 
 export interface UploadParsedInvoice {
@@ -89,7 +91,8 @@ CRITICAL RULES:
    - If it contains "olitin", "sushim", "sushme", or "kogarah" → storeCode = "SUSHI"
    - If it contains "eatem pty ltd" or "eatem sandwich" → storeCode = "SANDWICH"
    - Otherwise → storeCode = "UNKNOWN"
-5. Return ONLY valid JSON with no extra text, code fences, or explanation.`;
+5. For deliveryLocation, copy the EXACT text of the "Delivery Address", "Ship To", "Deliver To", "Bill To", or "Attention" field as it appears on the document. This is the raw address of the receiving store. Return null if not found.
+6. Return ONLY valid JSON with no extra text, code fences, or explanation.`;
 
   const userPrompt = `Supplier hint (from email routing — may be WRONG if the email was forwarded): ${supplierName}
 
@@ -104,7 +107,8 @@ Extract all invoices and return as a JSON ARRAY. Each item must have:
     "issueDate": "YYYY-MM-DD (date the invoice was issued)",
     "dueDate": "YYYY-MM-DD or null (payment due date if present)",
     "totalAmount": number (total amount due as a float, no currency symbols),
-    "storeCode": "SUSHI" | "SANDWICH" | "UNKNOWN"
+    "storeCode": "SUSHI" | "SANDWICH" | "UNKNOWN",
+    "deliveryLocation": "string or null (exact text of the Delivery/Ship To/Bill To/Attention field — the receiving store's address or name)"
   }
 ]
 
@@ -175,6 +179,7 @@ If a field cannot be found, use null for optional fields or an empty string for 
           ? item.storeCode
           : "UNKNOWN") as ParsedInvoice["storeCode"],
         extractedSupplierName: item.extractedSupplierName ? String(item.extractedSupplierName).trim() : undefined,
+        deliveryLocation: item.deliveryLocation ? String(item.deliveryLocation).trim() : null,
       }));
 
     if (results.length === 0) {
