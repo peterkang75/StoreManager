@@ -127,15 +127,22 @@ const SUGGESTED_ACTION_LABEL: Record<RouteAction, string> = {
 function EmailViewDialog({
   item,
   onClose,
+  onAction,
+  isPending,
 }: {
   item: TriageItem | null;
   onClose: () => void;
+  onAction: (id: string, action: RouteAction) => void;
+  isPending: boolean;
 }) {
   if (!item) return null;
 
+  const isProcessed = item.status !== "NEEDS_ROUTING";
+  const suggested = item.suggestedAction as RouteAction | null | undefined;
+
   return (
     <Dialog open={!!item} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-2xl w-full p-0 gap-0 overflow-hidden">
+      <DialogContent className="max-w-2xl w-full p-0 gap-0 overflow-hidden" aria-describedby={undefined}>
         <DialogHeader className="px-6 pt-6 pb-4 border-b">
           <DialogTitle
             className="text-base font-bold leading-snug pr-8"
@@ -146,7 +153,7 @@ function EmailViewDialog({
 
           {/* Sender + Date meta row */}
           <div className="flex flex-col gap-1.5 mt-3">
-            <div className="flex items-center gap-2 text-sm">
+            <div className="flex items-center gap-2 text-sm flex-wrap">
               <User className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
               <span className="font-medium" data-testid="text-email-dialog-sender">
                 {item.senderName ? item.senderName : item.senderEmail}
@@ -157,7 +164,7 @@ function EmailViewDialog({
                 </span>
               )}
               {item.hasAttachment && (
-                <Badge variant="outline" className="gap-1 text-xs ml-auto shrink-0">
+                <Badge variant="outline" className="gap-1 text-xs shrink-0">
                   <Paperclip className="w-3 h-3" />
                   Attachment
                 </Badge>
@@ -174,7 +181,7 @@ function EmailViewDialog({
 
         {/* Full email body */}
         <div
-          className="px-6 py-5 max-h-[55vh] overflow-y-auto"
+          className="px-6 py-5 max-h-[45vh] overflow-y-auto"
           data-testid="text-email-dialog-body"
         >
           {item.body ? (
@@ -186,10 +193,55 @@ function EmailViewDialog({
           )}
         </div>
 
-        <div className="px-6 py-4 border-t flex justify-end">
-          <Button variant="outline" onClick={onClose} data-testid="button-email-dialog-close">
-            Close
-          </Button>
+        {/* Footer: routing buttons (unprocessed) or close only (processed) */}
+        <div className="px-6 py-4 border-t flex items-center gap-2 flex-wrap justify-between">
+          {!isProcessed ? (
+            <>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-muted-foreground font-medium shrink-0">
+                  Route this sender:
+                </span>
+                {(Object.keys(ACTION_CONFIG) as RouteAction[]).map((action) => {
+                  const cfg = ACTION_CONFIG[action];
+                  const Icon = cfg.icon;
+                  const isSuggested = action === suggested;
+                  return (
+                    <Button
+                      key={action}
+                      size="sm"
+                      variant={isSuggested ? "default" : cfg.variant}
+                      disabled={isPending}
+                      onClick={() => onAction(item.id, action)}
+                      data-testid={`button-dialog-${action.toLowerCase()}-${item.id}`}
+                      className={`gap-1.5 ${isSuggested ? "ring-2 ring-offset-1 ring-primary" : ""}`}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      {cfg.label}
+                      {isSuggested && <span className="text-xs opacity-75">(추천)</span>}
+                    </Button>
+                  );
+                })}
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onClose}
+                data-testid="button-email-dialog-close"
+              >
+                Cancel
+              </Button>
+            </>
+          ) : (
+            <div className="ml-auto">
+              <Button
+                variant="outline"
+                onClick={onClose}
+                data-testid="button-email-dialog-close"
+              >
+                Close
+              </Button>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -512,7 +564,15 @@ export function AdminTriageInbox() {
       </div>
 
       {/* Full Email View Dialog */}
-      <EmailViewDialog item={viewItem} onClose={() => setViewItem(null)} />
+      <EmailViewDialog
+        item={viewItem}
+        onClose={() => setViewItem(null)}
+        onAction={(id, action) => {
+          setViewItem(null);
+          handleActionClick(id, action);
+        }}
+        isPending={routeMutation.isPending}
+      />
 
       {/* Route Confirm Dialog */}
       {confirmDialog && (
