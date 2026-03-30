@@ -28,6 +28,22 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 
+// ── HTML → plain text (strips <style>/<script> blocks before tag removal) ────
+function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 const uploadDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
@@ -4304,7 +4320,11 @@ export async function registerRoutes(
 
       // ── Extract subject, body, attachments ────────────────────────────────────
       let subject: string = payload?.headers?.subject ?? "(no subject)";
-      const emailBody: string = payload?.plain ?? payload?.html?.replace(/<[^>]*>/g, " ") ?? "";
+      const emailBody: string = payload?.plain
+        ? payload.plain.trim()
+        : payload?.html
+          ? htmlToPlainText(payload.html)
+          : "";
       const attachments: any[] = Array.isArray(payload?.attachments) ? payload.attachments : [];
       const hasAttachment = attachments.length > 0;
 
