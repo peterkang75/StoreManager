@@ -22,6 +22,83 @@ function htmlToPlainText(html: string): string {
     .trim();
 }
 
+// ── One-time startup: fix universal_inbox rows where senderEmail is wrong ─────
+// Caused by Google Groups "via" format:
+//   'real@supplier.com' via GroupName <alias@eatem.com.au>
+// The old parser used the <alias> address — this re-extracts the real sender.
+async function fixViaEmailSenders() {
+  try {
+    const rows = await db.execute(sql`
+      SELECT id, sender_email, sender_name, raw_payload
+      FROM universal_inbox
+      WHERE raw_payload->'headers'->>'from' ILIKE '% via %'
+    `);
+
+    const records = rows.rows as {
+      id: string;
+      sender_email: string;
+      sender_name: string | null;
+      raw_payload: any;
+    }[];
+
+    if (records.length === 0) {
+      console.log("[via-fix] No via-pattern records found.");
+      return;
+    }
+
+    console.log(`[via-fix] Found ${records.length} record(s) with via-pattern — re-parsing…`);
+
+    const viaEmailPattern =
+      /^["']?([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})["']?\s+via\s+/i;
+
+    function extractEmailAndName(h: string): { email: string; name: string | null } {
+      const m = h.match(/<([^>]+)>/);
+      const email = (m ? m[1] : h).trim().toLowerCase();
+      const rawName = h.includes("<")
+        ? h.split("<")[0].trim().replace(/^["'\s]+|["'\s]+$/g, "")
+        : "";
+      return { email, name: rawName || null };
+    }
+
+    let updated = 0;
+    for (const row of records) {
+      const rawHeaderFrom = (row.raw_payload?.headers?.from ?? "").toString();
+      const rawXOrigSender = (
+        row.raw_payload?.headers?.["x-original-sender"] ?? ""
+      ).toString().trim();
+
+      let trueEmail: string;
+      let trueName: string | null;
+
+      if (rawXOrigSender) {
+        const e = extractEmailAndName(rawXOrigSender);
+        trueEmail = e.email;
+        trueName = e.name ?? trueEmail;
+      } else {
+        const viaMatch = rawHeaderFrom.match(viaEmailPattern);
+        if (!viaMatch) continue; // pattern didn't match — skip
+        trueEmail = viaMatch[1].toLowerCase();
+        trueName = trueEmail; // only the email is available in the quoted section
+      }
+
+      if (!trueEmail || trueEmail === row.sender_email) continue; // already correct
+
+      await db.execute(sql`
+        UPDATE universal_inbox
+        SET sender_email = ${trueEmail},
+            sender_name  = ${trueName}
+        WHERE id = ${row.id}
+      `);
+      updated++;
+      console.log(`[via-fix] Fixed record ${row.id}: "${row.sender_email}" → "${trueEmail}"`);
+    }
+
+    console.log(`[via-fix] Done — ${updated} record(s) corrected.`);
+  } catch (err) {
+    console.error("[via-fix] Error:", err);
+  }
+}
+
 // ── One-time startup: sanitize any universal_inbox rows that have raw HTML/CSS ─
 async function sanitizeInboxBodies() {
   try {
@@ -127,6 +204,7 @@ app.use((req, res, next) => {
 (async () => {
   await registerRoutes(httpServer, app);
   await seedDatabaseIfEmpty();
+  await fixViaEmailSenders();
   await sanitizeInboxBodies();
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
