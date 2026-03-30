@@ -7,6 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
   AlertDialog,
@@ -29,6 +35,9 @@ import {
   Clock,
   RefreshCw,
   AlertTriangle,
+  Eye,
+  User,
+  Calendar,
 } from "lucide-react";
 import type { UniversalInboxItem } from "@shared/schema";
 
@@ -89,6 +98,17 @@ function formatRelativeTime(date: Date | string): string {
   return `${diffDays}d ago`;
 }
 
+function formatFullDate(date: Date | string): string {
+  return new Date(date).toLocaleString("en-AU", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 interface ConfirmDialog {
   itemId: string;
   action: RouteAction;
@@ -102,17 +122,95 @@ const SUGGESTED_ACTION_LABEL: Record<RouteAction, string> = {
   SPAM_DROP: "Spam",
 };
 
+// ── Full Email View Dialog ─────────────────────────────────────────────────────
+
+function EmailViewDialog({
+  item,
+  onClose,
+}: {
+  item: TriageItem | null;
+  onClose: () => void;
+}) {
+  if (!item) return null;
+
+  return (
+    <Dialog open={!!item} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-2xl w-full p-0 gap-0 overflow-hidden">
+        <DialogHeader className="px-6 pt-6 pb-4 border-b">
+          <DialogTitle
+            className="text-base font-bold leading-snug pr-8"
+            data-testid="text-email-dialog-subject"
+          >
+            {item.subject}
+          </DialogTitle>
+
+          {/* Sender + Date meta row */}
+          <div className="flex flex-col gap-1.5 mt-3">
+            <div className="flex items-center gap-2 text-sm">
+              <User className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <span className="font-medium" data-testid="text-email-dialog-sender">
+                {item.senderName ? item.senderName : item.senderEmail}
+              </span>
+              {item.senderName && (
+                <span className="text-muted-foreground text-xs">
+                  &lt;{item.senderEmail}&gt;
+                </span>
+              )}
+              {item.hasAttachment && (
+                <Badge variant="outline" className="gap-1 text-xs ml-auto shrink-0">
+                  <Paperclip className="w-3 h-3" />
+                  Attachment
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Calendar className="w-3.5 h-3.5 shrink-0" />
+              <span data-testid="text-email-dialog-date">
+                {formatFullDate(item.createdAt)}
+              </span>
+            </div>
+          </div>
+        </DialogHeader>
+
+        {/* Full email body */}
+        <div
+          className="px-6 py-5 max-h-[55vh] overflow-y-auto"
+          data-testid="text-email-dialog-body"
+        >
+          {item.body ? (
+            <pre className="text-sm text-foreground whitespace-pre-wrap font-sans leading-relaxed break-words">
+              {item.body}
+            </pre>
+          ) : (
+            <p className="text-sm text-muted-foreground italic">No content.</p>
+          )}
+        </div>
+
+        <div className="px-6 py-4 border-t flex justify-end">
+          <Button variant="outline" onClick={onClose} data-testid="button-email-dialog-close">
+            Close
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Inbox Item Card ────────────────────────────────────────────────────────────
+
 function InboxItemCard({
   item,
   onAction,
+  onView,
   isPending,
 }: {
   item: TriageItem;
   onAction: (id: string, action: RouteAction) => void;
+  onView: (item: TriageItem) => void;
   isPending: boolean;
 }) {
   const isProcessed = item.status !== "NEEDS_ROUTING";
-  const bodyPreview = item.body.slice(0, 280).trim();
+  const bodyPreview = item.body.slice(0, 200).trim();
   const suggested = item.suggestedAction as RouteAction | null | undefined;
 
   return (
@@ -166,23 +264,42 @@ function InboxItemCard({
             {item.subject}
           </p>
         </div>
-        <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-          <Clock className="w-3 h-3" />
-          <span data-testid={`text-time-${item.id}`}>
-            {formatRelativeTime(item.createdAt)}
-          </span>
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Clock className="w-3 h-3" />
+            <span data-testid={`text-time-${item.id}`}>
+              {formatRelativeTime(item.createdAt)}
+            </span>
+          </div>
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => onView(item)}
+            data-testid={`button-view-email-${item.id}`}
+            title="View full email"
+          >
+            <Eye className="w-4 h-4" />
+          </Button>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-3">
         {bodyPreview && (
-          <p
-            className="text-sm text-muted-foreground line-clamp-3 leading-relaxed"
-            data-testid={`text-body-${item.id}`}
+          <button
+            type="button"
+            className="w-full text-left group"
+            onClick={() => onView(item)}
+            data-testid={`button-preview-${item.id}`}
           >
-            {bodyPreview}
-            {item.body.length > 280 && "…"}
-          </p>
+            <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed group-hover:text-foreground transition-colors">
+              {bodyPreview}
+              {item.body.length > 200 && (
+                <span className="ml-1 text-xs text-primary font-medium whitespace-nowrap">
+                  … View full email
+                </span>
+              )}
+            </p>
+          </button>
         )}
 
         {!isProcessed && (
@@ -223,9 +340,12 @@ function InboxItemCard({
   );
 }
 
+// ── Page ──────────────────────────────────────────────────────────────────────
+
 export function AdminTriageInbox() {
   const { toast } = useToast();
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialog | null>(null);
+  const [viewItem, setViewItem] = useState<TriageItem | null>(null);
   const [activeTab, setActiveTab] = useState("needs-routing");
 
   const { data: allItems = [], isLoading, refetch } = useQuery<TriageItem[]>({
@@ -239,7 +359,6 @@ export function AdminTriageInbox() {
       queryClient.invalidateQueries({ queryKey: ["/api/universal-inbox"] });
       queryClient.invalidateQueries({ queryKey: ["/api/todos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices"] });
-      // Refresh AP Review Inbox immediately so the new placeholder is visible
       queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       const cfg = ACTION_CONFIG[action];
@@ -303,6 +422,7 @@ export function AdminTriageInbox() {
             key={item.id}
             item={item}
             onAction={handleActionClick}
+            onView={setViewItem}
             isPending={routeMutation.isPending}
           />
         ))}
@@ -391,6 +511,10 @@ export function AdminTriageInbox() {
         </Tabs>
       </div>
 
+      {/* Full Email View Dialog */}
+      <EmailViewDialog item={viewItem} onClose={() => setViewItem(null)} />
+
+      {/* Route Confirm Dialog */}
       {confirmDialog && (
         <AlertDialog open={true} onOpenChange={() => setConfirmDialog(null)}>
           <AlertDialogContent>
