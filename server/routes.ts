@@ -4309,10 +4309,72 @@ export async function registerRoutes(
       }
 
       // ── Extract sender (use headers.from only — envelope.from has Gmail artifacts) ──
-      const rawHeaderFrom: string = payload?.headers?.from ?? "";
-      const angleMatch = rawHeaderFrom.match(/<([^>]+)>/);
-      let senderEmail = (angleMatch ? angleMatch[1] : rawHeaderFrom).trim().toLowerCase();
-      console.log("[Webhook] Sender:", senderEmail);
+      const rawHeaderFrom: string = (payload?.headers?.from ?? "").toString();
+
+      // Helper: extract { email, name } from "Display Name <email>" or bare "email"
+      function extractEmailAndName(h: string): { email: string; name: string | null } {
+        const m = h.match(/<([^>]+)>/);
+        const email = (m ? m[1] : h).trim().toLowerCase();
+        const rawName = h.includes("<") ? h.split("<")[0].trim().replace(/^["'\s]+|["'\s]+$/g, "") : "";
+        return { email, name: rawName || null };
+      }
+
+      // Priority 1: X-Original-Sender header
+      //   Google Groups / mailing lists set this to the REAL sender's address.
+      const rawXOrigSender = (
+        payload?.headers?.["x-original-sender"] ??
+        payload?.headers?.x_original_sender ??
+        ""
+      ).toString().trim();
+
+      // Priority 2: "via" pattern in From header
+      //   Gmail / Google Groups formats the From as:
+      //     'real@supplier.com' via GroupName <alias@eatem.com.au>
+      //   The real sender email appears BEFORE the word "via".
+      //   This regex captures it whether it's bare or quoted.
+      const viaEmailPattern =
+        /^["']?([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})["']?\s+via\s+/i;
+      const viaMatch = rawHeaderFrom.match(viaEmailPattern);
+
+      // Priority 3: Reply-To header (some list managers set the real sender here)
+      const rawReplyTo = (
+        payload?.headers?.["reply-to"] ??
+        payload?.headers?.reply_to ??
+        ""
+      ).toString().trim();
+
+      let senderEmail: string;
+      let resolvedSenderName: string | null;
+
+      if (rawXOrigSender) {
+        const extracted = extractEmailAndName(rawXOrigSender);
+        senderEmail = extracted.email;
+        resolvedSenderName = extracted.name ?? senderEmail;
+        console.log("[Webhook] Sender from X-Original-Sender:", senderEmail);
+      } else if (viaMatch) {
+        senderEmail = viaMatch[1].toLowerCase();
+        resolvedSenderName = senderEmail; // only email is available in the quoted section
+        console.log("[Webhook] Sender from via-pattern:", senderEmail);
+      } else if (rawReplyTo) {
+        const replyExtracted = extractEmailAndName(rawReplyTo);
+        const fromExtracted  = extractEmailAndName(rawHeaderFrom);
+        // Only prefer Reply-To when From email looks like a group alias (same domain as ours)
+        // Heuristic: if Reply-To differs from From, trust Reply-To over From
+        if (replyExtracted.email && replyExtracted.email !== fromExtracted.email) {
+          senderEmail = replyExtracted.email;
+          resolvedSenderName = replyExtracted.name ?? fromExtracted.name ?? null;
+          console.log("[Webhook] Sender from Reply-To:", senderEmail);
+        } else {
+          senderEmail = fromExtracted.email;
+          resolvedSenderName = fromExtracted.name;
+          console.log("[Webhook] Sender:", senderEmail);
+        }
+      } else {
+        const extracted = extractEmailAndName(rawHeaderFrom);
+        senderEmail = extracted.email;
+        resolvedSenderName = extracted.name;
+        console.log("[Webhook] Sender:", senderEmail);
+      }
 
       if (!senderEmail) {
         return res.status(200).json({ received: true, action: "ignored", reason: "no_sender" });
@@ -4445,12 +4507,9 @@ export async function registerRoutes(
       // we can't determine the true supplier — send straight to Triage ────────────
       if (isInternalForwarder(senderEmail)) {
         console.log(`[Webhook] senderEmail is still internal (${senderEmail}) after forward detection — routing to Triage`);
-        const senderNameFallback = rawHeaderFrom.includes("<")
-          ? rawHeaderFrom.split("<")[0].trim().replace(/^"/, "").replace(/"$/, "")
-          : null;
         await storage.createUniversalInboxItem({
           senderEmail,
-          senderName: senderNameFallback || null,
+          senderName: resolvedSenderName || null,
           subject,
           body: emailBody.slice(0, 8000),
           hasAttachment,
@@ -4490,13 +4549,10 @@ export async function registerRoutes(
       // go to Triage Inbox first so the manager can review before processing.
       // Exceptions: SPAM_DROP and FYI_ARCHIVE (handled above, no human review needed).
       if (!matchedSupplier) {
-        const senderName = rawHeaderFrom.includes("<")
-          ? rawHeaderFrom.split("<")[0].trim().replace(/^"/, "").replace(/"$/, "")
-          : null;
         console.log(`[Webhook] Not a direct supplier — routing to Triage Inbox: ${senderEmail} (suggestedAction=${action ?? "none"})`);
         await storage.createUniversalInboxItem({
           senderEmail,
-          senderName: senderName || null,
+          senderName: resolvedSenderName || null,
           subject,
           body: emailBody.slice(0, 8000),
           hasAttachment,
