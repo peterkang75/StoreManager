@@ -3,6 +3,69 @@ import { registerRoutes, autoSubmitExpiredCycleShifts } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedDatabaseIfEmpty } from "./seed";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
+
+// ── HTML → plain text (same logic as in routes.ts) ────────────────────────────
+function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+// ── One-time startup: sanitize any universal_inbox rows that have raw HTML/CSS ─
+async function sanitizeInboxBodies() {
+  try {
+    // Fetch all rows that may contain raw HTML patterns
+    const rows = await db.execute(sql`
+      SELECT id, body, raw_payload
+      FROM universal_inbox
+      WHERE body LIKE '%<%'
+         OR body LIKE '%@media%'
+         OR body LIKE '%font-family%'
+         OR body LIKE '%<!DOCTYPE%'
+    `);
+
+    const records = rows.rows as { id: string; body: string; raw_payload: any }[];
+
+    if (records.length === 0) {
+      console.log("[inbox-sanitize] No records need sanitization.");
+      return;
+    }
+
+    console.log(`[inbox-sanitize] Found ${records.length} record(s) with potential HTML/CSS — sanitizing…`);
+
+    let updated = 0;
+    for (const row of records) {
+      // Prefer re-extracting from rawPayload.html so we get the cleanest result
+      const rawHtml: string | null = row.raw_payload?.html ?? null;
+      const cleanBody = rawHtml
+        ? htmlToPlainText(rawHtml).slice(0, 8000)
+        : htmlToPlainText(row.body).slice(0, 8000);
+
+      if (cleanBody !== row.body) {
+        await db.execute(sql`
+          UPDATE universal_inbox SET body = ${cleanBody} WHERE id = ${row.id}
+        `);
+        updated++;
+        console.log(`[inbox-sanitize] Updated record ${row.id}`);
+      }
+    }
+
+    console.log(`[inbox-sanitize] Done — ${updated} record(s) updated.`);
+  } catch (err) {
+    console.error("[inbox-sanitize] Error during sanitization:", err);
+  }
+}
 
 const app = express();
 const httpServer = createServer(app);
@@ -64,6 +127,7 @@ app.use((req, res, next) => {
 (async () => {
   await registerRoutes(httpServer, app);
   await seedDatabaseIfEmpty();
+  await sanitizeInboxBodies();
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
