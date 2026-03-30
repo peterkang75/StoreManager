@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
@@ -38,6 +38,10 @@ import {
   Eye,
   User,
   Calendar,
+  Sparkles,
+  Loader2,
+  FileText,
+  Languages,
 } from "lucide-react";
 import type { UniversalInboxItem } from "@shared/schema";
 
@@ -122,6 +126,13 @@ const SUGGESTED_ACTION_LABEL: Record<RouteAction, string> = {
   SPAM_DROP: "Spam",
 };
 
+// ── AI result type ─────────────────────────────────────────────────────────────
+
+interface AiResult {
+  summary: string;
+  translation: string;
+}
+
 // ── Full Email View Dialog ─────────────────────────────────────────────────────
 
 function EmailViewDialog({
@@ -135,21 +146,73 @@ function EmailViewDialog({
   onAction: (id: string, action: RouteAction) => void;
   isPending: boolean;
 }) {
+  const [aiResult, setAiResult] = useState<AiResult | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [showTranslation, setShowTranslation] = useState(false);
+
+  // Reset AI state when a different email is opened
+  useEffect(() => {
+    setAiResult(null);
+    setAiError(null);
+    setAiLoading(false);
+    setShowTranslation(false);
+  }, [item?.id]);
+
   if (!item) return null;
 
   const isProcessed = item.status !== "NEEDS_ROUTING";
   const suggested = item.suggestedAction as RouteAction | null | undefined;
 
+  async function handleAiTranslate() {
+    setAiLoading(true);
+    setAiError(null);
+    setAiResult(null);
+    try {
+      const res = await fetch("/api/ai/email-translate-summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subject: item!.subject, body: item!.body }),
+      });
+      if (!res.ok) throw new Error("서버 오류");
+      const data = await res.json() as AiResult;
+      setAiResult(data);
+      setShowTranslation(false);
+    } catch {
+      setAiError("AI 분석 중 오류가 발생했습니다. 다시 시도해 주세요.");
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
   return (
     <Dialog open={!!item} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-2xl w-full p-0 gap-0 overflow-hidden" aria-describedby={undefined}>
         <DialogHeader className="px-6 pt-6 pb-4 border-b">
-          <DialogTitle
-            className="text-base font-bold leading-snug pr-8"
-            data-testid="text-email-dialog-subject"
-          >
-            {item.subject}
-          </DialogTitle>
+          <div className="flex items-start justify-between gap-3">
+            <DialogTitle
+              className="text-base font-bold leading-snug"
+              data-testid="text-email-dialog-subject"
+            >
+              {item.subject}
+            </DialogTitle>
+            {/* AI button in header top-right */}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleAiTranslate}
+              disabled={aiLoading}
+              data-testid="button-ai-translate"
+              className="shrink-0 gap-1.5"
+            >
+              {aiLoading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5" />
+              )}
+              {aiLoading ? "분석 중…" : "한국어 번역 & 요약"}
+            </Button>
+          </div>
 
           {/* Sender + Date meta row */}
           <div className="flex flex-col gap-1.5 mt-3">
@@ -179,18 +242,72 @@ function EmailViewDialog({
           </div>
         </DialogHeader>
 
-        {/* Full email body */}
-        <div
-          className="px-6 py-5 max-h-[45vh] overflow-y-auto"
-          data-testid="text-email-dialog-body"
-        >
-          {item.body ? (
-            <pre className="text-sm text-foreground whitespace-pre-wrap font-sans leading-relaxed break-words">
-              {item.body}
-            </pre>
-          ) : (
-            <p className="text-sm text-muted-foreground italic">No content.</p>
+        {/* Scrollable content area: AI result + original body */}
+        <div className="max-h-[45vh] overflow-y-auto" data-testid="text-email-dialog-body">
+
+          {/* AI error */}
+          {aiError && (
+            <div className="mx-6 mt-4 px-4 py-3 rounded-md bg-destructive/10 text-destructive text-sm">
+              {aiError}
+            </div>
           )}
+
+          {/* AI result panel */}
+          {aiResult && (
+            <div className="mx-6 mt-4 rounded-md border bg-muted/40 overflow-hidden" data-testid="panel-ai-result">
+              {/* Summary section */}
+              <div className="px-4 py-3 border-b">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <FileText className="w-3.5 h-3.5 text-primary" />
+                  <span className="text-xs font-semibold text-primary uppercase tracking-wide">요약</span>
+                </div>
+                <pre
+                  className="text-sm text-foreground whitespace-pre-wrap font-sans leading-relaxed break-words"
+                  data-testid="text-ai-summary"
+                >
+                  {aiResult.summary}
+                </pre>
+              </div>
+
+              {/* Translation section (toggle) */}
+              <div className="px-4 py-2">
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full py-1"
+                  onClick={() => setShowTranslation(v => !v)}
+                  data-testid="button-toggle-translation"
+                >
+                  <Languages className="w-3.5 h-3.5 shrink-0" />
+                  <span className="font-medium">한국어 번역</span>
+                  <span className="ml-auto text-xs">{showTranslation ? "접기 ▲" : "펼치기 ▼"}</span>
+                </button>
+                {showTranslation && (
+                  <pre
+                    className="mt-2 pb-2 text-sm text-foreground whitespace-pre-wrap font-sans leading-relaxed break-words border-t pt-2"
+                    data-testid="text-ai-translation"
+                  >
+                    {aiResult.translation}
+                  </pre>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Original email body */}
+          <div className="px-6 py-5">
+            {item.body ? (
+              <>
+                {aiResult && (
+                  <p className="text-xs text-muted-foreground mb-2 font-medium">— 원문 —</p>
+                )}
+                <pre className="text-sm text-foreground whitespace-pre-wrap font-sans leading-relaxed break-words">
+                  {item.body}
+                </pre>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground italic">No content.</p>
+            )}
+          </div>
         </div>
 
         {/* Footer: routing buttons (unprocessed) or close only (processed) */}

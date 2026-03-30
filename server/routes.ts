@@ -5987,6 +5987,51 @@ Rules:
     }
   });
 
+  // ── AI: Email Translate + Summarize ────────────────────────────────────────
+  app.post("/api/ai/email-translate-summarize", async (req: Request, res: Response) => {
+    try {
+      const { subject, body } = req.body as { subject?: string; body?: string };
+      if (!body?.trim()) return res.status(400).json({ error: "body is required" });
+
+      const openaiClient = new (await import("openai")).default({ apiKey: process.env.OPENAI_API_KEY });
+
+      const completion = await openaiClient.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are a bilingual business assistant for an Australian retail business. 
+Your task is to analyze an incoming email and respond ONLY with a JSON object in this exact format:
+{
+  "summary": "3-5 bullet points in Korean (use • prefix for each point) summarizing the key information and any action items",
+  "translation": "Full Korean translation of the email body, formatted naturally"
+}
+Keep the summary concise and business-focused. Preserve proper nouns, numbers, dates, and amounts as-is.
+Do NOT add any text outside the JSON object.`,
+          },
+          {
+            role: "user",
+            content: `Subject: ${subject ?? "(no subject)"}\n\n${body}`,
+          },
+        ],
+        temperature: 0.2,
+        max_tokens: 1500,
+      });
+
+      const raw = completion.choices[0]?.message?.content?.trim() ?? "{}";
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+
+      res.json({
+        summary: parsed.summary ?? "요약을 생성하지 못했습니다.",
+        translation: parsed.translation ?? "번역을 생성하지 못했습니다.",
+      });
+    } catch (err) {
+      console.error("[ai/email-translate-summarize] error:", err);
+      res.status(500).json({ error: "AI 처리 중 오류가 발생했습니다." });
+    }
+  });
+
   return httpServer;
 }
 
