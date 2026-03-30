@@ -32,6 +32,7 @@ async function fixViaEmailSenders() {
       SELECT id, sender_email, sender_name, raw_payload
       FROM universal_inbox
       WHERE raw_payload->'headers'->>'from' ILIKE '% via %'
+         OR sender_name ILIKE '% via %'
     `);
 
     const records = rows.rows as {
@@ -75,10 +76,21 @@ async function fixViaEmailSenders() {
         trueEmail = e.email;
         trueName = e.name ?? trueEmail;
       } else {
-        const viaMatch = rawHeaderFrom.match(viaEmailPattern);
-        if (!viaMatch) continue; // pattern didn't match — skip
-        trueEmail = viaMatch[1].toLowerCase();
-        trueName = trueEmail; // only the email is available in the quoted section
+        // Check via pattern in From header first, then fall back to sender_name
+        const viaInFrom = rawHeaderFrom.match(viaEmailPattern);
+        const senderName: string = (row.sender_name ?? "").toString();
+        const viaInName = senderName.match(viaEmailPattern);
+
+        if (viaInFrom) {
+          trueEmail = viaInFrom[1].toLowerCase();
+          trueName = trueEmail;
+        } else if (viaInName) {
+          // Old parser stored 'real@supplier.com' via GroupName as the senderName
+          trueEmail = viaInName[1].toLowerCase();
+          trueName = trueEmail;
+        } else {
+          continue; // No extractable pattern — skip
+        }
       }
 
       if (!trueEmail || trueEmail === row.sender_email) continue; // already correct

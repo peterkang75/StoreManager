@@ -4897,11 +4897,56 @@ export async function registerRoutes(
       const item = await storage.getUniversalInboxItem(id);
       if (!item) return res.status(404).json({ error: "Item not found" });
 
+      // ── Re-derive the true sender email ────────────────────────────────────
+      // Guard against old parser bug where Google Groups "via" aliases
+      // (e.g. accounts@eatem.com.au) were stored instead of the real sender.
+      // Priority: X-Original-Sender → via-pattern in From → via-pattern in senderName
+      const VIA_PATTERN =
+        /^["']?([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})["']?\s+via\s+/i;
+
+      function resolveEmail(h: string): string {
+        const m = h.match(/<([^>]+)>/);
+        return (m ? m[1] : h).trim().toLowerCase();
+      }
+
+      const rawPay = item.rawPayload as any;
+      const xOrigSender = (
+        rawPay?.headers?.["x-original-sender"] ?? ""
+      ).toString().trim();
+      const hdrFrom = (rawPay?.headers?.from ?? "").toString();
+
+      let trueSenderEmail = item.senderEmail;
+      let trueSenderName  = item.senderName ?? undefined;
+
+      if (xOrigSender) {
+        trueSenderEmail = resolveEmail(xOrigSender);
+        trueSenderName  = trueSenderName?.replace(/\s+via\s+.*/i, "").trim() || trueSenderEmail;
+      } else {
+        const viaInFrom = hdrFrom.match(VIA_PATTERN);
+        const viaInName = item.senderName ? item.senderName.match(VIA_PATTERN) : null;
+        if (viaInFrom) {
+          trueSenderEmail = viaInFrom[1].toLowerCase();
+          trueSenderName  = trueSenderEmail;
+        } else if (viaInName) {
+          trueSenderEmail = viaInName[1].toLowerCase();
+          trueSenderName  = trueSenderEmail;
+        }
+      }
+
+      // If we detected a mismatch, fix the DB record NOW so everything is consistent
+      if (trueSenderEmail !== item.senderEmail) {
+        console.log(`[TriageRoute] Correcting senderEmail: "${item.senderEmail}" → "${trueSenderEmail}"`);
+        await storage.updateUniversalInboxItem(id, {
+          senderEmail: trueSenderEmail,
+          senderName: trueSenderName ?? null,
+        });
+      }
+
       // 1. Save the routing rule for this sender so future emails are routed automatically
       await storage.upsertEmailRoutingRule({
-        email: item.senderEmail,
+        email: trueSenderEmail,
         action,
-        supplierName: item.senderName ?? undefined,
+        supplierName: trueSenderName,
       });
 
       // 2. Process the email based on the chosen action

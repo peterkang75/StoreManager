@@ -552,10 +552,21 @@ export function AdminTriageInbox() {
   const processed = allItems.filter(i => i.status === "PROCESSED");
   const dropped = allItems.filter(i => i.status === "DROPPED");
 
+  // Re-derive true sender email in case the old parser stored a group alias
+  // (e.g. senderName = "'accounts@maru-food.com' via Accounts")
+  function resolveTrueSenderEmail(item: TriageItem): string {
+    const VIA = /^["']?([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})["']?\s+via\s+/i;
+    if (item.senderName) {
+      const m = item.senderName.match(VIA);
+      if (m) return m[1].toLowerCase();
+    }
+    return item.senderEmail;
+  }
+
   function handleActionClick(id: string, action: RouteAction) {
     const item = allItems.find(i => i.id === id);
     if (!item) return;
-    setConfirmDialog({ itemId: id, action, senderEmail: item.senderEmail });
+    setConfirmDialog({ itemId: id, action, senderEmail: resolveTrueSenderEmail(item) });
   }
 
   function handleConfirm() {
