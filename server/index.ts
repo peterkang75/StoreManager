@@ -67,29 +67,67 @@ async function fixViaEmailSenders() {
       const rawXOrigSender = (
         row.raw_payload?.headers?.["x-original-sender"] ?? ""
       ).toString().trim();
+      const senderName: string = (row.sender_name ?? "").toString();
 
-      let trueEmail: string;
-      let trueName: string | null;
+      let trueEmail: string | null = null;
+      let trueName: string | null = null;
 
       if (rawXOrigSender) {
         const e = extractEmailAndName(rawXOrigSender);
         trueEmail = e.email;
         trueName = e.name ?? trueEmail;
       } else {
-        // Check via pattern in From header first, then fall back to sender_name
+        // Pattern A: email address before "via" keyword
+        //   e.g. "'real@supplier.com' via Accounts <alias@eatem.com.au>"
         const viaInFrom = rawHeaderFrom.match(viaEmailPattern);
-        const senderName: string = (row.sender_name ?? "").toString();
         const viaInName = senderName.match(viaEmailPattern);
 
         if (viaInFrom) {
           trueEmail = viaInFrom[1].toLowerCase();
           trueName = trueEmail;
         } else if (viaInName) {
-          // Old parser stored 'real@supplier.com' via GroupName as the senderName
           trueEmail = viaInName[1].toLowerCase();
           trueName = trueEmail;
         } else {
-          continue; // No extractable pattern — skip
+          // Pattern B: display name before "via" keyword
+          //   e.g. "'Natalie Brown' via Accounts <accounts@eatem.com.au>"
+          //   We can't extract the real email from From — try X-Original-Sender
+          //   and Reply-To from the stored raw_payload headers.
+          const rawHeaders = row.raw_payload?.headers ?? {};
+          const rawXOrig2  = (rawHeaders["x-original-sender"] ?? "").toString().trim();
+          const rawReplyTo = (rawHeaders["reply-to"] ?? rawHeaders["reply_to"] ?? "").toString().trim();
+
+          // Clean up the display name regardless (strip "via GroupName" suffix)
+          const nameBeforeVia = senderName
+            .replace(/\s+via\s+.*/i, "")
+            .replace(/^["']+|["']+$/g, "")
+            .trim();
+
+          if (rawXOrig2) {
+            const e = extractEmailAndName(rawXOrig2);
+            if (e.email && e.email !== row.sender_email) {
+              trueEmail = e.email;
+              trueName  = e.name ?? (nameBeforeVia || null);
+            }
+          } else if (rawReplyTo) {
+            const e = extractEmailAndName(rawReplyTo);
+            if (e.email && e.email !== row.sender_email) {
+              trueEmail = e.email;
+              trueName  = e.name ?? (nameBeforeVia || null);
+            }
+          }
+
+          if (!trueEmail) {
+            // Cannot recover real email — but at least fix the display name
+            if (nameBeforeVia && nameBeforeVia !== row.sender_name) {
+              await db.execute(sql`
+                UPDATE universal_inbox SET sender_name = ${nameBeforeVia} WHERE id = ${row.id}
+              `);
+              updated++;
+              console.log(`[via-fix] Pattern B name fixed ${row.id}: "${row.sender_name}" → "${nameBeforeVia}"`);
+            }
+            continue;
+          }
         }
       }
 

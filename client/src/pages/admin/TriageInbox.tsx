@@ -50,6 +50,17 @@ type RouteAction = "ROUTE_TO_AP" | "ROUTE_TO_TODO" | "FYI_ARCHIVE" | "SPAM_DROP"
 // API enriches items with suggestedAction from stored routing rule
 type TriageItem = UniversalInboxItem & { suggestedAction?: RouteAction | null };
 
+// Strip Google Groups "via GroupName" suffix from display names
+// "'Natalie Brown' via Accounts" → "Natalie Brown"
+function cleanSenderName(name: string | null | undefined): string | null {
+  if (!name) return null;
+  const cleaned = name
+    .replace(/\s+via\s+.*/i, "")
+    .replace(/^["']+|["']+$/g, "")
+    .trim();
+  return cleaned || null;
+}
+
 interface ActionConfig {
   label: string;
   description: string;
@@ -219,7 +230,7 @@ function EmailViewDialog({
             <div className="flex items-center gap-2 text-sm flex-wrap">
               <User className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
               <span className="font-medium" data-testid="text-email-dialog-sender">
-                {item.senderName ? item.senderName : item.senderEmail}
+                {cleanSenderName(item.senderName) ?? item.senderEmail}
               </span>
               {item.senderName && (
                 <span className="text-muted-foreground text-xs">
@@ -399,7 +410,7 @@ function InboxItemCard({
               className="font-medium text-sm truncate"
               data-testid={`text-sender-${item.id}`}
             >
-              {item.senderName ? `${item.senderName}` : item.senderEmail}
+              {cleanSenderName(item.senderName) ?? item.senderEmail}
             </span>
             <span className="text-xs text-muted-foreground truncate hidden sm:inline">
               &lt;{item.senderEmail}&gt;
@@ -552,14 +563,17 @@ export function AdminTriageInbox() {
   const processed = allItems.filter(i => i.status === "PROCESSED");
   const dropped = allItems.filter(i => i.status === "DROPPED");
 
-  // Re-derive true sender email in case the old parser stored a group alias
-  // (e.g. senderName = "'accounts@maru-food.com' via Accounts")
+  // Re-derive true sender email in case the old parser stored a group alias.
+  // Pattern A: senderName = "'accounts@maru-food.com' via Accounts" → email before "via"
+  // Pattern B: senderName = "'Natalie Brown' via Accounts" → NAME before "via" → can't extract email
   function resolveTrueSenderEmail(item: TriageItem): string {
-    const VIA = /^["']?([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})["']?\s+via\s+/i;
+    const EMAIL_VIA = /^["']?([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})["']?\s+via\s+/i;
     if (item.senderName) {
-      const m = item.senderName.match(VIA);
+      const m = item.senderName.match(EMAIL_VIA);
       if (m) return m[1].toLowerCase();
     }
+    // Pattern B: can't extract email from name — fall back to stored senderEmail
+    // (routing API will try to fix via Reply-To at route time)
     return item.senderEmail;
   }
 

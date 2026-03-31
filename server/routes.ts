@@ -4433,6 +4433,21 @@ export async function registerRoutes(
         }
       }
 
+      // ── Clean up "via GroupName" suffix from senderName (Google Groups Pattern B) ──
+      // From: "'Natalie Brown' via Accounts <accounts@eatem.com.au>"
+      //   extractEmailAndName gives name = "'Natalie Brown' via Accounts"
+      // We strip everything from " via " onward and remove surrounding quotes.
+      if (resolvedSenderName && /\s+via\s+/i.test(resolvedSenderName)) {
+        const cleaned = resolvedSenderName
+          .replace(/\s+via\s+.*/i, "")
+          .replace(/^["']+|["']+$/g, "")
+          .trim();
+        if (cleaned) {
+          resolvedSenderName = cleaned;
+          console.log("[Webhook] Cleaned up via-suffix from senderName →", resolvedSenderName);
+        }
+      }
+
       if (!senderEmail) {
         return res.status(200).json({ received: true, action: "ignored", reason: "no_sender" });
       }
@@ -4998,22 +5013,42 @@ export async function registerRoutes(
         const currentDomain = trueSenderEmail.split("@")[1]?.toLowerCase() ?? "";
         const isGenSvc = GENERIC_SERVICE_DOMAINS_ROUTE.has(currentDomain);
 
+        // isInternalEmail: emails from @eatem.com.au are never the true supplier
+        const isInternalEmail = (e: string) => e.endsWith("@eatem.com.au");
+
         if (viaInFrom) {
-          // A2: via-pattern in From header
+          // A2: Pattern A — email before "via" in From header
           trueSenderEmail = viaInFrom[1].toLowerCase();
           trueSenderName  = trueSenderEmail;
         } else if (isGenSvc && hdrReplyTo) {
-          // B: Accounting service → use Reply-To as true supplier
+          // B1: Accounting service (Xero/MYOB) → use Reply-To as true supplier
           const rt = extractEAN(hdrReplyTo);
           if (rt.email && rt.email !== trueSenderEmail) {
             trueSenderEmail = rt.email;
             trueSenderName  = rt.name ?? trueSenderName;
           }
+        } else if (isInternalEmail(trueSenderEmail) && hdrReplyTo) {
+          // B2: Pattern B — internal group address (accounts@eatem.com.au) with Reply-To
+          // e.g. "'Natalie Brown' via Accounts <accounts@eatem.com.au>" + Reply-To = real supplier
+          const rt = extractEAN(hdrReplyTo);
+          if (rt.email && !isInternalEmail(rt.email)) {
+            trueSenderEmail = rt.email;
+            trueSenderName  = rt.name ?? trueSenderName;
+            console.log(`[TriageRoute] Pattern B: resolved internal group → Reply-To: ${trueSenderEmail}`);
+          }
         } else if (viaInName) {
-          // A3: via-pattern in stored senderName
+          // A3: Pattern A — email before "via" in stored senderName
           trueSenderEmail = viaInName[1].toLowerCase();
           trueSenderName  = trueSenderEmail;
         }
+      }
+
+      // Clean up "via GroupName" suffix from display name in all cases
+      if (trueSenderName && /\s+via\s+/i.test(trueSenderName)) {
+        trueSenderName = trueSenderName
+          .replace(/\s+via\s+.*/i, "")
+          .replace(/^["']+|["']+$/g, "")
+          .trim() || trueSenderName;
       }
 
       // If we detected a mismatch, fix the DB record NOW so everything is consistent
