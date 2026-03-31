@@ -161,6 +161,7 @@ async function fixGenericServiceSenders() {
       "quickbooks.com", "intuit.com", "qbo.intuit.com",
       "invoicing.squareup.com", "mail.wave.com",
       "freshbooks.com", "sage.com",
+      "numberkeepers.com.au",
     ];
 
     // Build a SQL LIKE condition for each domain

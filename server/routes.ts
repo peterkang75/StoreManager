@@ -4357,6 +4357,7 @@ export async function registerRoutes(
         "mail.wave.com",
         "freshbooks.com",
         "sage.com",
+        "numberkeepers.com.au",
       ]);
 
       function isGenericService(email: string): boolean {
@@ -4982,6 +4983,7 @@ export async function registerRoutes(
         "quickbooks.com", "intuit.com", "qbo.intuit.com",
         "invoicing.squareup.com", "mail.wave.com",
         "freshbooks.com", "sage.com",
+        "numberkeepers.com.au",
       ]);
 
       function resolveEmailStr(h: string): string {
