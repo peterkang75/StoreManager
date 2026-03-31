@@ -883,8 +883,9 @@ export function AdminAccountsPayable() {
 
   const storeFiltered = useMemo(() => {
     if (!storeFilter || storeFilter === "ALL") return allInvoices;
-    // storeId=null invoices are shown in all store views so they are never lost
-    return allInvoices.filter(inv => inv.storeId === storeFilter || inv.storeId === null);
+    // Only show invoices assigned to the selected store.
+    // Unassigned (storeId=null) invoices are visible only in "All Stores" view.
+    return allInvoices.filter(inv => inv.storeId === storeFilter);
   }, [allInvoices, storeFilter]);
 
   const toPayInvoices = useMemo(
@@ -930,6 +931,15 @@ export function AdminAccountsPayable() {
   );
 
   const supplierGroups = useMemo(() => groupBySupplier(toPayInvoices), [toPayInvoices]);
+
+  // Count of unassigned (storeId=null) PENDING/OVERDUE invoices — only relevant when
+  // viewing a specific store tab (not "All Stores").
+  const unassignedToPayCount = useMemo(() => {
+    if (!storeFilter || storeFilter === "ALL") return 0;
+    return allInvoices.filter(
+      inv => inv.storeId === null && (inv.status === "PENDING" || inv.status === "OVERDUE")
+    ).length;
+  }, [allInvoices, storeFilter]);
 
   const selectedTotal = useMemo(() => {
     return toPayInvoices
@@ -1387,6 +1397,20 @@ export function AdminAccountsPayable() {
             </div>
           ) : (
             <div className="space-y-3">
+              {unassignedToPayCount > 0 && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-sm">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>
+                    {unassignedToPayCount} unassigned invoice{unassignedToPayCount !== 1 ? "s" : ""} not shown here.
+                  </span>
+                  <button
+                    className="ml-auto underline underline-offset-2 font-medium hover:opacity-80 whitespace-nowrap"
+                    onClick={() => setStoreFilter("ALL")}
+                  >
+                    View in All Stores
+                  </button>
+                </div>
+              )}
               <Accordion
                 type="multiple"
                 value={openAccordions}
