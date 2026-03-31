@@ -111,6 +111,119 @@ async function fixViaEmailSenders() {
   }
 }
 
+// ── One-time startup: fix records sent via Xero / MYOB / QuickBooks ──────────
+// These services send FROM their own domain (e.g. messaging-service@post.xero.com)
+// but always put the real supplier address in Reply-To.
+// Old records were stored with the service email — we fix them here.
+async function fixGenericServiceSenders() {
+  try {
+    const GENERIC_DOMAINS = [
+      "post.xero.com", "xero.com",
+      "myob.com", "myobaccountsright.com.au",
+      "quickbooks.com", "intuit.com", "qbo.intuit.com",
+      "invoicing.squareup.com", "mail.wave.com",
+      "freshbooks.com", "sage.com",
+    ];
+
+    // Build a SQL LIKE condition for each domain
+    const domainConditions = GENERIC_DOMAINS.map(d => `sender_email ILIKE '%@${d}'`).join(" OR ");
+
+    const rows = await db.execute(sql.raw(`
+      SELECT id, sender_email, sender_name, subject, raw_payload
+      FROM universal_inbox
+      WHERE ${domainConditions}
+    `));
+
+    const records = rows.rows as {
+      id: string;
+      sender_email: string;
+      sender_name: string | null;
+      subject: string;
+      raw_payload: any;
+    }[];
+
+    if (records.length === 0) {
+      console.log("[generic-service-fix] No generic-service records found.");
+      return;
+    }
+
+    console.log(`[generic-service-fix] Found ${records.length} record(s) — re-parsing Reply-To…`);
+
+    function extractEmailAndName(h: string): { email: string; name: string | null } {
+      const m = h.match(/<([^>]+)>/);
+      const email = (m ? m[1] : h).trim().toLowerCase();
+      const rawName = h.includes("<") ? h.split("<")[0].trim().replace(/^["'\s]+|["'\s]+$/g, "") : "";
+      return { email, name: rawName || null };
+    }
+
+    function extractSupplierFromSubject(subj: string): string | null {
+      const patterns = [
+        /^Invoice from (.+?)(?:\s+for\s+|\s*[-–|]|\s*$)/i,
+        /^Statement from (.+?)(?:\s+for\s+|\s*[-–|]|\s*$)/i,
+        /^Remittance Advice from (.+?)(?:\s+for\s+|\s*[-–|]|\s*$)/i,
+        /^Credit Note from (.+?)(?:\s+for\s+|\s*[-–|]|\s*$)/i,
+        /^Quote from (.+?)(?:\s+for\s+|\s*[-–|]|\s*$)/i,
+        /^Receipt from (.+?)(?:\s+for\s+|\s*[-–|]|\s*$)/i,
+        /^(.+?)\s+sent you an? (?:invoice|statement|quote|receipt|credit note)/i,
+        /^(?:INV|BILL|STMT)-\S+\s+from (.+?)(?:\s*[-–|]|\s*$)/i,
+      ];
+      for (const p of patterns) {
+        const m = subj.match(p);
+        if (m?.[1]) return m[1].trim();
+      }
+      return null;
+    }
+
+    let updated = 0;
+    for (const row of records) {
+      const rawHeaders = row.raw_payload?.headers ?? {};
+      const rawReplyTo = (
+        rawHeaders["reply-to"] ?? rawHeaders.reply_to ?? ""
+      ).toString().trim();
+
+      let trueEmail: string | null = null;
+      let trueName: string | null = null;
+
+      if (rawReplyTo) {
+        const extracted = extractEmailAndName(rawReplyTo);
+        if (extracted.email && extracted.email !== row.sender_email) {
+          trueEmail = extracted.email;
+          trueName  = extracted.name ?? row.sender_name;
+        }
+      }
+
+      // No Reply-To: try to recover a supplier name from the subject
+      if (!trueEmail) {
+        const nameFromSubject = extractSupplierFromSubject(row.subject ?? "");
+        if (nameFromSubject && nameFromSubject !== row.sender_name) {
+          // Keep senderEmail (it's the service address) but fix the display name
+          await db.execute(sql`
+            UPDATE universal_inbox
+            SET sender_name = ${nameFromSubject}
+            WHERE id = ${row.id}
+          `);
+          updated++;
+          console.log(`[generic-service-fix] Updated name for ${row.id}: "${row.sender_name}" → "${nameFromSubject}"`);
+        }
+        continue;
+      }
+
+      await db.execute(sql`
+        UPDATE universal_inbox
+        SET sender_email = ${trueEmail},
+            sender_name  = ${trueName}
+        WHERE id = ${row.id}
+      `);
+      updated++;
+      console.log(`[generic-service-fix] Fixed ${row.id}: "${row.sender_email}" → "${trueEmail}" (${trueName})`);
+    }
+
+    console.log(`[generic-service-fix] Done — ${updated} record(s) updated.`);
+  } catch (err) {
+    console.error("[generic-service-fix] Error:", err);
+  }
+}
+
 // ── One-time startup: sanitize any universal_inbox rows that have raw HTML/CSS ─
 async function sanitizeInboxBodies() {
   try {
@@ -217,6 +330,7 @@ app.use((req, res, next) => {
   await registerRoutes(httpServer, app);
   await seedDatabaseIfEmpty();
   await fixViaEmailSenders();
+  await fixGenericServiceSenders();
   await sanitizeInboxBodies();
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
