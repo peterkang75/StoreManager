@@ -284,6 +284,60 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 
 ---
 
+### 3.13 Email Sender Resolution Fixes ✅ COMPLETE
+
+**Problem**: Emails routed via Google Groups, forwarding chains, or accounting SaaS platforms (Xero/MYOB/etc.) arrive with the wrong "From" address, causing incorrect supplier matching and broken routing rules.
+
+**Sender Priority Hierarchy** (webhook parser + routing confirmation API):
+1. **P1 — `X-Original-Sender` header**: Google Groups injects the real sender here.
+2. **P2 — "via" pattern in From**: `email@domain.com via GroupName <group@>` → extract email before "via".
+3. **P3 — Generic service + Reply-To**: If sender domain is a known accounting platform, use Reply-To as the true supplier.
+4. **P4 — Reply-To ≠ From**: If Reply-To is an external address different from From, use it.
+5. **P5 — Internal group sender + Reply-To (Pattern B)**: `'Name' via GroupName <internal@eatem.com.au>` → use Reply-To for email; strip "via GroupName" suffix from display name.
+6. **P6 — Standard From**: Fallback.
+
+**Generic Service Domains** (accounting/invoicing SaaS — never the true supplier; real supplier is always in Reply-To):
+- `post.xero.com`, `xero.com`, `myob.com`, `myobaccountsright.com.au`
+- `quickbooks.com`, `intuit.com`, `qbo.intuit.com`
+- `invoicing.squareup.com`, `mail.wave.com`, `freshbooks.com`, `sage.com`
+- `numberkeepers.com.au`
+- Subject-line extraction: `"Invoice from X"` → supplier name "X" when Reply-To is missing.
+
+**Pattern B "Name via Group" fix** (`TriageInbox.tsx`):
+- `cleanSenderName()` utility strips `" via GroupName"` suffix from display names in cards and modals.
+- Webhook parser applies same cleanup to `resolvedSenderName` before saving.
+
+**Startup Migration Suite** (`server/index.ts` — runs automatically on every deploy):
+- `fixViaEmailSenders()` — re-parses `universal_inbox` records with via-pattern sender emails (Pattern A + B).
+- `fixGenericServiceSenders()` — fixes records where sender_email is a generic service domain; extracts real supplier from Reply-To header in `rawPayload`.
+- `sanitizeInboxBodies()` — strips raw HTML/CSS from `body` column (htmlToPlainText conversion).
+
+**Routing confirmation API fix** (`POST /api/universal-inbox/:id/route`):
+- Re-derives true sender email using the same 5-priority hierarchy before saving the routing rule.
+- If stored senderEmail doesn't match the derived true email, corrects the DB record immediately.
+- Frontend `resolveTrueSenderEmail()` applies the same logic for the confirm dialog display.
+
+---
+
+### 3.14 Accounts Payable UX Improvements ✅ COMPLETE
+
+**Store Filter — Unassigned Invoice Handling:**
+- Invoices with `storeId = null` (unassigned) are now shown **only** in the "All Stores" view, not in store-specific tabs.
+- Previously, unassigned invoices appeared in every store tab (e.g., Riverina Fresh appearing in Sushi tab even though it's not a Sushi supplier).
+- When viewing a specific store tab and there are unassigned PENDING/OVERDUE invoices, an amber banner appears: `"N unassigned invoices not shown here"` + "View in All Stores" button.
+
+**Supplier Accordion UX:**
+- **Default state**: All supplier accordions collapsed on page/tab load (`openAccordions` initialized as `[]`).
+- **Expanded-state visual distinction**:
+  - `AccordionItem` carries `group` class → header uses `group-data-[state=open]:border-b` for a subtle bottom separator line only when open.
+  - Expanded content area: `bg-muted/20 dark:bg-muted/10` subtle background tint replacing the old `border-t`.
+- **Header layout restructured** (3-zone flex row):
+  - **Left**: Checkbox · Supplier Name (truncatable) · Direct Debit badge · "N invoices" count
+  - **Centre**: Total amount (`font-semibold`) · Selected amount with checkmark icon + primary accent colour (visible only when ≥1 invoice selected)
+  - **Far right**: Overdue badge (red) · ChevronDown (rotates 180° via `group-data-[state=open]:rotate-180`)
+
+---
+
 ## 4. API Endpoints
 
 ### Stores
