@@ -1429,10 +1429,11 @@ export function AdminAccountsPayable() {
                     <AccordionItem
                       key={group.supplierId}
                       value={group.supplierId}
-                      className={`border rounded-lg bg-card overflow-hidden ${group.isAutoPay ? "border-border/25 opacity-75" : "border-border/40"}`}
+                      className={`group border rounded-lg bg-card overflow-hidden ${group.isAutoPay ? "border-border/25 opacity-75" : "border-border/40"}`}
                       data-testid={`supplier-group-${group.supplierId}`}
                     >
-                      <AccordionPrimitive.Header className="flex items-center px-4 py-3 hover:bg-muted/30 transition-colors">
+                      {/* Header — bottom border appears only when expanded */}
+                      <AccordionPrimitive.Header className="flex items-center w-full px-4 py-3 hover:bg-muted/20 transition-colors group-data-[state=open]:border-b group-data-[state=open]:border-border/20">
                         {/* Checkbox: hidden for Auto-Pay suppliers, replaced with spacer */}
                         {group.isAutoPay ? (
                           <div className="w-4 h-4 mr-3 shrink-0" aria-hidden="true" />
@@ -1446,44 +1447,51 @@ export function AdminAccountsPayable() {
                             className="mr-3 shrink-0"
                           />
                         )}
-                        <AccordionPrimitive.Trigger className="flex flex-1 items-center justify-between gap-2 min-w-0 text-left [&[data-state=open]>svg]:rotate-180">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="font-semibold text-sm">{group.supplierName}</p>
-                              {group.isAutoPay && (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300 whitespace-nowrap" data-testid={`badge-autopay-${group.supplierId}`}>
-                                  <Zap className="h-2.5 w-2.5" />
-                                  Direct Debit
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                              <span className="text-xs text-muted-foreground">
-                                {group.invoices.length} invoice{group.invoices.length !== 1 ? "s" : ""}
+
+                        <AccordionPrimitive.Trigger className="flex flex-1 items-center gap-3 min-w-0 text-left">
+                          {/* LEFT — supplier name + badge + count */}
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <p className="font-semibold text-sm truncate">{group.supplierName}</p>
+                            {group.isAutoPay && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300 whitespace-nowrap shrink-0" data-testid={`badge-autopay-${group.supplierId}`}>
+                                <Zap className="h-2.5 w-2.5" />
+                                Direct Debit
                               </span>
-                              <span className="text-xs font-semibold text-foreground tabular-nums">
-                                {fmtAUD(group.totalAmount)}
-                              </span>
-                              {groupSelectedCount > 0 && (
-                                <span className="text-xs font-semibold text-primary tabular-nums flex items-center gap-1">
-                                  <CheckCircle className="h-3 w-3" />
-                                  {fmtAUD(groupSelectedTotal)} selected ({groupSelectedCount})
-                                </span>
-                              )}
-                              {group.overdueAmount > 0 && (
-                                <span className="text-xs font-bold text-red-600 dark:text-red-400 flex items-center gap-0.5">
-                                  <AlertCircle className="h-3 w-3" />
-                                  Overdue: {fmtAUD(group.overdueAmount)}
-                                </span>
-                              )}
-                            </div>
+                            )}
+                            <span className="text-xs text-muted-foreground shrink-0">
+                              {group.invoices.length} invoice{group.invoices.length !== 1 ? "s" : ""}
+                            </span>
                           </div>
-                          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200" />
+
+                          {/* CENTRE — total + selected */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-sm font-semibold tabular-nums text-foreground">
+                              {fmtAUD(group.totalAmount)}
+                            </span>
+                            {groupSelectedCount > 0 && (
+                              <span className="text-sm font-bold tabular-nums text-primary flex items-center gap-1">
+                                <CheckCircle className="h-3.5 w-3.5" />
+                                {fmtAUD(groupSelectedTotal)}
+                                <span className="text-xs font-medium opacity-75">({groupSelectedCount})</span>
+                              </span>
+                            )}
+                          </div>
+
+                          {/* FAR RIGHT — overdue + chevron */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            {group.overdueAmount > 0 && (
+                              <span className="text-xs font-bold text-red-600 dark:text-red-400 flex items-center gap-1">
+                                <AlertCircle className="h-3.5 w-3.5" />
+                                Overdue: {fmtAUD(group.overdueAmount)}
+                              </span>
+                            )}
+                            <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                          </div>
                         </AccordionPrimitive.Trigger>
                       </AccordionPrimitive.Header>
 
                       <AccordionContent className="pb-0">
-                        <div className="border-t border-border/30">
+                        <div className="bg-muted/20 dark:bg-muted/10">
                           <table className="w-full text-sm" data-testid={`invoice-table-${group.supplierId}`}>
                             <thead>
                               <tr className="bg-muted/30 border-b border-border/20">
