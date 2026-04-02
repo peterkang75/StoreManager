@@ -1961,8 +1961,8 @@ export function AdminAccountsPayable() {
 
                           return suppGroups.map(([suppId, { name: suppName, suppInvoices }], suppIdx) => {
                             const suppKey = `${dateKey}:${suppId}`;
-                            // Supplier groups are expanded by default; collapsed only if explicitly toggled
-                            const isSuppCollapsed = expandedHistorySuppliers.has(suppKey);
+                            // Supplier groups are collapsed by default; expanded only if explicitly toggled
+                            const isSuppExpanded = expandedHistorySuppliers.has(suppKey);
                             const suppTotal = suppInvoices.reduce((s, inv) => s + (inv.amount ?? 0), 0);
 
                             return (
@@ -1974,9 +1974,9 @@ export function AdminAccountsPayable() {
                                   onClick={() => toggleHistorySupplier(suppKey)}
                                   data-testid={`button-history-supplier-${suppKey}`}
                                 >
-                                  {isSuppCollapsed
-                                    ? <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                                    : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                  {isSuppExpanded
+                                    ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                    : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                                   }
                                   <span className="font-semibold text-sm flex-1 truncate">{suppName}</span>
                                   <span className="text-xs text-muted-foreground mr-3 shrink-0">
@@ -1986,7 +1986,7 @@ export function AdminAccountsPayable() {
                                 </button>
 
                                 {/* Invoice rows for this supplier */}
-                                {!isSuppCollapsed && (
+                                {isSuppExpanded && (
                                   <table className="w-full text-sm">
                                     <thead>
                                       <tr className="bg-muted/20">
