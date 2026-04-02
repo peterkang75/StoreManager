@@ -843,6 +843,7 @@ export function AdminAccountsPayable() {
   const defaultFilterSet = useRef(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expandedPayDates, setExpandedPayDates] = useState<Set<string>>(new Set());
+  const [expandedHistorySuppliers, setExpandedHistorySuppliers] = useState<Set<string>>(new Set());
   const [openAccordions, setOpenAccordions] = useState<string[]>([]);
   const [addInvoiceOpen, setAddInvoiceOpen] = useState(false);
   const [approveInvoiceGroup, setApproveInvoiceGroup] = useState<SupplierInvoice[]>([]);
@@ -936,6 +937,14 @@ export function AdminAccountsPayable() {
     setExpandedPayDates(prev => {
       const next = new Set(prev);
       if (next.has(dateKey)) next.delete(dateKey); else next.add(dateKey);
+      return next;
+    });
+  };
+
+  const toggleHistorySupplier = (key: string) => {
+    setExpandedHistorySuppliers(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
   };
@@ -1935,80 +1944,121 @@ export function AdminAccountsPayable() {
                       <span className="font-semibold tabular-nums text-sm">{fmtAUD(groupTotal)}</span>
                     </button>
 
-                    {/* ── Expanded rows ── */}
+                    {/* ── Expanded rows: grouped by supplier ── */}
                     {isExpanded && (
                       <CardContent className="p-0 border-t border-border/40">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="bg-muted/30">
-                              <th className="py-2 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Supplier</th>
-                              <th className="py-2 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice Date</th>
-                              <th className="py-2 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right whitespace-nowrap">Amount</th>
-                              <th className="py-2 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice #</th>
-                              <th className="py-2 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Store</th>
-                              <th className="py-2 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Payment</th>
-                              <th className="py-2 px-4 w-16" />
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {invoices.map(inv => {
-                              const store = stores.find(s => s.id === inv.storeId);
-                              const isAutoDebit = inv.supplier?.isAutoPay === true;
-                              return (
-                                <tr
-                                  key={inv.id}
-                                  className="border-t border-border/10 hover:bg-muted/20 transition-colors"
-                                  data-testid={`row-invoice-${inv.id}`}
+                        {(() => {
+                          // Group invoices by supplier within this date group
+                          const suppMap = new Map<string, { name: string; suppInvoices: typeof invoices }>();
+                          for (const inv of invoices) {
+                            const key = inv.supplierId ?? `unknown-${inv.id}`;
+                            const name = inv.supplier?.name ?? "Unknown Supplier";
+                            if (!suppMap.has(key)) suppMap.set(key, { name, suppInvoices: [] });
+                            suppMap.get(key)!.suppInvoices.push(inv);
+                          }
+                          const suppGroups = Array.from(suppMap.entries())
+                            .sort(([, a], [, b]) => a.name.localeCompare(b.name));
+
+                          return suppGroups.map(([suppId, { name: suppName, suppInvoices }], suppIdx) => {
+                            const suppKey = `${dateKey}:${suppId}`;
+                            // Supplier groups are expanded by default; collapsed only if explicitly toggled
+                            const isSuppCollapsed = expandedHistorySuppliers.has(suppKey);
+                            const suppTotal = suppInvoices.reduce((s, inv) => s + (inv.amount ?? 0), 0);
+
+                            return (
+                              <div key={suppKey} className={suppIdx > 0 ? "border-t border-border/30" : ""}>
+                                {/* Supplier sub-header */}
+                                <button
+                                  type="button"
+                                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover-elevate transition-colors bg-muted/15"
+                                  onClick={() => toggleHistorySupplier(suppKey)}
+                                  data-testid={`button-history-supplier-${suppKey}`}
                                 >
-                                  <td className="py-2.5 px-4 font-medium">
-                                    {inv.supplier?.name ?? <span className="text-muted-foreground italic">Unknown</span>}
-                                  </td>
-                                  <td className="py-2.5 px-4 text-muted-foreground whitespace-nowrap">{fmt(inv.invoiceDate)}</td>
-                                  <td className="py-2.5 px-4 font-semibold tabular-nums text-right whitespace-nowrap">{fmtAUD(inv.amount ?? 0)}</td>
-                                  <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground">{displayInvNumber(inv.invoiceNumber)}</td>
-                                  <td className="py-2.5 px-4 text-xs text-muted-foreground">{store?.name ?? "—"}</td>
-                                  <td className="py-2.5 px-4">
-                                    {isAutoDebit ? (
-                                      <span
-                                        className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
-                                        data-testid={`badge-autopaid-${inv.id}`}
-                                      >
-                                        <Zap className="h-2.5 w-2.5" />
-                                        Auto-Paid
-                                      </span>
-                                    ) : (
-                                      <span className="text-xs text-muted-foreground">Manual</span>
-                                    )}
-                                  </td>
-                                  <td className="py-2.5 pr-3 w-16">
-                                    <div className="flex items-center gap-1 justify-end">
-                                      {((inv.rawExtractedData as any)?.pdfBase64 || inv.notes) && (
-                                        <button
-                                          type="button"
-                                          title={(inv.rawExtractedData as any)?.pdfBase64 ? "View PDF Invoice" : inv.notes}
-                                          className={`h-7 w-7 flex items-center justify-center rounded transition-colors ${(inv.rawExtractedData as any)?.pdfBase64 ? "text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300" : "text-muted-foreground/40 hover:text-muted-foreground"}`}
-                                          data-testid={`button-notes-${inv.id}`}
-                                          onClick={(inv.rawExtractedData as any)?.pdfBase64 ? () => window.open(`/api/supplier-invoices/${inv.id}/pdf`, "_blank") : undefined}
-                                        >
-                                          <FileText className="h-3.5 w-3.5" />
-                                        </button>
-                                      )}
-                                      <button
-                                        type="button"
-                                        title="Revert to Pending (e.g. bounced direct debit)"
-                                        onClick={() => setRevertInvoice(inv)}
-                                        className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground/40 hover:text-orange-600 dark:hover:text-orange-400 transition-colors"
-                                        data-testid={`button-revert-${inv.id}`}
-                                      >
-                                        <Undo2 className="h-3.5 w-3.5" />
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                                  {isSuppCollapsed
+                                    ? <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                    : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                  }
+                                  <span className="font-semibold text-sm flex-1 truncate">{suppName}</span>
+                                  <span className="text-xs text-muted-foreground mr-3 shrink-0">
+                                    {suppInvoices.length} invoice{suppInvoices.length !== 1 ? "s" : ""}
+                                  </span>
+                                  <span className="font-semibold tabular-nums text-sm shrink-0">{fmtAUD(suppTotal)}</span>
+                                </button>
+
+                                {/* Invoice rows for this supplier */}
+                                {!isSuppCollapsed && (
+                                  <table className="w-full text-sm">
+                                    <thead>
+                                      <tr className="bg-muted/20">
+                                        <th className="py-1.5 px-4 pl-10 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice Date</th>
+                                        <th className="py-1.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right whitespace-nowrap">Amount</th>
+                                        <th className="py-1.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice #</th>
+                                        <th className="py-1.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Store</th>
+                                        <th className="py-1.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Payment</th>
+                                        <th className="py-1.5 px-4 w-16" />
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {suppInvoices.map(inv => {
+                                        const store = stores.find(s => s.id === inv.storeId);
+                                        const isAutoDebit = inv.supplier?.isAutoPay === true;
+                                        return (
+                                          <tr
+                                            key={inv.id}
+                                            className="border-t border-border/10 hover:bg-muted/20 transition-colors"
+                                            data-testid={`row-invoice-${inv.id}`}
+                                          >
+                                            <td className="py-2.5 px-4 pl-10 text-muted-foreground whitespace-nowrap">{fmt(inv.invoiceDate)}</td>
+                                            <td className="py-2.5 px-4 font-semibold tabular-nums text-right whitespace-nowrap">{fmtAUD(inv.amount ?? 0)}</td>
+                                            <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground">{displayInvNumber(inv.invoiceNumber)}</td>
+                                            <td className="py-2.5 px-4 text-xs text-muted-foreground">{store?.name ?? "—"}</td>
+                                            <td className="py-2.5 px-4">
+                                              {isAutoDebit ? (
+                                                <span
+                                                  className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                                                  data-testid={`badge-autopaid-${inv.id}`}
+                                                >
+                                                  <Zap className="h-2.5 w-2.5" />
+                                                  Auto-Paid
+                                                </span>
+                                              ) : (
+                                                <span className="text-xs text-muted-foreground">Manual</span>
+                                              )}
+                                            </td>
+                                            <td className="py-2.5 pr-3 w-16">
+                                              <div className="flex items-center gap-1 justify-end">
+                                                {((inv.rawExtractedData as any)?.pdfBase64 || inv.notes) && (
+                                                  <button
+                                                    type="button"
+                                                    title={(inv.rawExtractedData as any)?.pdfBase64 ? "View PDF Invoice" : inv.notes}
+                                                    className={`h-7 w-7 flex items-center justify-center rounded transition-colors ${(inv.rawExtractedData as any)?.pdfBase64 ? "text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300" : "text-muted-foreground/40 hover:text-muted-foreground"}`}
+                                                    data-testid={`button-notes-${inv.id}`}
+                                                    onClick={(inv.rawExtractedData as any)?.pdfBase64 ? () => window.open(`/api/supplier-invoices/${inv.id}/pdf`, "_blank") : undefined}
+                                                  >
+                                                    <FileText className="h-3.5 w-3.5" />
+                                                  </button>
+                                                )}
+                                                <button
+                                                  type="button"
+                                                  title="Revert to Pending (e.g. bounced direct debit)"
+                                                  onClick={() => setRevertInvoice(inv)}
+                                                  className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground/40 hover:text-orange-600 dark:hover:text-orange-400 transition-colors"
+                                                  data-testid={`button-revert-${inv.id}`}
+                                                >
+                                                  <Undo2 className="h-3.5 w-3.5" />
+                                                </button>
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                )}
+                              </div>
+                            );
+                          });
+                        })()}
                       </CardContent>
                     )}
                   </Card>
