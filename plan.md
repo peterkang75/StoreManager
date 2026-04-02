@@ -192,7 +192,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
   - Supplier header: name, invoice count, total unpaid, **real-time selected subtotal** ("$X selected (N)" in primary color, visible when any invoice in group is selected), "Overdue: $X" in red (if applicable), select-all checkbox.
   - Expanded table columns: Invoice Date | Amount | Due Date (overdue red + AlertCircle; due-soon orange) | Invoice # | Store.
   - Overdue rows sorted to top within each group; rows highlighted with faint red background.
-- **Paid History view**: flat table — Supplier | Invoice Date | Amount | Invoice # | Store.
+- **Paid History view**: invoices grouped by **payment date** (collapsible cards), then within each date group further grouped by **supplier** (collapsed by default). Each supplier row shows: supplier name · invoice count · supplier subtotal. Click to expand individual invoice rows (Invoice Date | Amount | Invoice # | Store | Payment method).
 - **Top-right action bar** (inline, right of store filter buttons): when ≥1 invoice selected, shows selected total amount + `Clear` + `Pay Selected (N)` button. No sticky bottom bar.
 - **Bulk Pay**: parallel PATCH `/api/invoices/:id/status` → `{ status: "PAID" }`, then invalidate query cache and clear selection.
 - **Add Invoice** (`+ Add Invoice` button, top-right above summary cards):
@@ -335,6 +335,40 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
   - **Left**: Checkbox · Supplier Name (truncatable) · Direct Debit badge · "N invoices" count
   - **Centre**: Total amount (`font-semibold`) · Selected amount with checkmark icon + primary accent colour (visible only when ≥1 invoice selected)
   - **Far right**: Overdue badge (red) · ChevronDown (rotates 180° via `group-data-[state=open]:rotate-180`)
+
+---
+
+### 3.15 AP Invoice Parser Improvements ✅ COMPLETE
+
+**Statement of Account vs Single Invoice Detection:**
+- Both `parseInvoiceWithAI` (known supplier) and `parseInvoiceFromUnknownSender` (unknown sender) now detect whether the incoming PDF is a **Statement of Account** or a **Single Invoice**.
+- Every `ParsedInvoice` object carries an `isStatement: boolean` field; `UnknownSenderParsedResult` carries a top-level `isStatement: boolean`.
+- Both parsers accept an optional `subjectHint` string (email Subject line) for additional context — keywords like "Statement", "Statement of Account" in the subject strongly signal type (B).
+- **Statement safety guard** (known-supplier and unknown-sender Triage paths + webhook Step 7):
+  - If `isStatement = true` AND only 1 row extracted → force `status: REVIEW` with note `"possibly a grand-total error"` to prevent double-counting the entire account balance as one invoice.
+  - Multi-row statements: each row inserted as a separate PENDING invoice using `sourceNote = "Reconciled from Statement of Account."`. Existing invoice numbers are skipped (deduplication); skipped count is logged.
+- `rawExtractedData._isStatement: true` is stored on statement-origin REVIEW records.
+- **UI indicators** (`AccountsPayable.tsx`):
+  - Amber "Statement" badge on each invoice row in the Review Inbox that has `_isStatement: true`.
+  - Warning banner inside the Approve modal when `raw._isStatement = true`: "Statement of Account detected — verify amount before approving."
+
+**Invoice Total vs Combined Account Balance Fix:**
+- Some suppliers (e.g. Green Star Food) print three totals at the bottom of a Tax Invoice:
+  - `Invoice Total` — this invoice only (correct amount to pay)
+  - `A/C Outstanding` — prior unpaid account balance
+  - `Total` — Invoice Total + A/C Outstanding (should NOT be used as the invoice amount)
+- All three parser prompts (`parseInvoiceWithAI`, `parseUploadedFile`, `parseInvoiceFromUnknownSender`) updated with explicit priority rules:
+  1. **If "Invoice Total" label present → use it.** It always represents this invoice alone.
+  2. **If "Invoice Total" + "A/C Outstanding" + combined "Total" structure detected → use "Invoice Total" only.** The combined "Total" includes prior debt and must be ignored.
+  3. **Fallback** (no "Invoice Total" label) → use "Total AUD Incl. GST" / "Total Amount Payable" / "Amount Due".
+
+### 3.16 Triage Inbox — Bulk Spam Drop ✅ COMPLETE
+
+- **SPAM_DROP now triggers bulk-drop**: when a Triage Inbox item is dropped as spam, all other inbox items from the same sender email are also dropped atomically.
+- `dropInboxItemsBySender(senderEmail, excludeId)` added to `IStorage`, `MemStorage`, and `DatabaseStorage`.
+- Route `POST /api/universal-inbox/:id/route` calls this after setting the current item's status to `DROPPED`, then returns `{ bulkDropped: N }` in the response JSON.
+- Frontend `mutationFn` in `TriageInbox.tsx` parses the JSON response and shows a toast: `"N other emails from this sender were also dropped."` (only for SPAM_DROP, not FYI_ARCHIVE).
+- FYI_ARCHIVE does **not** trigger bulk-drop (FYI emails may have legitimate future correspondence).
 
 ---
 
