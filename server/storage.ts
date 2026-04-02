@@ -150,6 +150,8 @@ export interface IStorage {
   createUniversalInboxItem(data: InsertUniversalInbox): Promise<UniversalInboxItem>;
   updateUniversalInboxItem(id: string, data: Partial<InsertUniversalInbox>): Promise<UniversalInboxItem | undefined>;
   deleteUniversalInboxItem(id: string): Promise<boolean>;
+  /** Bulk-drop all NEEDS_ROUTING items from the given sender (excluding the one already handled). Returns count. */
+  dropInboxItemsBySender(senderEmail: string, excludeId: string): Promise<number>;
 
   getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]>;
   getNotice(id: string): Promise<Notice | undefined>;
@@ -1183,6 +1185,18 @@ export class MemStorage implements IStorage {
     return this.universalInboxMap.delete(id);
   }
 
+  async dropInboxItemsBySender(senderEmail: string, excludeId: string): Promise<number> {
+    const lower = senderEmail.toLowerCase();
+    let count = 0;
+    for (const [itemId, item] of this.universalInboxMap) {
+      if (itemId !== excludeId && item.senderEmail.toLowerCase() === lower && item.status === "NEEDS_ROUTING") {
+        this.universalInboxMap.set(itemId, { ...item, status: "DROPPED" });
+        count++;
+      }
+    }
+    return count;
+  }
+
   async getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]> {
     let list = Array.from(this.noticesMap.values());
     if (filters?.activeOnly) list = list.filter(n => n.isActive);
@@ -2121,6 +2135,20 @@ export class DatabaseStorage implements IStorage {
   async deleteUniversalInboxItem(id: string): Promise<boolean> {
     const result = await db.delete(universalInbox).where(eq(universalInbox.id, id));
     return (result as any).rowCount > 0;
+  }
+
+  async dropInboxItemsBySender(senderEmail: string, excludeId: string): Promise<number> {
+    const result = await db
+      .update(universalInbox)
+      .set({ status: "DROPPED" })
+      .where(
+        and(
+          eq(universalInbox.senderEmail, senderEmail.toLowerCase()),
+          eq(universalInbox.status, "NEEDS_ROUTING"),
+          ne(universalInbox.id, excludeId)
+        )
+      );
+    return (result as any).rowCount ?? 0;
   }
 
   async getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]> {

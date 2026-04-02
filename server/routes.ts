@@ -5076,6 +5076,15 @@ export async function registerRoutes(
       const newStatus = (action === "SPAM_DROP" || action === "FYI_ARCHIVE") ? "DROPPED" : "PROCESSED";
       await storage.updateUniversalInboxItem(id, { status: newStatus });
 
+      // 3a. For SPAM_DROP: bulk-drop all other NEEDS_ROUTING emails from the same sender
+      let bulkDropped = 0;
+      if (action === "SPAM_DROP") {
+        bulkDropped = await storage.dropInboxItemsBySender(trueSenderEmail, id);
+        if (bulkDropped > 0) {
+          console.log(`[TriageRoute] SPAM_DROP bulk-dropped ${bulkDropped} additional item(s) from ${trueSenderEmail}`);
+        }
+      }
+
       if (action === "ROUTE_TO_TODO") {
         // TODO: fire summarization in background so response is immediate
         const subject = item.subject;
@@ -5458,7 +5467,7 @@ export async function registerRoutes(
         return; // already sent response
       }
 
-      res.json({ success: true, ...processResult });
+      res.json({ success: true, ...processResult, bulkDropped });
     } catch (err) {
       console.error("Error routing universal inbox item:", err);
       res.status(500).json({ error: "Failed to route item" });

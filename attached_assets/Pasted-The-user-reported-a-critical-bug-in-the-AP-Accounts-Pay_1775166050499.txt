@@ -1,0 +1,25 @@
+The user reported a critical bug in the AP (Accounts Payable) parsing logic. The system is currently failing to distinguish between an individual "Invoice" and a "Statement of Account". 
+
+When a Statement arrives, the parser mistakenly grabs the grand total (e.g., $6,740.50) and creates a single, massive incorrect invoice record, causing double-counting and ruining the AP balance.
+
+Please completely overhaul the document parsing logic (likely in the AI extraction prompt, Zod schema, or OCR webhook handler):
+
+### 1. Document Classification (`documentType`)
+- Update the AI extraction schema to first identify the document type. Add a field: `documentType: 'invoice' | 'statement'`.
+- Instruct the AI to look for keywords in the email subject or document text (e.g., "Statement", "Statement of Account", "Remittance") to flag it as a statement.
+
+### 2. Differential Extraction Logic
+- **If `invoice`:** Extract the single invoice number, date, and total amount (Current behavior).
+- **If `statement`:** - STRICT RULE: DO NOT create a single AP record using the statement's grand total.
+  - Instead, instruct the AI to extract an array of the individual invoice rows listed inside the statement: `[{ invoiceNumber, date, amount }, ...]`.
+
+### 3. Statement Reconciliation (Matching) Logic
+- When processing a `statement` payload, loop through the extracted array of invoices:
+  - Query the database to check if `invoiceNumber` already exists for this supplier.
+  - **If exists:** Ignore it (or optionally flag it as 'Verified by Statement').
+  - **If DOES NOT exist:** Insert a NEW individual AP record using the specific `invoiceNumber`, `date`, and smaller `amount` from that statement row.
+
+### 4. Database Cleanup
+- Please provide a quick DB script or UI method for the user to delete the incorrectly parsed massive statement records (like the $6,740.50, $7,586.60, $7,206.00 entries for Green Star Food) to fix their current AP balance.
+
+Implement this classification and reconciliation logic immediately to ensure financial accuracy.

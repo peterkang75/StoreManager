@@ -533,9 +533,11 @@ export function AdminTriageInbox() {
   });
 
   const routeMutation = useMutation({
-    mutationFn: async ({ id, action }: { id: string; action: RouteAction }) =>
-      apiRequest("POST", `/api/universal-inbox/${id}/route`, { action }),
-    onSuccess: (_data, { action }) => {
+    mutationFn: async ({ id, action }: { id: string; action: RouteAction }) => {
+      const res = await apiRequest("POST", `/api/universal-inbox/${id}/route`, { action });
+      return res.json();
+    },
+    onSuccess: (data: any, { action }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/universal-inbox"] });
       queryClient.invalidateQueries({ queryKey: ["/api/todos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices"] });
@@ -543,11 +545,21 @@ export function AdminTriageInbox() {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       const cfg = ACTION_CONFIG[action];
       const isAP = action === "ROUTE_TO_AP";
+      const isSpam = action === "SPAM_DROP";
+      const bulkDropped: number = data?.bulkDropped ?? 0;
+      let description: string;
+      if (isAP) {
+        description = `Sent to Payables. The invoice will appear in the Review Inbox shortly.`;
+      } else if (isSpam && bulkDropped > 0) {
+        description = `Marked as spam. ${bulkDropped} other email${bulkDropped === 1 ? "" : "s"} from this sender were also dropped. Future emails will be blocked automatically.`;
+      } else if (isSpam) {
+        description = `Marked as spam. Future emails from this sender will be blocked automatically.`;
+      } else {
+        description = `Sender routed to "${cfg.label}". Future emails from this sender will be handled automatically.`;
+      }
       toast({
         title: "Routing rule saved",
-        description: isAP
-          ? `Sent to Payables. The invoice will appear in the Review Inbox shortly.`
-          : `Sender routed to "${cfg.label}". Future emails from this sender will be handled automatically.`,
+        description,
       });
     },
     onError: () => {
