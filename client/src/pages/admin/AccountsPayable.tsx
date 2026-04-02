@@ -67,6 +67,7 @@ import {
   Link2,
   ChevronsUpDown,
   Check,
+  AlertTriangle,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import AddInvoiceModal from "@/components/AddInvoiceModal";
@@ -105,6 +106,10 @@ interface ReviewRawData {
    *  supplier.supplierName field may be a placeholder and should not be
    *  used as a grouping key or pre-filled supplier name. */
   _aiParsed?: boolean;
+  /** True when the source document was a Statement of Account.
+   *  If true AND there is only 1 extracted row, this invoice likely contains
+   *  the grand total instead of an individual invoice — verify before approving. */
+  _isStatement?: boolean;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -490,6 +495,17 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
             )}
           </p>
         </DialogHeader>
+
+        {/* Statement-of-account warning */}
+        {(raw as any)?._isStatement && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 px-3 py-2.5 text-xs text-amber-800 dark:text-amber-300">
+            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span>
+              <strong>Statement of Account detected.</strong> This document may contain a grand total instead of individual invoice rows.
+              Please verify the amount before approving — only approve if you are sure this is a valid invoice, not a statement summary.
+            </span>
+          </div>
+        )}
 
         {/* Mode toggle */}
         <div className="flex rounded-md border border-border overflow-hidden">
@@ -1751,6 +1767,11 @@ export function AdminAccountsPayable() {
                                       {ir?.issueDate && <span className="text-muted-foreground text-xs">{fmt(ir.issueDate)}</span>}
                                       {ir?.totalAmount !== undefined && ir.totalAmount > 0 && (
                                         <span className="font-medium tabular-nums text-xs">{fmtAUD(ir.totalAmount)}</span>
+                                      )}
+                                      {(ir as any)?._isStatement && (
+                                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 text-amber-700 border-amber-400 bg-amber-50 dark:text-amber-300 dark:border-amber-700 dark:bg-amber-950/30 shrink-0">
+                                          Statement
+                                        </Badge>
                                       )}
                                       {inv.createdAt && (
                                         <span className="text-muted-foreground/60 text-xs ml-auto">

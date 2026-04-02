@@ -4713,7 +4713,7 @@ export async function registerRoutes(
         }
 
         // ── Step 5: Parse with AI ────────────────────────────────────────────
-        const parsedItems = await parseInvoiceWithAI(pdfResult.text, matchedSupplier.name);
+        const parsedItems = await parseInvoiceWithAI(pdfResult.text, matchedSupplier.name, subject);
         if (!parsedItems || parsedItems.length === 0) {
           console.log(`[Webhook] Attachment "${attName}" — AI parse returned nothing`);
           continue;
@@ -4771,6 +4771,30 @@ export async function registerRoutes(
         }
 
         // ── Step 7: Create invoices for this attachment ──────────────────────
+        // Statement guard: if AI classified as a Statement but returned only 1 row,
+        // the grand total was likely grabbed by mistake. Force REVIEW to avoid
+        // double-counting the entire statement balance as a single invoice.
+        const isStatementAttachment = parsedItems[0]?.isStatement === true;
+        if (isStatementAttachment) {
+          console.log(`[Webhook] Attachment "${attName}": STATEMENT detected (${parsedItems.length} row(s))`);
+          if (parsedItems.length === 1) {
+            console.warn(`[Webhook] STATEMENT with 1 row — suspected grand-total mis-grab. Forcing REVIEW for "${attName}".`);
+            const inv = await storage.createSupplierInvoice({
+              supplierId: currentSupplier.id,
+              storeId: resolveStoreId(parsedItems[0].storeCode) ?? resolveStoreFromDelivery(parsedItems[0].deliveryLocation),
+              invoiceNumber: parsedItems[0].invoiceNumber || `STMT-${Date.now()}-${attIdx}`,
+              invoiceDate: parsedItems[0].issueDate || today,
+              dueDate: parsedItems[0].dueDate ?? undefined,
+              amount: parsedItems[0].totalAmount,
+              status: "REVIEW",
+              rawExtractedData: { pdfBase64: pdfResult.pdfBase64, senderEmail, subject, _isStatement: true },
+              notes: `STATEMENT OF ACCOUNT received but only 1 row extracted — possibly a grand-total error. Please verify the amount and individual invoice rows manually.\nFrom: ${senderEmail}\nSubject: ${subject}\nAttachment: ${attName}`,
+            });
+            reviewCount++;
+            created.push(inv.id);
+            continue;
+          }
+        }
         for (const parsed of parsedItems) {
           if (!parsed.invoiceNumber && !parsed.issueDate && !parsed.totalAmount) continue;
           if (parsed.invoiceNumber && existingNumbers.has(parsed.invoiceNumber)) {
@@ -5183,58 +5207,83 @@ export async function registerRoutes(
 
                 if (matchedSupplier) {
                   // Known supplier — try to parse PENDING invoices
-                  const parsedItems = await parseInvoiceWithAI(pdfText, matchedSupplier.name);
+                  const parsedItems = await parseInvoiceWithAI(pdfText, matchedSupplier.name, subject);
                   if (parsedItems?.length) {
-                    const existing = await storage.getSupplierInvoices({ supplierId: matchedSupplier.id });
-                    const existingNumbers = new Set(existing.map(inv => inv.invoiceNumber));
-                    const allStores = await storage.getStores();
-                    const sushiStore = allStores.find(s => s.name.toLowerCase().includes("sushi"));
-                    const sandwichStore = allStores.find(s => s.name.toLowerCase().includes("sandwich"));
+                    const isStatementDoc = parsedItems[0]?.isStatement === true;
 
-                    let firstCreated = false;
-                    for (const parsed of parsedItems) {
-                      if (!parsed.invoiceNumber && !parsed.totalAmount) continue;
-                      if (parsed.invoiceNumber && existingNumbers.has(parsed.invoiceNumber)) continue;
-                      const storeId = parsed.storeCode === "SUSHI" ? sushiStore?.id ?? null : parsed.storeCode === "SANDWICH" ? sandwichStore?.id ?? null : null;
-                      try {
-                        if (!firstCreated) {
-                          // Upgrade the placeholder for the first invoice
-                          await upgradeToFinal(
-                            `Routed from Triage Inbox.`,
-                            { senderEmail, subject, supplier: { supplierName: matchedSupplier.name }, _aiParsed: true },
-                            "PENDING",
-                            { supplierId: matchedSupplier.id, storeId, invoiceNumber: parsed.invoiceNumber, invoiceDate: parsed.issueDate, dueDate: parsed.dueDate ?? undefined, amount: parsed.totalAmount },
-                          );
-                          firstCreated = true;
-                        } else {
-                          // Additional invoices in the same email
-                          await storage.createSupplierInvoice({
-                            supplierId: matchedSupplier.id, storeId,
-                            invoiceNumber: parsed.invoiceNumber,
-                            invoiceDate: parsed.issueDate,
-                            dueDate: parsed.dueDate ?? undefined,
-                            amount: parsed.totalAmount,
-                            status: "PENDING",
-                            notes: `Routed from Triage Inbox.\nFrom: ${senderEmail}\nSubject: ${subject}`,
-                          });
+                    // Safety guard: if classified as a Statement but only 1 item came back,
+                    // the AI likely grabbed the grand total by mistake. Force REVIEW so a
+                    // human can verify before it lands in AP balances.
+                    if (isStatementDoc && parsedItems.length === 1) {
+                      console.warn(`[TriageRoute/bg] STATEMENT with only 1 item — suspected grand-total mis-grab. Forcing REVIEW.`);
+                      await upgradeToFinal(
+                        `STATEMENT OF ACCOUNT received but only 1 row extracted — possibly a grand-total error. Please verify the amount and individual invoice rows manually before approving.`,
+                        { senderEmail, subject, supplier: { supplierName: matchedSupplier.name }, _aiParsed: true, _isStatement: true },
+                        "REVIEW",
+                        { supplierId: matchedSupplier.id, amount: parsedItems[0].totalAmount },
+                      );
+                    } else {
+                      const existing = await storage.getSupplierInvoices({ supplierId: matchedSupplier.id });
+                      const existingNumbers = new Set(existing.map(inv => inv.invoiceNumber));
+                      const allStores = await storage.getStores();
+                      const sushiStore = allStores.find(s => s.name.toLowerCase().includes("sushi"));
+                      const sandwichStore = allStores.find(s => s.name.toLowerCase().includes("sandwich"));
+
+                      const sourceNote = isStatementDoc
+                        ? `Reconciled from Statement of Account.`
+                        : `Routed from Triage Inbox.`;
+
+                      let firstCreated = false;
+                      let skippedExisting = 0;
+                      for (const parsed of parsedItems) {
+                        if (!parsed.invoiceNumber && !parsed.totalAmount) continue;
+                        if (parsed.invoiceNumber && existingNumbers.has(parsed.invoiceNumber)) {
+                          skippedExisting++;
+                          continue;
                         }
-                        if (parsed.invoiceNumber) existingNumbers.add(parsed.invoiceNumber);
-                      } catch (dupErr: any) {
-                        if (dupErr?.code === "23505" || dupErr?.message?.includes("unique constraint")) {
-                          console.warn(`[TriageRoute/bg] Skipping duplicate invoice ${parsed.invoiceNumber} for supplier ${matchedSupplier.id}`);
-                          if (!firstCreated) firstCreated = false; // rollback firstCreated if placeholder update failed
-                        } else {
-                          throw dupErr;
+                        const storeId = parsed.storeCode === "SUSHI" ? sushiStore?.id ?? null : parsed.storeCode === "SANDWICH" ? sandwichStore?.id ?? null : null;
+                        try {
+                          if (!firstCreated) {
+                            await upgradeToFinal(
+                              sourceNote,
+                              { senderEmail, subject, supplier: { supplierName: matchedSupplier.name }, _aiParsed: true, _isStatement: isStatementDoc },
+                              "PENDING",
+                              { supplierId: matchedSupplier.id, storeId, invoiceNumber: parsed.invoiceNumber, invoiceDate: parsed.issueDate, dueDate: parsed.dueDate ?? undefined, amount: parsed.totalAmount },
+                            );
+                            firstCreated = true;
+                          } else {
+                            await storage.createSupplierInvoice({
+                              supplierId: matchedSupplier.id, storeId,
+                              invoiceNumber: parsed.invoiceNumber,
+                              invoiceDate: parsed.issueDate,
+                              dueDate: parsed.dueDate ?? undefined,
+                              amount: parsed.totalAmount,
+                              status: "PENDING",
+                              notes: `${sourceNote}\nFrom: ${senderEmail}\nSubject: ${subject}`,
+                            });
+                          }
+                          if (parsed.invoiceNumber) existingNumbers.add(parsed.invoiceNumber);
+                        } catch (dupErr: any) {
+                          if (dupErr?.code === "23505" || dupErr?.message?.includes("unique constraint")) {
+                            console.warn(`[TriageRoute/bg] Skipping duplicate invoice ${parsed.invoiceNumber} for supplier ${matchedSupplier.id}`);
+                            if (!firstCreated) firstCreated = false;
+                          } else {
+                            throw dupErr;
+                          }
                         }
                       }
-                    }
-                    if (!firstCreated) {
-                      // AI returned items but all were duplicates
-                      await upgradeToFinal(
-                        `Duplicate invoices — already in system.`,
-                        { senderEmail, subject, supplier: { supplierName: matchedSupplier.name }, _aiParsed: true },
-                        "REVIEW",
-                      );
+                      if (!firstCreated) {
+                        const allExistMsg = isStatementDoc
+                          ? `All ${parsedItems.length} statement row(s) already exist in the system — no new invoices added.`
+                          : `Duplicate invoices — already in system.`;
+                        await upgradeToFinal(
+                          allExistMsg,
+                          { senderEmail, subject, supplier: { supplierName: matchedSupplier.name }, _aiParsed: true, _isStatement: isStatementDoc },
+                          "REVIEW",
+                        );
+                      } else if (isStatementDoc && skippedExisting > 0) {
+                        console.log(`[TriageRoute/bg] Statement reconciliation: ${skippedExisting} already-existing invoice(s) skipped.`);
+                      }
                     }
                   } else {
                     await upgradeToFinal(
@@ -5245,8 +5294,19 @@ export async function registerRoutes(
                   }
                 } else {
                   // Unknown sender — full parse
-                  const unknownParsed = await parseInvoiceFromUnknownSender(pdfText);
+                  const unknownParsed = await parseInvoiceFromUnknownSender(pdfText, subject);
                   if (unknownParsed?.invoices?.length) {
+                    const isStatementDoc = unknownParsed.isStatement;
+
+                    // Safety guard: Statement with only 1 row almost certainly grabbed the grand total
+                    if (isStatementDoc && unknownParsed.invoices.length === 1) {
+                      console.warn(`[TriageRoute/bg] UNKNOWN-SENDER STATEMENT with 1 row — suspected grand-total mis-grab. Forcing REVIEW.`);
+                      await upgradeToFinal(
+                        `STATEMENT OF ACCOUNT received but only 1 row extracted — possibly a grand-total error. Please verify the amounts and individual invoice rows manually.`,
+                        { senderEmail, subject, supplier: unknownParsed.supplier, invoices: unknownParsed.invoices, _aiParsed: true, _isStatement: true },
+                        "REVIEW",
+                      );
+                    } else {
                     const nameMatch = unknownParsed.supplier.supplierName
                       ? await storage.findSupplierByName(unknownParsed.supplier.supplierName)
                       : undefined;
@@ -5257,13 +5317,17 @@ export async function registerRoutes(
                       //   Phase 2: Bulk ghost re-animation + ON CONFLICT DO NOTHING insert
                       // rawExtractedData always includes the full invoice list so the
                       // Review Inbox can display/expand them on approval.
+                      const sourceNote = isStatementDoc
+                        ? `Reconciled from Statement of Account.`
+                        : `Routed from Triage Inbox.`;
                       const rawWithAll = {
                         senderEmail, subject,
                         supplier: unknownParsed.supplier,
                         invoices: unknownParsed.invoices,
                         _aiParsed: true,
+                        _isStatement: isStatementDoc,
                       };
-                      const baseNotes = `Routed from Triage Inbox.\nFrom: ${senderEmail}\nSubject: ${subject}`;
+                      const baseNotes = `${sourceNote}\nFrom: ${senderEmail}\nSubject: ${subject}`;
 
                       // Fetch existing (non-DELETED) invoices to detect true duplicates.
                       // DELETED invoices are ghost candidates — handled via re-animation.
@@ -5384,10 +5448,11 @@ export async function registerRoutes(
                     } else {
                       await upgradeToFinal(
                         `Unknown supplier. Please review and add.`,
-                        { senderEmail, subject, supplier: unknownParsed.supplier, invoices: unknownParsed.invoices, _aiParsed: true },
+                        { senderEmail, subject, supplier: unknownParsed.supplier, invoices: unknownParsed.invoices, _aiParsed: true, _isStatement: isStatementDoc },
                         "REVIEW",
                       );
                     }
+                    } // end else (not single-row statement)
                   } else {
                     // PDF found but no invoice items — use supplier info if AI got it.
                     // IMPORTANT: Never fall back to item.senderName — when forwarded by
@@ -5397,7 +5462,7 @@ export async function registerRoutes(
                       ? unknownParsed.supplier
                       : null;
                     if (!supplierInfo && item.body?.trim()) {
-                      const bodyParsed = await parseInvoiceFromUnknownSender(item.body.slice(0, 8000)).catch(() => null);
+                      const bodyParsed = await parseInvoiceFromUnknownSender(item.body.slice(0, 8000), subject).catch(() => null);
                       if (bodyParsed?.supplier?.supplierName && bodyParsed.supplier.supplierName !== "Unknown Supplier") {
                         supplierInfo = bodyParsed.supplier;
                       }
@@ -5413,7 +5478,7 @@ export async function registerRoutes(
                 // Scanned/image PDF — try email body as fallback for supplier info
                 let scannedSupplier: any = null;
                 if (item.body?.trim()) {
-                  const bodyParsed = await parseInvoiceFromUnknownSender(item.body.slice(0, 8000)).catch(() => null);
+                  const bodyParsed = await parseInvoiceFromUnknownSender(item.body.slice(0, 8000), subject).catch(() => null);
                   if (bodyParsed?.supplier?.supplierName && bodyParsed.supplier.supplierName !== "Unknown Supplier") {
                     scannedSupplier = bodyParsed.supplier;
                   }
@@ -5438,7 +5503,7 @@ export async function registerRoutes(
               let bodySupplier: any = null;
               let bodyInvoices: any[] = [];
               if (item.body?.trim()) {
-                const bodyParsed = await parseInvoiceFromUnknownSender(item.body.slice(0, 8000)).catch(() => null);
+                const bodyParsed = await parseInvoiceFromUnknownSender(item.body.slice(0, 8000), subject).catch(() => null);
                 if (bodyParsed?.supplier?.supplierName && bodyParsed.supplier.supplierName !== "Unknown Supplier") {
                   bodySupplier = bodyParsed.supplier;
                   bodyInvoices = bodyParsed.invoices ?? [];

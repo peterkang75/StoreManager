@@ -16,6 +16,13 @@ export interface ParsedInvoice {
   abn?: string | null;
   /** Raw delivery/ship-to/bill-to address or store name from the PDF — used for fuzzy store matching */
   deliveryLocation?: string | null;
+  /**
+   * True when the source document was a Statement of Account rather than a single invoice.
+   * Each item in the array corresponds to one row of the statement table.
+   * The routes layer uses this flag to apply reconciliation logic (skip existing, force REVIEW
+   * if only 1 row was extracted since that likely indicates a grand-total mis-grab).
+   */
+  isStatement?: boolean;
 }
 
 export interface UploadParsedInvoice {
@@ -51,6 +58,8 @@ export interface UnknownSenderInvoiceItem {
 export interface UnknownSenderParsedResult {
   supplier: ExtractedSupplierInfo;
   invoices: UnknownSenderInvoiceItem[];
+  /** True when the AI determined the document is a Statement of Account (not a single invoice). */
+  isStatement: boolean;
 }
 
 /**
@@ -82,7 +91,8 @@ export async function extractPdfText(buffer: Buffer): Promise<string> {
  */
 export async function parseInvoiceWithAI(
   rawText: string,
-  supplierName: string
+  supplierName: string,
+  subjectHint?: string
 ): Promise<ParsedInvoice[] | null> {
   const systemPrompt = `You are an invoice data extraction assistant for an Australian retail business.
 The text you receive is extracted from a PDF — table layouts may be broken or read vertically.
@@ -119,6 +129,9 @@ COLUMN NAME ALIASES — statements use many different header names:
    - Otherwise → storeCode = "UNKNOWN"
 5. For deliveryLocation, copy the EXACT text of the "Delivery Address", "Ship To", "Deliver To", "Bill To", or "Attention" field as it appears on the document. This is the raw address of the receiving store. Return null if not found.
 6. Return ONLY valid JSON with no extra text, code fences, or explanation.
+7. Every object in the returned array MUST include an "isStatement" boolean field:
+   - Set "isStatement": true for ALL items when the document is type (B) STATEMENT OF ACCOUNT.
+   - Set "isStatement": false for ALL items when the document is type (A) SINGLE INVOICE.
 
 WARNING — AGGREGATOR / MARKETPLACE PLATFORMS:
 Some invoices are generated and delivered by a marketplace or ordering platform (e.g. "Ordermentum", "Fresho", "MarketPlacer", or similar). In these cases the platform name appears prominently at the top of the PDF and in the email sender — but the platform is NOT the supplier. It is merely a delivery channel.
@@ -130,7 +143,10 @@ You MUST identify the REAL underlying supplier — the business that actually pr
   • Any block containing an ABN (Australian Business Number) that belongs to the vendor, NOT the platform
 Extract the business name and ABN from this "From / Vendor / Supplier" section and use it as extractedSupplierName. Ignore the platform name entirely for supplier identification. The PDF body ALWAYS overrides the email sender and the hint.`;
 
-  const userPrompt = `Supplier hint (from email routing — may be WRONG if the email was forwarded OR if the email was sent via an aggregator platform like Ordermentum/Fresho): ${supplierName}
+  const subjectLine = subjectHint
+    ? `Email subject: "${subjectHint}"\nIMPORTANT: If the subject contains words like "Statement", "Statement of Account", "Account Statement", or "Remittance", treat this as STRONG evidence that the document is type (B) STATEMENT.\n\n`
+    : "";
+  const userPrompt = `${subjectLine}Supplier hint (from email routing — may be WRONG if the email was forwarded OR if the email was sent via an aggregator platform like Ordermentum/Fresho): ${supplierName}
 
 IMPORTANT — PDF CONTENT TAKES ABSOLUTE PRIORITY:
 The PDF text below is the ground truth. The supplier hint above is only a fallback. If the PDF clearly identifies a real supplier (via a "From:", "Vendor:", "Supplier Details:", or ABN block), use that name — even if it completely contradicts the hint.
@@ -149,12 +165,13 @@ Then extract all invoices and return as a JSON ARRAY. Each item must have:
     "dueDate": "YYYY-MM-DD or null (payment due date if present for this line item)",
     "totalAmount": number (for a Statement: the individual amount from THIS specific line item row only — NEVER the Grand Total/Closing Balance),
     "storeCode": "SUSHI" | "SANDWICH" | "UNKNOWN",
-    "deliveryLocation": "string or null (exact text of the Delivery/Ship To/Bill To/Attention field — the receiving store's address or name)"
+    "deliveryLocation": "string or null (exact text of the Delivery/Ship To/Bill To/Attention field — the receiving store's address or name)",
+    "isStatement": true if this document is a STATEMENT OF ACCOUNT, false if it is a SINGLE INVOICE
   }
 ]
 
 REMINDER FOR SINGLE INVOICES: If this is a single invoice (type A), the totalAmount MUST be the final payable total at the bottom of the document — look for labels like "Total AUD Incl. GST", "Total Amount Payable", "Amount Due", "Invoice Total", "Amount Payable", "Total Owing". Do NOT use individual product line amounts. Do NOT return 0 unless the invoice truly shows $0.
-REMINDER FOR STATEMENTS: If this is a Statement (type B), every object in the returned array must use amounts from its OWN row only. The Grand Total / Closing Balance at the bottom of the statement must NOT appear as any object's totalAmount.
+REMINDER FOR STATEMENTS: If this is a Statement (type B), every object in the returned array must use amounts from its OWN row only. The Grand Total / Closing Balance at the bottom of the statement must NOT appear as any object's totalAmount. Set "isStatement": true on every item.
 REMINDER FOR PLATFORMS: If the invoice was sent via an aggregator platform (Ordermentum, Fresho, etc.), the real supplier is in the "From:" or "Vendor:" section of the PDF — return THAT name, not the platform name.
 If a field cannot be found, use null for optional fields or an empty string for required ones.`;
 
@@ -211,6 +228,11 @@ If a field cannot be found, use null for optional fields or an empty string for 
       return null;
     }
 
+    // Determine document-level isStatement from majority vote of items
+    const stmtCount = items.filter(i => i?.isStatement === true).length;
+    const docIsStatement = stmtCount > items.length / 2;
+    if (docIsStatement) console.log(`[invoiceParser] Document classified as STATEMENT (${items.length} rows)`);
+
     const results: ParsedInvoice[] = items
       .filter(item => item && (item.invoiceNumber || item.issueDate || item.totalAmount))
       .map(item => ({
@@ -224,6 +246,7 @@ If a field cannot be found, use null for optional fields or an empty string for 
         extractedSupplierName: item.extractedSupplierName ? String(item.extractedSupplierName).trim() : undefined,
         abn: item.abn ? String(item.abn).trim() : null,
         deliveryLocation: item.deliveryLocation ? String(item.deliveryLocation).trim() : null,
+        isStatement: docIsStatement,
       }));
 
     if (results.length === 0) {
@@ -505,6 +528,7 @@ CRITICAL RULES:
 
 Return this exact structure:
 {
+  "isStatement": true | false,
   "supplier": {
     "supplierName": "string",
     "supplierEmail": "string or null — ONLY include if the supplier's own email address is explicitly printed in the document body (e.g. on the invoice header or footer). Return null if no email is visible. NEVER use or guess an email from the To/From email headers; those may belong to a forwarding service, not the supplier.",
@@ -519,11 +543,15 @@ Return this exact structure:
       "invoiceNumber": "string",
       "issueDate": "YYYY-MM-DD or null",
       "dueDate": "YYYY-MM-DD or null",
-      "totalAmount": number,
+      "totalAmount": number (if isStatement=true: this row's individual amount ONLY — NEVER the Grand Total/Closing Balance),
       "storeCode": "SUSHI" | "SANDWICH" | "UNKNOWN"
     }
   ]
-}`;
+}
+
+Set "isStatement": true if the document is a Statement of Account (rows represent past invoices with their own numbers/dates/amounts, and there is a Grand Total/Closing Balance at the bottom).
+Set "isStatement": false if the document is a single invoice (rows represent product line items).
+CRITICAL: When "isStatement" is true, the "invoices" array MUST list EACH LINE ROW separately with its OWN amount — NEVER use the Grand Total / Closing Balance as any individual invoice amount.`;
 
 /**
  * Parse an invoice PDF from an unknown sender.
@@ -531,8 +559,12 @@ Return this exact structure:
  * Used in the Auto-Discovery Review Inbox workflow.
  */
 export async function parseInvoiceFromUnknownSender(
-  pdfText: string
+  pdfText: string,
+  subjectHint?: string
 ): Promise<UnknownSenderParsedResult | null> {
+  const subjectClue = subjectHint
+    ? `Email subject: "${subjectHint}"\nIf the subject contains "Statement", "Statement of Account", "Account Statement", or "Remittance" treat this as strong evidence that isStatement should be true.\n\n`
+    : "";
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -540,7 +572,7 @@ export async function parseInvoiceFromUnknownSender(
         { role: "system", content: UNKNOWN_SENDER_SYSTEM_PROMPT },
         {
           role: "user",
-          content: `Extract ALL fields from this invoice/statement. If it is a STATEMENT, count every row in the table and return an invoice entry for EACH row — do not skip any rows with future due dates or zero balances:\n\n${pdfText.slice(0, 16000)}`,
+          content: `${subjectClue}Extract ALL fields from this invoice/statement. If it is a STATEMENT, count every row in the table and return an invoice entry for EACH row — do not skip any rows with future due dates or zero balances:\n\n${pdfText.slice(0, 16000)}`,
         },
       ],
       temperature: 0,
@@ -587,6 +619,9 @@ export async function parseInvoiceFromUnknownSender(
       accountNumber: supplierRaw.accountNumber ? String(supplierRaw.accountNumber) : null,
     };
 
+    const isStatement = parsed.isStatement === true;
+    if (isStatement) console.log(`[invoiceParser] parseInvoiceFromUnknownSender: STATEMENT detected (${(parsed.invoices ?? []).length} rows)`);
+
     const invoicesRaw = Array.isArray(parsed.invoices) ? parsed.invoices : [];
     const invoices: UnknownSenderInvoiceItem[] = invoicesRaw
       .filter((item: any) => item && (item.invoiceNumber || item.totalAmount))
@@ -604,7 +639,7 @@ export async function parseInvoiceFromUnknownSender(
       console.warn("[invoiceParser] parseInvoiceFromUnknownSender: no invoice items extracted");
     }
 
-    return { supplier, invoices };
+    return { supplier, invoices, isStatement };
   } catch (err) {
     console.error("[invoiceParser] parseInvoiceFromUnknownSender error:", err);
     return null;
