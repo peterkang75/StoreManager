@@ -108,7 +108,10 @@ KEY DISTINCTION — How to tell (A) from (B):
 
 CRITICAL RULES:
 1. You ALWAYS return a JSON ARRAY of invoice objects, never a single object.
-2. If the document is type (A) SINGLE INVOICE → return an array with exactly 1 item. For totalAmount, use the FINAL BOTTOM TOTAL: "Total AUD Incl. GST", "Total Amount Payable", "Amount Due", "Invoice Total", "Grand Total" — whichever label appears at the bottom of the invoice. This IS the correct totalAmount for a single invoice.
+2. If the document is type (A) SINGLE INVOICE → return an array with exactly 1 item. For totalAmount, use the INVOICE-ONLY TOTAL — the amount that represents ONLY THIS INVOICE, not any outstanding account balance. Priority order:
+   a. Use "Invoice Total" if present — this always represents this invoice alone.
+   b. Otherwise use "Total AUD Incl. GST", "Total Amount Payable", "Amount Due", "Amount Payable", "Total Owing".
+   c. CRITICAL EXCEPTION: If the invoice shows BOTH an "Invoice Total" (or "This Invoice" / "Current Charges") AND an "A/C Outstanding" / "A/C Balance" / "Balance Forward" / "Account Balance" / "Outstanding Balance" line, and then a combined "Total" or "Amount Owing" that equals Invoice Total + Outstanding — you MUST use the "Invoice Total" value ONLY. The combined "Total" at the bottom includes previous debt owed on the account and is NOT the payable amount for this specific invoice.
 3. If the document is type (B) STATEMENT OF ACCOUNT → you MUST return one array item PER LINE ITEM ROW. Each row in the statement table is a separate invoice. Extract each row's own invoice number, date, and individual line amount separately. Do NOT skip rows. Do NOT merge rows.
 
 STATEMENT EXTRACTION RULES — READ CAREFULLY:
@@ -170,7 +173,11 @@ Then extract all invoices and return as a JSON ARRAY. Each item must have:
   }
 ]
 
-REMINDER FOR SINGLE INVOICES: If this is a single invoice (type A), the totalAmount MUST be the final payable total at the bottom of the document — look for labels like "Total AUD Incl. GST", "Total Amount Payable", "Amount Due", "Invoice Total", "Amount Payable", "Total Owing". Do NOT use individual product line amounts. Do NOT return 0 unless the invoice truly shows $0.
+REMINDER FOR SINGLE INVOICES: If this is a single invoice (type A), use the INVOICE-ONLY amount — not the combined account balance.
+- If "Invoice Total" is present → use it. This represents only this invoice.
+- If the invoice shows "Invoice Total" + "A/C Outstanding" + a combined "Total" (= Invoice Total + Outstanding) → use "Invoice Total" ONLY. The "Total" at the bottom includes prior account debt and must NOT be used as this invoice's amount.
+- If there is no separate "Invoice Total" label → use "Total AUD Incl. GST", "Total Amount Payable", "Amount Due", "Total Owing".
+- Do NOT use individual product line amounts. Do NOT return 0 unless the invoice truly shows $0.
 REMINDER FOR STATEMENTS: If this is a Statement (type B), every object in the returned array must use amounts from its OWN row only. The Grand Total / Closing Balance at the bottom of the statement must NOT appear as any object's totalAmount. Set "isStatement": true on every item.
 REMINDER FOR PLATFORMS: If the invoice was sent via an aggregator platform (Ordermentum, Fresho, etc.), the real supplier is in the "From:" or "Vendor:" section of the PDF — return THAT name, not the platform name.
 If a field cannot be found, use null for optional fields or an empty string for required ones.`;
@@ -274,7 +281,11 @@ KEY DISTINCTION:
 - Rows list INVOICE/DOCUMENT REFERENCES (invoice numbers, transaction refs, dates, balance per row) → type (B) STATEMENT
 
 CRITICAL RULES:
-1. If document is type (A) SINGLE INVOICE → return a JSON ARRAY with exactly 1 object. For "amount", use the FINAL bottom total ("Total AUD Incl. GST", "Total Amount Payable", "Invoice Total", "Amount Due") — this is the correct amount, not individual line amounts.
+1. If document is type (A) SINGLE INVOICE → return a JSON ARRAY with exactly 1 object. For "amount", use the INVOICE-ONLY total — the amount that represents ONLY THIS INVOICE:
+   - If "Invoice Total" is present → use it. It always represents this invoice alone.
+   - If the invoice shows "Invoice Total" + "A/C Outstanding" (or "Account Balance" / "Balance Forward") + a combined "Total" — use ONLY the "Invoice Total". The combined "Total" includes prior account debt and must NOT be used as the invoice amount.
+   - Otherwise use "Total AUD Incl. GST", "Total Amount Payable", "Amount Due".
+   - Do NOT use individual product/line-item amounts.
 2. If document is type (B) STATEMENT → return a JSON ARRAY with ONE object PER LINE ITEM ROW. Each row has its own invoice number, date, and individual line amount. NEVER use the Grand Total / Closing Balance / Statement Total as the amount for any individual line item.
 3. For storeCode, look for the "Bill To", "Invoice To", or "Deliver To" name:
    - Contains "olitin" or "sushime" → "SUSHI"
@@ -543,7 +554,7 @@ Return this exact structure:
       "invoiceNumber": "string",
       "issueDate": "YYYY-MM-DD or null",
       "dueDate": "YYYY-MM-DD or null",
-      "totalAmount": number (if isStatement=true: this row's individual amount ONLY — NEVER the Grand Total/Closing Balance),
+      "totalAmount": number (INVOICE-ONLY amount — see rules below),
       "storeCode": "SUSHI" | "SANDWICH" | "UNKNOWN"
     }
   ]
@@ -551,7 +562,13 @@ Return this exact structure:
 
 Set "isStatement": true if the document is a Statement of Account (rows represent past invoices with their own numbers/dates/amounts, and there is a Grand Total/Closing Balance at the bottom).
 Set "isStatement": false if the document is a single invoice (rows represent product line items).
-CRITICAL: When "isStatement" is true, the "invoices" array MUST list EACH LINE ROW separately with its OWN amount — NEVER use the Grand Total / Closing Balance as any individual invoice amount.`;
+CRITICAL: When "isStatement" is true, the "invoices" array MUST list EACH LINE ROW separately with its OWN amount — NEVER use the Grand Total / Closing Balance as any individual invoice amount.
+
+TOTAL AMOUNT RULES FOR SINGLE INVOICES (isStatement: false):
+- If the invoice shows "Invoice Total" → use that value. It represents ONLY this invoice.
+- If the invoice shows BOTH "Invoice Total" AND "A/C Outstanding" (or "Account Balance" / "Balance Forward" / "A/C Balance") AND a combined "Total" that equals Invoice Total + Outstanding → use ONLY the "Invoice Total". The combined "Total" at the bottom includes prior unpaid debt from the account and must NOT be used as this invoice's amount.
+- If there is no "Invoice Total" label → use "Total AUD Incl. GST", "Total Amount Payable", "Amount Due", "Total Owing".
+- NEVER use a combined "Total" that adds this invoice to prior outstanding debt.`;
 
 /**
  * Parse an invoice PDF from an unknown sender.
