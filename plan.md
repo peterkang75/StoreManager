@@ -133,6 +133,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 | `timeLogs` | `employeeId`, `storeId`, `shiftId`, `clockIn`, `clockOut`, `source`, `adjustmentReason` | Raw clock-in/out records |
 | `shiftTimesheets` | `storeId`, `employeeId`, `date`, `actualStartTime`, `actualEndTime`, `status`, `isUnscheduled` | Per-shift timesheet submission from portal. Status: PENDING / APPROVED / REJECTED |
 | `timesheets` | `employeeId`, `storeId`, `periodStart`, `periodEnd`, `totalHours`, `status`, `managerId`, `approvedAt` | Period-level timesheet aggregates |
+| `shift_presets` | `id`, `storeId` (unique FK), `fullDayStart`, `fullDayEnd`, `openShiftStart`, `openShiftEnd`, `closeShiftStart`, `closeShiftEnd` | Per-store preset times for the 3 quick-fill buttons in the Roster cell editor (Full Day / Open Shift / Close Shift). One row per store; upserted on save. |
 
 ### 2.4 Payroll & Finance
 
@@ -469,6 +470,33 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - Frontend `mutationFn` in `TriageInbox.tsx` parses the JSON response and shows a toast: `"N other emails from this sender were also dropped."` (only for SPAM_DROP, not FYI_ARCHIVE).
 - FYI_ARCHIVE does **not** trigger bulk-drop (FYI emails may have legitimate future correspondence).
 
+### 3.17 Shift Presets — Admin Settings ✅ COMPLETE
+
+**Feature**: Admin Settings → Shift Presets (`/admin/settings/shift-presets`) — lets the admin configure the times that auto-fill when clicking the **Full Day**, **Open Shift**, or **Close Shift** quick-fill buttons inside the Roster cell editor.
+
+**DB**: `shift_presets` table — one row per store (unique on `storeId`). Fields: `id` (UUID PK), `storeId` (FK → stores), `fullDayStart`, `fullDayEnd`, `openShiftStart`, `openShiftEnd`, `closeShiftStart`, `closeShiftEnd` (all text, HH:mm). Default values: Full Day 06:30–18:30, Open Shift 06:30–12:30, Close Shift 12:30–18:30.
+
+**Storage** (`server/storage.ts`): `getShiftPresets()`, `getShiftPresetByStore(storeId)`, `upsertShiftPreset(data)` added to `IStorage`, `MemStorage`, and `DatabaseStorage` (upsert uses `onConflictDoUpdate` on `storeId`).
+
+**API** (`server/routes.ts`):
+- `GET /api/shift-presets` — list all store presets
+- `GET /api/shift-presets/:storeId` — single store preset (404 if none)
+- `PUT /api/shift-presets/:storeId` — upsert preset for a store
+
+**Frontend** (`client/src/pages/admin/ShiftPresets.tsx`):
+- Only shows Sushi + Sandwich stores (roster-enabled).
+- One Card per store with 3 rows: Full Day / Open Shift / Close Shift — each row has Start + End time selectors (30-min slots) + live hours display.
+- Save button per card (disabled when no change). Korean subtitle guidance per row.
+- Integrated into AdminLayout Settings nav (`settingsNavItems`) as "Shift Presets" with Clock icon.
+- Route registered in `App.tsx`.
+
+**Roster CellEditor integration** (`client/src/pages/admin/Rosters.tsx`):
+- `ShiftPreset` type imported from `@shared/schema`.
+- `useQuery<ShiftPreset[]>({ queryKey: ["/api/shift-presets"] })` fetches all presets.
+- `selectedStorePreset` derived from presets array matching `selectedStore`.
+- `CellEditorProps` extended with optional `preset?: ShiftPreset`.
+- Quick-fill buttons use `preset?.fullDayStart ?? storeOpenTime` pattern — preset values take priority; fallback to store hours calculation when no preset exists.
+
 ---
 
 ## 4. API Endpoints
@@ -524,6 +552,13 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 | POST | `/api/shifts` | Create shift |
 | PUT | `/api/shifts/:id` | Update shift |
 | DELETE | `/api/shifts/:id` | Delete shift |
+
+### Settings
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/shift-presets` | List all store shift presets |
+| GET | `/api/shift-presets/:storeId` | Get preset for a specific store |
+| PUT | `/api/shift-presets/:storeId` | Upsert (create or update) preset for a store |
 
 ### Time Logs & Timesheets
 | Method | Path | Description |
