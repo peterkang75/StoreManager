@@ -227,7 +227,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - Shows scheduled vs actual times; highlights discrepancies and unscheduled shifts.
 - **Auto-Fill from Roster**: creates PENDING timesheets for any rostered shift that has no submission yet.
 - **Add Missing Shift**: manager can manually add an ad-hoc shift directly from the review modal (`POST /api/admin/approvals/add-shift`).
-- **Standalone Add Shift button added to page header** — allows adding shifts for any employee (active or inactive) or free-text name, independent of the employee list. Searches all employees with active/inactive badge, supports free-text fallback for one-off workers.
+- **Standalone Add Shift button:** A global "Add Shift" button added to the Pending Approvals page header (alongside Auto-Fill from Roster and Weekly Payroll). Opens a modal that allows adding a shift for ANY employee — including INACTIVE employees and free-text names for one-off workers not in the system. Employee search covers all statuses. Uses existing POST /api/admin/approvals/add-shift endpoint. The existing per-employee "Add Missing Shift" inside the detail modal is unchanged.
 - **Mark Absent**: reject/tombstone a shift so Auto-Fill won't recreate it (`PUT /api/admin/approvals/:id/reject`).
 - **Bulk Revert**: revert all APPROVED timesheets for an employee back to PENDING (`POST /api/admin/approvals/bulk-revert`). Used when corrections are needed after approval.
 - **Responsive layout**: desktop shows employee table → click to open detail modal; mobile shows employee summary cards → tap to open bottom-sheet review modal with per-shift cards (no horizontal scroll on mobile).
@@ -256,6 +256,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Settle Intercompany Debt:** `PATCH /api/settlements/:id/settle` — marks a settlement record as settled, linking it to a `financialTransaction` ID.
 - **Backfill Settlements:** `POST /api/admin/backfill-settlements` — admin utility to retroactively generate `intercompanySettlements` records for historical payroll periods that pre-date the feature.
 - **Dashboard Labor filter (bug fix):** `GET /api/dashboard/summary` now filters payroll periods using `periodStart > endDate` (previously `periodEnd > endDate`). This correctly includes any payroll period that overlaps the selected date range — a period is only excluded when its *start* is beyond the range end, not when its *end* is.
+- **Draft Cash Balance (Real-time):** While editing payroll, the top CashBalances widget shows a "Draft: $X,XXX" line under each store's balance card. This reflects the current session's total cash outflow in real-time before saving to DB. All store drafts (Sushi, Sandwich, etc.) are visible simultaneously regardless of which store is currently selected in the payroll form. Implemented via `draftByStore` prop (Record<storeId, totalCash>) computed from `payrollDrafts` state in PayrollPage and passed down to CashBalances widget.
 
 ### 3.7 Finance / Cash (`/admin/finance`, `/admin/cash`)
 - **Inter-store transactions**: Convert (float transfer), Remittance (store → HO), Manual entry.
@@ -828,6 +829,16 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 |---|---|---|
 | GET | `/api/dashboard/summary` | Summary: payroll totals, sales, cash balances. Labor date filter uses `periodStart > endDate` (not `periodEnd`) to correctly include payroll periods that overlap the selected range. |
 
+### Automation Rules
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/automation-rules` | List all rules (enriched with employee/store names) |
+| POST | `/api/automation-rules` | Create automation rule |
+| PUT | `/api/automation-rules/:id` | Update automation rule |
+| DELETE | `/api/automation-rules/:id` | Delete automation rule |
+| GET | `/api/automation-rules/due-today` | Rules due today (Sydney timezone, isActive=true only) |
+| POST | `/api/automation-rules/:id/execute` | Execute rule — ROSTER: upsertRoster for each dayOfWeek date this week; PAYROLL_ADJUSTMENT: update current cycle payroll adjustment; FINANCE_TRANSFER: createFinancialTransaction (CONVERT or REMITTANCE) |
+
 ### Shopping List
 | Method | Path | Description |
 |---|---|---|
@@ -1016,71 +1027,25 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - [ ] **Sales Sync (Webhook):** Build a webhook pipeline so the separate Catering App posts completed order and sales data back to this Management System's `/api/dashboard/summary` in real-time, keeping the Manager Dashboard accurate without manual entry.
 ---
 
-## Section 6: Automation Rules (Reminder + One-Click Execute) — 🔄 PLANNED
+## Section 6: Automation Rules (Reminder + One-Click Execute) — ✅ COMPLETE
 
-### 목적
-직원별 반복 예외 작업(로스터, 페이롤 adjustment, 재무 거래 등)을 시스템이 기억하고,
-실행 시점에 대시보드 알림으로 표시. 관리자가 확인 후 원클릭으로 실행.
+### 구현 완료 내역
+- DB table created (`automation_rules`), schema.ts updated, db:push complete
+- storage.ts: `getAutomationRules`, `getAutomationRulesDueToday`, `getAutomationRule`, `createAutomationRule`, `updateAutomationRule`, `deleteAutomationRule`, `executeAutomationRule` all implemented
+- routes.ts: 6 endpoints registered under `/api/automation-rules/`
+- `/admin/automations` settings page: rule cards with actionType badge, isActive toggle, Sheet drawer for create/edit with dynamic fields per actionType (ROSTER / PAYROLL_ADJUSTMENT / FINANCE_TRANSFER), days-of-week checkboxes (WEEKLY only), AlertDialog for delete
+- Dashboard widget: "Today's Recurring Tasks" section between Financial Performance and Needs Routing — hidden when no rules due, Execute (spinner, removes on success) + Skip buttons per rule
+- Sidebar: "Automations" added to Settings submenu with Repeat icon
 
-### 핵심 설계 원칙
+### payload 구조
+- ROSTER: `{ storeId, startTime, endTime }`
+- PAYROLL_ADJUSTMENT: `{ amount, reason }`
+- FINANCE_TRANSFER: `{ fromStoreId, toStoreId, amount, transferType: "convert"|"remittance" }`
+
+### 설계 원칙 (유지)
 - 완전 자동 실행 없음 — 항상 사람이 확인 후 실행
-- 리마인더 중심 — 대시보드 로드 시 오늘 실행할 규칙 체크
-- 기존 API 재활용 — 실행 로직은 이미 있는 API 호출만
-
-### 6.1 DB 테이블 — automation_rules
-
-| 컬럼 | 타입 | 설명 |
-|---|---|---|
-| id | uuid PK | |
-| title | varchar | 규칙 제목 |
-| actionType | varchar | ROSTER / PAYROLL_ADJUSTMENT / FINANCE_TRANSFER |
-| frequency | varchar | WEEKLY / MONTHLY_FIRST_WEEK / MONTHLY |
-| dayOfWeek | int[] | 요일 (0=일~6=토), WEEKLY일 때 사용 |
-| targetEmployeeId | uuid FK | 대상 직원 (nullable) |
-| targetStoreId | uuid FK | 대상 매장 (nullable) |
-| payload | jsonb | 실행에 필요한 값 (시간, 금액, 이유 등) |
-| description | text | 관리자용 메모 |
-| isActive | boolean | 활성/비활성 |
-| lastExecutedAt | timestamp | 마지막 실행 시각 |
-| createdAt | timestamp | |
-
-### payload 구조 예시
-- ROSTER: { "storeId": "xxx", "startTime": "08:30", "endTime": "15:30" }
-- PAYROLL_ADJUSTMENT: { "amount": -401, "reason": "Car Finance" }
-- FINANCE_TRANSFER: { "fromStoreId": "xxx", "toStoreId": "yyy", "amount": 300 }
-
-### 6.2 API 엔드포인트
-- GET    /api/automation-rules            전체 규칙 목록
-- POST   /api/automation-rules            규칙 생성
-- PUT    /api/automation-rules/:id        규칙 수정
-- DELETE /api/automation-rules/:id        규칙 삭제
-- GET    /api/automation-rules/due-today  오늘 실행할 규칙 목록
-- POST   /api/automation-rules/:id/execute 원클릭 실행
-
-### 6.3 실행 로직 (기존 API 재활용)
-- ROSTER: POST /api/rosters — dayOfWeek 기준 이번주 날짜 계산 후 입력
-- PAYROLL_ADJUSTMENT: PUT /api/payrolls/:id — 현재 사이클 페이롤에 adjustment 주입
-- FINANCE_TRANSFER: POST /api/finance/convert 또는 /api/finance/remittance
-
-### 6.4 대시보드 위젯
-- /admin 대시보드에 "오늘의 반복 작업" 위젯 추가
-- 대시보드 로드 시 /api/automation-rules/due-today 호출
-- 각 규칙 카드: 제목, 설명, 대상, [실행] [건너뜀] 버튼
-- [실행] 클릭 → execute API 호출 → 성공 토스트 → 카드 사라짐
-- [건너뜀] 클릭 → 오늘 하루만 숨김 (lastExecutedAt 갱신 없음)
-- 실행할 규칙 없으면 위젯 미표시
-
-### 6.5 설정 페이지 (/admin/automations)
-- 전체 규칙 리스트 (활성/비활성 토글)
-- 새 규칙 추가 폼: 제목, 유형, 주기, 대상, payload 값
-- 수정 / 삭제
-
-### 작업 순서
-1. DB: automation_rules 테이블 생성 + schema.ts 추가 + db:push
-2. storage.ts: CRUD + due-today 로직 + execute 로직 3종
-3. routes.ts: API 엔드포인트 6개
-4. /admin/automations 설정 페이지 신규
-5. Dashboard.tsx: 위젯 추가
+- 리마인더 중심 — 대시보드 로드 시 오늘 실행할 규칙 체크 (Sydney TZ 기준)
+- 기존 API 재활용 — 실행 로직은 이미 있는 storage/API 호출만
 
 ### 우선순위
 파일 분리 리팩토링 완료 이후 구현 예정
