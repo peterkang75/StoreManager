@@ -869,17 +869,22 @@ export function AdminPayrolls() {
           {!storesLoading && (
             <CashBalances
               stores={stores || []}
-              draftByStore={
-                Object.fromEntries(
-                  Object.entries(payrollDrafts).map(([ctxKey, drafts]) => {
-                    const storeId = ctxKey.split("|")[0];
-                    const totalCash = Object.values(drafts).reduce(
-                      (sum, r) => sum + (r.cashAmount || 0), 0
-                    );
-                    return [storeId, totalCash];
-                  }).filter(([, v]) => v > 0)
-                )
-              }
+              draftByStore={(() => {
+                const result: Record<string, number> = {};
+                for (const [ctxKey, drafts] of Object.entries(payrollDrafts)) {
+                  const hasSaved = Object.values(drafts).some(
+                    (r) => r.payrollId !== null,
+                  );
+                  if (hasSaved) continue;
+                  const storeId = ctxKey.split("|")[0];
+                  const totalCash = Object.values(drafts).reduce(
+                    (sum, r) => sum + (r.cashAmount || 0),
+                    0,
+                  );
+                  if (totalCash > 0) result[storeId] = totalCash;
+                }
+                return result;
+              })()}
             />
           )}
 
