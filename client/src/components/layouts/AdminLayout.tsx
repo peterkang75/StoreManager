@@ -20,6 +20,7 @@ import {
   ChevronDown,
   Inbox,
   Smartphone,
+  Package,
 } from "lucide-react";
 import {
   Sidebar,
@@ -63,6 +64,7 @@ const operationsNavItems = [
   { title: "Pending Approvals", url: "/admin/approvals", icon: ClipboardCheck },
   { title: "Attendance History",url: "/admin/timesheets",icon: History },
   { title: "Payroll",           url: "/admin/payrolls",  icon: DollarSign },
+  { title: "Storage",           url: "/admin/storage",   icon: Package },
 ];
 
 const hiringNavItems = [

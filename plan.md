@@ -688,6 +688,26 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 
 ---
 
+### Phase 3.5: Shopping & Storage Module — IN PROGRESS
+
+#### 3.5.1 Shopping List — Nearly Complete
+- ShoppingListView component implemented in EmployeePortal.tsx
+- Catalogue-based item selection, category grouping, search, clear all implemented
+- `selectionCount` field exists on `shoppingItems` but sort-by-popularity NOT YET applied to catalogue display
+- Admin shopping widget on Dashboard is separate and admin-only — correct as-is
+
+#### 3.5.2 Storage List — NOT IMPLEMENTED → NOW IN PROGRESS
+- Tab shell exists in Employee Portal (HomeSubTab "storage") — currently shows "Coming soon" placeholder
+- Requires new DB tables: `storageItems`, `activeStorageList`
+- Employee portal: checklist of items to fetch from storage + optional remaining stock count input on check-off
+- Admin: `/admin/storage` page — read-only inventory view with inline stock edit capability
+
+#### Design Notes
+- Storage UI accent color: amber-500 (consistent with unscheduled shift indicator already in portal)
+- Admin storage page: white card + subtle drop shadow (consistent with dashboard card style)
+
+---
+
 ### Phase 3: Communication & Mobile — ✅ COMPLETE
 
 - [x] **Notice Board / Messaging:** In-app announcement system. `notices` DB table (title, content, targetStoreId, authorId, isActive, createdAt). Admin `/admin/notices` page — create/edit/delete with store targeting & active toggle. Employee Portal home tab shows active notices filtered by employee's store + global notices. API: `GET/POST /api/notices`, `PUT/DELETE /api/notices/:id`.

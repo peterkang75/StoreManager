@@ -1,0 +1,223 @@
+STEP 1 — UPDATE PLAN.MD FIRST
+
+Before writing any code, update the file `plan.md` in the project root by adding the following section after the existing Phase 3 section:
+
+---
+
+### Phase 3.5: Shopping & Storage Module — IN PROGRESS
+
+#### 3.5.1 Shopping List — Nearly Complete
+- ShoppingListView component implemented in EmployeePortal.tsx
+- Catalogue-based item selection, category grouping, search, clear all implemented
+- selectionCount field exists on shoppingItems but sort-by-popularity NOT YET applied to catalogue display
+- Admin shopping widget on Dashboard is separate and admin-only — correct as-is
+
+#### 3.5.2 Storage List — NOT IMPLEMENTED
+- Tab shell exists in Employee Portal (HomeSubTab "storage") — currently shows "Coming soon" placeholder
+- Requires new DB tables: storageItems, activeStorageList
+- Employee portal: checklist of items to fetch from storage + optional remaining stock count input on check-off
+- Admin: /admin/storage page — read-only inventory view with inline stock edit capability
+
+#### Design Notes
+- Storage UI accent color: amber-500 (consistent with unscheduled shift indicator already in portal)
+- Admin storage page: white card + subtle drop shadow (consistent with dashboard card style)
+
+---
+
+STEP 2 — DATABASE SCHEMA (shared/schema.ts)
+
+Add two new tables to shared/schema.ts:
+
+Table 1: storageItems
+export const storageItems = pgTable("storage_items", {
+  id: serial("id").primaryKey(),
+  storeId: varchar("store_id").references(() => stores.id),
+  name: varchar("name", { length: 255 }).notNull(),
+  category: varchar("category", { length: 100 }).notNull(),
+  unit: varchar("unit", { length: 50 }).default("units"),
+  currentStock: integer("current_stock"),
+  lastCheckedAt: timestamp("last_checked_at"),
+  lastCheckedBy: varchar("last_checked_by").references(() => employees.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+Table 2: activeStorageList
+export const activeStorageList = pgTable("active_storage_list", {
+  id: serial("id").primaryKey(),
+  storeId: varchar("store_id").references(() => stores.id),
+  itemId: integer("item_id").references(() => storageItems.id),
+  addedBy: varchar("added_by").references(() => employees.id),
+  addedAt: timestamp("added_at").defaultNow(),
+});
+
+After adding to schema, run: npm run db:push
+
+---
+
+STEP 3 — BACKEND (server/storage.ts + server/routes.ts)
+
+3A. Fix Shopping List — selectionCount increment (server/routes.ts)
+In the existing POST /api/shopping/active handler, after inserting the record into activeShoppingList, add:
+  UPDATE shopping_items SET selection_count = selection_count + 1 WHERE id = $itemId
+Implement this via Drizzle ORM following the existing pattern in storage.ts.
+
+3B. Add Storage methods to IStorage interface and DatabaseStorage in server/storage.ts:
+  - getStorageItems(storeId?: string): Promise<StorageItem[]>
+  - createStorageItem(data): Promise<StorageItem>
+  - updateStorageItem(id, data): Promise<StorageItem>
+  - deleteStorageItem(id): Promise<void>
+  - updateStorageItemStock(id, currentStock, checkedBy): Promise<StorageItem>
+    — also sets lastCheckedAt = now(), lastCheckedBy = checkedBy
+  - getActiveStorageList(storeId?: string): Promise<ActiveStorageListItem[]>
+    — join with storageItems to return item details
+  - addToActiveStorageList(data): Promise<ActiveStorageListItem>
+  - removeFromActiveStorageList(id): Promise<void>
+  - clearActiveStorageList(storeId?: string): Promise<void>
+
+3C. Add API endpoints to server/routes.ts:
+
+  GET    /api/storage/items              — list catalogue, filter by ?storeId=
+  POST   /api/storage/items              — create item { name, category, unit, storeId }
+  PATCH  /api/storage/items/:id          — update item fields
+  DELETE /api/storage/items/:id          — delete item
+
+  GET    /api/storage/active             — get active fetch list, filter by ?storeId=
+  POST   /api/storage/active             — add item { itemId, storeId, addedBy }
+  DELETE /api/storage/active/:id         — remove single item (fetched)
+  DELETE /api/storage/active             — clear entire list for store (?storeId=)
+
+  PATCH  /api/storage/items/:id/stock    — update stock only { currentStock, checkedBy }
+
+---
+
+STEP 4 — EMPLOYEE PORTAL (client/src/pages/mobile/EmployeePortal.tsx)
+
+4A. Fix Shopping List sort order in ShoppingListView:
+In the catalog rendering section, sort items within each category by selectionCount descending before grouping:
+  const filteredCatalog = catalog
+    .filter(i => i.name.toLowerCase().includes(catalogSearch.toLowerCase()))
+    .sort((a, b) => (b.selectionCount ?? 0) - (a.selectionCount ?? 0))
+
+4B. Create StorageListView component in EmployeePortal.tsx.
+Model it closely after ShoppingListView with these specific differences:
+
+CATEGORIES (use these instead of shopping categories):
+  "Dry Goods", "Sauces & Condiments", "Packaging", "Cleaning Supplies",
+  "Frozen", "Refrigerated", "Beverages", "Equipment", "Other"
+
+PROPS:
+  { storeId: string | null, employeeId: string }
+
+ACTIVE LIST BEHAVIOUR — tapping an item to check it off:
+  - Do NOT immediately delete. Instead, show an inline confirmation panel below the item row.
+  - The panel shows: "How many left in storage?" with a numeric input (inputMode="numeric") and two buttons: "Confirm" and "Skip"
+  - On "Confirm": call PATCH /api/storage/items/:id/stock with { currentStock: enteredNumber, checkedBy: employeeId }, then call DELETE /api/storage/active/:id
+  - On "Skip": call DELETE /api/storage/active/:id only, without updating stock
+  - After either action: item disappears from active list
+
+ADD ITEMS DRAWER:
+  - Same pattern as ShoppingListView
+  - Search input at top
+  - Items grouped by category, sorted by name within each category
+  - Items already in active list shown with CheckCheck icon and disabled state
+  - "Create New Item" section at bottom: name input + category select + unit input (default "units")
+  - Unit field is a plain text Input (e.g. "bags", "boxes", "bottles", "units")
+
+EMPTY STATE:
+  Package icon (h-10 w-10) + "Your fetch list is empty" text + "Add Items" button
+
+HEADER ROW:
+  Left: "Today's Fetch List" title + item count subtitle
+  Right: "Clear all" button (only visible when list has items), same style as ShoppingListView
+
+ACCENT COLOR: amber-500 for storage icons and the left accent bar on item rows
+
+4C. Wire up Storage tab — replace the "Coming soon" placeholder:
+
+BEFORE:
+  {homeSubTab === "storage" && (
+    <Card>
+      <CardContent className="py-14 text-center">
+        <Package className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+        <p className="font-medium">Storage List</p>
+        <p className="text-sm text-muted-foreground mt-1">Coming soon.</p>
+      </CardContent>
+    </Card>
+  )}
+
+AFTER:
+  {homeSubTab === "storage" && (
+    <StorageListView storeId={employeeProfile?.storeId ?? null} employeeId={session.id} />
+  )}
+
+---
+
+STEP 5 — ADMIN STORAGE PAGE (new file: client/src/pages/admin/StorageInventory.tsx)
+
+Create a new page at client/src/pages/admin/StorageInventory.tsx with the following spec:
+
+- Use AdminLayout with title "Storage Inventory" and subtitle "창고 재고 현황"
+- Route: /admin/storage (add to App.tsx routing)
+- Add to admin sidebar navigation under the Operations group, label "Storage Inventory", icon Package from lucide-react, MANAGER level permission
+
+PAGE LAYOUT:
+  - Store filter buttons at top: All Stores | Sushi | Sandwich (same pattern as AccountsPayable.tsx store toggle buttons)
+  - "Add Item" button top-right → opens a simple modal with fields: Item Name, Category (select from storage categories list), Unit, Store (select)
+  - Table of all storage items for selected store
+
+TABLE COLUMNS:
+  Item Name | Category | Unit | Current Stock | Last Checked | Last Checked By | Actions
+
+CURRENT STOCK CELL BEHAVIOUR:
+  - currentStock = null → show gray text "Not checked"
+  - currentStock = 0   → show red badge "Out of Stock"
+  - currentStock <= 3  → show amber badge "Low (N)"
+  - currentStock > 3   → show green text with number
+  - Click on stock cell → turns into inline number input, saves on blur or Enter key press via PATCH /api/storage/items/:id/stock
+
+LAST CHECKED CELL:
+  - Show lastCheckedAt formatted as "DD Mon, HH:MM" in Australia/Sydney timezone
+  - Show lastCheckedBy as employee name if available
+
+ACTIONS COLUMN:
+  - Delete button (trash icon) — calls DELETE /api/storage/items/:id with confirm dialog
+
+EMPTY STATE:
+  - If no items for selected store: centered message "No storage items yet" + "Add Item" button
+
+---
+
+STEP 6 — ROUTING & NAVIGATION
+
+6A. Add route in App.tsx (or wherever routes are defined):
+  <Route path="/admin/storage" component={StorageInventory} />
+
+6B. Add to admin sidebar navigation:
+  - Label: "Storage Inventory"
+  - Icon: Package (lucide-react)
+  - Path: /admin/storage
+  - Permission level: MANAGER (same as Roster, Approvals)
+
+---
+
+STYLING RULES (apply throughout)
+- Tailwind + Shadcn UI only — no new UI libraries
+- Mobile-first for all portal components
+- Admin pages: white card background + subtle drop shadow (shadow-sm), consistent with Dashboard
+- Do NOT modify: vite.ts, drizzle.config.ts, package.json
+- All date/time must use Australia/Sydney timezone:
+  toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" })
+- Never use toISOString().slice(0,10) for date strings
+
+---
+
+EXECUTION ORDER (follow exactly):
+1. Update plan.md
+2. shared/schema.ts — add tables
+3. npm run db:push
+4. server/storage.ts — add interface methods + implementations
+5. server/routes.ts — add endpoints + fix selectionCount increment
+6. client/src/pages/mobile/EmployeePortal.tsx — StorageListView + wire tab + fix sort
+7. client/src/pages/admin/StorageInventory.tsx — new file
+8. App.tsx — add route
+9. Sidebar/AdminLayout — add nav item

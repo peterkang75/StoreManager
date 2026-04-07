@@ -63,7 +63,7 @@ import {
   CheckCheck,
   Search,
 } from "lucide-react";
-import type { Notice, ShiftTimesheet, ShoppingItem, ActiveShoppingListItem } from "@shared/schema";
+import type { Notice, ShiftTimesheet, ShoppingItem, ActiveShoppingListItem, StorageItem, ActiveStorageListItem } from "@shared/schema";
 import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "@shared/payrollCycle";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -816,9 +816,9 @@ function ShoppingListView({ storeId }: { storeId?: string | null }) {
   const activeCategories = Object.keys(grouped).sort();
   const activeItemIds = new Set(activeList.map(e => e.itemId));
 
-  const filteredCatalog = catalog.filter(i =>
-    i.name.toLowerCase().includes(catalogSearch.toLowerCase())
-  );
+  const filteredCatalog = catalog
+    .filter(i => i.name.toLowerCase().includes(catalogSearch.toLowerCase()))
+    .sort((a, b) => (b.selectionCount ?? 0) - (a.selectionCount ?? 0));
   const catalogGrouped = filteredCatalog.reduce<Record<string, ShoppingItem[]>>((acc, i) => {
     if (!acc[i.category]) acc[i.category] = [];
     acc[i.category].push(i);
@@ -1001,6 +1001,337 @@ function ShoppingListView({ storeId }: { storeId?: string | null }) {
   );
 }
 
+// ── Storage List ──────────────────────────────────────────────────────────────
+
+type ActiveStorageEntry = ActiveStorageListItem & { item: StorageItem };
+
+const STORAGE_CATEGORIES = [
+  "Dry Goods", "Refrigerated", "Frozen", "Produce", "Beverages",
+  "Sauces & Condiments", "Packaging", "Cleaning", "Other",
+];
+
+function StorageListView({ storeId, employeeName }: { storeId?: string | null; employeeName: string }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [checkSheetOpen, setCheckSheetOpen] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<StorageItem | null>(null);
+  const [stockValue, setStockValue] = useState("");
+  const [addItemOpen, setAddItemOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newCategory, setNewCategory] = useState("");
+  const [newUnit, setNewUnit] = useState("units");
+
+  const catalogQK = ["/api/storage/items", storeId ?? "all"];
+  const activeQK = ["/api/storage/active", storeId ?? "all"];
+
+  const { data: catalog = [], isLoading: catalogLoading } = useQuery<StorageItem[]>({
+    queryKey: catalogQK,
+    queryFn: async () => {
+      const p = storeId ? `?storeId=${storeId}` : "";
+      const res = await fetch(`/api/storage/items${p}`);
+      return res.ok ? res.json() : [];
+    },
+  });
+
+  const { data: activeList = [] } = useQuery<ActiveStorageEntry[]>({
+    queryKey: activeQK,
+    queryFn: async () => {
+      const p = storeId ? `?storeId=${storeId}` : "";
+      const res = await fetch(`/api/storage/active${p}`);
+      return res.ok ? res.json() : [];
+    },
+    staleTime: 0,
+  });
+
+  const invalidateBoth = () => {
+    qc.invalidateQueries({ queryKey: catalogQK });
+    qc.invalidateQueries({ queryKey: activeQK });
+  };
+
+  const updateStockMutation = useMutation({
+    mutationFn: async ({ id, currentStock }: { id: number; currentStock: number }) => {
+      const res = await fetch(`/api/storage/items/${id}/stock`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentStock, checkedBy: employeeName }),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      invalidateBoth();
+      setCheckSheetOpen(false);
+      setSelectedItem(null);
+      setStockValue("");
+      toast({ title: "Stock updated" });
+    },
+  });
+
+  const addToActiveMutation = useMutation({
+    mutationFn: (itemId: number) =>
+      fetch("/api/storage/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId, storeId, addedBy: employeeName }),
+      }).then(r => r.json()),
+    onSuccess: () => qc.invalidateQueries({ queryKey: activeQK }),
+  });
+
+  const removeFromActiveMutation = useMutation({
+    mutationFn: (id: number) =>
+      fetch(`/api/storage/active/${id}`, { method: "DELETE" }).then(r => r.json()),
+    onSuccess: () => qc.invalidateQueries({ queryKey: activeQK }),
+  });
+
+  const createItemMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/storage/items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName.trim(), category: newCategory, unit: newUnit, storeId }),
+      });
+      return res.json();
+    },
+    onSuccess: (item) => {
+      invalidateBoth();
+      addToActiveMutation.mutate(item.id);
+      setNewName("");
+      setNewCategory("");
+      setNewUnit("units");
+      setAddItemOpen(false);
+      toast({ title: "Item added" });
+    },
+  });
+
+  const clearMutation = useMutation({
+    mutationFn: () =>
+      fetch(`/api/storage/active${storeId ? `?storeId=${storeId}` : ""}`, { method: "DELETE" }).then(r => r.json()),
+    onSuccess: () => qc.invalidateQueries({ queryKey: activeQK }),
+  });
+
+  const activeItemIds = new Set(activeList.map(e => e.itemId));
+
+  const catalogByCategory = catalog.reduce<Record<string, StorageItem[]>>((acc, i) => {
+    if (!acc[i.category]) acc[i.category] = [];
+    acc[i.category].push(i);
+    return acc;
+  }, {});
+  const catalogCategories = Object.keys(catalogByCategory).sort();
+
+  const pendingByCategory = activeList.reduce<Record<string, ActiveStorageEntry[]>>((acc, e) => {
+    const cat = e.item.category;
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(e);
+    return acc;
+  }, {});
+  const pendingCategories = Object.keys(pendingByCategory).sort();
+
+  return (
+    <div className="flex flex-col gap-4 pb-32">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-bold text-lg">Storage Check</h3>
+          <p className="text-xs text-muted-foreground">
+            {activeList.length} item{activeList.length !== 1 ? "s" : ""} to fetch
+          </p>
+        </div>
+        {activeList.length > 0 && (
+          <button
+            type="button"
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover-elevate rounded-md px-2 py-1"
+            onClick={() => clearMutation.mutate()}
+            disabled={clearMutation.isPending}
+            data-testid="button-clear-storage-list"
+          >
+            <Trash2 className="h-4 w-4" />
+            Clear all
+          </button>
+        )}
+      </div>
+
+      {activeList.length === 0 && (
+        <Card>
+          <CardContent className="py-10 text-center">
+            <Package className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+            <p className="font-medium">Nothing to fetch</p>
+            <p className="text-sm text-muted-foreground mt-1">Add items from the catalogue below.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {pendingCategories.map(cat => (
+        <div key={cat}>
+          <div className="sticky top-0 bg-background/95 backdrop-blur-sm py-2 z-10">
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{cat}</p>
+          </div>
+          <div className="flex flex-col gap-2">
+            {pendingByCategory[cat].map(entry => (
+              <div
+                key={entry.id}
+                className="flex items-center gap-3 min-h-[3.5rem] px-4 py-3 rounded-xl border bg-card"
+              >
+                <button
+                  type="button"
+                  data-testid={`button-fetch-storage-${entry.id}`}
+                  onClick={() => removeFromActiveMutation.mutate(entry.id)}
+                  disabled={removeFromActiveMutation.isPending}
+                  className="h-6 w-6 rounded-full border-2 border-amber-500/60 shrink-0 flex items-center justify-center hover-elevate"
+                />
+                <span className="flex-1 text-base font-medium">{entry.item.name}</span>
+                <button
+                  type="button"
+                  data-testid={`button-check-stock-${entry.id}`}
+                  onClick={() => {
+                    setSelectedItem(entry.item);
+                    setStockValue(entry.item.currentStock !== null ? String(entry.item.currentStock) : "");
+                    setCheckSheetOpen(true);
+                  }}
+                  className="text-xs text-amber-600 dark:text-amber-400 font-medium px-2 py-1 rounded-md hover-elevate"
+                >
+                  Log stock
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      <Button
+        className="w-full h-14 text-base gap-2 mt-2 bg-amber-500 hover:bg-amber-500 border-amber-600"
+        variant="default"
+        onClick={() => setAddItemOpen(true)}
+        data-testid="button-open-add-storage"
+      >
+        <Plus className="h-5 w-5" />
+        Add Items
+      </Button>
+
+      {/* Catalogue Drawer */}
+      <Drawer open={addItemOpen} onOpenChange={setAddItemOpen}>
+        <DrawerContent className="max-h-[92vh] flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Storage Catalogue</DrawerTitle>
+          </DrawerHeader>
+          <div className="flex-1 overflow-y-auto px-4">
+            {catalogLoading && (
+              <div className="flex justify-center py-10">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            )}
+            {catalogCategories.map(cat => (
+              <div key={cat} className="mb-5">
+                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">{cat}</p>
+                <div className="flex flex-col gap-2">
+                  {catalogByCategory[cat].map(item => {
+                    const inList = activeItemIds.has(item.id);
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        data-testid={`button-storage-catalog-${item.id}`}
+                        onClick={() => !inList && addToActiveMutation.mutate(item.id)}
+                        disabled={inList || addToActiveMutation.isPending}
+                        className={`flex items-center gap-3 min-h-[3rem] w-full px-4 py-3 rounded-xl border text-left ${
+                          inList ? "bg-amber-500/10 border-amber-500/20 cursor-default" : "bg-card hover-elevate active-elevate-2"
+                        }`}
+                      >
+                        {inList
+                          ? <CheckCheck className="h-4 w-4 text-amber-500 shrink-0" />
+                          : <Plus className="h-4 w-4 text-muted-foreground shrink-0" />}
+                        <span className="flex-1 font-medium text-sm">{item.name}</span>
+                        <span className="text-xs text-muted-foreground/60">{item.unit}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            {catalog.length === 0 && !catalogLoading && (
+              <p className="text-sm text-muted-foreground text-center py-4">No items in catalogue yet. Create one below.</p>
+            )}
+
+            <div className="border-t mt-4 pt-4 pb-4">
+              <p className="text-sm font-semibold mb-3">Create New Item</p>
+              <div className="flex flex-col gap-3">
+                <Input
+                  placeholder="Item name"
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  data-testid="input-storage-new-name"
+                />
+                <Select value={newCategory} onValueChange={setNewCategory}>
+                  <SelectTrigger data-testid="select-storage-category">
+                    <SelectValue placeholder="Select category…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STORAGE_CATEGORIES.map(c => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  placeholder="Unit (e.g. kg, units, bottles)"
+                  value={newUnit}
+                  onChange={e => setNewUnit(e.target.value)}
+                  data-testid="input-storage-unit"
+                />
+                <Button
+                  className="w-full"
+                  disabled={!newName.trim() || !newCategory || createItemMutation.isPending}
+                  onClick={() => createItemMutation.mutate()}
+                  data-testid="button-create-storage-item"
+                >
+                  {createItemMutation.isPending
+                    ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    : <Plus className="h-4 w-4 mr-2" />}
+                  Add to List
+                </Button>
+              </div>
+            </div>
+          </div>
+          <DrawerFooter className="shrink-0">
+            <Button variant="outline" onClick={() => setAddItemOpen(false)}>Done</Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Log Stock Drawer */}
+      <Drawer open={checkSheetOpen} onOpenChange={setCheckSheetOpen}>
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>Log Stock — {selectedItem?.name}</DrawerTitle>
+          </DrawerHeader>
+          <div className="px-4 py-4 flex flex-col gap-4">
+            <p className="text-sm text-muted-foreground">
+              Enter current quantity ({selectedItem?.unit ?? "units"}):
+            </p>
+            <Input
+              type="number"
+              inputMode="decimal"
+              placeholder="0"
+              value={stockValue}
+              onChange={e => setStockValue(e.target.value)}
+              data-testid="input-stock-value"
+            />
+          </div>
+          <DrawerFooter>
+            <Button
+              className="w-full bg-amber-500 hover:bg-amber-500 border-amber-600"
+              disabled={!stockValue || updateStockMutation.isPending}
+              onClick={() => {
+                if (selectedItem) updateStockMutation.mutate({ id: selectedItem.id, currentStock: Number(stockValue) });
+              }}
+              data-testid="button-submit-stock"
+            >
+              {updateStockMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+            </Button>
+            <Button variant="outline" onClick={() => setCheckSheetOpen(false)}>Cancel</Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+    </div>
+  );
+}
+
 // ── Tab: Home ─────────────────────────────────────────────────────────────────
 
 type HomeSubTab = "myDay" | "shopping" | "storage";
@@ -1095,15 +1426,9 @@ function HomeTab({ session }: { session: Session }) {
         <ShoppingListView storeId={employeeProfile?.storeId ?? null} />
       )}
 
-      {/* Storage placeholder */}
+      {/* Storage tab */}
       {homeSubTab === "storage" && (
-        <Card>
-          <CardContent className="py-14 text-center">
-            <Package className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-            <p className="font-medium">Storage List</p>
-            <p className="text-sm text-muted-foreground mt-1">Coming soon.</p>
-          </CardContent>
-        </Card>
+        <StorageListView storeId={employeeProfile?.storeId ?? null} employeeName={displayName} />
       )}
 
       {/* My Day section */}

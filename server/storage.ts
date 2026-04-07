@@ -28,6 +28,8 @@ import {
   type AdminPermission, type InsertAdminPermission,
   type ShoppingItem, type InsertShoppingItem,
   type ActiveShoppingListItem, type InsertActiveShoppingList,
+  type StorageItem, type InsertStorageItem,
+  type ActiveStorageListItem, type InsertActiveStorageList,
   stores, candidates, employees, employeeStoreAssignments, employeeOnboardingTokens, employeeDocuments,
   rosterPeriods, shifts, rosters, rosterPublications, timeLogs, timesheets, payrolls,
   dailyClosings, cashSalesDetails, dailyCloseForms, suppliers, supplierInvoices, supplierPayments,
@@ -36,6 +38,7 @@ import {
   type UniversalInboxItem, type InsertUniversalInbox,
   financialTransactions, shiftTimesheets, notices, intercompanySettlements, adminPermissions,
   shoppingItems, activeShoppingList,
+  storageItems, activeStorageList,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import { db } from "./db";
@@ -204,6 +207,17 @@ export interface IStorage {
   addToActiveShoppingList(entry: InsertActiveShoppingList): Promise<ActiveShoppingListItem>;
   removeFromActiveShoppingList(id: number): Promise<void>;
   clearActiveShoppingList(storeId?: string | null): Promise<void>;
+
+  // Storage List
+  getStorageItems(storeId?: string | null): Promise<StorageItem[]>;
+  createStorageItem(item: InsertStorageItem): Promise<StorageItem>;
+  updateStorageItem(id: number, data: Partial<InsertStorageItem>): Promise<StorageItem>;
+  deleteStorageItem(id: number): Promise<void>;
+  updateStorageItemStock(id: number, currentStock: number, checkedBy: string): Promise<StorageItem>;
+  getActiveStorageList(storeId?: string | null): Promise<(ActiveStorageListItem & { item: StorageItem })[]>;
+  addToActiveStorageList(entry: InsertActiveStorageList): Promise<ActiveStorageListItem>;
+  removeFromActiveStorageList(id: number): Promise<void>;
+  clearActiveStorageList(storeId?: string | null): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -1484,6 +1498,57 @@ export class MemStorage implements IStorage {
       if (!storeId || v.storeId === storeId) this._activeList.delete(k);
     }
   }
+
+  // Storage List — MemStorage
+  private _storageItems: Map<number, StorageItem> = new Map();
+  private _activeStorageList: Map<number, ActiveStorageListItem> = new Map();
+  private _storageItemIdSeq = 1;
+  private _activeStorageIdSeq = 1;
+
+  async getStorageItems(storeId?: string | null): Promise<StorageItem[]> {
+    const all = Array.from(this._storageItems.values());
+    return storeId ? all.filter(i => i.storeId === storeId) : all;
+  }
+  async createStorageItem(item: InsertStorageItem): Promise<StorageItem> {
+    const row: StorageItem = { id: this._storageItemIdSeq++, createdAt: new Date(), currentStock: null, lastCheckedAt: null, lastCheckedBy: null, unit: "units", storeId: null, ...item };
+    this._storageItems.set(row.id, row);
+    return row;
+  }
+  async updateStorageItem(id: number, data: Partial<InsertStorageItem>): Promise<StorageItem> {
+    const existing = this._storageItems.get(id);
+    if (!existing) throw new Error("Not found");
+    const updated = { ...existing, ...data };
+    this._storageItems.set(id, updated);
+    return updated;
+  }
+  async deleteStorageItem(id: number): Promise<void> {
+    this._storageItems.delete(id);
+  }
+  async updateStorageItemStock(id: number, currentStock: number, checkedBy: string): Promise<StorageItem> {
+    const existing = this._storageItems.get(id);
+    if (!existing) throw new Error("Not found");
+    const updated = { ...existing, currentStock, lastCheckedAt: new Date(), lastCheckedBy: checkedBy };
+    this._storageItems.set(id, updated);
+    return updated;
+  }
+  async getActiveStorageList(storeId?: string | null): Promise<(ActiveStorageListItem & { item: StorageItem })[]> {
+    const all = Array.from(this._activeStorageList.values());
+    const filtered = storeId ? all.filter(e => e.storeId === storeId) : all;
+    return filtered.map(e => ({ ...e, item: this._storageItems.get(e.itemId!)! })).filter(e => e.item);
+  }
+  async addToActiveStorageList(entry: InsertActiveStorageList): Promise<ActiveStorageListItem> {
+    const row: ActiveStorageListItem = { id: this._activeStorageIdSeq++, addedAt: new Date(), storeId: entry.storeId ?? null, itemId: entry.itemId ?? null, addedBy: entry.addedBy ?? null };
+    this._activeStorageList.set(row.id, row);
+    return row;
+  }
+  async removeFromActiveStorageList(id: number): Promise<void> {
+    this._activeStorageList.delete(id);
+  }
+  async clearActiveStorageList(storeId?: string | null): Promise<void> {
+    for (const [k, v] of this._activeStorageList.entries()) {
+      if (!storeId || v.storeId === storeId) this._activeStorageList.delete(k);
+    }
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2456,6 +2521,60 @@ export class DatabaseStorage implements IStorage {
       await db.delete(activeShoppingList).where(eq(activeShoppingList.storeId, storeId));
     } else {
       await db.delete(activeShoppingList);
+    }
+  }
+
+  // Storage List — DatabaseStorage
+  async getStorageItems(storeId?: string | null): Promise<StorageItem[]> {
+    if (storeId) {
+      return db.select().from(storageItems).where(eq(storageItems.storeId, storeId)).orderBy(asc(storageItems.category), asc(storageItems.name));
+    }
+    return db.select().from(storageItems).orderBy(asc(storageItems.category), asc(storageItems.name));
+  }
+
+  async createStorageItem(item: InsertStorageItem): Promise<StorageItem> {
+    const [row] = await db.insert(storageItems).values(item).returning();
+    return row;
+  }
+
+  async updateStorageItem(id: number, data: Partial<InsertStorageItem>): Promise<StorageItem> {
+    const [row] = await db.update(storageItems).set(data).where(eq(storageItems.id, id)).returning();
+    return row;
+  }
+
+  async deleteStorageItem(id: number): Promise<void> {
+    await db.delete(storageItems).where(eq(storageItems.id, id));
+  }
+
+  async updateStorageItemStock(id: number, currentStock: number, checkedBy: string): Promise<StorageItem> {
+    const [row] = await db.update(storageItems)
+      .set({ currentStock, lastCheckedAt: new Date(), lastCheckedBy: checkedBy })
+      .where(eq(storageItems.id, id))
+      .returning();
+    return row;
+  }
+
+  async getActiveStorageList(storeId?: string | null): Promise<(ActiveStorageListItem & { item: StorageItem })[]> {
+    const rows = storeId
+      ? await db.select().from(activeStorageList).innerJoin(storageItems, eq(activeStorageList.itemId, storageItems.id)).where(eq(activeStorageList.storeId, storeId))
+      : await db.select().from(activeStorageList).innerJoin(storageItems, eq(activeStorageList.itemId, storageItems.id));
+    return rows.map(r => ({ ...r.active_storage_list, item: r.storage_items }));
+  }
+
+  async addToActiveStorageList(entry: InsertActiveStorageList): Promise<ActiveStorageListItem> {
+    const [row] = await db.insert(activeStorageList).values(entry).returning();
+    return row;
+  }
+
+  async removeFromActiveStorageList(id: number): Promise<void> {
+    await db.delete(activeStorageList).where(eq(activeStorageList.id, id));
+  }
+
+  async clearActiveStorageList(storeId?: string | null): Promise<void> {
+    if (storeId) {
+      await db.delete(activeStorageList).where(eq(activeStorageList.storeId, storeId));
+    } else {
+      await db.delete(activeStorageList);
     }
   }
 }

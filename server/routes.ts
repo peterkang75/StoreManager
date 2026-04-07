@@ -6282,6 +6282,115 @@ Rules:
     }
   });
 
+  // ── Storage List ──────────────────────────────────────────────────────────
+
+  // GET /api/storage/items?storeId=X
+  app.get("/api/storage/items", async (req: Request, res: Response) => {
+    try {
+      const storeId = req.query.storeId as string | undefined;
+      const items = await storage.getStorageItems(storeId ?? null);
+      res.json(items);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch storage items" });
+    }
+  });
+
+  // POST /api/storage/items — create item
+  app.post("/api/storage/items", async (req: Request, res: Response) => {
+    try {
+      const { name, category, unit, storeId } = req.body;
+      if (!name || !category) return res.status(400).json({ error: "name and category required" });
+      const item = await storage.createStorageItem({
+        name: String(name).trim(),
+        category: String(category).trim(),
+        unit: unit ? String(unit).trim() : "units",
+        storeId: storeId ?? null,
+      });
+      res.json(item);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to create storage item" });
+    }
+  });
+
+  // PATCH /api/storage/items/:id — update item fields
+  app.patch("/api/storage/items/:id", async (req: Request, res: Response) => {
+    try {
+      const id = Number(req.params.id);
+      const { name, category, unit, storeId } = req.body;
+      const updated = await storage.updateStorageItem(id, { name, category, unit, storeId });
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update storage item" });
+    }
+  });
+
+  // DELETE /api/storage/items/:id — delete item
+  app.delete("/api/storage/items/:id", async (req: Request, res: Response) => {
+    try {
+      await storage.deleteStorageItem(Number(req.params.id));
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to delete storage item" });
+    }
+  });
+
+  // PATCH /api/storage/items/:id/stock — update stock level
+  app.patch("/api/storage/items/:id/stock", async (req: Request, res: Response) => {
+    try {
+      const id = Number(req.params.id);
+      const { currentStock, checkedBy } = req.body;
+      if (currentStock === undefined || !checkedBy) return res.status(400).json({ error: "currentStock and checkedBy required" });
+      const updated = await storage.updateStorageItemStock(id, Number(currentStock), String(checkedBy));
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update stock" });
+    }
+  });
+
+  // GET /api/storage/active?storeId=X
+  app.get("/api/storage/active", async (req: Request, res: Response) => {
+    try {
+      const storeId = req.query.storeId as string | undefined;
+      const list = await storage.getActiveStorageList(storeId ?? null);
+      res.json(list);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch active storage list" });
+    }
+  });
+
+  // POST /api/storage/active — add item to fetch list
+  app.post("/api/storage/active", async (req: Request, res: Response) => {
+    try {
+      const { itemId, storeId, addedBy } = req.body;
+      if (!itemId) return res.status(400).json({ error: "itemId required" });
+      const entry = await storage.addToActiveStorageList({ itemId: Number(itemId), storeId: storeId ?? null, addedBy: addedBy ?? null });
+      res.json(entry);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to add to storage list" });
+    }
+  });
+
+  // DELETE /api/storage/active/:id — remove (fetched) single item
+  app.delete("/api/storage/active/:id", async (req: Request, res: Response) => {
+    try {
+      await storage.removeFromActiveStorageList(Number(req.params.id));
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to remove from storage list" });
+    }
+  });
+
+  // DELETE /api/storage/active — clear entire list for store
+  app.delete("/api/storage/active", async (req: Request, res: Response) => {
+    try {
+      const storeId = req.query.storeId as string | undefined;
+      await storage.clearActiveStorageList(storeId ?? null);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to clear storage list" });
+    }
+  });
+
   // ── AI: Email Translate + Summarize ────────────────────────────────────────
   app.post("/api/ai/email-translate-summarize", async (req: Request, res: Response) => {
     try {

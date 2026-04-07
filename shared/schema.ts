@@ -707,3 +707,33 @@ export const activeShoppingList = pgTable("active_shopping_list", {
 export const insertActiveShoppingListSchema = createInsertSchema(activeShoppingList).omit({ id: true });
 export type InsertActiveShoppingList = z.infer<typeof insertActiveShoppingListSchema>;
 export type ActiveShoppingListItem = typeof activeShoppingList.$inferSelect;
+
+// ── Storage List ──────────────────────────────────────────────────────────────
+
+export const storageItems = pgTable("storage_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  storeId: varchar("store_id").references(() => stores.id),
+  name: varchar("name", { length: 255 }).notNull(),
+  category: varchar("category", { length: 100 }).notNull(),
+  unit: varchar("unit", { length: 50 }).default("units"),
+  currentStock: integer("current_stock"),
+  lastCheckedAt: timestamp("last_checked_at"),
+  lastCheckedBy: varchar("last_checked_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertStorageItemSchema = createInsertSchema(storageItems).omit({ id: true, createdAt: true });
+export type InsertStorageItem = z.infer<typeof insertStorageItemSchema>;
+export type StorageItem = typeof storageItems.$inferSelect;
+
+export const activeStorageList = pgTable("active_storage_list", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  storeId: varchar("store_id").references(() => stores.id),
+  itemId: integer("item_id").references(() => storageItems.id),
+  addedBy: varchar("added_by"),
+  addedAt: timestamp("added_at").defaultNow(),
+});
+
+export const insertActiveStorageListSchema = createInsertSchema(activeStorageList).omit({ id: true, addedAt: true });
+export type InsertActiveStorageList = z.infer<typeof insertActiveStorageListSchema>;
+export type ActiveStorageListItem = typeof activeStorageList.$inferSelect;

@@ -26,6 +26,7 @@ import { AdminNotices } from "@/pages/admin/Notices";
 import { AdminExecutiveDashboard } from "@/pages/admin/ExecutiveDashboard";
 import { AdminAccessControl } from "@/pages/admin/AccessControl";
 import { AdminTriageInbox } from "@/pages/admin/TriageInbox";
+import StorageInventory from "@/pages/admin/StorageInventory";
 
 import { MobileInterview } from "@/pages/mobile/Interview";
 import { MobileOnboarding } from "@/pages/mobile/Onboarding";
@@ -62,6 +63,7 @@ function Router() {
       <Route path="/admin/executive" component={AdminExecutiveDashboard} />
       <Route path="/admin/triage-inbox" component={AdminTriageInbox} />
       <Route path="/admin/settings/access-control" component={AdminAccessControl} />
+      <Route path="/admin/storage" component={StorageInventory} />
       
       <Route path="/m/interview" component={MobileInterview} />
       <Route path="/m/onboarding/:token" component={MobileOnboarding} />
