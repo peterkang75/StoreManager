@@ -42,7 +42,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Store, Employee, Roster, ShiftPreset } from "@shared/schema";
+import type { Store, Employee, Roster, ShiftPreset, ShiftPresetButton } from "@shared/schema";
 
 // ─── Date helpers ───────────────────────────────────────────────────────────
 function toYMD(d: Date): string {
@@ -148,17 +148,19 @@ interface GenerateDialogProps {
   weekDates: string[];
   employees: Employee[];
   preset: ShiftPreset | undefined;
+  customButtons?: ShiftPresetButton[];
   storeOpenTime: string;
   storeCloseTime: string;
   onGenerated: () => void;
 }
 
 function GenerateRosterDialog({
-  open, onClose, storeId, weekDates, employees, preset,
+  open, onClose, storeId, weekDates, employees, preset, customButtons,
   storeOpenTime, storeCloseTime, onGenerated,
 }: GenerateDialogProps) {
   const { toast } = useToast();
-  const [presetType, setPresetType] = useState<PresetType>("full_day");
+  // selectedOption: built-in PresetType or "custom_btn_N" for custom buttons
+  const [selectedOption, setSelectedOption] = useState<string>("full_day");
   const [selectedDays, setSelectedDays] = useState<Set<number>>(new Set([0,1,2,3,4]));
   const [selectedEmps, setSelectedEmps] = useState<Set<string> | "all">("all");
   const [overwrite, setOverwrite] = useState(false);
@@ -166,9 +168,13 @@ function GenerateRosterDialog({
   const [customEnd, setCustomEnd] = useState(storeCloseTime);
 
   const resolvedTimes = (() => {
-    if (presetType === "full_day")   return { start: preset?.fullDayStart    ?? storeOpenTime,  end: preset?.fullDayEnd    ?? storeCloseTime };
-    if (presetType === "open_shift") return { start: preset?.openShiftStart  ?? storeOpenTime,  end: preset?.openShiftEnd  ?? addHalfDay(storeOpenTime, storeCloseTime) };
-    if (presetType === "close_shift") return { start: preset?.closeShiftStart ?? addHalfDay(storeOpenTime, storeCloseTime), end: preset?.closeShiftEnd ?? storeCloseTime };
+    if (selectedOption === "full_day")    return { start: preset?.fullDayStart    ?? storeOpenTime,  end: preset?.fullDayEnd    ?? storeCloseTime };
+    if (selectedOption === "open_shift")  return { start: preset?.openShiftStart  ?? storeOpenTime,  end: preset?.openShiftEnd  ?? addHalfDay(storeOpenTime, storeCloseTime) };
+    if (selectedOption === "close_shift") return { start: preset?.closeShiftStart ?? addHalfDay(storeOpenTime, storeCloseTime), end: preset?.closeShiftEnd ?? storeCloseTime };
+    if (selectedOption.startsWith("btn_")) {
+      const btn = (customButtons ?? []).find(b => `btn_${b.id}` === selectedOption);
+      if (btn) return { start: btn.startTime, end: btn.endTime };
+    }
     return { start: customStart, end: customEnd };
   })();
 
@@ -235,13 +241,15 @@ function GenerateRosterDialog({
                 { value: "open_shift",  label: "Open Shift" },
                 { value: "close_shift", label: "Close Shift" },
                 { value: "custom",      label: "Custom" },
-              ] as { value: PresetType; label: string }[]).map(({ value, label }) => (
+              ] as { value: string; label: string }[]).concat(
+                (customButtons ?? []).map(b => ({ value: `btn_${b.id}`, label: b.name }))
+              ).map(({ value, label }) => (
                 <button
                   key={value}
                   type="button"
-                  onClick={() => setPresetType(value)}
+                  onClick={() => setSelectedOption(value)}
                   className={`text-xs px-2 py-2 rounded-md border transition-colors text-left ${
-                    presetType === value
+                    selectedOption === value
                       ? "bg-primary text-primary-foreground border-primary font-medium"
                       : "border-border text-muted-foreground hover:border-primary/50"
                   }`}
@@ -253,7 +261,7 @@ function GenerateRosterDialog({
             </div>
             {/* Time preview */}
             <div className="mt-2 text-xs text-muted-foreground bg-muted/50 rounded px-2.5 py-1.5">
-              {presetType === "custom" ? (
+              {selectedOption === "custom" ? (
                 <div className="flex items-center gap-2">
                   <span className="shrink-0">Start</span>
                   <TimeSelect value={customStart} onChange={setCustomStart} testId="input-gen-start" />
@@ -361,6 +369,7 @@ interface CellEditorProps {
   storeOpenTime: string;
   storeCloseTime: string;
   preset?: ShiftPreset;
+  customButtons?: ShiftPresetButton[];
   onSave: (start: string, end: string) => void;
   onClear: () => void;
   isPending: boolean;
@@ -368,7 +377,7 @@ interface CellEditorProps {
   accentHex?: string;
 }
 
-function CellEditor({ roster, storeOpenTime, storeCloseTime, preset, onSave, onClear, isPending, mobileMode, accentHex }: CellEditorProps) {
+function CellEditor({ roster, storeOpenTime, storeCloseTime, preset, customButtons, onSave, onClear, isPending, mobileMode, accentHex }: CellEditorProps) {
   const [open, setOpen] = useState(false);
   const [startTime, setStartTime] = useState(roster?.startTime ?? storeOpenTime);
   const [endTime, setEndTime] = useState(roster?.endTime ?? storeCloseTime);
@@ -477,6 +486,17 @@ function CellEditor({ roster, storeOpenTime, storeCloseTime, preset, onSave, onC
             >
               Close shift
             </button>
+            {(customButtons ?? []).map(btn => (
+              <button
+                key={btn.id}
+                type="button"
+                onClick={() => { setStartTime(btn.startTime); setEndTime(btn.endTime); }}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-muted hover:bg-muted/80 text-muted-foreground"
+                data-testid={`button-custom-preset-${btn.id}`}
+              >
+                {btn.name}
+              </button>
+            ))}
           </div>
 
           {/* Preview & warning */}
@@ -802,6 +822,15 @@ export function AdminRosters() {
 
   const { data: stores, isLoading: storesLoading } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
   const { data: shiftPresets } = useQuery<ShiftPreset[]>({ queryKey: ["/api/shift-presets"] });
+  const { data: presetButtons } = useQuery<ShiftPresetButton[]>({
+    queryKey: ["/api/preset-buttons", selectedStore],
+    enabled: !!selectedStore,
+    queryFn: async () => {
+      const res = await fetch(`/api/preset-buttons?storeId=${selectedStore}`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
 
   const activeStores = stores?.filter((s) => s.active && !s.isExternal) ?? [];
 
@@ -1282,6 +1311,7 @@ export function AdminRosters() {
                                 storeOpenTime={selectedStoreObj?.openTime ?? "06:00"}
                                 storeCloseTime={selectedStoreObj?.closeTime ?? "22:00"}
                                 preset={selectedStorePreset}
+                                customButtons={presetButtons}
                                 onSave={(start, end) =>
                                   upsertMutation.mutate({ employeeId: emp.id, date: d, startTime: start, endTime: end })
                                 }
@@ -1360,6 +1390,7 @@ export function AdminRosters() {
                         storeOpenTime={selectedStoreObj?.openTime ?? "06:00"}
                         storeCloseTime={selectedStoreObj?.closeTime ?? "22:00"}
                         preset={selectedStorePreset}
+                        customButtons={presetButtons}
                         onSave={(start, end) =>
                           upsertMutation.mutate({ employeeId: emp.id, date: selectedDay, startTime: start, endTime: end })
                         }
@@ -1454,6 +1485,7 @@ export function AdminRosters() {
           weekDates={weekDates}
           employees={activeEmployees.map(e => e.employee)}
           preset={selectedStorePreset}
+          customButtons={presetButtons}
           storeOpenTime={selectedStoreObj?.openTime ?? "09:00"}
           storeCloseTime={selectedStoreObj?.closeTime ?? "22:00"}
           onGenerated={() => {

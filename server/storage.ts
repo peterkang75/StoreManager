@@ -32,6 +32,7 @@ import {
   type ActiveStorageListItem, type InsertActiveStorageList,
   type StorageUnit, type InsertStorageUnit,
   type ShiftPreset, type InsertShiftPreset, shiftPresets,
+  type ShiftPresetButton, type InsertShiftPresetButton, shiftPresetButtons,
   stores, candidates, employees, employeeStoreAssignments, employeeOnboardingTokens, employeeDocuments,
   rosterPeriods, shifts, rosters, rosterPublications, timeLogs, timesheets, payrolls,
   dailyClosings, cashSalesDetails, dailyCloseForms, suppliers, supplierInvoices, supplierPayments,
@@ -231,6 +232,10 @@ export interface IStorage {
   getShiftPresets(): Promise<ShiftPreset[]>;
   getShiftPresetByStore(storeId: string): Promise<ShiftPreset | undefined>;
   upsertShiftPreset(data: InsertShiftPreset): Promise<ShiftPreset>;
+  // Shift Preset Buttons (custom quick-fill buttons)
+  getPresetButtons(storeId: string): Promise<ShiftPresetButton[]>;
+  upsertPresetButton(data: InsertShiftPresetButton & { id?: number }): Promise<ShiftPresetButton>;
+  deletePresetButton(id: number): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -1613,6 +1618,22 @@ export class MemStorage implements IStorage {
     this._shiftPresets.set(row.storeId, row);
     return row;
   }
+  private _presetButtons: Map<number, ShiftPresetButton> = new Map();
+  private _presetButtonSeq = 1;
+  async getPresetButtons(storeId: string): Promise<ShiftPresetButton[]> {
+    return Array.from(this._presetButtons.values())
+      .filter(b => b.storeId === storeId)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+  async upsertPresetButton(data: InsertShiftPresetButton & { id?: number }): Promise<ShiftPresetButton> {
+    const id = data.id ?? this._presetButtonSeq++;
+    const row: ShiftPresetButton = { id, storeId: data.storeId, name: data.name, startTime: data.startTime, endTime: data.endTime, sortOrder: data.sortOrder };
+    this._presetButtons.set(id, row);
+    return row;
+  }
+  async deletePresetButton(id: number): Promise<void> {
+    this._presetButtons.delete(id);
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2716,6 +2737,27 @@ export class DatabaseStorage implements IStorage {
       }})
       .returning();
     return rows[0];
+  }
+
+  // ── Shift Preset Buttons ──────────────────────────────────────────────────
+  async getPresetButtons(storeId: string): Promise<ShiftPresetButton[]> {
+    return db.select().from(shiftPresetButtons)
+      .where(eq(shiftPresetButtons.storeId, storeId))
+      .orderBy(shiftPresetButtons.sortOrder);
+  }
+  async upsertPresetButton(data: InsertShiftPresetButton & { id?: number }): Promise<ShiftPresetButton> {
+    if (data.id) {
+      const rows = await db.update(shiftPresetButtons)
+        .set({ name: data.name, startTime: data.startTime, endTime: data.endTime, sortOrder: data.sortOrder })
+        .where(eq(shiftPresetButtons.id, data.id))
+        .returning();
+      return rows[0];
+    }
+    const rows = await db.insert(shiftPresetButtons).values(data).returning();
+    return rows[0];
+  }
+  async deletePresetButton(id: number): Promise<void> {
+    await db.delete(shiftPresetButtons).where(eq(shiftPresetButtons.id, id));
   }
 }
 

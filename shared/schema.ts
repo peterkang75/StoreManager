@@ -755,6 +755,20 @@ export const insertShiftPresetSchema = createInsertSchema(shiftPresets).omit({ i
 export type InsertShiftPreset = z.infer<typeof insertShiftPresetSchema>;
 export type ShiftPreset = typeof shiftPresets.$inferSelect;
 
+// Custom quick-fill buttons per store (user-defined, unlimited)
+export const shiftPresetButtons = pgTable("shift_preset_buttons", {
+  id: serial("id").primaryKey(),
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  name: varchar("name", { length: 50 }).notNull(),
+  startTime: text("start_time").notNull().default("09:00"),
+  endTime: text("end_time").notNull().default("17:00"),
+  sortOrder: integer("sort_order").notNull().default(0),
+});
+
+export const insertShiftPresetButtonSchema = createInsertSchema(shiftPresetButtons).omit({ id: true });
+export type InsertShiftPresetButton = z.infer<typeof insertShiftPresetButtonSchema>;
+export type ShiftPresetButton = typeof shiftPresetButtons.$inferSelect;
+
 export const storageUnits = pgTable("storage_units", {
   id: serial("id").primaryKey(),
   name: varchar("name", { length: 50 }).notNull().unique(),

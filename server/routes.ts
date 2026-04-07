@@ -6630,6 +6630,62 @@ Rules:
     }
   });
 
+  // ── Shift Preset Buttons (custom quick-fill buttons) ────────────────────────
+  // GET /api/preset-buttons?storeId=xxx
+  app.get("/api/preset-buttons", async (req: Request, res: Response) => {
+    try {
+      const { storeId } = req.query as { storeId?: string };
+      if (!storeId) return res.status(400).json({ error: "storeId is required" });
+      const buttons = await storage.getPresetButtons(storeId);
+      res.json(buttons);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch preset buttons" });
+    }
+  });
+
+  // POST /api/preset-buttons — create
+  app.post("/api/preset-buttons", async (req: Request, res: Response) => {
+    try {
+      const { storeId, name, startTime, endTime, sortOrder = 0 } = req.body as {
+        storeId: string; name: string; startTime: string; endTime: string; sortOrder?: number;
+      };
+      if (!storeId || !name || !startTime || !endTime) {
+        return res.status(400).json({ error: "storeId, name, startTime, endTime required" });
+      }
+      const button = await storage.upsertPresetButton({ storeId, name, startTime, endTime, sortOrder });
+      res.json(button);
+    } catch {
+      res.status(500).json({ error: "Failed to create preset button" });
+    }
+  });
+
+  // PUT /api/preset-buttons/:id — update
+  app.put("/api/preset-buttons/:id", async (req: Request, res: Response) => {
+    try {
+      const id = Number(req.params.id);
+      const { storeId, name, startTime, endTime, sortOrder = 0 } = req.body as {
+        storeId: string; name: string; startTime: string; endTime: string; sortOrder?: number;
+      };
+      if (!storeId || !name || !startTime || !endTime) {
+        return res.status(400).json({ error: "storeId, name, startTime, endTime required" });
+      }
+      const button = await storage.upsertPresetButton({ id, storeId, name, startTime, endTime, sortOrder });
+      res.json(button);
+    } catch {
+      res.status(500).json({ error: "Failed to update preset button" });
+    }
+  });
+
+  // DELETE /api/preset-buttons/:id
+  app.delete("/api/preset-buttons/:id", async (req: Request, res: Response) => {
+    try {
+      await storage.deletePresetButton(Number(req.params.id));
+      res.json({ ok: true });
+    } catch {
+      res.status(500).json({ error: "Failed to delete preset button" });
+    }
+  });
+
   // ── AI: Email Translate + Summarize ────────────────────────────────────────
   app.post("/api/ai/email-translate-summarize", async (req: Request, res: Response) => {
     try {

@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -11,10 +12,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Clock, Save, Loader2 } from "lucide-react";
+import { Clock, Save, Loader2, Plus, Trash2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Store, ShiftPreset } from "@shared/schema";
+import type { Store, ShiftPreset, ShiftPresetButton } from "@shared/schema";
 
 // ─── Time helpers ─────────────────────────────────────────────────────────────
 const TIME_SLOTS: string[] = Array.from({ length: 48 }, (_, i) => {
@@ -64,7 +65,7 @@ function TimeSelect({
   );
 }
 
-// ─── Preset row ───────────────────────────────────────────────────────────────
+// ─── Preset row (fixed presets) ───────────────────────────────────────────────
 interface PresetRowProps {
   label: string;
   labelKo: string;
@@ -142,6 +143,183 @@ function presetToForm(preset: ShiftPreset): PresetForm {
   };
 }
 
+// ─── Custom button row ────────────────────────────────────────────────────────
+interface DraftButton {
+  id?: number;
+  name: string;
+  startTime: string;
+  endTime: string;
+}
+
+function CustomButtonRow({
+  draft,
+  storeId,
+  onSaved,
+  onDeleted,
+  onCancel,
+  isNew,
+}: {
+  draft: DraftButton;
+  storeId: string;
+  onSaved: (btn: ShiftPresetButton) => void;
+  onDeleted?: () => void;
+  onCancel?: () => void;
+  isNew: boolean;
+}) {
+  const { toast } = useToast();
+  const [name, setName] = useState(draft.name);
+  const [startTime, setStartTime] = useState(draft.startTime);
+  const [endTime, setEndTime] = useState(draft.endTime);
+  const hours = calcHours(startTime, endTime);
+
+  const saveMutation = useMutation({
+    mutationFn: () => {
+      if (draft.id) {
+        return apiRequest("PUT", `/api/preset-buttons/${draft.id}`, { storeId, name: name.trim(), startTime, endTime, sortOrder: draft.id }).then(r => r.json());
+      }
+      return apiRequest("POST", "/api/preset-buttons", { storeId, name: name.trim(), startTime, endTime, sortOrder: 0 }).then(r => r.json());
+    },
+    onSuccess: (btn: ShiftPresetButton) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/preset-buttons", storeId] });
+      onSaved(btn);
+      if (isNew) toast({ title: "Button added", description: `"${btn.name}" created.` });
+      else toast({ title: "Saved", description: `"${btn.name}" updated.` });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to save button.", variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => apiRequest("DELETE", `/api/preset-buttons/${draft.id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/preset-buttons", storeId] });
+      onDeleted?.();
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete button.", variant: "destructive" });
+    },
+  });
+
+  const canSave = name.trim().length > 0 && hours > 0;
+
+  return (
+    <div className="grid grid-cols-[1fr_auto_auto_50px_auto] gap-2 items-end">
+      <div>
+        {isNew && <p className="text-xs text-muted-foreground mb-1">Button name</p>}
+        <Input
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="e.g. Full Day 2"
+          className="h-9 text-sm"
+          data-testid={`input-custom-name-${draft.id ?? "new"}`}
+        />
+      </div>
+      <div>
+        {isNew && <p className="text-xs text-muted-foreground mb-1">Start</p>}
+        <TimeSelect value={startTime} onChange={setStartTime} testId={`input-custom-start-${draft.id ?? "new"}`} />
+      </div>
+      <div>
+        {isNew && <p className="text-xs text-muted-foreground mb-1">End</p>}
+        <TimeSelect value={endTime} onChange={setEndTime} testId={`input-custom-end-${draft.id ?? "new"}`} />
+      </div>
+      <div className={`text-right ${isNew ? "mt-5" : ""}`}>
+        <p className={`text-sm font-mono font-medium ${hours > 0 ? "text-foreground" : "text-muted-foreground"}`}>
+          {hours > 0 ? `${hours.toFixed(1)}h` : "—"}
+        </p>
+      </div>
+      <div className={`flex gap-1 ${isNew ? "mt-5" : ""}`}>
+        <Button
+          size="sm"
+          onClick={() => saveMutation.mutate()}
+          disabled={!canSave || saveMutation.isPending}
+          data-testid={`button-save-custom-${draft.id ?? "new"}`}
+        >
+          {saveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+        </Button>
+        {!isNew && draft.id && (
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => deleteMutation.mutate()}
+            disabled={deleteMutation.isPending}
+            data-testid={`button-delete-custom-${draft.id}`}
+          >
+            {deleteMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+          </Button>
+        )}
+        {isNew && (
+          <Button size="icon" variant="ghost" onClick={onCancel} data-testid="button-cancel-custom">
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Custom buttons section ───────────────────────────────────────────────────
+function CustomButtonsSection({ storeId }: { storeId: string }) {
+  const [addingNew, setAddingNew] = useState(false);
+
+  const { data: buttons = [] } = useQuery<ShiftPresetButton[]>({
+    queryKey: ["/api/preset-buttons", storeId],
+    queryFn: async () => {
+      const res = await fetch(`/api/preset-buttons?storeId=${storeId}`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium">Custom Buttons</p>
+          <p className="text-xs text-muted-foreground">추가 퀵필 버튼 생성</p>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setAddingNew(true)}
+          disabled={addingNew}
+          data-testid={`button-add-custom-${storeId}`}
+        >
+          <Plus className="h-3.5 w-3.5 mr-1.5" />
+          Add Button
+        </Button>
+      </div>
+
+      {buttons.length === 0 && !addingNew && (
+        <p className="text-xs text-muted-foreground py-1">
+          아직 커스텀 버튼이 없습니다. "Add Button"을 눌러 추가하세요.
+        </p>
+      )}
+
+      {buttons.map(btn => (
+        <CustomButtonRow
+          key={btn.id}
+          draft={{ id: btn.id, name: btn.name, startTime: btn.startTime, endTime: btn.endTime }}
+          storeId={storeId}
+          isNew={false}
+          onSaved={() => {}}
+          onDeleted={() => queryClient.invalidateQueries({ queryKey: ["/api/preset-buttons", storeId] })}
+        />
+      ))}
+
+      {addingNew && (
+        <CustomButtonRow
+          draft={{ name: "", startTime: "09:00", endTime: "17:00" }}
+          storeId={storeId}
+          isNew={true}
+          onSaved={() => setAddingNew(false)}
+          onCancel={() => setAddingNew(false)}
+        />
+      )}
+    </div>
+  );
+}
+
 // ─── Per-store preset card ────────────────────────────────────────────────────
 function StorePresetCard({
   store,
@@ -200,6 +378,7 @@ function StorePresetCard({
       </CardHeader>
 
       <CardContent className="space-y-4">
+        {/* Fixed presets */}
         <PresetRow
           label="Full Day"
           labelKo="풀 데이 (전체 시간)"
@@ -229,6 +408,11 @@ function StorePresetCard({
           onChange={handleChange}
           storeId={store.id}
         />
+
+        {/* Custom buttons section */}
+        <div className="border-t pt-4">
+          <CustomButtonsSection storeId={store.id} />
+        </div>
       </CardContent>
     </Card>
   );
@@ -246,7 +430,6 @@ export function AdminShiftPresets() {
 
   const isLoading = storesLoading || presetsLoading;
 
-  // Only stores that use roster features (Sushi & Sandwich)
   const rosterStores = (stores ?? []).filter(
     (s) => s.name === "Sushi" || s.name === "Sandwich"
   );
@@ -254,7 +437,6 @@ export function AdminShiftPresets() {
   return (
     <AdminLayout>
       <div className="p-6 space-y-6 max-w-2xl">
-        {/* Header */}
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center h-9 w-9 rounded-md bg-muted">
             <Clock className="h-5 w-5 text-muted-foreground" />
@@ -267,18 +449,16 @@ export function AdminShiftPresets() {
           </div>
         </div>
 
-        {/* Explanation */}
         <p className="text-sm text-muted-foreground bg-muted/50 rounded-md px-4 py-3">
           각 매장의 <strong>Full Day</strong>, <strong>Open Shift</strong>,{" "}
-          <strong>Close Shift</strong> 버튼을 클릭했을 때 자동으로 입력될 시작·종료 시간을
-          설정합니다. 설정된 시간은 로스터 페이지의 셀 편집 팝오버에 즉시 반영됩니다.
+          <strong>Close Shift</strong> 기본 버튼 시간을 설정하고, 하단의{" "}
+          <strong>Custom Buttons</strong> 섹션에서 추가 퀵필 버튼(예: Full Day 2)을 자유롭게 생성할 수 있습니다.
         </p>
 
-        {/* Store cards */}
         {isLoading ? (
           <div className="space-y-4">
-            <Skeleton className="h-52 w-full rounded-md" />
-            <Skeleton className="h-52 w-full rounded-md" />
+            <Skeleton className="h-72 w-full rounded-md" />
+            <Skeleton className="h-72 w-full rounded-md" />
           </div>
         ) : rosterStores.length === 0 ? (
           <p className="text-sm text-muted-foreground">로스터 매장이 없습니다.</p>
