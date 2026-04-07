@@ -38,6 +38,8 @@ const STORAGE_CATEGORIES = [
   "Sauces & Condiments", "Packaging", "Cleaning", "Other",
 ];
 
+const UNIT_OPTIONS = ["ea", "pack", "box", "ctn"] as const;
+
 const ALL_STORES = "__all__";
 
 export default function StorageInventory() {
@@ -49,7 +51,7 @@ export default function StorageInventory() {
 
   const [formName, setFormName] = useState("");
   const [formCategory, setFormCategory] = useState("");
-  const [formUnit, setFormUnit] = useState("units");
+  const [formUnit, setFormUnit] = useState<string>("ea");
   const [formStoreId, setFormStoreId] = useState<string>(ALL_STORES);
 
   const { data: stores = [] } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
@@ -90,7 +92,7 @@ export default function StorageInventory() {
     setEditItem(null);
     setFormName("");
     setFormCategory("");
-    setFormUnit("units");
+    setFormUnit("ea");
     setFormStoreId(selectedStoreId !== ALL_STORES ? selectedStoreId : ALL_STORES);
     setDialogOpen(true);
   }
@@ -99,7 +101,7 @@ export default function StorageInventory() {
     setEditItem(item);
     setFormName(item.name);
     setFormCategory(item.category);
-    setFormUnit(item.unit ?? "units");
+    setFormUnit(item.unit ?? "ea");
     setFormStoreId(item.storeId ?? ALL_STORES);
     setDialogOpen(true);
   }
@@ -113,7 +115,7 @@ export default function StorageInventory() {
     const payload = {
       name: formName.trim(),
       category: formCategory,
-      unit: formUnit.trim() || "units",
+      unit: formUnit || "ea",
       storeId: formStoreId !== ALL_STORES ? formStoreId : null,
     };
     if (editItem) {
@@ -133,6 +135,14 @@ export default function StorageInventory() {
   function fmtDate(d: Date | string | null | undefined) {
     if (!d) return "—";
     return new Date(d).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+
+  function fmtStock(item: StorageItem) {
+    const unit = item.unit ?? "ea";
+    if (item.currentStock === null || item.currentStock === undefined) return null;
+    if (item.currentStock === 0) return { label: "Out of Stock", color: "destructive" as const };
+    if (item.currentStock <= 3) return { label: `Low (${item.currentStock} ${unit})`, color: "warning" as const };
+    return { label: `${item.currentStock} ${unit}`, color: "normal" as const };
   }
 
   function getStoreName(id: string | null | undefined) {
@@ -196,7 +206,6 @@ export default function StorageInventory() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
-                    <TableHead>Unit</TableHead>
                     <TableHead>Store</TableHead>
                     <TableHead className="text-right">Current Stock</TableHead>
                     <TableHead>Last Checked</TableHead>
@@ -205,15 +214,20 @@ export default function StorageInventory() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {grouped[cat].map(item => (
+                  {grouped[cat].map(item => {
+                    const stock = fmtStock(item);
+                    return (
                     <TableRow key={item.id} data-testid={`row-storage-${item.id}`}>
                       <TableCell className="font-medium">{item.name}</TableCell>
-                      <TableCell className="text-muted-foreground">{item.unit ?? "units"}</TableCell>
                       <TableCell className="text-muted-foreground text-sm">{getStoreName(item.storeId)}</TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {item.currentStock !== null && item.currentStock !== undefined
-                          ? <span className="font-semibold">{item.currentStock}</span>
-                          : <span className="text-muted-foreground/50 text-sm">—</span>}
+                        {stock === null
+                          ? <span className="text-muted-foreground/50 text-sm">—</span>
+                          : stock.color === "destructive"
+                            ? <Badge variant="destructive" className="font-normal">{stock.label}</Badge>
+                            : stock.color === "warning"
+                              ? <span className="text-amber-600 dark:text-amber-400 font-semibold text-sm">{stock.label}</span>
+                              : <span className="font-semibold">{stock.label}</span>}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{fmtDate(item.lastCheckedAt)}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">{item.lastCheckedBy ?? "—"}</TableCell>
@@ -238,7 +252,8 @@ export default function StorageInventory() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                  );
+                  })}
                 </TableBody>
               </Table>
             </CardContent>
@@ -276,12 +291,16 @@ export default function StorageInventory() {
               </div>
               <div className="space-y-1.5">
                 <Label>Unit</Label>
-                <Input
-                  placeholder="e.g. kg, bottles, units"
-                  value={formUnit}
-                  onChange={e => setFormUnit(e.target.value)}
-                  data-testid="input-storage-form-unit"
-                />
+                <Select value={formUnit} onValueChange={setFormUnit}>
+                  <SelectTrigger data-testid="select-storage-form-unit">
+                    <SelectValue placeholder="Unit…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {UNIT_OPTIONS.map(u => (
+                      <SelectItem key={u} value={u}>{u}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1.5">
                 <Label>Store</Label>

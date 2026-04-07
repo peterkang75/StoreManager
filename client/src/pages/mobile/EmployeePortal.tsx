@@ -1010,6 +1010,8 @@ const STORAGE_CATEGORIES = [
   "Sauces & Condiments", "Packaging", "Cleaning", "Other",
 ];
 
+const UNIT_OPTIONS = ["ea", "pack", "box", "ctn"] as const;
+
 function StorageListView({ storeId, employeeName }: { storeId?: string | null; employeeName: string }) {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -1019,7 +1021,7 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
   const [addItemOpen, setAddItemOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newCategory, setNewCategory] = useState("");
-  const [newUnit, setNewUnit] = useState("units");
+  const [newUnit, setNewUnit] = useState<string>("ea");
 
   const catalogQK = ["/api/storage/items", storeId ?? "all"];
   const activeQK = ["/api/storage/active", storeId ?? "all"];
@@ -1096,7 +1098,7 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
       addToActiveMutation.mutate(item.id);
       setNewName("");
       setNewCategory("");
-      setNewUnit("units");
+      setNewUnit("ea");
       setAddItemOpen(false);
       toast({ title: "Item added" });
     },
@@ -1176,7 +1178,10 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
                   disabled={removeFromActiveMutation.isPending}
                   className="h-6 w-6 rounded-full border-2 border-amber-500/60 shrink-0 flex items-center justify-center hover-elevate"
                 />
-                <span className="flex-1 text-base font-medium">{entry.item.name}</span>
+                <div className="flex-1 min-w-0">
+                  <span className="text-base font-medium">{entry.item.name}</span>
+                  <span className="ml-2 text-xs text-muted-foreground/70 font-normal">{entry.item.unit ?? "ea"}</span>
+                </div>
                 <button
                   type="button"
                   data-testid={`button-check-stock-${entry.id}`}
@@ -1185,7 +1190,7 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
                     setStockValue(entry.item.currentStock !== null ? String(entry.item.currentStock) : "");
                     setCheckSheetOpen(true);
                   }}
-                  className="text-xs text-amber-600 dark:text-amber-400 font-medium px-2 py-1 rounded-md hover-elevate"
+                  className="text-xs text-amber-600 dark:text-amber-400 font-medium px-2 py-1 rounded-md hover-elevate shrink-0"
                 >
                   Log stock
                 </button>
@@ -1268,12 +1273,16 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
                     ))}
                   </SelectContent>
                 </Select>
-                <Input
-                  placeholder="Unit (e.g. kg, units, bottles)"
-                  value={newUnit}
-                  onChange={e => setNewUnit(e.target.value)}
-                  data-testid="input-storage-unit"
-                />
+                <Select value={newUnit} onValueChange={setNewUnit}>
+                  <SelectTrigger data-testid="select-storage-unit">
+                    <SelectValue placeholder="Unit…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {UNIT_OPTIONS.map(u => (
+                      <SelectItem key={u} value={u}>{u}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Button
                   className="w-full"
                   disabled={!newName.trim() || !newCategory || createItemMutation.isPending}
@@ -1301,17 +1310,21 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
             <DrawerTitle>Log Stock — {selectedItem?.name}</DrawerTitle>
           </DrawerHeader>
           <div className="px-4 py-4 flex flex-col gap-4">
-            <p className="text-sm text-muted-foreground">
-              Enter current quantity ({selectedItem?.unit ?? "units"}):
-            </p>
-            <Input
-              type="number"
-              inputMode="decimal"
-              placeholder="0"
-              value={stockValue}
-              onChange={e => setStockValue(e.target.value)}
-              data-testid="input-stock-value"
-            />
+            <p className="text-sm text-muted-foreground">How many left?</p>
+            <div className="flex items-center gap-3">
+              <Input
+                type="number"
+                inputMode="decimal"
+                placeholder="0"
+                value={stockValue}
+                onChange={e => setStockValue(e.target.value)}
+                data-testid="input-stock-value"
+                className="flex-1"
+              />
+              <span className="text-sm font-medium text-muted-foreground shrink-0 min-w-[2.5rem]">
+                {selectedItem?.unit ?? "ea"}
+              </span>
+            </div>
           </div>
           <DrawerFooter>
             <Button

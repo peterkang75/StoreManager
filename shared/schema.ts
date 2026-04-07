@@ -715,7 +715,7 @@ export const storageItems = pgTable("storage_items", {
   storeId: varchar("store_id").references(() => stores.id),
   name: varchar("name", { length: 255 }).notNull(),
   category: varchar("category", { length: 100 }).notNull(),
-  unit: varchar("unit", { length: 50 }).default("units"),
+  unit: varchar("unit", { length: 50 }).default("ea"),
   currentStock: integer("current_stock"),
   lastCheckedAt: timestamp("last_checked_at"),
   lastCheckedBy: varchar("last_checked_by"),
