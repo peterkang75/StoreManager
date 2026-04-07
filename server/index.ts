@@ -308,6 +308,111 @@ async function sanitizeInboxBodies() {
   }
 }
 
+// ── One-time startup: import Connecteam rosters 2026-03-23 ~ 2026-04-05 ──────
+async function importConnecteamRosters() {
+  try {
+    const existing = await db.execute(sql`
+      SELECT COUNT(*) AS cnt FROM rosters
+      WHERE date >= '2026-03-23' AND date <= '2026-04-05'
+    `);
+    const cnt = parseInt((existing.rows[0] as any).cnt, 10);
+    if (cnt > 0) {
+      console.log(`[roster-import] Already have ${cnt} records — skipping.`);
+      return;
+    }
+
+    const records: { storeId: string; employeeId: string; date: string; startTime: string; endTime: string }[] = [
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "63b1a805-7571-46b8-8269-ad2f877c7193", date: "2026-03-23", startTime: "06:00", endTime: "13:00" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "e19c05a3-799d-4d16-9032-f83f6df84d2e", date: "2026-03-23", startTime: "06:30", endTime: "18:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "b0e5075b-f1ed-4aa8-b5a7-d3e64ba616d9", date: "2026-03-23", startTime: "06:30", endTime: "17:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "0b0d01bc-0d87-4f3f-9e43-aa7cc6a5f0ad", date: "2026-03-23", startTime: "06:30", endTime: "14:00" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "0fb47380-81c8-4003-944b-a55546adb1a7", date: "2026-03-23", startTime: "08:30", endTime: "15:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "64b6d862-7d53-4319-acf4-1c40ad084d13", date: "2026-03-23", startTime: "13:00", endTime: "16:00" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "da7c9470-62b3-472c-bd7f-8d827dba194d", date: "2026-03-23", startTime: "13:30", endTime: "18:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "b0e5075b-f1ed-4aa8-b5a7-d3e64ba616d9", date: "2026-03-24", startTime: "06:00", endTime: "16:00" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "0b0d01bc-0d87-4f3f-9e43-aa7cc6a5f0ad", date: "2026-03-24", startTime: "06:30", endTime: "14:00" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "a84c0443-f894-44f5-bbea-a0612cf30377", date: "2026-03-24", startTime: "06:30", endTime: "15:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "9af4c4d1-1c47-4edb-becc-7ed37b5742a4", date: "2026-03-24", startTime: "06:30", endTime: "17:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "e19c05a3-799d-4d16-9032-f83f6df84d2e", date: "2026-03-24", startTime: "08:30", endTime: "18:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "da7c9470-62b3-472c-bd7f-8d827dba194d", date: "2026-03-24", startTime: "13:30", endTime: "18:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "63b1a805-7571-46b8-8269-ad2f877c7193", date: "2026-03-25", startTime: "06:00", endTime: "10:00" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "0b0d01bc-0d87-4f3f-9e43-aa7cc6a5f0ad", date: "2026-03-25", startTime: "06:30", endTime: "14:00" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "d33c98a5-8ae5-4892-8174-44c46c876e92", date: "2026-03-25", startTime: "06:30", endTime: "17:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "e19c05a3-799d-4d16-9032-f83f6df84d2e", date: "2026-03-25", startTime: "06:30", endTime: "15:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "b0e5075b-f1ed-4aa8-b5a7-d3e64ba616d9", date: "2026-03-25", startTime: "08:00", endTime: "16:00" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "a36925bf-ee8b-4e93-9d28-f241c3c5dd9a", date: "2026-03-25", startTime: "08:00", endTime: "18:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "da7c9470-62b3-472c-bd7f-8d827dba194d", date: "2026-03-25", startTime: "13:30", endTime: "18:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "63b1a805-7571-46b8-8269-ad2f877c7193", date: "2026-03-26", startTime: "06:00", endTime: "11:00" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "d33c98a5-8ae5-4892-8174-44c46c876e92", date: "2026-03-26", startTime: "06:30", endTime: "17:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "0b0d01bc-0d87-4f3f-9e43-aa7cc6a5f0ad", date: "2026-03-26", startTime: "06:30", endTime: "14:00" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "a84c0443-f894-44f5-bbea-a0612cf30377", date: "2026-03-26", startTime: "06:30", endTime: "15:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "9af4c4d1-1c47-4edb-becc-7ed37b5742a4", date: "2026-03-26", startTime: "07:30", endTime: "16:00" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "e19c05a3-799d-4d16-9032-f83f6df84d2e", date: "2026-03-26", startTime: "08:00", endTime: "18:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "da7c9470-62b3-472c-bd7f-8d827dba194d", date: "2026-03-26", startTime: "13:30", endTime: "18:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "10b6c67e-2ca1-4be5-8c83-f587dbbc21a7", date: "2026-03-26", startTime: "15:30", endTime: "18:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "63b1a805-7571-46b8-8269-ad2f877c7193", date: "2026-03-27", startTime: "06:00", endTime: "11:00" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "0b0d01bc-0d87-4f3f-9e43-aa7cc6a5f0ad", date: "2026-03-27", startTime: "06:30", endTime: "14:00" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "a84c0443-f894-44f5-bbea-a0612cf30377", date: "2026-03-27", startTime: "06:30", endTime: "15:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "9af4c4d1-1c47-4edb-becc-7ed37b5742a4", date: "2026-03-27", startTime: "06:30", endTime: "18:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "64b6d862-7d53-4319-acf4-1c40ad084d13", date: "2026-03-27", startTime: "07:30", endTime: "16:00" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "e19c05a3-799d-4d16-9032-f83f6df84d2e", date: "2026-03-27", startTime: "08:00", endTime: "17:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "b0e5075b-f1ed-4aa8-b5a7-d3e64ba616d9", date: "2026-03-27", startTime: "13:30", endTime: "18:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "10b6c67e-2ca1-4be5-8c83-f587dbbc21a7", date: "2026-03-27", startTime: "14:30", endTime: "18:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "d33c98a5-8ae5-4892-8174-44c46c876e92", date: "2026-03-28", startTime: "06:30", endTime: "17:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "9af4c4d1-1c47-4edb-becc-7ed37b5742a4", date: "2026-03-28", startTime: "06:30", endTime: "15:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "0b0d01bc-0d87-4f3f-9e43-aa7cc6a5f0ad", date: "2026-03-28", startTime: "06:30", endTime: "14:00" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "e19c05a3-799d-4d16-9032-f83f6df84d2e", date: "2026-03-28", startTime: "08:30", endTime: "14:00" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "da7c9470-62b3-472c-bd7f-8d827dba194d", date: "2026-03-28", startTime: "13:30", endTime: "18:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "57d9e543-478d-4653-9432-f9578dea9a61", date: "2026-03-28", startTime: "13:30", endTime: "18:00" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "a84c0443-f894-44f5-bbea-a0612cf30377", date: "2026-03-28", startTime: "14:00", endTime: "18:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "a36925bf-ee8b-4e93-9d28-f241c3c5dd9a", date: "2026-03-28", startTime: "14:30", endTime: "18:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "64b6d862-7d53-4319-acf4-1c40ad084d13", date: "2026-03-28", startTime: "14:30", endTime: "18:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "10b6c67e-2ca1-4be5-8c83-f587dbbc21a7", date: "2026-03-28", startTime: "14:30", endTime: "18:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "d33c98a5-8ae5-4892-8174-44c46c876e92", date: "2026-03-29", startTime: "06:30", endTime: "17:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "0b0d01bc-0d87-4f3f-9e43-aa7cc6a5f0ad", date: "2026-03-29", startTime: "06:30", endTime: "14:00" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "9af4c4d1-1c47-4edb-becc-7ed37b5742a4", date: "2026-03-29", startTime: "06:30", endTime: "15:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "e19c05a3-799d-4d16-9032-f83f6df84d2e", date: "2026-03-29", startTime: "08:30", endTime: "14:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "da7c9470-62b3-472c-bd7f-8d827dba194d", date: "2026-03-29", startTime: "13:30", endTime: "18:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "57d9e543-478d-4653-9432-f9578dea9a61", date: "2026-03-29", startTime: "13:30", endTime: "18:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "a84c0443-f894-44f5-bbea-a0612cf30377", date: "2026-03-29", startTime: "14:00", endTime: "18:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "a36925bf-ee8b-4e93-9d28-f241c3c5dd9a", date: "2026-03-29", startTime: "14:30", endTime: "18:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "64b6d862-7d53-4319-acf4-1c40ad084d13", date: "2026-03-29", startTime: "14:30", endTime: "18:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "10b6c67e-2ca1-4be5-8c83-f587dbbc21a7", date: "2026-03-29", startTime: "14:30", endTime: "18:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "63b1a805-7571-46b8-8269-ad2f877c7193", date: "2026-03-30", startTime: "06:00", endTime: "13:00" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "b0e5075b-f1ed-4aa8-b5a7-d3e64ba616d9", date: "2026-03-30", startTime: "06:30", endTime: "17:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "0b0d01bc-0d87-4f3f-9e43-aa7cc6a5f0ad", date: "2026-03-30", startTime: "06:30", endTime: "14:00" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "e19c05a3-799d-4d16-9032-f83f6df84d2e", date: "2026-03-30", startTime: "06:30", endTime: "18:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "0fb47380-81c8-4003-944b-a55546adb1a7", date: "2026-03-30", startTime: "08:30", endTime: "15:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "da7c9470-62b3-472c-bd7f-8d827dba194d", date: "2026-03-30", startTime: "13:30", endTime: "18:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "57d9e543-478d-4653-9432-f9578dea9a61", date: "2026-03-31", startTime: "06:00", endTime: "10:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "0b0d01bc-0d87-4f3f-9e43-aa7cc6a5f0ad", date: "2026-03-31", startTime: "06:30", endTime: "14:00" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "a84c0443-f894-44f5-bbea-a0612cf30377", date: "2026-03-31", startTime: "06:30", endTime: "15:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "9af4c4d1-1c47-4edb-becc-7ed37b5742a4", date: "2026-03-31", startTime: "06:30", endTime: "17:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "e19c05a3-799d-4d16-9032-f83f6df84d2e", date: "2026-03-31", startTime: "08:30", endTime: "18:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "da7c9470-62b3-472c-bd7f-8d827dba194d", date: "2026-03-31", startTime: "13:30", endTime: "18:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "63b1a805-7571-46b8-8269-ad2f877c7193", date: "2026-04-01", startTime: "06:00", endTime: "11:00" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "d33c98a5-8ae5-4892-8174-44c46c876e92", date: "2026-04-01", startTime: "06:30", endTime: "17:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "0b0d01bc-0d87-4f3f-9e43-aa7cc6a5f0ad", date: "2026-04-01", startTime: "06:30", endTime: "14:00" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "a84c0443-f894-44f5-bbea-a0612cf30377", date: "2026-04-01", startTime: "06:30", endTime: "15:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "9af4c4d1-1c47-4edb-becc-7ed37b5742a4", date: "2026-04-01", startTime: "07:30", endTime: "16:00" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "e19c05a3-799d-4d16-9032-f83f6df84d2e", date: "2026-04-01", startTime: "08:00", endTime: "18:30" },
+      { storeId: "328c374c-1e25-48f6-81b2-99a2d6ccca4e", employeeId: "da7c9470-62b3-472c-bd7f-8d827dba194d", date: "2026-04-01", startTime: "13:30", endTime: "18:30" },
+      { storeId: "3a951c2a-4722-4195-b05c-e5d97f786e7e", employeeId: "10b6c67e-2ca1-4be5-8c83-f587dbbc21a7", date: "2026-04-01", startTime: "15:30", endTime: "18:30" },
+    ];
+
+    const values = records
+      .map(r => `(gen_random_uuid(), '${r.storeId}', '${r.employeeId}', '${r.date}', '${r.startTime}', '${r.endTime}', NOW(), NOW())`)
+      .join(", ");
+
+    await db.execute(sql.raw(
+      `INSERT INTO rosters (id, store_id, employee_id, date, start_time, end_time, created_at, updated_at) VALUES ${values}`
+    ));
+    console.log(`[roster-import] Imported ${records.length} Connecteam shifts (2026-03-23 ~ 2026-04-05).`);
+  } catch (err) {
+    console.error("[roster-import] Error:", err);
+  }
+}
+
 const app = express();
 const httpServer = createServer(app);
 
@@ -371,6 +476,7 @@ app.use((req, res, next) => {
   await fixViaEmailSenders();
   await fixGenericServiceSenders();
   await sanitizeInboxBodies();
+  await importConnecteamRosters();
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
