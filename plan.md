@@ -106,10 +106,28 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 
 | Table | Key Fields | Notes |
 |---|---|---|
-| `suppliers` | `name`, `abn`, `contactEmails[]`, `bsb`, `accountNumber`, `contactName`, `address`, `notes`, `active` | `contactEmails` is a text array; ABN + banking for AP |
-| `supplierInvoices` | `supplierId`, `storeId`, `invoiceNumber`, `invoiceDate`, `dueDate`, `amount`, `status`, `pdfUrl` | Status: PENDING / PAID / OVERDUE / QUARANTINE. Unique on `(supplierId, invoiceNumber)` |
+| `suppliers` | `name`, `abn`, `contactEmails[]`, `bsb`, `accountNumber`, `contactName`, `address`, `notes`, `active`, `isAutoPay` | `contactEmails` is a text array; `isAutoPay` triggers AUTO_DEBIT payment on invoice creation |
+| `supplierInvoices` | `supplierId`, `storeId`, `invoiceNumber`, `invoiceDate`, `dueDate`, `amount`, `status`, `pdfUrl`, `rawExtractedData`, `sourceNote`, `deletedAt` | Status: PENDING / PAID / OVERDUE / QUARANTINE / REVIEW. Unique on `(supplierId, invoiceNumber)`. `deletedAt` enables soft-delete |
 | `supplierPayments` | `supplierId`, `invoiceId`, `paymentDate`, `amount`, `method` | Payment records per invoice |
 | `quarantinedEmails` | `senderEmail`, `subject`, `hasAttachment`, `rawPayload` | Emails from non-whitelisted senders |
+| `intercompanySettlements` | `id`, `fromStoreId`, `toStoreId`, `employeeId`, `payrollId`, `amount`, `periodStart`, `periodEnd`, `settledAt`, `settledByTransactionId` | Tracks inter-store salary debts; `settledAt` + `settledByTransactionId` record settlement |
+
+### 2.6 System & Communication Tables
+
+| Table | Key Fields | Notes |
+|---|---|---|
+| `todos` | `id`, `title`, `description`, `status`, `priority`, `dueDate`, `sourceEmail`, `senderEmail`, `originalSubject`, `originalBody`, `assignedTo` | Status: TODO / IN_PROGRESS / DONE. Email-originated tasks store raw email for AI reply workflow |
+| `notices` | `id`, `title`, `content`, `targetStoreId`, `authorId`, `isActive`, `createdAt` | `targetStoreId = null` = global notice shown to all stores |
+| `emailRoutingRules` | `email` (PK), `supplierName`, `action`, `createdAt` | Actions: `ROUTE_TO_AP` / `ROUTE_TO_TODO` / `FYI_ARCHIVE` / `SPAM_DROP` (legacy: `ALLOW` / `IGNORE`) |
+| `universalInbox` | `id`, `senderEmail`, `senderName`, `subject`, `body`, `hasAttachment`, `rawPayload` (jsonb), `status`, `createdAt` | Status: `NEEDS_ROUTING` / `PROCESSED` / `DROPPED`. Full Cloudmailin payload stored for re-processing |
+| `adminPermissions` | `role` + `route` + `label` (composite PK), `allowed` | RBAC permission matrix; seeded with defaults on first load |
+
+### 2.7 Operational Utilities
+
+| Table | Key Fields | Notes |
+|---|---|---|
+| `shoppingItems` | `id`, `storeId`, `name`, `category`, `unit`, `createdAt` | Catalogue of purchasable items per store |
+| `activeShoppingList` | `id`, `storeId`, `itemId`, `quantity`, `addedBy`, `addedAt` | Current active shopping list (cleared once purchased) |
 
 ---
 
@@ -151,11 +169,20 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - Filter by store and status (Pending / Approved / All); payroll cycle navigator (14-day periods).
 - **Approve** individual submissions or **bulk approve** all pending for an employee at once.
 - **Edit + Approve**: ±15-min quick-adjust buttons auto-save times before approval.
+- **Update Times (no approve)**: save adjusted times without changing status (`PUT /api/admin/approvals/:id/update-times`).
 - Shows scheduled vs actual times; highlights discrepancies and unscheduled shifts.
 - **Auto-Fill from Roster**: creates PENDING timesheets for any rostered shift that has no submission yet.
-- **Add Missing Shift**: manager can manually add an ad-hoc shift directly from the review modal.
-- **Mark Absent**: reject/tombstone a shift so Auto-Fill won't recreate it (0 hours paid).
+- **Add Missing Shift**: manager can manually add an ad-hoc shift directly from the review modal (`POST /api/admin/approvals/add-shift`).
+- **Mark Absent**: reject/tombstone a shift so Auto-Fill won't recreate it (`PUT /api/admin/approvals/:id/reject`).
+- **Bulk Revert**: revert all APPROVED timesheets for an employee back to PENDING (`POST /api/admin/approvals/bulk-revert`). Used when corrections are needed after approval.
 - **Responsive layout**: desktop shows employee table → click to open detail modal; mobile shows employee summary cards → tap to open bottom-sheet review modal with per-shift cards (no horizontal scroll on mobile).
+
+### 3.5a Admin Timesheets History (`/admin/timesheets`)
+- Separate read-only view showing **all approved timesheets** (APPROVED status only) across all stores, navigable by payroll cycle.
+- Grouped by employee; shows scheduled vs actual hours, discrepancy delta, store name.
+- **Revert to Pending**: individual approved shifts can be reverted back to PENDING from this page (calls `PUT /api/admin/approvals/:id/reject` or equivalent revert action).
+- Payroll cycle navigator (14-day periods); store filter.
+- Shows payroll lock status (if a payroll has been generated for the period, shifts are displayed as locked).
 
 ### 3.6 Payroll (`/admin/payrolls`, `/admin/weekly-payroll`)
 - **Generate payroll** for a period: pulls approved timesheets, calculates pay from hours × rate (or fixed amount) per employee.
@@ -170,7 +197,9 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Draft Persistence & Ghost Prevention:** Payroll inputs are saved to `sessionStorage` per store and period. The UI hydrates from this session. Once a payroll is generated/saved to the DB, the specific session draft is forcefully purged to prevent "ghost" deductions.
 - **Intercompany Transfers:** If an employee has a fixed salary at Store A but works at Store B, Store B does not pay them directly (`cash = 0`, `bank = 0`, `tax = 0` forced by backend). Instead, Store B accrues an Intercompany Settlement debt to Store A.
 - **Dual Role Exception:** If an employee has a fixed salary at Store A but earns a direct *Hourly Rate* at Store B (e.g., Peter), the Intercompany zero-override is bypassed, and their direct payout at Store B is preserved.
-- **Unified Bank Transfer Tracker:** A modal tracking all pending banking outflows for a period. It combines both **Direct Employee Bank Deposits** (`bank > 0`) AND **Intercompany Settlements** (e.g., `Karma [ 🔄 Transfer to Sandwich ]`) into a single actionable list for the manager.
+- **Unified Bank Transfer Tracker:** A modal tracking all pending banking outflows for a period. It combines both **Direct Employee Bank Deposits** (`bank > 0`) AND **Intercompany Settlements** (e.g., `Karma [ Transfer to Sandwich ]`) into a single actionable list for the manager.
+- **Settle Intercompany Debt:** `PATCH /api/settlements/:id/settle` — marks a settlement record as settled, linking it to a `financialTransaction` ID.
+- **Backfill Settlements:** `POST /api/admin/backfill-settlements` — admin utility to retroactively generate `intercompanySettlements` records for historical payroll periods that pre-date the feature.
 
 ### 3.7 Finance / Cash (`/admin/finance`, `/admin/cash`)
 - **Inter-store transactions**: Convert (float transfer), Remittance (store → HO), Manual entry.
@@ -230,12 +259,24 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Email Routing Rules** (`emailRoutingRules` table): manager-controlled ALLOW/IGNORE per sender email with optional `supplierName` label.
 - **CRUD endpoints**: `GET/PUT/DELETE /api/email-routing-rules/:email`; `GET /api/invoices/review`.
 - **Quarantine**: `GET /api/webhooks/quarantined-emails` for PDFs that couldn't be read.
-- **Frontend — AP page 4-tab layout** (`client/src/pages/admin/AccountsPayable.tsx`):
+- **Frontend — AP page 5-tab layout** (`client/src/pages/admin/AccountsPayable.tsx`):
   - **To Pay** — existing supplier accordion + bulk pay (unchanged).
   - **Review Inbox (Supplier-Centric)** — invoices grouped by AI-extracted `supplierName`. One card per unique supplier name showing invoice count + total amount + individual invoice list. **Webhook smart-match**: after AI extracts supplier name, ILIKE match against `suppliers` table; if found → create as PENDING/PAID directly (skip REVIEW). **Backend sweep**: `POST /api/invoices/review/approve-group` creates supplier + runs two sweeps: (1) `sweepReviewInvoicesBySupplierName` for PDF-parsed invoices matched by `rawExtractedData.supplier.supplierName`; (2) `sweepReviewInvoicesBySenderEmail` for CEO-forwarded/no-PDF invoices matched by top-level `rawExtractedData.senderEmail`. Both sweep to PENDING. **Ignore Supplier** quarantines ALL invoices in the group. **Approve & Add Supplier** opens pre-filled modal + approves all group invoices at once.
-  - **Paid History** — existing flat paid invoice list (unchanged).
+  - **Paid History** — invoices grouped by payment date then by supplier (see §3.8 description).
   - **Email Rules** — data table (Email, Supplier Name, Action badge, Created date, Delete button). Delete removes rule so sender is treated as unknown again. Actions: `ROUTE_TO_AP` | `ROUTE_TO_TODO` | `FYI_ARCHIVE` | `SPAM_DROP` (+ legacy `ALLOW` → AP, `IGNORE` → Spam).
+  - **Trash** — soft-deleted invoices. Shows list of deleted invoices with supplier name, amount, date. Two actions per row: **Restore** (moves back to PENDING/original status) or **Delete Permanently**. Bulk soft-delete available from To Pay tab.
   - Store filter row + summary cards only shown on To Pay and Paid History tabs.
+- **Soft-Delete / Trash**: invoices can be soft-deleted (moves to Trash, `deletedAt` timestamp set). Excluded from all active queries. Restorable until permanently deleted.
+- **Re-parse PDF** (`POST /api/supplier-invoices/:id/reparse-pdf`): re-runs `pdftotext` + GPT-4o parse on a stored PDF, updates invoice fields with fresh AI extraction result. Used when initial parse was incorrect.
+- **Reassign Supplier** (`PATCH /api/supplier-invoices/:id/reassign`): change the `supplierId` on an existing invoice (e.g. after creating a supplier in Review Inbox).
+- **Revert PAID → PENDING** (`POST /api/invoices/:id/revert`): revert a paid invoice back to PENDING status. Removes associated payment record. Used for payment corrections.
+
+### 3.10a Legacy Supplier Invoices Page (`/admin/suppliers/invoices`)
+- Separate, simpler invoice management view under Suppliers.
+- Direct table of all supplier invoices with supplier name, amount, status, date.
+- Create invoice manually (supplier, store, invoice number, amount, date, due date).
+- Record payment: select payment method and date, marks invoice as PAID.
+- Predates the full AP Dashboard; retained as a fallback direct-data view.
 
 ### 3.11 Email Routing — Human-Trained Rules Engine ✅ COMPLETE
 
@@ -271,15 +312,21 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Auto-Pay (Direct Debit)** ✅: `isAutoPay` boolean on `suppliers`. Auto-creates PAID invoice + AUTO_DEBIT payment on webhook/manual creation.
 
 ### 3.12 Employee Portal (Mobile)
-- **Login**: `/mobile/portal` — employee selects store, finds their name, enters PIN.
+- **Login**: `/m/portal` — employee selects store, finds their name, enters PIN.
 - **PIN login**: alternative numeric PIN entry.
 - **Today view**: shows today's scheduled shift (from published roster), with clock-in/out via time logs.
-- **Roster view**: `/mobile/roster` — weekly schedule view for the employee's store.
-- **Timesheet submission**: `/mobile/portal` → submit actual start/end times for each shift day.
+- **Roster view**: `/m/roster` — weekly schedule view for the employee's store.
+- **Timesheet submission**: `/m/portal` → submit actual start/end times for each shift day.
   - Unscheduled shifts (employee worked but not rostered) can also be submitted.
   - Submissions go to `shiftTimesheets` as PENDING for admin approval.
-- **Daily Close Form**: `/mobile/daily-close` — employee submits EOD cash denomination count + receipt count.
+  - **Cycle Timesheets view** (`GET /api/portal/cycle-timesheets`): shows all submitted timesheets for the current 14-day payroll cycle.
+  - **Missed Shifts** (`GET /api/portal/missed-shifts`): shows rostered shifts in a date range that have no corresponding timesheet submission. Employee can submit from this view.
+  - **Payroll History** (`GET /api/portal/history`): shows past payroll records for the employee (period, hours, amount paid, bank/cash split).
+- **Daily Close Form**: `/m/daily-close` — employee submits EOD cash denomination count + receipt count.
   - Only visible to employees with `canSubmitCloseForm = true`.
+- **Clock (Legacy)**: `/m/clock` — simple clock-in/out page. Employee selects their store and name, then taps Clock In / Clock Out. Records to `timeLogs` table. Predates the portal; retained as a simple fallback.
+- **Direct Register**: `/m/register` — creates a new employee session directly (skips onboarding). Admin-use only URL.
+- **Interview form**: `/m/interview` — captures candidate interview data on mobile device.
 - Session stored in localStorage as `ep_session_v4` (includes `selfieUrl` for avatar display).
 
 ---
@@ -386,6 +433,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/employees` | List employees (filterable) |
+| POST | `/api/employees` | Create employee |
 | GET | `/api/employees/:id` | Get employee detail |
 | PUT | `/api/employees/:id` | Update employee |
 | PUT | `/api/employees/:id/store-assignments` | Update multi-store assignments |
@@ -440,7 +488,11 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 | GET | `/api/admin/approvals` | List shift timesheet submissions |
 | PUT | `/api/admin/approvals/:id/approve` | Approve single shift timesheet |
 | PUT | `/api/admin/approvals/:id/edit-approve` | Edit times + approve |
+| PUT | `/api/admin/approvals/:id/reject` | Reject / Mark Absent (PENDING→REJECTED) |
+| PUT | `/api/admin/approvals/:id/update-times` | Update times only (no status change) |
+| POST | `/api/admin/approvals/add-shift` | Add ad-hoc shift directly |
 | POST | `/api/admin/approvals/bulk-approve` | Bulk approve shift timesheets |
+| POST | `/api/admin/approvals/bulk-revert` | Bulk revert APPROVED → PENDING |
 
 ### Payroll
 | Method | Path | Description |
@@ -487,19 +539,90 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 | GET | `/api/suppliers` | List suppliers |
 | POST | `/api/suppliers` | Create supplier |
 | PUT | `/api/suppliers/:id` | Update supplier |
-| GET | `/api/supplier-invoices` | List invoices (with supplier join) |
+| GET | `/api/supplier-invoices` | List invoices (with supplier join, excludes soft-deleted) |
 | POST | `/api/supplier-invoices` | Create invoice manually |
 | PUT | `/api/supplier-invoices/:id` | Update invoice |
+| GET | `/api/supplier-invoices/deleted` | List soft-deleted (Trash) invoices |
+| PATCH | `/api/supplier-invoices/:id/soft-delete` | Soft-delete invoice (move to Trash) |
+| PATCH | `/api/supplier-invoices/:id/restore` | Restore from Trash |
+| PATCH | `/api/supplier-invoices/:id/reassign` | Change supplier on invoice |
+| POST | `/api/supplier-invoices/:id/reparse-pdf` | Re-run AI parse on stored PDF |
+| DELETE | `/api/supplier-invoices/:id` | Permanently delete invoice |
+| GET | `/api/supplier-invoices/:id/pdf` | Stream PDF file for viewing |
 | GET | `/api/invoices` | AP dashboard invoices (enriched, filterable by status/supplierId/storeId) |
 | PATCH | `/api/invoices/:id/status` | Update invoice status (e.g. PENDING → PAID) |
+| POST | `/api/invoices/:id/revert` | Revert PAID invoice back to PENDING |
+| GET | `/api/invoices/review` | List all REVIEW-status invoices |
+| POST | `/api/invoices/review/approve-group` | Create supplier + sweep REVIEW → PENDING |
+| POST | `/api/invoices/parse-upload` | Parse uploaded file (image/PDF) via AI |
 | GET | `/api/supplier-payments` | List payments |
 | POST | `/api/supplier-payments` | Record payment |
+
+### Email Routing & Triage Inbox
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/email-routing-rules` | List all routing rules |
+| PUT | `/api/email-routing-rules/:email` | Create or update routing rule |
+| DELETE | `/api/email-routing-rules/:email` | Delete routing rule |
+| GET | `/api/universal-inbox` | List inbox items (filterable by status) |
+| POST | `/api/universal-inbox/:id/route` | Route item (saves rule + re-processes email) |
 
 ### Webhooks & Email Inbound
 | Method | Path | Description |
 |---|---|---|
 | POST | `/api/webhooks/inbound-invoices` | Cloudmailin inbound email handler |
 | GET | `/api/webhooks/quarantined-emails` | List quarantined (unknown sender) emails |
+
+### Notices
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/notices` | List notices (filterable by storeId) |
+| POST | `/api/notices` | Create notice |
+| PUT | `/api/notices/:id` | Update notice |
+| DELETE | `/api/notices/:id` | Delete notice |
+
+### Executive / To-Do
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/todos` | List todos (filterable by status) |
+| POST | `/api/todos` | Create todo |
+| PATCH | `/api/todos/:id` | Update todo (status, fields) |
+| DELETE | `/api/todos/:id` | Delete todo |
+| POST | `/api/todos/:id/draft-reply` | AI-translate Korean draft → English reply |
+| POST | `/api/todos/:id/send-reply` | Send English reply via SMTP, mark DONE |
+| GET | `/api/todos/:id/korean-summary` | Generate Korean AI summary of email body |
+
+### RBAC & Permissions
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/permissions` | Get full permission matrix (seeds defaults) |
+| PATCH | `/api/permissions` | Bulk replace permission matrix |
+
+### Dashboard
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/dashboard/summary` | Summary: payroll totals, sales, cash balances |
+
+### Shopping List
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/shopping/items` | Get item catalogue for a store |
+| POST | `/api/shopping/items` | Add item to catalogue |
+| GET | `/api/shopping/active` | Get active shopping list for a store |
+| POST | `/api/shopping/active` | Add item to active list (increments count) |
+| DELETE | `/api/shopping/active/:id` | Remove (tick off) an item from active list |
+| DELETE | `/api/shopping/active` | Clear entire active list for a store |
+
+### Intercompany Settlements
+| Method | Path | Description |
+|---|---|---|
+| PATCH | `/api/settlements/:id/settle` | Mark settlement as settled (link to transaction) |
+| POST | `/api/admin/backfill-settlements` | Retroactively generate settlement records |
+
+### AI Utilities
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/ai/email-translate-summarize` | Translate English email to Korean + summarise |
 
 ### Employee Portal
 | Method | Path | Description |
@@ -515,6 +638,9 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 | GET | `/api/portal/timesheet` | Employee's timesheet submissions |
 | POST | `/api/portal/timesheet` | Submit shift timesheet |
 | POST | `/api/portal/unscheduled-timesheet` | Submit unscheduled shift |
+| GET | `/api/portal/cycle-timesheets` | All timesheets for current payroll cycle |
+| GET | `/api/portal/missed-shifts` | Rostered shifts with no timesheet submission |
+| GET | `/api/portal/history` | Past payroll records for employee |
 
 ### Misc
 | Method | Path | Description |
@@ -582,6 +708,8 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - `server/mailer.ts` created: nodemailer Gmail SMTP transporter utility
 - `POST /api/todos/:id/draft-reply` — accepts `koreanDraft`, uses GPT-4o to translate to professional English, returns `englishReply`
 - `POST /api/todos/:id/send-reply` — accepts `finalEnglishReply`, sends via nodemailer to `senderEmail || sourceEmail`, marks todo as DONE
+- `POST /api/todos/:id/korean-summary` — generates Korean AI summary of the original English email body via GPT-4o; cached per task.
+- `POST /api/ai/email-translate-summarize` — standalone endpoint: accepts `{ subject, body }`, returns `{ koreanSummary, translatedBody }`. Used by Triage Inbox to show Korean previews of incoming emails.
 - `ExecutiveDashboard.tsx` updated:
   - `TaskCard`: "View & Reply" button shown for email-originated tasks (has `sourceEmail`, `senderEmail`, or `originalSubject`)
   - Email badge pill on cards with email context
@@ -593,6 +721,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - Fetches `/api/todos`, filters TODO+IN_PROGRESS, sorts by urgency (overdue first, then due date), shows top 5
 - Each task card: title, sender email, due date, overdue badge, "Mark Done" quick-action button
 - "View All Tasks" button links to `/admin/executive`
+- **Shopping List widget** on Dashboard: per-store shopping cart for items that need purchasing. Catalogue of items (`shoppingItems`) + active list (`activeShoppingList`). Add items with quantity, tick off when purchased (deletes from active list), clear entire list. Accessible via ShoppingCart icon on Dashboard.
 
 **Phase 5.2 — Role-Based Access Control (RBAC)**
 - `admin_permissions` DB table: composite PK (role, route, label, allowed)
