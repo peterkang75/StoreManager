@@ -6686,6 +6686,122 @@ Rules:
     }
   });
 
+  // ── Store Config: Trading Hours ─────────────────────────────────────────────
+  // GET /api/store-config/trading-hours?storeId=xxx
+  app.get("/api/store-config/trading-hours", async (req: Request, res: Response) => {
+    try {
+      const { storeId } = req.query as { storeId?: string };
+      if (!storeId) return res.status(400).json({ error: "storeId required" });
+      const rows = await storage.getStoreTradingHours(storeId);
+      res.json(rows);
+    } catch {
+      res.status(500).json({ error: "Failed to get trading hours" });
+    }
+  });
+
+  // PUT /api/store-config/trading-hours — upsert one day's hours
+  app.put("/api/store-config/trading-hours", async (req: Request, res: Response) => {
+    try {
+      const row = await storage.upsertStoreTradingHours(req.body);
+      res.json(row);
+    } catch {
+      res.status(500).json({ error: "Failed to save trading hours" });
+    }
+  });
+
+  // ── Store Config: School Holidays ───────────────────────────────────────────
+  app.get("/api/store-config/school-holidays", async (_req: Request, res: Response) => {
+    try {
+      const rows = await storage.getSchoolHolidays();
+      res.json(rows);
+    } catch {
+      res.status(500).json({ error: "Failed to get school holidays" });
+    }
+  });
+
+  app.post("/api/store-config/school-holidays", async (req: Request, res: Response) => {
+    try {
+      const row = await storage.createSchoolHoliday(req.body);
+      res.json(row);
+    } catch {
+      res.status(500).json({ error: "Failed to create school holiday" });
+    }
+  });
+
+  app.put("/api/store-config/school-holidays/:id", async (req: Request, res: Response) => {
+    try {
+      const row = await storage.updateSchoolHoliday(Number(req.params.id), req.body);
+      res.json(row);
+    } catch {
+      res.status(500).json({ error: "Failed to update school holiday" });
+    }
+  });
+
+  app.delete("/api/store-config/school-holidays/:id", async (req: Request, res: Response) => {
+    try {
+      await storage.deleteSchoolHoliday(Number(req.params.id));
+      res.json({ ok: true });
+    } catch {
+      res.status(500).json({ error: "Failed to delete school holiday" });
+    }
+  });
+
+  // ── Store Config: Public Holidays ───────────────────────────────────────────
+  app.get("/api/store-config/public-holidays", async (_req: Request, res: Response) => {
+    try {
+      const rows = await storage.getPublicHolidays();
+      res.json(rows);
+    } catch {
+      res.status(500).json({ error: "Failed to get public holidays" });
+    }
+  });
+
+  app.post("/api/store-config/public-holidays", async (req: Request, res: Response) => {
+    try {
+      const row = await storage.createPublicHoliday(req.body);
+      res.json(row);
+    } catch {
+      res.status(500).json({ error: "Failed to create public holiday" });
+    }
+  });
+
+  app.put("/api/store-config/public-holidays/:id", async (req: Request, res: Response) => {
+    try {
+      const row = await storage.updatePublicHoliday(Number(req.params.id), req.body);
+      res.json(row);
+    } catch {
+      res.status(500).json({ error: "Failed to update public holiday" });
+    }
+  });
+
+  app.delete("/api/store-config/public-holidays/:id", async (req: Request, res: Response) => {
+    try {
+      await storage.deletePublicHoliday(Number(req.params.id));
+      res.json({ ok: true });
+    } catch {
+      res.status(500).json({ error: "Failed to delete public holiday" });
+    }
+  });
+
+  // ── Store Config: Recommended Hours ────────────────────────────────────────
+  app.get("/api/store-config/recommended-hours", async (_req: Request, res: Response) => {
+    try {
+      const rows = await storage.getStoreRecommendedHours();
+      res.json(rows);
+    } catch {
+      res.status(500).json({ error: "Failed to get recommended hours" });
+    }
+  });
+
+  app.put("/api/store-config/recommended-hours", async (req: Request, res: Response) => {
+    try {
+      const row = await storage.upsertStoreRecommendedHours(req.body);
+      res.json(row);
+    } catch {
+      res.status(500).json({ error: "Failed to save recommended hours" });
+    }
+  });
+
   // ── AI: Email Translate + Summarize ────────────────────────────────────────
   app.post("/api/ai/email-translate-summarize", async (req: Request, res: Response) => {
     try {

@@ -778,3 +778,59 @@ export const storageUnits = pgTable("storage_units", {
 export const insertStorageUnitSchema = createInsertSchema(storageUnits).omit({ id: true, createdAt: true });
 export type InsertStorageUnit = z.infer<typeof insertStorageUnitSchema>;
 export type StorageUnit = typeof storageUnits.$inferSelect;
+
+// ─── Store Configuration ─────────────────────────────────────────────────────
+
+// Per-store, per-day-of-week trading hours
+// dayOfWeek: "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun"
+export const storeTradingHours = pgTable("store_trading_hours", {
+  id: serial("id").primaryKey(),
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  dayOfWeek: varchar("day_of_week", { length: 3 }).notNull(),
+  openTime: text("open_time").notNull().default("09:00"),
+  closeTime: text("close_time").notNull().default("21:00"),
+  isClosed: boolean("is_closed").notNull().default(false),
+}, (t) => [uniqueIndex("store_trading_hours_store_day_idx").on(t.storeId, t.dayOfWeek)]);
+
+export const insertStoreTradingHoursSchema = createInsertSchema(storeTradingHours).omit({ id: true });
+export type InsertStoreTradingHours = z.infer<typeof insertStoreTradingHoursSchema>;
+export type StoreTradingHours = typeof storeTradingHours.$inferSelect;
+
+// School holiday periods (global, ~4 per year in Australia)
+export const schoolHolidays = pgTable("school_holidays", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSchoolHolidaySchema = createInsertSchema(schoolHolidays).omit({ id: true, createdAt: true });
+export type InsertSchoolHoliday = z.infer<typeof insertSchoolHolidaySchema>;
+export type SchoolHoliday = typeof schoolHolidays.$inferSelect;
+
+// Public holidays — storeClosures is a JSON map of { storeId: boolean }
+// A store is assumed open unless explicitly set to true (closed)
+export const publicHolidays = pgTable("public_holidays", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 150 }).notNull(),
+  date: text("date").notNull(),
+  storeClosures: jsonb("store_closures").default({}).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPublicHolidaySchema = createInsertSchema(publicHolidays).omit({ id: true, createdAt: true });
+export type InsertPublicHoliday = z.infer<typeof insertPublicHolidaySchema>;
+export type PublicHoliday = typeof publicHolidays.$inferSelect;
+
+// Per-store recommended weekly work hours (school term vs school holidays)
+export const storeRecommendedHours = pgTable("store_recommended_hours", {
+  storeId: varchar("store_id").primaryKey().references(() => stores.id),
+  termWeeklyHours: real("term_weekly_hours").notNull().default(38),
+  holidayWeeklyHours: real("holiday_weekly_hours").notNull().default(38),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertStoreRecommendedHoursSchema = createInsertSchema(storeRecommendedHours).omit({ updatedAt: true });
+export type InsertStoreRecommendedHours = z.infer<typeof insertStoreRecommendedHoursSchema>;
+export type StoreRecommendedHours = typeof storeRecommendedHours.$inferSelect;

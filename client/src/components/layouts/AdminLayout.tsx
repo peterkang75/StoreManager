@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { 
   Store, 
@@ -18,9 +19,12 @@ import {
   BrainCircuit,
   ShieldCheck,
   ChevronDown,
+  ChevronRight,
   Inbox,
   Smartphone,
   Package,
+  Settings,
+  Building2,
 } from "lucide-react";
 import {
   Sidebar,
@@ -33,9 +37,17 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Select,
   SelectContent,
@@ -85,6 +97,7 @@ const executiveNavItems = [
 const settingsNavItems = [
   { title: "Access Control", url: "/admin/settings/access-control", icon: ShieldCheck },
   { title: "Shift Presets",  url: "/admin/settings/shift-presets",  icon: Clock },
+  { title: "Store Settings", url: "/admin/settings/store-config",   icon: Building2 },
 ];
 
 const ROLE_LABELS: Record<AdminRole, string> = {
@@ -98,6 +111,8 @@ const ROLE_LABELS: Record<AdminRole, string> = {
 function AdminSidebar() {
   const [location] = useLocation();
   const { currentRole, setCurrentRole, hasAccess } = useAdminRole();
+  const isSettingsActive = location.startsWith("/admin/settings");
+  const [settingsOpen, setSettingsOpen] = useState(isSettingsActive);
 
   const isActive = (url: string) => {
     if (url === "/admin") return location === url;
@@ -176,26 +191,44 @@ function AdminSidebar() {
         {renderGroup("Hiring", hiringNavItems)}
         {renderGroup("Communications", commsNavItems)}
         {renderGroup("Executive", executiveNavItems)}
-        {/* Settings is always visible to ADMIN; hidden to others via hasAccess check */}
+        {/* Settings — collapsible with sub-menu items (ADMIN only) */}
         {currentRole === "ADMIN" && (
           <SidebarGroup>
-            <SidebarGroupLabel>Settings</SidebarGroupLabel>
+            <SidebarGroupLabel>System</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {settingsNavItems.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive(item.url)}
-                      tooltip={item.title}
-                    >
-                      <Link href={item.url} data-testid={`link-admin-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
-                        <item.icon className="w-4 h-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
+                <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen} className="group/collapsible">
+                  <SidebarMenuItem>
+                    <CollapsibleTrigger asChild>
+                      <SidebarMenuButton
+                        isActive={isSettingsActive}
+                        tooltip="Settings"
+                        data-testid="link-admin-settings"
+                      >
+                        <Settings className="w-4 h-4" />
+                        <span>Settings</span>
+                        <ChevronRight className="ml-auto w-4 h-4 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                      </SidebarMenuButton>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <SidebarMenuSub>
+                        {settingsNavItems.map((item) => (
+                          <SidebarMenuSubItem key={item.title}>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={isActive(item.url)}
+                            >
+                              <Link href={item.url} data-testid={`link-admin-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
+                                <item.icon className="w-3.5 h-3.5" />
+                                <span>{item.title}</span>
+                              </Link>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        ))}
+                      </SidebarMenuSub>
+                    </CollapsibleContent>
                   </SidebarMenuItem>
-                ))}
+                </Collapsible>
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

@@ -42,6 +42,10 @@ import {
   financialTransactions, shiftTimesheets, notices, intercompanySettlements, adminPermissions,
   shoppingItems, activeShoppingList,
   storageItems, activeStorageList, storageUnits,
+  type StoreTradingHours, type InsertStoreTradingHours, storeTradingHours,
+  type SchoolHoliday, type InsertSchoolHoliday, schoolHolidays,
+  type PublicHoliday, type InsertPublicHoliday, publicHolidays,
+  type StoreRecommendedHours, type InsertStoreRecommendedHours, storeRecommendedHours,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import { db } from "./db";
@@ -236,6 +240,22 @@ export interface IStorage {
   getPresetButtons(storeId: string): Promise<ShiftPresetButton[]>;
   upsertPresetButton(data: InsertShiftPresetButton & { id?: number }): Promise<ShiftPresetButton>;
   deletePresetButton(id: number): Promise<void>;
+  // Store Config — Trading Hours
+  getStoreTradingHours(storeId: string): Promise<StoreTradingHours[]>;
+  upsertStoreTradingHours(data: InsertStoreTradingHours): Promise<StoreTradingHours>;
+  // Store Config — School Holidays
+  getSchoolHolidays(): Promise<SchoolHoliday[]>;
+  createSchoolHoliday(data: InsertSchoolHoliday): Promise<SchoolHoliday>;
+  updateSchoolHoliday(id: number, data: Partial<InsertSchoolHoliday>): Promise<SchoolHoliday>;
+  deleteSchoolHoliday(id: number): Promise<void>;
+  // Store Config — Public Holidays
+  getPublicHolidays(): Promise<PublicHoliday[]>;
+  createPublicHoliday(data: InsertPublicHoliday): Promise<PublicHoliday>;
+  updatePublicHoliday(id: number, data: Partial<InsertPublicHoliday>): Promise<PublicHoliday>;
+  deletePublicHoliday(id: number): Promise<void>;
+  // Store Config — Recommended Hours
+  getStoreRecommendedHours(): Promise<StoreRecommendedHours[]>;
+  upsertStoreRecommendedHours(data: InsertStoreRecommendedHours): Promise<StoreRecommendedHours>;
 }
 
 export class MemStorage implements IStorage {
@@ -1634,6 +1654,32 @@ export class MemStorage implements IStorage {
   async deletePresetButton(id: number): Promise<void> {
     this._presetButtons.delete(id);
   }
+
+  // Store Config stubs (MemStorage — not used in production)
+  async getStoreTradingHours(_storeId: string): Promise<StoreTradingHours[]> { return []; }
+  async upsertStoreTradingHours(data: InsertStoreTradingHours): Promise<StoreTradingHours> {
+    return { id: 1, ...data } as StoreTradingHours;
+  }
+  async getSchoolHolidays(): Promise<SchoolHoliday[]> { return []; }
+  async createSchoolHoliday(data: InsertSchoolHoliday): Promise<SchoolHoliday> {
+    return { id: 1, createdAt: new Date(), ...data };
+  }
+  async updateSchoolHoliday(id: number, data: Partial<InsertSchoolHoliday>): Promise<SchoolHoliday> {
+    return { id, createdAt: new Date(), name: "", startDate: "", endDate: "", ...data };
+  }
+  async deleteSchoolHoliday(_id: number): Promise<void> {}
+  async getPublicHolidays(): Promise<PublicHoliday[]> { return []; }
+  async createPublicHoliday(data: InsertPublicHoliday): Promise<PublicHoliday> {
+    return { id: 1, createdAt: new Date(), ...data } as PublicHoliday;
+  }
+  async updatePublicHoliday(id: number, data: Partial<InsertPublicHoliday>): Promise<PublicHoliday> {
+    return { id, createdAt: new Date(), name: "", date: "", storeClosures: {}, ...data } as PublicHoliday;
+  }
+  async deletePublicHoliday(_id: number): Promise<void> {}
+  async getStoreRecommendedHours(): Promise<StoreRecommendedHours[]> { return []; }
+  async upsertStoreRecommendedHours(data: InsertStoreRecommendedHours): Promise<StoreRecommendedHours> {
+    return { updatedAt: new Date(), ...data } as StoreRecommendedHours;
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2758,6 +2804,70 @@ export class DatabaseStorage implements IStorage {
   }
   async deletePresetButton(id: number): Promise<void> {
     await db.delete(shiftPresetButtons).where(eq(shiftPresetButtons.id, id));
+  }
+
+  // ── Store Config — Trading Hours ──────────────────────────────────────────
+  async getStoreTradingHours(storeId: string): Promise<StoreTradingHours[]> {
+    return db.select().from(storeTradingHours)
+      .where(eq(storeTradingHours.storeId, storeId))
+      .orderBy(storeTradingHours.id);
+  }
+  async upsertStoreTradingHours(data: InsertStoreTradingHours): Promise<StoreTradingHours> {
+    const rows = await db.insert(storeTradingHours)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [storeTradingHours.storeId, storeTradingHours.dayOfWeek],
+        set: { openTime: data.openTime, closeTime: data.closeTime, isClosed: data.isClosed },
+      })
+      .returning();
+    return rows[0];
+  }
+
+  // ── Store Config — School Holidays ────────────────────────────────────────
+  async getSchoolHolidays(): Promise<SchoolHoliday[]> {
+    return db.select().from(schoolHolidays).orderBy(asc(schoolHolidays.startDate));
+  }
+  async createSchoolHoliday(data: InsertSchoolHoliday): Promise<SchoolHoliday> {
+    const [row] = await db.insert(schoolHolidays).values(data).returning();
+    return row;
+  }
+  async updateSchoolHoliday(id: number, data: Partial<InsertSchoolHoliday>): Promise<SchoolHoliday> {
+    const [row] = await db.update(schoolHolidays).set(data).where(eq(schoolHolidays.id, id)).returning();
+    return row;
+  }
+  async deleteSchoolHoliday(id: number): Promise<void> {
+    await db.delete(schoolHolidays).where(eq(schoolHolidays.id, id));
+  }
+
+  // ── Store Config — Public Holidays ────────────────────────────────────────
+  async getPublicHolidays(): Promise<PublicHoliday[]> {
+    return db.select().from(publicHolidays).orderBy(asc(publicHolidays.date));
+  }
+  async createPublicHoliday(data: InsertPublicHoliday): Promise<PublicHoliday> {
+    const [row] = await db.insert(publicHolidays).values(data).returning();
+    return row;
+  }
+  async updatePublicHoliday(id: number, data: Partial<InsertPublicHoliday>): Promise<PublicHoliday> {
+    const [row] = await db.update(publicHolidays).set(data).where(eq(publicHolidays.id, id)).returning();
+    return row;
+  }
+  async deletePublicHoliday(id: number): Promise<void> {
+    await db.delete(publicHolidays).where(eq(publicHolidays.id, id));
+  }
+
+  // ── Store Config — Recommended Hours ─────────────────────────────────────
+  async getStoreRecommendedHours(): Promise<StoreRecommendedHours[]> {
+    return db.select().from(storeRecommendedHours);
+  }
+  async upsertStoreRecommendedHours(data: InsertStoreRecommendedHours): Promise<StoreRecommendedHours> {
+    const [row] = await db.insert(storeRecommendedHours)
+      .values({ ...data, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: storeRecommendedHours.storeId,
+        set: { termWeeklyHours: data.termWeeklyHours, holidayWeeklyHours: data.holidayWeeklyHours, updatedAt: new Date() },
+      })
+      .returning();
+    return row;
   }
 }
 
