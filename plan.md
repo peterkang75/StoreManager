@@ -283,6 +283,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 
 ### 3.10 Invoice Inbound Pipeline (Webhook / Cloudmailin) + Auto-Discovery ✅ COMPLETE
 - **Email flow**: Supplier sends invoice PDF to a dedicated email address → Gmail forwards to Cloudmailin → Cloudmailin POSTs multipart payload to `POST /api/webhooks/inbound-invoices`.
+- **Basic Auth security**: The webhook endpoint verifies HTTP Basic Authentication on every request. Credentials are read from `process.env.CLOUDMAILIN_USER` and `process.env.CLOUDMAILIN_PASS` (stored as Replit Secrets). Requests without a valid `Authorization: Basic <base64>` header return HTTP 401 immediately — before any body parsing or business logic executes.
 - **Sender extraction**: from `req.body.headers.from` only (`envelope.from` is skipped as it contains Gmail forwarding artifacts).
 - **Routing logic** (checked in this order):
   1. Check `emailRoutingRules` table for the sender email.
@@ -727,6 +728,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Multi-store salary**: `salaryDistribute` field controls how fixed salary is split across multiple store assignments.
 - **Store filter for roster/portal**: only stores where `name.toLowerCase()` includes `"sushi"` or `"sandwich"` show in roster builder and employee portal.
 - **PIN storage**: always `bcryptjs` hashed (cost 10). Never store plain text. During migration, existing plain-text PINs continue to work and are auto-upgraded to bcrypt hash on first successful login. The `verifyPin(inputPin, storedPin)` helper in `server/routes.ts` handles both formats transparently.
+- **Webhook Basic Auth**: `POST /api/webhooks/inbound-invoices` requires HTTP Basic Authentication. Credentials `CLOUDMAILIN_USER` and `CLOUDMAILIN_PASS` are stored as Replit Secrets (never in code). Auth check runs before all body parsing — unauthenticated requests receive HTTP 401 immediately.
 
 ---
 

@@ -4390,6 +4390,18 @@ export async function registerRoutes(
 
   app.post("/api/webhooks/inbound-invoices", async (req: Request, res: Response) => {
     try {
+      // ── Basic Auth verification ───────────────────────────────────────────────
+      const authHeader = req.headers['authorization'];
+      if (!authHeader || !authHeader.startsWith('Basic ')) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      const base64 = authHeader.slice(6);
+      const decoded = Buffer.from(base64, 'base64').toString('utf-8');
+      const [user, pass] = decoded.split(':');
+      if (user !== process.env.CLOUDMAILIN_USER || pass !== process.env.CLOUDMAILIN_PASS) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
       // ── Body parsing ─────────────────────────────────────────────────────────
       let payload = req.body;
       if (!payload || Object.keys(payload).length === 0) {
