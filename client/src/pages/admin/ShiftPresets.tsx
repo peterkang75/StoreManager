@@ -430,9 +430,10 @@ export function AdminShiftPresets() {
 
   const isLoading = storesLoading || presetsLoading;
 
-  const rosterStores = (stores ?? []).filter(
-    (s) => s.name === "Sushi" || s.name === "Sandwich"
-  );
+  const rosterStores = [
+    ...(stores ?? []).filter(s => s.name === "Sushi"),
+    ...(stores ?? []).filter(s => s.name === "Sandwich"),
+  ];
 
   return (
     <AdminLayout>
