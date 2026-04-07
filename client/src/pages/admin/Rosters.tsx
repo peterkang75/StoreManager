@@ -15,6 +15,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -30,6 +38,8 @@ import {
   CheckCircle2,
   LayoutGrid,
   BarChart2,
+  Wand2,
+  Loader2,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Store, Employee, Roster, ShiftPreset } from "@shared/schema";
@@ -125,6 +135,225 @@ const STORE_COLORS: Record<string, string> = {
   Sushi:    "#EE864A",
   Sandwich: "#D13535",
 };
+
+// ─── Generate Roster Dialog ───────────────────────────────────────────────────
+const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+type PresetType = "full_day" | "open_shift" | "close_shift" | "custom";
+
+interface GenerateDialogProps {
+  open: boolean;
+  onClose: () => void;
+  storeId: string;
+  weekDates: string[];
+  employees: Employee[];
+  preset: ShiftPreset | undefined;
+  storeOpenTime: string;
+  storeCloseTime: string;
+  onGenerated: () => void;
+}
+
+function GenerateRosterDialog({
+  open, onClose, storeId, weekDates, employees, preset,
+  storeOpenTime, storeCloseTime, onGenerated,
+}: GenerateDialogProps) {
+  const { toast } = useToast();
+  const [presetType, setPresetType] = useState<PresetType>("full_day");
+  const [selectedDays, setSelectedDays] = useState<Set<number>>(new Set([0,1,2,3,4]));
+  const [selectedEmps, setSelectedEmps] = useState<Set<string> | "all">("all");
+  const [overwrite, setOverwrite] = useState(false);
+  const [customStart, setCustomStart] = useState(storeOpenTime);
+  const [customEnd, setCustomEnd] = useState(storeCloseTime);
+
+  const resolvedTimes = (() => {
+    if (presetType === "full_day")   return { start: preset?.fullDayStart    ?? storeOpenTime,  end: preset?.fullDayEnd    ?? storeCloseTime };
+    if (presetType === "open_shift") return { start: preset?.openShiftStart  ?? storeOpenTime,  end: preset?.openShiftEnd  ?? addHalfDay(storeOpenTime, storeCloseTime) };
+    if (presetType === "close_shift") return { start: preset?.closeShiftStart ?? addHalfDay(storeOpenTime, storeCloseTime), end: preset?.closeShiftEnd ?? storeCloseTime };
+    return { start: customStart, end: customEnd };
+  })();
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const empIds = selectedEmps === "all" ? employees.map(e => e.id) : Array.from(selectedEmps);
+      const dates = weekDates.filter((_, i) => selectedDays.has(i));
+      if (empIds.length === 0 || dates.length === 0) throw new Error("No employees or days selected");
+      const entries = empIds.flatMap(employeeId =>
+        dates.map(date => ({ storeId, employeeId, date, startTime: resolvedTimes.start, endTime: resolvedTimes.end }))
+      );
+      const res = await apiRequest("POST", "/api/rosters/bulk-create", { entries, overwrite });
+      return res.json() as Promise<{ created: number; skipped: number }>;
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Shifts generated",
+        description: `${data.created} created${data.skipped ? `, ${data.skipped} updated/skipped` : ""}.`,
+      });
+      onGenerated();
+      onClose();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Generate failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const toggleDay = (i: number) => {
+    setSelectedDays(prev => {
+      const next = new Set(prev);
+      next.has(i) ? next.delete(i) : next.add(i);
+      return next;
+    });
+  };
+
+  const toggleEmp = (id: string) => {
+    setSelectedEmps(prev => {
+      const set = prev === "all" ? new Set(employees.map(e => e.id)) : new Set(prev);
+      set.has(id) ? set.delete(id) : set.add(id);
+      return set.size === employees.length ? "all" : set;
+    });
+  };
+
+  const allEmpsSelected = selectedEmps === "all";
+  const totalShifts = (selectedEmps === "all" ? employees.length : selectedEmps.size) * selectedDays.size;
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Wand2 className="h-4 w-4" />
+            Generate Shifts
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-1">
+          {/* Preset type */}
+          <div>
+            <p className="text-xs font-medium text-muted-foreground mb-2">시프트 유형 Shift type</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {([
+                { value: "full_day",    label: "Full Day" },
+                { value: "open_shift",  label: "Open Shift" },
+                { value: "close_shift", label: "Close Shift" },
+                { value: "custom",      label: "Custom" },
+              ] as { value: PresetType; label: string }[]).map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setPresetType(value)}
+                  className={`text-xs px-2 py-2 rounded-md border transition-colors text-left ${
+                    presetType === value
+                      ? "bg-primary text-primary-foreground border-primary font-medium"
+                      : "border-border text-muted-foreground hover:border-primary/50"
+                  }`}
+                  data-testid={`button-preset-type-${value}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {/* Time preview */}
+            <div className="mt-2 text-xs text-muted-foreground bg-muted/50 rounded px-2.5 py-1.5">
+              {presetType === "custom" ? (
+                <div className="flex items-center gap-2">
+                  <span className="shrink-0">Start</span>
+                  <TimeSelect value={customStart} onChange={setCustomStart} testId="input-gen-start" />
+                  <span className="shrink-0">End</span>
+                  <TimeSelect value={customEnd} onChange={setCustomEnd} testId="input-gen-end" />
+                </div>
+              ) : (
+                <span className="font-mono">{resolvedTimes.start} – {resolvedTimes.end}</span>
+              )}
+            </div>
+          </div>
+
+          {/* Day selector */}
+          <div>
+            <p className="text-xs font-medium text-muted-foreground mb-2">요일 Days</p>
+            <div className="flex gap-1 flex-wrap">
+              {DAY_LABELS.map((d, i) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => toggleDay(i)}
+                  className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
+                    selectedDays.has(i)
+                      ? "bg-primary text-primary-foreground border-primary font-medium"
+                      : "border-border text-muted-foreground hover:border-primary/50"
+                  }`}
+                  data-testid={`button-day-${d}`}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Employee selector */}
+          <div>
+            <p className="text-xs font-medium text-muted-foreground mb-2">직원 Employees</p>
+            <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
+                  checked={allEmpsSelected}
+                  onCheckedChange={(c) => setSelectedEmps(c ? "all" : new Set())}
+                  data-testid="checkbox-all-employees"
+                />
+                <span className="text-xs font-medium">All employees ({employees.length})</span>
+              </label>
+              <div className="border-t pt-1.5 space-y-1">
+                {employees.map(emp => {
+                  const checked = allEmpsSelected || (selectedEmps as Set<string>).has(emp.id);
+                  return (
+                    <label key={emp.id} className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={() => toggleEmp(emp.id)}
+                        data-testid={`checkbox-emp-${emp.id}`}
+                      />
+                      <span className="text-xs">{emp.nickname || `${emp.firstName} ${emp.lastName}`}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Overwrite toggle */}
+          <label className="flex items-center gap-2 cursor-pointer">
+            <Checkbox
+              checked={overwrite}
+              onCheckedChange={(c) => setOverwrite(!!c)}
+              data-testid="checkbox-overwrite"
+            />
+            <div>
+              <p className="text-xs font-medium">Overwrite existing shifts</p>
+              <p className="text-[10px] text-muted-foreground">기존 시프트를 덮어씁니다</p>
+            </div>
+          </label>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose} data-testid="button-generate-cancel">
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending || selectedDays.size === 0 || totalShifts === 0}
+            data-testid="button-generate-confirm"
+          >
+            {mutation.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+            ) : (
+              <Wand2 className="h-3.5 w-3.5 mr-1.5" />
+            )}
+            Generate {totalShifts > 0 ? `(${totalShifts})` : ""}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 // ─── Cell editor popover ─────────────────────────────────────────────────────
 interface CellEditorProps {
@@ -559,6 +788,9 @@ export function AdminRosters() {
     return weekDs.includes(today) ? today : monday;
   });
 
+  // ── Generate dialog ────────────────────────────────────────────────────────
+  const [generateOpen, setGenerateOpen] = useState(false);
+
   // ── View mode: "grid" | "timeline" ────────────────────────────────────────
   const [viewMode, setViewMode] = useState<"grid" | "timeline">("grid");
   const [timelineDay, setTimelineDay] = useState<string>(() => {
@@ -869,6 +1101,16 @@ export function AdminRosters() {
               >
                 <Copy className="h-4 w-4 mr-1.5" />
                 Copy Prev Week
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setGenerateOpen(true)}
+                disabled={!selectedStore}
+                data-testid="button-generate-shifts"
+              >
+                <Wand2 className="h-4 w-4 mr-1.5" />
+                Generate Shifts
               </Button>
             </div>
           </div>
@@ -1203,6 +1445,22 @@ export function AdminRosters() {
           </div>
         )}
       </div>
+
+      {generateOpen && selectedStore && (
+        <GenerateRosterDialog
+          open={generateOpen}
+          onClose={() => setGenerateOpen(false)}
+          storeId={selectedStore}
+          weekDates={weekDates}
+          employees={activeEmployees.map(e => e.employee)}
+          preset={selectedStorePreset}
+          storeOpenTime={selectedStoreObj?.openTime ?? "09:00"}
+          storeCloseTime={selectedStoreObj?.closeTime ?? "22:00"}
+          onGenerated={() => {
+            queryClient.invalidateQueries({ queryKey: ["/api/rosters", selectedStore] });
+          }}
+        />
+      )}
     </AdminLayout>
   );
 }

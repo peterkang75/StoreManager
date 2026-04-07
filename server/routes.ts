@@ -851,6 +851,24 @@ export async function registerRoutes(
     }
   });
 
+  // Bulk-create/update roster entries (used by the Generate Shifts dialog)
+  app.post("/api/rosters/bulk-create", async (req: Request, res: Response) => {
+    try {
+      const { entries, overwrite = true } = req.body as {
+        entries: Array<{ storeId: string; employeeId: string; date: string; startTime: string; endTime: string }>;
+        overwrite?: boolean;
+      };
+      if (!Array.isArray(entries) || entries.length === 0) {
+        return res.status(400).json({ error: "entries array is required" });
+      }
+      const result = await storage.bulkUpsertRosters(entries, overwrite);
+      res.json(result);
+    } catch (error) {
+      console.error("Error bulk-creating rosters:", error);
+      res.status(500).json({ error: "Failed to bulk-create rosters" });
+    }
+  });
+
   // Upsert a single roster entry (with cross-store overlap check)
   app.post("/api/rosters", async (req: Request, res: Response) => {
     try {

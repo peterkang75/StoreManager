@@ -180,6 +180,7 @@ export interface IStorage {
   getRosters(filters?: { storeId?: string; startDate?: string; endDate?: string; employeeId?: string }): Promise<Roster[]>;
   getRoster(id: string): Promise<Roster | undefined>;
   upsertRoster(storeId: string, employeeId: string, date: string, data: Omit<InsertRoster, "storeId" | "employeeId" | "date">): Promise<Roster>;
+  bulkUpsertRosters(entries: Array<{ storeId: string; employeeId: string; date: string; startTime: string; endTime: string }>, overwrite?: boolean): Promise<{ created: number; skipped: number }>;
   deleteRoster(id: string): Promise<boolean>;
   deleteRostersByStoreAndDateRange(storeId: string, startDate: string, endDate: string): Promise<number>;
   getRostersByEmployeeAndDateRange(employeeId: string, startDate: string, endDate: string): Promise<Roster[]>;
@@ -1383,6 +1384,17 @@ export class MemStorage implements IStorage {
     return roster;
   }
 
+  async bulkUpsertRosters(entries: Array<{ storeId: string; employeeId: string; date: string; startTime: string; endTime: string }>, overwrite = true): Promise<{ created: number; skipped: number }> {
+    let created = 0; let skipped = 0;
+    for (const e of entries) {
+      const existing = Array.from(this.rostersMap.values()).find(r => r.storeId === e.storeId && r.employeeId === e.employeeId && r.date === e.date);
+      if (existing && !overwrite) { skipped++; continue; }
+      await this.upsertRoster(e.storeId, e.employeeId, e.date, { startTime: e.startTime, endTime: e.endTime });
+      if (existing) skipped++; else created++;
+    }
+    return { created, skipped };
+  }
+
   async deleteRoster(id: string): Promise<boolean> {
     return this.rostersMap.delete(id);
   }
@@ -2424,6 +2436,30 @@ export class DatabaseStorage implements IStorage {
     }
     const [created] = await db.insert(rosters).values({ storeId, employeeId, date, ...data }).returning();
     return created;
+  }
+
+  async bulkUpsertRosters(
+    entries: Array<{ storeId: string; employeeId: string; date: string; startTime: string; endTime: string }>,
+    overwrite = true,
+  ): Promise<{ created: number; skipped: number }> {
+    let created = 0;
+    let skipped = 0;
+    for (const e of entries) {
+      const [existing] = await db.select({ id: rosters.id }).from(rosters)
+        .where(and(eq(rosters.storeId, e.storeId), eq(rosters.employeeId, e.employeeId), eq(rosters.date, e.date)))
+        .limit(1);
+      if (existing) {
+        if (!overwrite) { skipped++; continue; }
+        await db.update(rosters)
+          .set({ startTime: e.startTime, endTime: e.endTime, updatedAt: new Date() })
+          .where(eq(rosters.id, existing.id));
+        skipped++;
+      } else {
+        await db.insert(rosters).values({ storeId: e.storeId, employeeId: e.employeeId, date: e.date, startTime: e.startTime, endTime: e.endTime });
+        created++;
+      }
+    }
+    return { created, skipped };
   }
 
   async deleteRoster(id: string): Promise<boolean> {
