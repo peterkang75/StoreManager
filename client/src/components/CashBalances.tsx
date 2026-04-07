@@ -6,15 +6,10 @@ const balanceDisplayOrder = ["Sushi", "Sandwich", "Trading", "HO"];
 
 interface CashBalancesProps {
   stores: Store[];
-  draftCashOutflow?: number;
-  draftStoreId?: string;
+  draftByStore?: Record<string, number>; // storeId → draft cash outflow
 }
 
-export function CashBalances({
-  stores,
-  draftCashOutflow,
-  draftStoreId,
-}: CashBalancesProps) {
+export function CashBalances({ stores, draftByStore }: CashBalancesProps) {
   const { data: serverBalances } = useQuery<Record<string, number>>({
     queryKey: ["/api/finance/balances"],
   });
@@ -28,19 +23,13 @@ export function CashBalances({
       if (!store) return null;
       const balance = serverBalances[name];
       if (balance === undefined) return null;
-      const isDraftStore = draftStoreId === store.id;
-      const draftBalance =
-        isDraftStore && draftCashOutflow != null
-          ? balance - draftCashOutflow
-          : null;
+      const draftOutflow = draftByStore?.[store.id];
+      const draftBalance = draftOutflow != null && draftOutflow > 0
+        ? balance - draftOutflow
+        : null;
       return { name, code: store.code, balance, draftBalance };
     })
-    .filter(Boolean) as {
-    name: string;
-    code: string;
-    balance: number;
-    draftBalance: number | null;
-  }[];
+    .filter(Boolean) as { name: string; code: string; balance: number; draftBalance: number | null }[];
 
   if (balances.length === 0) return null;
 
@@ -49,32 +38,21 @@ export function CashBalances({
       {balances.map((b) => (
         <Card key={b.code} className="py-0">
           <CardContent className="px-3 py-2">
-            <span
-              className="text-xs font-medium text-muted-foreground"
-              data-testid={`text-balance-name-${b.code}`}
-            >
+            <span className="text-xs font-medium text-muted-foreground" data-testid={`text-balance-name-${b.code}`}>
               {b.name}
             </span>
             <span
               className={`block text-sm font-bold font-mono ${b.balance < 0 ? "text-red-600 dark:text-red-400" : ""}`}
               data-testid={`text-balance-cash-${b.code}`}
             >
-              $
-              {b.balance.toLocaleString("en-AU", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
+              ${b.balance.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
             {b.draftBalance != null && (
               <span
                 className={`block text-xs font-mono mt-0.5 ${b.draftBalance < 0 ? "text-red-500" : "text-amber-600 dark:text-amber-400"}`}
                 data-testid={`text-balance-draft-${b.code}`}
               >
-                Draft: $
-                {b.draftBalance.toLocaleString("en-AU", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
+                Draft: ${b.draftBalance.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
             )}
           </CardContent>

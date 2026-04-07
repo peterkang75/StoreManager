@@ -869,12 +869,17 @@ export function AdminPayrolls() {
           {!storesLoading && (
             <CashBalances
               stores={stores || []}
-              draftCashOutflow={
-                selectedStoreId && rows.length > 0
-                  ? rows.reduce((sum, r) => sum + (r.cashAmount || 0), 0)
-                  : undefined
+              draftByStore={
+                Object.fromEntries(
+                  Object.entries(payrollDrafts).map(([ctxKey, drafts]) => {
+                    const storeId = ctxKey.split("|")[0];
+                    const totalCash = Object.values(drafts).reduce(
+                      (sum, r) => sum + (r.cashAmount || 0), 0
+                    );
+                    return [storeId, totalCash];
+                  }).filter(([, v]) => v > 0)
+                )
               }
-              draftStoreId={selectedStoreId || undefined}
             />
           )}
 

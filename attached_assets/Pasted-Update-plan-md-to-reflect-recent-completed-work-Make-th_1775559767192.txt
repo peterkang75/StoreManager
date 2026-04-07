@@ -1,0 +1,30 @@
+Update plan.md to reflect recent completed work. Make the following changes:
+
+1. In Section 2.7 (Operational Utilities), add a new row to the table:
+| `automation_rules` | `id`, `title`, `actionType`, `frequency`, `daysOfWeek` (int[]), `targetEmployeeId`, `targetStoreId`, `payload` (jsonb), `description`, `isActive`, `lastExecutedAt`, `createdAt` | Recurring task automation rules. actionType: ROSTER / PAYROLL_ADJUSTMENT / FINANCE_TRANSFER. frequency: WEEKLY / MONTHLY_FIRST_WEEK / MONTHLY. payload shape varies by actionType. Executes via one-click from Dashboard widget. |
+
+2. In Section 3.6 (Payroll), add this bullet point at the end:
+- **Draft Cash Balance (Real-time):** While editing payroll, the top CashBalances widget shows a "Draft: $X,XXX" line under each store's balance card. This reflects the current session's total cash outflow in real-time before saving to DB. All store drafts (Sushi, Sandwich, etc.) are visible simultaneously regardless of which store is currently selected in the payroll form. Implemented via `draftByStore` prop (Record<storeId, totalCash>) computed from `payrollDrafts` state in Payrolls.tsx and passed to CashBalances.tsx.
+
+3. In Section 3.5 (Timesheet Approvals), add this bullet point:
+- **Standalone Add Shift button:** A global "Add Shift" button added to the Pending Approvals page header (alongside Auto-Fill from Roster and Weekly Payroll). Opens a modal that allows adding a shift for ANY employee — including INACTIVE employees and free-text names for one-off workers not in the system. Employee search covers all statuses. Uses existing POST /api/admin/approvals/add-shift endpoint. The existing per-employee "Add Missing Shift" inside the detail modal is unchanged.
+
+4. In Section 4 (API Endpoints), add a new table after the Dashboard section:
+
+### Automation Rules
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/automation-rules` | List all rules (enriched with employee/store names) |
+| POST | `/api/automation-rules` | Create automation rule |
+| PUT | `/api/automation-rules/:id` | Update automation rule |
+| DELETE | `/api/automation-rules/:id` | Delete automation rule |
+| GET | `/api/automation-rules/due-today` | Rules due today (Sydney timezone, isActive=true only) |
+| POST | `/api/automation-rules/:id/execute` | Execute rule — ROSTER: upsertRoster for each dayOfWeek date this week; PAYROLL_ADJUSTMENT: update current cycle payroll adjustment; FINANCE_TRANSFER: createFinancialTransaction (CONVERT or REMITTANCE) |
+
+5. In Section 6 (Automation Rules), update the status from "🔄 PLANNED" to "✅ COMPLETE" and add implementation notes:
+- DB table created, db:push complete
+- storage.ts: getAutomationRules, getAutomationRulesDueToday, getAutomationRule, createAutomationRule, updateAutomationRule, deleteAutomationRule, executeAutomationRule all implemented
+- routes.ts: 6 endpoints registered
+- /admin/automations settings page: rule cards with actionType badge, isActive toggle, Sheet drawer for create/edit with dynamic fields per actionType
+- Dashboard widget: "Today's Recurring Tasks" section between Financial Performance and Needs Routing — hidden when no rules due, Execute + Skip buttons per rule
+- Sidebar: "Automations" added to Settings submenu with Repeat icon

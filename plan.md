@@ -179,6 +179,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 | `storageUnits` | `id`, `name` (unique), `createdAt` | Dynamic unit catalogue. Seeded with: ea, pack, box, ctn. Used as Select options for storageItems. |
 | `storageItems` | `id`, `storeId`, `name`, `category`, `unit`, `currentStock`, `lastCheckedAt`, `lastCheckedBy`, `createdAt` | Storage room item catalogue per store. Unit references storageUnits.name. |
 | `activeStorageList` | `id`, `storeId`, `itemId`, `addedBy`, `addedAt` | Items an employee plans to fetch from storage today. Cleared after fetching. |
+| `automation_rules` | `id`, `title`, `actionType`, `frequency`, `daysOfWeek` (int[]), `targetEmployeeId`, `targetStoreId`, `payload` (jsonb), `description`, `isActive`, `lastExecutedAt`, `createdAt` | Recurring task automation rules. actionType: ROSTER / PAYROLL_ADJUSTMENT / FINANCE_TRANSFER. frequency: WEEKLY / MONTHLY_FIRST_WEEK / MONTHLY. payload shape varies by actionType. Executes via one-click from Dashboard widget. |
 
 ---
 
