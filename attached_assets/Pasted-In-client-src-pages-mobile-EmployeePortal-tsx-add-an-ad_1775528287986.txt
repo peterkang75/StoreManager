@@ -1,0 +1,54 @@
+In client/src/pages/mobile/EmployeePortal.tsx, add an admin dashboard 
+shortcut button to the Employee Portal for Owner and Manager roles.
+
+CONTEXT:
+- After portal login, the session object contains the employee's id.
+- The employee's role is stored in the employees table as: "Owner", "Manager", or "Employee".
+- The role is NOT currently in the session object — it must be fetched.
+
+IMPLEMENTATION:
+
+1. FETCH ROLE ON LOGIN:
+   After successful PIN login, the session currently stores:
+   { id, nickname, firstName, selfieUrl }
+   
+   Add "role" to the session:
+   - Modify the Session type to include: role?: string | null
+   - The POST /api/portal/login-pin response should include the employee's role field.
+   - Update the login-pin route in server/routes.ts to include role in the response.
+   - Update PinLogin onSuccess handler to include role in the session object saved.
+
+2. SHOW DASHBOARD BUTTON:
+   In the HomeTab component, in the greeting section where 
+   "Good {greeting}," and the employee name are displayed,
+   add a small "Admin Dashboard" button ONLY when:
+   session.role === "Owner" || session.role === "Manager"
+
+   Button design:
+   - Small, subtle — do not dominate the mobile UI
+   - Use variant="outline" size="sm"
+   - Icon: LayoutDashboard from lucide-react
+   - Label: "Admin Dashboard"
+   - Position: below the employee name, aligned left
+   - On click: window.location.href = "/admin"
+   - data-testid="button-admin-dashboard"
+
+3. UPDATE SESSION TYPE:
+   type Session = { 
+     id: string
+     nickname: string | null
+     firstName: string
+     selfieUrl?: string | null
+     role?: string | null    // ADD THIS
+   }
+
+STYLING RULE:
+- Keep it understated — this is a staff-facing mobile app.
+- The button should feel like a utility link, not a prominent CTA.
+- Do not add any border, card, or section wrapper around it.
+
+DO NOT modify: vite.ts, drizzle.config.ts, package.json
+
+After completing, update plan.md:
+- Section 3.12 (Employee Portal): add bullet point documenting this feature
+- Section 4 (Employee Portal API): note that /api/portal/login-pin now returns role field

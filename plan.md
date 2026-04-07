@@ -372,7 +372,8 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Clock (Legacy)**: `/m/clock` — simple clock-in/out page. Employee selects their store and name, then taps Clock In / Clock Out. Records to `timeLogs` table. Predates the portal; retained as a simple fallback.
 - **Direct Register**: `/m/register` — creates a new employee session directly (skips onboarding). Admin-use only URL.
 - **Interview form**: `/m/interview` — captures candidate interview data on mobile device.
-- Session stored in localStorage as `ep_session_v4` (includes `selfieUrl` for avatar display).
+- Session stored in localStorage as `ep_session_v4` (includes `selfieUrl` for avatar display, `role` field as of dynamic unit update).
+- **Admin Dashboard shortcut**: If the logged-in employee's role is `"Owner"` or `"Manager"`, a small "Admin Dashboard" button (outline, sm, LayoutDashboard icon) is shown below the employee name in the HomeTab greeting section. Tapping navigates to `/admin`. Role is returned by `POST /api/portal/login-pin` and stored in the session object. Regular `"Employee"` role sees no button.
 
 ---
 
@@ -690,7 +691,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 |---|---|---|
 | POST | `/api/mobile/auth` | Validate employee by store + name |
 | POST | `/api/portal/login` | Portal login (returns session) |
-| POST | `/api/portal/login-pin` | Portal PIN login |
+| POST | `/api/portal/login-pin` | Portal PIN login — returns `id`, `nickname`, `firstName`, `storeId`, `selfieUrl`, `role` |
 | GET | `/api/portal/employees` | Employees for a store (for login picker) |
 | GET | `/api/portal/stores` | Active stores for portal |
 | GET | `/api/portal/today` | Today's shift for employee |

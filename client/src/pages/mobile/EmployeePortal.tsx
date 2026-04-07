@@ -62,6 +62,7 @@ import {
   Trash2,
   CheckCheck,
   Search,
+  LayoutDashboard,
 } from "lucide-react";
 import type { Notice, ShiftTimesheet, ShoppingItem, ActiveShoppingListItem, StorageItem, ActiveStorageListItem, StorageUnit } from "@shared/schema";
 import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "@shared/payrollCycle";
@@ -70,7 +71,7 @@ import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "@shared/pay
 
 type Tab = "home" | "schedule" | "timesheets" | "settings";
 
-interface Session { id: string; nickname: string | null; firstName: string; selfieUrl?: string | null }
+interface Session { id: string; nickname: string | null; firstName: string; selfieUrl?: string | null; role?: string | null }
 
 interface ShiftInfo {
   id: string; storeId: string; startTime: string; endTime: string; date: string;
@@ -193,7 +194,7 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
       if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? "Invalid PIN"); }
       return res.json();
     },
-    onSuccess: (data) => onSuccess({ id: data.id, nickname: data.nickname, firstName: data.firstName, selfieUrl: data.selfieUrl ?? null }),
+    onSuccess: (data) => onSuccess({ id: data.id, nickname: data.nickname, firstName: data.firstName, selfieUrl: data.selfieUrl ?? null, role: data.role ?? null }),
     onError: (err: Error) => { setError(err.message); setPin(""); },
   });
 
@@ -1407,6 +1408,19 @@ function HomeTab({ session }: { session: Session }) {
       <div>
         <p className="text-sm text-muted-foreground">Good {getGreeting()},</p>
         <h2 className="text-2xl font-bold" data-testid="text-employee-name">{displayName}</h2>
+        {(session.role === "Owner" || session.role === "Manager") && (
+          <div className="mt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { window.location.href = "/admin"; }}
+              data-testid="button-admin-dashboard"
+            >
+              <LayoutDashboard className="h-3.5 w-3.5 mr-1.5" />
+              Admin Dashboard
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Sub-tab row */}

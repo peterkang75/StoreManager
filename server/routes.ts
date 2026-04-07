@@ -3544,7 +3544,7 @@ export async function registerRoutes(
       }
 
       if (!emp) return res.status(401).json({ error: "Invalid PIN" });
-      res.json({ id: emp.id, nickname: emp.nickname, firstName: emp.firstName, storeId: emp.storeId, selfieUrl: emp.selfieUrl ?? null });
+      res.json({ id: emp.id, nickname: emp.nickname, firstName: emp.firstName, storeId: emp.storeId, selfieUrl: emp.selfieUrl ?? null, role: emp.role ?? null });
     } catch (err) {
       res.status(500).json({ error: "Login failed" });
     }
