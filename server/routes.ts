@@ -16,7 +16,7 @@ import {
   insertTimeLogSchema,
   insertTimesheetSchema,
   insertPayrollSchema,
-  insertDailyClosingSchema
+  insertDailyClosingSchema,
   insertCashSalesDetailSchema,
   insertDailyCloseFormSchema,
   insertSupplierSchema,
