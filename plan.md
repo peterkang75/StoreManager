@@ -652,7 +652,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 ### Dashboard
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/dashboard/summary` | Summary: payroll totals, sales, cash balances |
+| GET | `/api/dashboard/summary` | Summary: payroll totals, sales, cash balances. Labor date filter uses `periodStart > endDate` (not `periodEnd`) to correctly include payroll periods that overlap the selected range. |
 
 ### Shopping List
 | Method | Path | Description |
