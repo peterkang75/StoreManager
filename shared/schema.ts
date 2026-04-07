@@ -738,6 +738,23 @@ export const insertActiveStorageListSchema = createInsertSchema(activeStorageLis
 export type InsertActiveStorageList = z.infer<typeof insertActiveStorageListSchema>;
 export type ActiveStorageListItem = typeof activeStorageList.$inferSelect;
 
+// ─── Shift Presets ─────────────────────────────────────────────────────────
+// Per-store preset times shown as quick-fill buttons in the Roster cell editor.
+export const shiftPresets = pgTable("shift_presets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => stores.id).notNull().unique(),
+  fullDayStart:    text("full_day_start").notNull().default("06:30"),
+  fullDayEnd:      text("full_day_end").notNull().default("18:30"),
+  openShiftStart:  text("open_shift_start").notNull().default("06:30"),
+  openShiftEnd:    text("open_shift_end").notNull().default("12:30"),
+  closeShiftStart: text("close_shift_start").notNull().default("12:30"),
+  closeShiftEnd:   text("close_shift_end").notNull().default("18:30"),
+});
+
+export const insertShiftPresetSchema = createInsertSchema(shiftPresets).omit({ id: true });
+export type InsertShiftPreset = z.infer<typeof insertShiftPresetSchema>;
+export type ShiftPreset = typeof shiftPresets.$inferSelect;
+
 export const storageUnits = pgTable("storage_units", {
   id: serial("id").primaryKey(),
   name: varchar("name", { length: 50 }).notNull().unique(),

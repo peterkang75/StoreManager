@@ -6569,6 +6569,49 @@ Rules:
     }
   });
 
+  // ── Shift Presets ────────────────────────────────────────────────────────
+  // GET /api/shift-presets — list all store presets
+  app.get("/api/shift-presets", async (_req: Request, res: Response) => {
+    try {
+      const presets = await storage.getShiftPresets();
+      res.json(presets);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch shift presets" });
+    }
+  });
+
+  // GET /api/shift-presets/:storeId — single store preset
+  app.get("/api/shift-presets/:storeId", async (req: Request, res: Response) => {
+    try {
+      const preset = await storage.getShiftPresetByStore(req.params.storeId);
+      if (!preset) return res.status(404).json({ error: "Not found" });
+      res.json(preset);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch shift preset" });
+    }
+  });
+
+  // PUT /api/shift-presets/:storeId — upsert preset for a store
+  app.put("/api/shift-presets/:storeId", async (req: Request, res: Response) => {
+    try {
+      const { storeId } = req.params;
+      const body = req.body as Record<string, string>;
+      const data = {
+        storeId,
+        fullDayStart:    body.fullDayStart    || "06:30",
+        fullDayEnd:      body.fullDayEnd      || "18:30",
+        openShiftStart:  body.openShiftStart  || "06:30",
+        openShiftEnd:    body.openShiftEnd    || "12:30",
+        closeShiftStart: body.closeShiftStart || "12:30",
+        closeShiftEnd:   body.closeShiftEnd   || "18:30",
+      };
+      const preset = await storage.upsertShiftPreset(data);
+      res.json(preset);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to save shift preset" });
+    }
+  });
+
   // ── AI: Email Translate + Summarize ────────────────────────────────────────
   app.post("/api/ai/email-translate-summarize", async (req: Request, res: Response) => {
     try {

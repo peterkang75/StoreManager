@@ -84,6 +84,7 @@ const executiveNavItems = [
 
 const settingsNavItems = [
   { title: "Access Control", url: "/admin/settings/access-control", icon: ShieldCheck },
+  { title: "Shift Presets",  url: "/admin/settings/shift-presets",  icon: Clock },
 ];
 
 const ROLE_LABELS: Record<AdminRole, string> = {

@@ -31,6 +31,7 @@ import {
   type StorageItem, type InsertStorageItem,
   type ActiveStorageListItem, type InsertActiveStorageList,
   type StorageUnit, type InsertStorageUnit,
+  type ShiftPreset, type InsertShiftPreset, shiftPresets,
   stores, candidates, employees, employeeStoreAssignments, employeeOnboardingTokens, employeeDocuments,
   rosterPeriods, shifts, rosters, rosterPublications, timeLogs, timesheets, payrolls,
   dailyClosings, cashSalesDetails, dailyCloseForms, suppliers, supplierInvoices, supplierPayments,
@@ -225,6 +226,10 @@ export interface IStorage {
   deleteStorageUnit(id: number): Promise<void>;
   isStorageUnitInUse(id: number): Promise<boolean>;
   seedStorageUnitsIfEmpty(): Promise<void>;
+  // Shift Presets
+  getShiftPresets(): Promise<ShiftPreset[]>;
+  getShiftPresetByStore(storeId: string): Promise<ShiftPreset | undefined>;
+  upsertShiftPreset(data: InsertShiftPreset): Promise<ShiftPreset>;
 }
 
 export class MemStorage implements IStorage {
@@ -1582,6 +1587,20 @@ export class MemStorage implements IStorage {
       }
     }
   }
+  // Shift Presets (MemStorage — in-memory fallback)
+  private _shiftPresets: Map<string, ShiftPreset> = new Map();
+  async getShiftPresets(): Promise<ShiftPreset[]> {
+    return Array.from(this._shiftPresets.values());
+  }
+  async getShiftPresetByStore(storeId: string): Promise<ShiftPreset | undefined> {
+    return Array.from(this._shiftPresets.values()).find(p => p.storeId === storeId);
+  }
+  async upsertShiftPreset(data: InsertShiftPreset): Promise<ShiftPreset> {
+    const existing = await this.getShiftPresetByStore(data.storeId);
+    const row: ShiftPreset = { id: existing?.id ?? crypto.randomUUID(), ...data };
+    this._shiftPresets.set(row.storeId, row);
+    return row;
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2637,6 +2656,30 @@ export class DatabaseStorage implements IStorage {
         await db.insert(storageUnits).values({ name }).onConflictDoNothing();
       }
     }
+  }
+
+  // ── Shift Presets ────────────────────────────────────────────────────────
+  async getShiftPresets(): Promise<ShiftPreset[]> {
+    return db.select().from(shiftPresets);
+  }
+  async getShiftPresetByStore(storeId: string): Promise<ShiftPreset | undefined> {
+    const rows = await db.select().from(shiftPresets).where(eq(shiftPresets.storeId, storeId));
+    return rows[0];
+  }
+  async upsertShiftPreset(data: InsertShiftPreset): Promise<ShiftPreset> {
+    const rows = await db
+      .insert(shiftPresets)
+      .values(data)
+      .onConflictDoUpdate({ target: shiftPresets.storeId, set: {
+        fullDayStart:    data.fullDayStart,
+        fullDayEnd:      data.fullDayEnd,
+        openShiftStart:  data.openShiftStart,
+        openShiftEnd:    data.openShiftEnd,
+        closeShiftStart: data.closeShiftStart,
+        closeShiftEnd:   data.closeShiftEnd,
+      }})
+      .returning();
+    return rows[0];
   }
 }
 

@@ -32,7 +32,7 @@ import {
   BarChart2,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Store, Employee, Roster } from "@shared/schema";
+import type { Store, Employee, Roster, ShiftPreset } from "@shared/schema";
 
 // ─── Date helpers ───────────────────────────────────────────────────────────
 function toYMD(d: Date): string {
@@ -131,6 +131,7 @@ interface CellEditorProps {
   roster: Roster | undefined;
   storeOpenTime: string;
   storeCloseTime: string;
+  preset?: ShiftPreset;
   onSave: (start: string, end: string) => void;
   onClear: () => void;
   isPending: boolean;
@@ -138,7 +139,7 @@ interface CellEditorProps {
   accentHex?: string;
 }
 
-function CellEditor({ roster, storeOpenTime, storeCloseTime, onSave, onClear, isPending, mobileMode, accentHex }: CellEditorProps) {
+function CellEditor({ roster, storeOpenTime, storeCloseTime, preset, onSave, onClear, isPending, mobileMode, accentHex }: CellEditorProps) {
   const [open, setOpen] = useState(false);
   const [startTime, setStartTime] = useState(roster?.startTime ?? storeOpenTime);
   const [endTime, setEndTime] = useState(roster?.endTime ?? storeCloseTime);
@@ -219,21 +220,30 @@ function CellEditor({ roster, storeOpenTime, storeCloseTime, onSave, onClear, is
           <div className="flex gap-1 flex-wrap">
             <button
               type="button"
-              onClick={() => { setStartTime(storeOpenTime); setEndTime(storeCloseTime); }}
+              onClick={() => {
+                setStartTime(preset?.fullDayStart ?? storeOpenTime);
+                setEndTime(preset?.fullDayEnd ?? storeCloseTime);
+              }}
               className="text-[10px] px-1.5 py-0.5 rounded bg-muted hover:bg-muted/80 text-muted-foreground"
             >
               Full day
             </button>
             <button
               type="button"
-              onClick={() => { setStartTime(storeOpenTime); setEndTime(addHalfDay(storeOpenTime, storeCloseTime)); }}
+              onClick={() => {
+                setStartTime(preset?.openShiftStart ?? storeOpenTime);
+                setEndTime(preset?.openShiftEnd ?? addHalfDay(storeOpenTime, storeCloseTime));
+              }}
               className="text-[10px] px-1.5 py-0.5 rounded bg-muted hover:bg-muted/80 text-muted-foreground"
             >
               Open shift
             </button>
             <button
               type="button"
-              onClick={() => { setStartTime(addHalfDay(storeOpenTime, storeCloseTime)); setEndTime(storeCloseTime); }}
+              onClick={() => {
+                setStartTime(preset?.closeShiftStart ?? addHalfDay(storeOpenTime, storeCloseTime));
+                setEndTime(preset?.closeShiftEnd ?? storeCloseTime);
+              }}
               className="text-[10px] px-1.5 py-0.5 rounded bg-muted hover:bg-muted/80 text-muted-foreground"
             >
               Close shift
@@ -559,6 +569,7 @@ export function AdminRosters() {
   });
 
   const { data: stores, isLoading: storesLoading } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
+  const { data: shiftPresets } = useQuery<ShiftPreset[]>({ queryKey: ["/api/shift-presets"] });
 
   const activeStores = stores?.filter((s) => s.active && !s.isExternal) ?? [];
 
@@ -569,6 +580,7 @@ export function AdminRosters() {
   ];
 
   const selectedStoreObj = activeStores.find((s) => s.id === selectedStore);
+  const selectedStorePreset = (shiftPresets ?? []).find((p) => p.storeId === selectedStore);
 
   // Brand accent colour for the currently selected store
   const accentHex = STORE_COLORS[selectedStoreObj?.name ?? ""] ?? "";
@@ -1027,6 +1039,7 @@ export function AdminRosters() {
                                 roster={roster}
                                 storeOpenTime={selectedStoreObj?.openTime ?? "06:00"}
                                 storeCloseTime={selectedStoreObj?.closeTime ?? "22:00"}
+                                preset={selectedStorePreset}
                                 onSave={(start, end) =>
                                   upsertMutation.mutate({ employeeId: emp.id, date: d, startTime: start, endTime: end })
                                 }
@@ -1104,6 +1117,7 @@ export function AdminRosters() {
                         roster={roster}
                         storeOpenTime={selectedStoreObj?.openTime ?? "06:00"}
                         storeCloseTime={selectedStoreObj?.closeTime ?? "22:00"}
+                        preset={selectedStorePreset}
                         onSave={(start, end) =>
                           upsertMutation.mutate({ employeeId: emp.id, date: selectedDay, startTime: start, endTime: end })
                         }
