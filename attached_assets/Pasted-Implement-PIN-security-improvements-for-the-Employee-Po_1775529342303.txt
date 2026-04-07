@@ -1,0 +1,184 @@
+Implement PIN security improvements for the Employee Portal.
+Current state: PIN is stored as plain text in employees.pin column,
+compared directly with String(pin) in routes.ts.
+
+═══════════════════════════════════════════════════════
+PART 1 — bcrypt PIN HASHING
+═══════════════════════════════════════════════════════
+
+Install bcrypt if not already installed:
+  npm install bcryptjs
+  npm install --save-dev @types/bcryptjs
+
+1. server/routes.ts — PIN VERIFICATION (all 3 login routes):
+   Find these routes and update PIN comparison logic:
+   - POST /api/mobile/auth (line ~3518 legacy login)
+   - POST /api/portal/login
+   - POST /api/portal/login-pin
+
+   BEFORE: if (emp.pin !== String(pin))
+   AFTER:
+     import bcrypt from "bcryptjs";
+     
+     // Support both hashed and plain text PINs during migration
+     let pinValid = false;
+     if (emp.pin) {
+       if (emp.pin.startsWith("$2")) {
+         // Already hashed — use bcrypt compare
+         pinValid = await bcrypt.compare(String(pin), emp.pin);
+       } else {
+         // Plain text — direct compare (legacy)
+         pinValid = emp.pin === String(pin);
+         // Auto-upgrade to hashed on successful login
+         if (pinValid) {
+           const hashed = await bcrypt.hash(String(pin), 10);
+           await storage.updateEmployee(emp.id, { pin: hashed });
+         }
+       }
+     }
+     if (!pinValid) return res.status(401).json({ error: "Invalid PIN" });
+
+   This migration approach means:
+   - Existing plain text PINs continue to work immediately
+   - Each PIN is automatically hashed on first successful login
+   - No manual DB migration needed
+   - New PINs set via admin are always hashed (see Part 1.2)
+
+2. server/routes.ts — PIN SAVING (when admin sets/updates PIN):
+   Find PUT /api/employees/:id and anywhere pin is saved.
+   Before saving, hash the PIN if it's a 4-digit plain value:
+   
+     if (req.body.pin && !req.body.pin.startsWith("$2")) {
+       req.body.pin = await bcrypt.hash(String(req.body.pin), 10);
+     }
+
+3. server/routes.ts — PIN CHANGE endpoint (new, for Part 3):
+   POST /api/portal/change-pin
+   Body: { employeeId, currentPin, newPin }
+   - Verify currentPin against stored hash (same logic as login)
+   - Hash newPin with bcrypt.hash(newPin, 10)
+   - Update employee record
+   - Return { success: true }
+
+═══════════════════════════════════════════════════════
+PART 2 — PIN ATTEMPT RATE LIMITING (5 attempts = lockout)
+═══════════════════════════════════════════════════════
+
+Implement in-memory attempt tracking (no DB changes needed).
+
+Add this at the top of server/routes.ts (after imports):
+
+  const pinAttempts = new Map<string, { count: number; lockedUntil: number | null }>();
+  const MAX_PIN_ATTEMPTS = 5;
+  const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+
+Create a helper function:
+
+  function checkPinRateLimit(identifier: string): { allowed: boolean; minutesLeft?: number } {
+    const now = Date.now();
+    const record = pinAttempts.get(identifier);
+    if (!record) return { allowed: true };
+    if (record.lockedUntil && now < record.lockedUntil) {
+      const minutesLeft = Math.ceil((record.lockedUntil - now) / 60000);
+      return { allowed: false, minutesLeft };
+    }
+    if (record.lockedUntil && now >= record.lockedUntil) {
+      pinAttempts.delete(identifier);
+      return { allowed: true };
+    }
+    return { allowed: true };
+  }
+
+  function recordPinFailure(identifier: string): void {
+    const now = Date.now();
+    const record = pinAttempts.get(identifier) ?? { count: 0, lockedUntil: null };
+    record.count += 1;
+    if (record.count >= MAX_PIN_ATTEMPTS) {
+      record.lockedUntil = now + LOCKOUT_DURATION_MS;
+    }
+    pinAttempts.set(identifier, record);
+  }
+
+  function clearPinAttempts(identifier: string): void {
+    pinAttempts.delete(identifier);
+  }
+
+Apply to all 3 login routes:
+  - identifier = req.body.pin (for login-pin route)
+  - identifier = req.body.employeeId (for portal/login route)
+  - identifier = req.body.pin (for mobile/auth route)
+
+  At the START of each login handler, before PIN check:
+    const limitCheck = checkPinRateLimit(identifier);
+    if (!limitCheck.allowed) {
+      return res.status(429).json({
+        error: `Too many failed attempts. Try again in ${limitCheck.minutesLeft} minutes.`
+      });
+    }
+
+  On PIN FAILURE: call recordPinFailure(identifier)
+  On PIN SUCCESS: call clearPinAttempts(identifier)
+
+Frontend (EmployeePortal.tsx) — PinLogin component:
+  The error display already handles string errors.
+  Just make sure the error message from the API is shown as-is.
+  No UI changes needed — the error text will read:
+  "Too many failed attempts. Try again in X minutes."
+
+═══════════════════════════════════════════════════════
+PART 3 — PIN CHANGE FEATURE (Settings tab)
+═══════════════════════════════════════════════════════
+
+In client/src/pages/mobile/EmployeePortal.tsx:
+
+Find the "Change PIN" button in SettingsTab — currently has empty onClick={() => {}}.
+Replace with a full PIN change flow using a Drawer.
+
+Create ChangePinDrawer component:
+
+DRAWER CONTENT:
+  Title: "Change PIN"
+  Subtitle: "Enter your current PIN, then choose a new 4-digit PIN"
+
+  Step 1 — Current PIN:
+    - Numpad (same style as login numpad)
+    - 4 PIN dots display
+    - Label: "Enter your current PIN"
+
+  Step 2 — New PIN (shown after current PIN entered):
+    - Same numpad
+    - Label: "Enter your new PIN"
+    - Cannot be same as current PIN
+
+  Step 3 — Confirm new PIN:
+    - Same numpad
+    - Label: "Confirm your new PIN"
+    - Must match Step 2
+
+  On confirm match:
+    - Call POST /api/portal/change-pin with { employeeId: session.id, currentPin, newPin }
+    - On success: show toast "PIN changed successfully", close drawer
+    - On error (wrong current PIN): show error "Current PIN is incorrect"
+    - On error (other): show generic error
+
+Wire up:
+  - "Change PIN" button onClick → open ChangePinDrawer
+  - Pass session.id as employeeId prop
+
+═══════════════════════════════════════════════════════
+EXECUTION ORDER
+═══════════════════════════════════════════════════════
+1. Install bcryptjs
+2. server/routes.ts — add bcrypt import + rate limiting helpers
+3. server/routes.ts — update all 3 login routes (bcrypt + rate limit)
+4. server/routes.ts — update PIN save on employee update
+5. server/routes.ts — add POST /api/portal/change-pin
+6. client/src/pages/mobile/EmployeePortal.tsx — ChangePinDrawer + wire up
+
+DO NOT modify: vite.ts, drizzle.config.ts, package.json
+
+After completing, run the full POST-TASK CHECKLIST and report results.
+Update plan.md:
+- Section 3.12: document PIN bcrypt hashing, rate limiting, change PIN feature
+- Section 4 Employee Portal: add POST /api/portal/change-pin endpoint
+- Section 5: add convention — "PIN storage: always bcrypt hashed (bcryptjs, cost 10). Never store plain text PIN."

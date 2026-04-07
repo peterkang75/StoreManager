@@ -374,6 +374,10 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Interview form**: `/m/interview` — captures candidate interview data on mobile device.
 - Session stored in localStorage as `ep_session_v4` (includes `selfieUrl` for avatar display, `role` field as of dynamic unit update).
 - **Admin Dashboard shortcut**: If the logged-in employee's role is `"Owner"` or `"Manager"`, a small "Admin Dashboard" button (outline, sm, LayoutDashboard icon) is shown below the employee name in the HomeTab greeting section. Tapping navigates to `/admin`. Role is returned by `POST /api/portal/login-pin` and stored in the session object. Regular `"Employee"` role sees no button.
+- **PIN Security** (implemented):
+  - **bcrypt hashing**: PINs are hashed with `bcryptjs` (cost 10) before storage. All login routes support migration — plain-text PINs still work on first login and are auto-upgraded to bcrypt hash on success. New PINs set via admin (`PUT /api/employees/:id`) are always hashed immediately.
+  - **Rate limiting**: 5 failed PIN attempts triggers a 15-minute lockout (in-memory, per identifier). Applied to all 3 login routes. Returns HTTP 429 with `"Too many failed attempts. Try again in X minutes."` message displayed in the portal error UI.
+  - **Change PIN feature**: SettingsTab "Change PIN" button opens a `ChangePinDrawer` (Drawer component). Three-step numpad flow: (1) enter current PIN, (2) enter new PIN, (3) confirm new PIN. Validation: new PIN must differ from current, confirm must match new. Calls `POST /api/portal/change-pin`. On success shows toast and closes drawer.
 
 ---
 
@@ -691,7 +695,8 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 |---|---|---|
 | POST | `/api/mobile/auth` | Validate employee by store + name |
 | POST | `/api/portal/login` | Portal login (returns session) |
-| POST | `/api/portal/login-pin` | Portal PIN login — returns `id`, `nickname`, `firstName`, `storeId`, `selfieUrl`, `role` |
+| POST | `/api/portal/login-pin` | Portal PIN login — returns `id`, `nickname`, `firstName`, `storeId`, `selfieUrl`, `role`. Rate-limited (5 attempts / 15 min). Auto-upgrades plain-text PIN to bcrypt on success. |
+| POST | `/api/portal/change-pin` | Employee changes their own PIN. Body: `{ employeeId, currentPin, newPin }`. Verifies current PIN (bcrypt-aware), hashes and saves new PIN. |
 | GET | `/api/portal/employees` | Employees for a store (for login picker) |
 | GET | `/api/portal/stores` | Active stores for portal |
 | GET | `/api/portal/today` | Today's shift for employee |
@@ -721,6 +726,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **`vite.ts`, `drizzle.config.ts`, `package.json`**: never modify these files.
 - **Multi-store salary**: `salaryDistribute` field controls how fixed salary is split across multiple store assignments.
 - **Store filter for roster/portal**: only stores where `name.toLowerCase()` includes `"sushi"` or `"sandwich"` show in roster builder and employee portal.
+- **PIN storage**: always `bcryptjs` hashed (cost 10). Never store plain text. During migration, existing plain-text PINs continue to work and are auto-upgraded to bcrypt hash on first successful login. The `verifyPin(inputPin, storedPin)` helper in `server/routes.ts` handles both formats transparently.
 
 ---
 

@@ -2671,10 +2671,162 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
   );
 }
 
+// ── Change PIN Drawer ──────────────────────────────────────────────────────────
+
+type ChangePinStep = "current" | "new" | "confirm";
+
+function ChangePinDrawer({ open, onClose, employeeId }: { open: boolean; onClose: () => void; employeeId: string }) {
+  const { toast } = useToast();
+  const [step, setStep] = useState<ChangePinStep>("current");
+  const [currentPin, setCurrentPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [error, setError] = useState("");
+
+  const resetAll = () => {
+    setStep("current");
+    setCurrentPin("");
+    setNewPin("");
+    setConfirmPin("");
+    setError("");
+  };
+
+  const handleClose = () => { resetAll(); onClose(); };
+
+  const changePinMutation = useMutation({
+    mutationFn: async ({ current, next }: { current: string; next: string }) => {
+      const res = await fetch("/api/portal/change-pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeId, currentPin: current, newPin: next }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? "Failed to change PIN"); }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "PIN changed successfully" });
+      handleClose();
+    },
+    onError: (err: Error) => {
+      setError(err.message);
+      resetAll();
+    },
+  });
+
+  const activePin = step === "current" ? currentPin : step === "new" ? newPin : confirmPin;
+
+  const handleDigit = (d: string) => {
+    if (activePin.length >= 4 || changePinMutation.isPending) return;
+    setError("");
+    if (step === "current") {
+      const next = currentPin + d;
+      setCurrentPin(next);
+      if (next.length === 4) setTimeout(() => setStep("new"), 200);
+    } else if (step === "new") {
+      const next = newPin + d;
+      setNewPin(next);
+      if (next.length === 4) setTimeout(() => setStep("confirm"), 200);
+    } else {
+      const next = confirmPin + d;
+      setConfirmPin(next);
+      if (next.length === 4) {
+        setTimeout(() => {
+          if (next !== newPin) {
+            setError("PINs do not match. Please try again.");
+            setNewPin("");
+            setConfirmPin("");
+            setTimeout(() => setStep("new"), 100);
+          } else if (next === currentPin) {
+            setError("New PIN must be different from current PIN.");
+            setNewPin("");
+            setConfirmPin("");
+            setTimeout(() => setStep("new"), 100);
+          } else {
+            changePinMutation.mutate({ current: currentPin, next });
+          }
+        }, 80);
+      }
+    }
+  };
+
+  const handleDel = () => {
+    setError("");
+    if (step === "current") setCurrentPin(p => p.slice(0, -1));
+    else if (step === "new") setNewPin(p => p.slice(0, -1));
+    else setConfirmPin(p => p.slice(0, -1));
+  };
+
+  const stepLabel: Record<ChangePinStep, string> = {
+    current: "Enter your current PIN",
+    new: "Enter your new 4-digit PIN",
+    confirm: "Confirm your new PIN",
+  };
+
+  return (
+    <Drawer open={open} onOpenChange={o => { if (!o) handleClose(); }}>
+      <DrawerContent className="px-4 max-w-md mx-auto">
+        <DrawerHeader className="pb-2">
+          <DrawerTitle>Change PIN</DrawerTitle>
+          <p className="text-sm text-muted-foreground">Enter your current PIN, then choose a new 4-digit PIN</p>
+        </DrawerHeader>
+
+        <div className="flex flex-col items-center gap-5 py-4">
+          <p className="text-sm font-medium text-center">{stepLabel[step]}</p>
+
+          {/* PIN dots */}
+          <div className="flex gap-6">
+            {[0,1,2,3].map(i => (
+              <div key={i} className={`h-4 w-4 rounded-full border-2 transition-all duration-150 ${
+                i < activePin.length ? "bg-foreground border-foreground scale-110" : "border-muted-foreground/50"
+              }`} />
+            ))}
+          </div>
+
+          {/* Error / loading */}
+          <div className="w-full" style={{ minHeight: "36px" }}>
+            {error && (
+              <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 rounded-md px-4 py-2.5">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+            {changePinMutation.isPending && (
+              <div className="flex justify-center">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            )}
+          </div>
+
+          {/* Numpad */}
+          <div className="grid grid-cols-3 gap-3 w-full max-w-xs">
+            {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((key, idx) => (
+              <button
+                key={idx} type="button"
+                disabled={changePinMutation.isPending || key === ""}
+                data-testid={key === "⌫" ? "changepin-delete" : key ? `changepin-digit-${key}` : undefined}
+                className={`h-[64px] rounded-2xl text-2xl font-semibold transition-all select-none ${
+                  key === "" ? "invisible pointer-events-none" :
+                  "bg-muted hover-elevate active-elevate-2"
+                } ${key === "⌫" ? "text-muted-foreground" : "text-foreground"}`}
+                onClick={() => key === "⌫" ? handleDel() : handleDigit(key)}
+              >{key}</button>
+            ))}
+          </div>
+        </div>
+
+        <DrawerFooter className="pb-6">
+          <Button variant="outline" onClick={handleClose} data-testid="button-changepin-cancel">Cancel</Button>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
+  );
+}
+
 // ── Tab: Settings ─────────────────────────────────────────────────────────────
 
 function SettingsTab({ session, onLogout, onEditProfile }: { session: Session; onLogout: () => void; onEditProfile: () => void }) {
   const displayName = session.nickname || session.firstName;
+  const [changePinOpen, setChangePinOpen] = useState(false);
 
   return (
     <div className="flex flex-col gap-5 px-4 py-5">
@@ -2732,7 +2884,7 @@ function SettingsTab({ session, onLogout, onEditProfile }: { session: Session; o
               type="button"
               data-testid="button-change-pin"
               className="w-full flex items-center gap-4 px-4 py-4 hover-elevate active-elevate-2 rounded-b-md text-left"
-              onClick={() => {}}
+              onClick={() => setChangePinOpen(true)}
             >
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted shrink-0">
                 <KeyRound className="h-5 w-5 text-muted-foreground" />
@@ -2759,6 +2911,12 @@ function SettingsTab({ session, onLogout, onEditProfile }: { session: Session; o
           Log Out
         </Button>
       </div>
+
+      <ChangePinDrawer
+        open={changePinOpen}
+        onClose={() => setChangePinOpen(false)}
+        employeeId={session.id}
+      />
     </div>
   );
 }

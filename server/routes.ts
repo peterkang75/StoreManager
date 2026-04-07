@@ -27,6 +27,50 @@ import {
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import bcrypt from "bcryptjs";
+
+// ── PIN rate limiting (in-memory) ─────────────────────────────────────────────
+const pinAttempts = new Map<string, { count: number; lockedUntil: number | null }>();
+const MAX_PIN_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+
+function checkPinRateLimit(identifier: string): { allowed: boolean; minutesLeft?: number } {
+  const now = Date.now();
+  const record = pinAttempts.get(identifier);
+  if (!record) return { allowed: true };
+  if (record.lockedUntil && now < record.lockedUntil) {
+    const minutesLeft = Math.ceil((record.lockedUntil - now) / 60000);
+    return { allowed: false, minutesLeft };
+  }
+  if (record.lockedUntil && now >= record.lockedUntil) {
+    pinAttempts.delete(identifier);
+    return { allowed: true };
+  }
+  return { allowed: true };
+}
+
+function recordPinFailure(identifier: string): void {
+  const now = Date.now();
+  const record = pinAttempts.get(identifier) ?? { count: 0, lockedUntil: null };
+  record.count += 1;
+  if (record.count >= MAX_PIN_ATTEMPTS) {
+    record.lockedUntil = now + LOCKOUT_DURATION_MS;
+  }
+  pinAttempts.set(identifier, record);
+}
+
+function clearPinAttempts(identifier: string): void {
+  pinAttempts.delete(identifier);
+}
+
+// Helper: verify a PIN against stored value (supports plain-text migration → bcrypt)
+async function verifyPin(inputPin: string, storedPin: string | null | undefined): Promise<boolean> {
+  if (!storedPin) return false;
+  if (storedPin.startsWith("$2")) {
+    return bcrypt.compare(inputPin, storedPin);
+  }
+  return storedPin === inputPin;
+}
 
 // ── HTML → plain text (strips <style>/<script> blocks before tag removal) ────
 function htmlToPlainText(html: string): string {
@@ -536,11 +580,27 @@ export async function registerRoutes(
       if (!pin || typeof pin !== "string" || !/^\d{4}$/.test(pin)) {
         return res.status(400).json({ error: "Valid 4-digit PIN required" });
       }
+      // Rate limit by PIN
+      const mobileLimit = checkPinRateLimit(`mobile:${pin}`);
+      if (!mobileLimit.allowed) {
+        return res.status(429).json({ error: `Too many failed attempts. Try again in ${mobileLimit.minutesLeft} minutes.` });
+      }
+
       const employees = await storage.getEmployees({ status: "ACTIVE" });
-      const match = employees.find((e: any) => e.pin === pin);
+      let match: (typeof employees)[0] | undefined;
+      for (const e of employees) {
+        if (await verifyPin(pin, e.pin)) { match = e; break; }
+      }
       if (!match) {
+        recordPinFailure(`mobile:${pin}`);
         return res.status(401).json({ error: "PIN not recognised" });
       }
+      // Auto-upgrade plain-text PIN to bcrypt on successful login
+      if (match.pin && !match.pin.startsWith("$2")) {
+        const hashed = await bcrypt.hash(pin, 10);
+        await storage.updateEmployee(match.id, { pin: hashed });
+      }
+      clearPinAttempts(`mobile:${pin}`);
       const assignments = await storage.getEmployeeStoreAssignments({ employeeId: match.id });
       const storeIds = assignments.map((a: any) => a.storeId);
       res.json({
@@ -595,6 +655,10 @@ export async function registerRoutes(
   app.put("/api/employees/:id", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
+      // Hash PIN if a new plain-text value is being set by admin
+      if (req.body.pin && !req.body.pin.startsWith("$2")) {
+        req.body.pin = await bcrypt.hash(String(req.body.pin), 10);
+      }
       const employee = await storage.updateEmployee(id, req.body);
       if (!employee) {
         return res.status(404).json({ error: "Employee not found" });
@@ -3513,9 +3577,22 @@ export async function registerRoutes(
     try {
       const { employeeId, pin } = req.body;
       if (!employeeId || !pin) return res.status(400).json({ error: "employeeId and pin required" });
+      const limitCheck = checkPinRateLimit(`empid:${employeeId}`);
+      if (!limitCheck.allowed) {
+        return res.status(429).json({ error: `Too many failed attempts. Try again in ${limitCheck.minutesLeft} minutes.` });
+      }
       const emp = await storage.getEmployee(employeeId);
       if (!emp) return res.status(404).json({ error: "Employee not found" });
-      if (emp.pin !== String(pin)) return res.status(401).json({ error: "Invalid PIN" });
+      const pinValid = await verifyPin(String(pin), emp.pin);
+      if (!pinValid) {
+        recordPinFailure(`empid:${employeeId}`);
+        return res.status(401).json({ error: "Invalid PIN" });
+      }
+      if (emp.pin && !emp.pin.startsWith("$2")) {
+        const hashed = await bcrypt.hash(String(pin), 10);
+        await storage.updateEmployee(emp.id, { pin: hashed });
+      }
+      clearPinAttempts(`empid:${employeeId}`);
       res.json({ id: emp.id, nickname: emp.nickname, firstName: emp.firstName, storeId: emp.storeId, selfieUrl: emp.selfieUrl ?? null });
     } catch (err) {
       res.status(500).json({ error: "Login failed" });
@@ -3530,23 +3607,73 @@ export async function registerRoutes(
       if (!pin || String(pin).length !== 4) return res.status(400).json({ error: "4-digit PIN required" });
       const pinStr = String(pin);
 
-      // 1. Try exact custom PIN match first
-      let emp = await storage.getEmployeeByPin(pinStr);
+      // Rate limit by PIN
+      const loginPinLimit = checkPinRateLimit(`loginpin:${pinStr}`);
+      if (!loginPinLimit.allowed) {
+        return res.status(429).json({ error: `Too many failed attempts. Try again in ${loginPinLimit.minutesLeft} minutes.` });
+      }
+
+      const allActive = await storage.getEmployees({ status: "ACTIVE" });
+
+      // 1. Try PIN match (supports both plain-text and bcrypt-hashed PINs)
+      let emp: (typeof allActive)[0] | undefined;
+      for (const e of allActive) {
+        if (!e.pin) continue;
+        if (await verifyPin(pinStr, e.pin)) { emp = e; break; }
+      }
 
       // 2. Fallback: match last 4 digits of phone for employees with no PIN set
       if (!emp) {
-        const allActive = await storage.getEmployees({ status: "ACTIVE" });
         emp = allActive.find(e => {
           if (e.pin) return false; // has a custom PIN — must use that
-          const phone = (e.phone ?? "").replace(/\D/g, ""); // digits only
+          const phone = (e.phone ?? "").replace(/\D/g, "");
           return phone.length >= 4 && phone.slice(-4) === pinStr;
         });
       }
 
-      if (!emp) return res.status(401).json({ error: "Invalid PIN" });
+      if (!emp) {
+        recordPinFailure(`loginpin:${pinStr}`);
+        return res.status(401).json({ error: "Invalid PIN" });
+      }
+
+      // Auto-upgrade plain-text PIN to bcrypt on successful login
+      if (emp.pin && !emp.pin.startsWith("$2")) {
+        const hashed = await bcrypt.hash(pinStr, 10);
+        await storage.updateEmployee(emp.id, { pin: hashed });
+      }
+      clearPinAttempts(`loginpin:${pinStr}`);
       res.json({ id: emp.id, nickname: emp.nickname, firstName: emp.firstName, storeId: emp.storeId, selfieUrl: emp.selfieUrl ?? null, role: emp.role ?? null });
     } catch (err) {
       res.status(500).json({ error: "Login failed" });
+    }
+  });
+
+  // POST /api/portal/change-pin — employee changes their own PIN
+  app.post("/api/portal/change-pin", async (req: Request, res: Response) => {
+    try {
+      const { employeeId, currentPin, newPin } = req.body;
+      if (!employeeId || !currentPin || !newPin) {
+        return res.status(400).json({ error: "employeeId, currentPin, and newPin required" });
+      }
+      if (String(newPin).length !== 4 || !/^\d{4}$/.test(String(newPin))) {
+        return res.status(400).json({ error: "New PIN must be exactly 4 digits" });
+      }
+      const emp = await storage.getEmployee(employeeId);
+      if (!emp) return res.status(404).json({ error: "Employee not found" });
+
+      // Verify current PIN (supports plain-text + bcrypt)
+      const currentValid = await verifyPin(String(currentPin), emp.pin);
+      if (!currentValid) return res.status(401).json({ error: "Current PIN is incorrect" });
+
+      if (String(currentPin) === String(newPin)) {
+        return res.status(400).json({ error: "New PIN must be different from current PIN" });
+      }
+
+      const hashed = await bcrypt.hash(String(newPin), 10);
+      await storage.updateEmployee(emp.id, { pin: hashed });
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to change PIN" });
     }
   });
 
