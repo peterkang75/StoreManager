@@ -63,7 +63,7 @@ import {
   CheckCheck,
   Search,
 } from "lucide-react";
-import type { Notice, ShiftTimesheet, ShoppingItem, ActiveShoppingListItem, StorageItem, ActiveStorageListItem } from "@shared/schema";
+import type { Notice, ShiftTimesheet, ShoppingItem, ActiveShoppingListItem, StorageItem, ActiveStorageListItem, StorageUnit } from "@shared/schema";
 import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "@shared/payrollCycle";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -1010,8 +1010,6 @@ const STORAGE_CATEGORIES = [
   "Sauces & Condiments", "Packaging", "Cleaning", "Other",
 ];
 
-const UNIT_OPTIONS = ["ea", "pack", "box", "ctn"] as const;
-
 function StorageListView({ storeId, employeeName }: { storeId?: string | null; employeeName: string }) {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -1025,6 +1023,7 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
 
   const catalogQK = ["/api/storage/items", storeId ?? "all"];
   const activeQK = ["/api/storage/active", storeId ?? "all"];
+  const { data: storageUnits = [] } = useQuery<StorageUnit[]>({ queryKey: ["/api/storage/units"] });
 
   const { data: catalog = [], isLoading: catalogLoading } = useQuery<StorageItem[]>({
     queryKey: catalogQK,
@@ -1278,8 +1277,8 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
                     <SelectValue placeholder="Unit…" />
                   </SelectTrigger>
                   <SelectContent>
-                    {UNIT_OPTIONS.map(u => (
-                      <SelectItem key={u} value={u}>{u}</SelectItem>
+                    {storageUnits.map(u => (
+                      <SelectItem key={u.id} value={u.name}>{u.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

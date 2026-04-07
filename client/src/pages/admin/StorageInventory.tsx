@@ -30,15 +30,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, Package, RefreshCw } from "lucide-react";
-import type { Store, StorageItem } from "@shared/schema";
+import { Plus, Pencil, Trash2, Package, RefreshCw, ChevronDown, ChevronUp, Settings2 } from "lucide-react";
+import type { Store, StorageItem, StorageUnit } from "@shared/schema";
 
 const STORAGE_CATEGORIES = [
   "Dry Goods", "Refrigerated", "Frozen", "Produce", "Beverages",
   "Sauces & Condiments", "Packaging", "Cleaning", "Other",
 ];
-
-const UNIT_OPTIONS = ["ea", "pack", "box", "ctn"] as const;
 
 const ALL_STORES = "__all__";
 
@@ -54,7 +52,14 @@ export default function StorageInventory() {
   const [formUnit, setFormUnit] = useState<string>("ea");
   const [formStoreId, setFormStoreId] = useState<string>(ALL_STORES);
 
+  // Manage Units state
+  const [manageUnitsOpen, setManageUnitsOpen] = useState(false);
+  const [newUnitName, setNewUnitName] = useState("");
+
   const { data: stores = [] } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
+
+  const unitsQK = ["/api/storage/units"];
+  const { data: units = [] } = useQuery<StorageUnit[]>({ queryKey: unitsQK });
 
   const storageQK = ["/api/storage/items", selectedStoreId];
   const { data: items = [], isLoading } = useQuery<StorageItem[]>({
@@ -87,6 +92,27 @@ export default function StorageInventory() {
     onSuccess: () => { invalidate(); setDeleteConfirmId(null); toast({ title: "Item deleted" }); },
     onError: () => toast({ title: "Failed to delete item", variant: "destructive" }),
   });
+
+  const createUnitMutation = useMutation({
+    mutationFn: (name: string) => apiRequest("POST", "/api/storage/units", { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: unitsQK });
+      setNewUnitName("");
+      toast({ title: "Unit added" });
+    },
+    onError: () => toast({ title: "Unit already exists or failed to add", variant: "destructive" }),
+  });
+
+  const deleteUnitMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/storage/units/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: unitsQK });
+      toast({ title: "Unit deleted" });
+    },
+    onError: () => toast({ title: "Unit is in use — remove it from all items first", variant: "destructive" }),
+  });
+
+  const usedUnitNames = new Set(items.map(i => i.unit).filter(Boolean));
 
   function openCreate() {
     setEditItem(null);
@@ -170,12 +196,82 @@ export default function StorageInventory() {
                 ))}
               </SelectContent>
             </Select>
+            <Button
+              variant="outline"
+              onClick={() => setManageUnitsOpen(o => !o)}
+              data-testid="button-manage-units"
+            >
+              <Settings2 className="h-4 w-4 mr-1.5" />
+              Manage Units
+              {manageUnitsOpen ? <ChevronUp className="h-3.5 w-3.5 ml-1.5" /> : <ChevronDown className="h-3.5 w-3.5 ml-1.5" />}
+            </Button>
             <Button onClick={openCreate} data-testid="button-add-storage-item">
               <Plus className="h-4 w-4 mr-1.5" />
               Add Item
             </Button>
           </div>
         </div>
+
+        {/* Manage Units collapsible card */}
+        {manageUnitsOpen && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Settings2 className="h-4 w-4" />
+                Manage Units
+                <span className="text-xs font-normal text-muted-foreground">단위 관리</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2 mb-4">
+                {units.map(u => {
+                  const inUse = usedUnitNames.has(u.name);
+                  return (
+                    <div
+                      key={u.id}
+                      className="flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-sm"
+                      data-testid={`unit-chip-${u.id}`}
+                    >
+                      <span className="font-medium">{u.name}</span>
+                      {inUse && (
+                        <span className="text-xs text-muted-foreground">(in use)</span>
+                      )}
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="text-muted-foreground"
+                        disabled={deleteUnitMutation.isPending}
+                        onClick={() => deleteUnitMutation.mutate(u.id)}
+                        data-testid={`button-delete-unit-${u.id}`}
+                        title={inUse ? "Remove from all items first" : "Delete unit"}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="New unit name…"
+                  value={newUnitName}
+                  onChange={e => setNewUnitName(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && newUnitName.trim()) createUnitMutation.mutate(newUnitName.trim()); }}
+                  className="max-w-48"
+                  data-testid="input-new-unit-name"
+                />
+                <Button
+                  disabled={!newUnitName.trim() || createUnitMutation.isPending}
+                  onClick={() => createUnitMutation.mutate(newUnitName.trim())}
+                  data-testid="button-add-unit"
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Unit
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {isLoading && (
           <div className="flex items-center justify-center py-16">
@@ -296,8 +392,8 @@ export default function StorageInventory() {
                     <SelectValue placeholder="Unit…" />
                   </SelectTrigger>
                   <SelectContent>
-                    {UNIT_OPTIONS.map(u => (
-                      <SelectItem key={u} value={u}>{u}</SelectItem>
+                    {units.map(u => (
+                      <SelectItem key={u.id} value={u.name}>{u.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

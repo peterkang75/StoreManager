@@ -6391,6 +6391,45 @@ Rules:
     }
   });
 
+  // ── Storage Units ───────────────────────────────────────────────────────────
+
+  // GET /api/storage/units — list all units (seed defaults on first access)
+  app.get("/api/storage/units", async (req: Request, res: Response) => {
+    try {
+      await storage.seedStorageUnitsIfEmpty();
+      const units = await storage.getStorageUnits();
+      res.json(units);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch storage units" });
+    }
+  });
+
+  // POST /api/storage/units — create new unit
+  app.post("/api/storage/units", async (req: Request, res: Response) => {
+    try {
+      const { name } = req.body as { name?: string };
+      if (!name?.trim()) return res.status(400).json({ error: "name is required" });
+      const unit = await storage.createStorageUnit({ name: name.trim().toLowerCase() });
+      res.status(201).json(unit);
+    } catch (err: any) {
+      if (err?.code === "23505") return res.status(409).json({ error: "Unit already exists" });
+      res.status(500).json({ error: "Failed to create unit" });
+    }
+  });
+
+  // DELETE /api/storage/units/:id — delete unit if not in use
+  app.delete("/api/storage/units/:id", async (req: Request, res: Response) => {
+    try {
+      const id = Number(req.params.id);
+      const inUse = await storage.isStorageUnitInUse(id);
+      if (inUse) return res.status(409).json({ error: "Unit is in use by one or more items" });
+      await storage.deleteStorageUnit(id);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to delete unit" });
+    }
+  });
+
   // ── AI: Email Translate + Summarize ────────────────────────────────────────
   app.post("/api/ai/email-translate-summarize", async (req: Request, res: Response) => {
     try {

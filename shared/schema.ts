@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, date, integer, timestamp, real, uniqueIndex, jsonb, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, date, integer, timestamp, real, uniqueIndex, jsonb, primaryKey, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -737,3 +737,13 @@ export const activeStorageList = pgTable("active_storage_list", {
 export const insertActiveStorageListSchema = createInsertSchema(activeStorageList).omit({ id: true, addedAt: true });
 export type InsertActiveStorageList = z.infer<typeof insertActiveStorageListSchema>;
 export type ActiveStorageListItem = typeof activeStorageList.$inferSelect;
+
+export const storageUnits = pgTable("storage_units", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 50 }).notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertStorageUnitSchema = createInsertSchema(storageUnits).omit({ id: true, createdAt: true });
+export type InsertStorageUnit = z.infer<typeof insertStorageUnitSchema>;
+export type StorageUnit = typeof storageUnits.$inferSelect;

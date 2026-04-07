@@ -30,6 +30,7 @@ import {
   type ActiveShoppingListItem, type InsertActiveShoppingList,
   type StorageItem, type InsertStorageItem,
   type ActiveStorageListItem, type InsertActiveStorageList,
+  type StorageUnit, type InsertStorageUnit,
   stores, candidates, employees, employeeStoreAssignments, employeeOnboardingTokens, employeeDocuments,
   rosterPeriods, shifts, rosters, rosterPublications, timeLogs, timesheets, payrolls,
   dailyClosings, cashSalesDetails, dailyCloseForms, suppliers, supplierInvoices, supplierPayments,
@@ -38,7 +39,7 @@ import {
   type UniversalInboxItem, type InsertUniversalInbox,
   financialTransactions, shiftTimesheets, notices, intercompanySettlements, adminPermissions,
   shoppingItems, activeShoppingList,
-  storageItems, activeStorageList,
+  storageItems, activeStorageList, storageUnits,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import { db } from "./db";
@@ -218,6 +219,12 @@ export interface IStorage {
   addToActiveStorageList(entry: InsertActiveStorageList): Promise<ActiveStorageListItem>;
   removeFromActiveStorageList(id: number): Promise<void>;
   clearActiveStorageList(storeId?: string | null): Promise<void>;
+  // Storage Units
+  getStorageUnits(): Promise<StorageUnit[]>;
+  createStorageUnit(data: InsertStorageUnit): Promise<StorageUnit>;
+  deleteStorageUnit(id: number): Promise<void>;
+  isStorageUnitInUse(id: number): Promise<boolean>;
+  seedStorageUnitsIfEmpty(): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -1549,6 +1556,32 @@ export class MemStorage implements IStorage {
       if (!storeId || v.storeId === storeId) this._activeStorageList.delete(k);
     }
   }
+  // Storage Units (MemStorage)
+  private _storageUnits: Map<number, StorageUnit> = new Map();
+  private _storageUnitIdSeq = 1;
+  async getStorageUnits(): Promise<StorageUnit[]> {
+    return Array.from(this._storageUnits.values()).sort((a, b) => a.id - b.id);
+  }
+  async createStorageUnit(data: InsertStorageUnit): Promise<StorageUnit> {
+    const row: StorageUnit = { id: this._storageUnitIdSeq++, name: data.name, createdAt: new Date() };
+    this._storageUnits.set(row.id, row);
+    return row;
+  }
+  async deleteStorageUnit(id: number): Promise<void> {
+    this._storageUnits.delete(id);
+  }
+  async isStorageUnitInUse(id: number): Promise<boolean> {
+    const unit = this._storageUnits.get(id);
+    if (!unit) return false;
+    return Array.from(this._storageItems.values()).some(item => item.unit === unit.name);
+  }
+  async seedStorageUnitsIfEmpty(): Promise<void> {
+    if (this._storageUnits.size === 0) {
+      for (const name of ["ea", "pack", "box", "ctn"]) {
+        await this.createStorageUnit({ name });
+      }
+    }
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2575,6 +2608,34 @@ export class DatabaseStorage implements IStorage {
       await db.delete(activeStorageList).where(eq(activeStorageList.storeId, storeId));
     } else {
       await db.delete(activeStorageList);
+    }
+  }
+
+  // Storage Units (DatabaseStorage)
+  async getStorageUnits(): Promise<StorageUnit[]> {
+    return db.select().from(storageUnits).orderBy(asc(storageUnits.id));
+  }
+  async createStorageUnit(data: InsertStorageUnit): Promise<StorageUnit> {
+    const [row] = await db.insert(storageUnits).values(data).returning();
+    return row;
+  }
+  async deleteStorageUnit(id: number): Promise<void> {
+    const [unit] = await db.select().from(storageUnits).where(eq(storageUnits.id, id));
+    if (!unit) return;
+    await db.delete(storageUnits).where(eq(storageUnits.id, id));
+  }
+  async isStorageUnitInUse(id: number): Promise<boolean> {
+    const [unit] = await db.select().from(storageUnits).where(eq(storageUnits.id, id));
+    if (!unit) return false;
+    const items = await db.select().from(storageItems).where(eq(storageItems.unit, unit.name));
+    return items.length > 0;
+  }
+  async seedStorageUnitsIfEmpty(): Promise<void> {
+    const existing = await db.select().from(storageUnits);
+    if (existing.length === 0) {
+      for (const name of ["ea", "pack", "box", "ctn"]) {
+        await db.insert(storageUnits).values({ name }).onConflictDoNothing();
+      }
     }
   }
 }
