@@ -1408,7 +1408,7 @@ function HomeTab({ session }: { session: Session }) {
       <div>
         <p className="text-sm text-muted-foreground">Good {getGreeting()},</p>
         <h2 className="text-2xl font-bold" data-testid="text-employee-name">{displayName}</h2>
-        {(session.role === "Owner" || session.role === "Manager") && (
+        {(session.role?.toUpperCase() === "OWNER" || session.role?.toUpperCase() === "MANAGER") && (
           <div className="mt-2">
             <Button
               variant="outline"
