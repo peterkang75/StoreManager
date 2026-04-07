@@ -135,6 +135,10 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 | `timesheets` | `employeeId`, `storeId`, `periodStart`, `periodEnd`, `totalHours`, `status`, `managerId`, `approvedAt` | Period-level timesheet aggregates |
 | `shift_presets` | `id`, `storeId` (unique FK), `fullDayStart`, `fullDayEnd`, `openShiftStart`, `openShiftEnd`, `closeShiftStart`, `closeShiftEnd` | Per-store preset times for the 3 fixed quick-fill buttons (Full Day / Open Shift / Close Shift). One row per store; upserted on save. |
 | `shift_preset_buttons` | `id` (serial PK), `storeId` (FK → stores), `name`, `startTime`, `endTime`, `sortOrder` | User-defined custom quick-fill buttons per store (e.g. "Full Day 2"). Unlimited per store. Displayed in CellEditor + Generate Shifts dialog alongside the 3 fixed presets. |
+| `store_trading_hours` | `id` (serial PK), `storeId` (FK), `dayOfWeek` (varchar 3: "mon"–"sun"), `openTime`, `closeTime`, `isClosed` | Per-store, per-day-of-week trading hours. Composite unique index on `(storeId, dayOfWeek)`. Upserted on save. |
+| `school_holidays` | `id` (serial PK), `name`, `startDate`, `endDate`, `createdAt` | Global school holiday periods (~4 per year, Australian VIC). Not per-store. |
+| `public_holidays` | `id` (serial PK), `name`, `date`, `storeClosures` (jsonb: `{ storeId: boolean }`), `createdAt` | Australian public holidays. Each store's closure status stored in JSON map. Assumed open unless explicitly marked closed. |
+| `store_recommended_hours` | `storeId` (PK, FK → stores), `termWeeklyHours` (real), `holidayWeeklyHours` (real), `updatedAt` | Per-store recommended weekly work hours during school term vs school holiday periods. |
 
 ### 2.4 Payroll & Finance
 
@@ -529,6 +533,40 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - Button added to toolbar ("Generate Shifts") next to "Copy Prev Week".
 - On success: invalidates roster query cache + shows toast with created/skipped counts.
 
+### 3.19 Store Settings — Admin Settings ✅ COMPLETE
+
+**Feature**: Settings → Store Settings (`/admin/settings/store-config`) — 4-tab page for configuring store operational data: trading hours, school holiday periods, public holidays, and recommended weekly work hours.
+
+**DB** (4 new tables, `db:push` run):
+- `store_trading_hours` — per-store, per-day trading hours with upsert on `(storeId, dayOfWeek)`.
+- `school_holidays` — global school holiday periods (name, startDate, endDate). ~4 per year.
+- `public_holidays` — public holiday dates with per-store `storeClosures` JSON map.
+- `store_recommended_hours` — per-store term/holiday recommended weekly hours. PK = `storeId`.
+
+**Storage** (`server/storage.ts`): All methods added to `IStorage`, `MemStorage` (stubs), and `DatabaseStorage` (real implementations):
+- Trading hours: `getStoreTradingHours(storeId)`, `upsertStoreTradingHours(data)`
+- School holidays: `getSchoolHolidays()`, `createSchoolHoliday()`, `updateSchoolHoliday()`, `deleteSchoolHoliday()`
+- Public holidays: `getPublicHolidays()`, `createPublicHoliday()`, `updatePublicHoliday()`, `deletePublicHoliday()`
+- Recommended hours: `getStoreRecommendedHours()`, `upsertStoreRecommendedHours(data)`
+
+**API** (`server/routes.ts`) — all under `/api/store-config/`:
+- `GET/PUT /api/store-config/trading-hours` — per-store day-level upsert
+- `GET/POST/PUT/DELETE /api/store-config/school-holidays` and `/:id`
+- `GET/POST/PUT/DELETE /api/store-config/public-holidays` and `/:id`
+- `GET/PUT /api/store-config/recommended-hours`
+
+**Frontend** (`client/src/pages/admin/StoreConfig.tsx`):
+- **Tab 1 — Trading Hours**: Sushi / Sandwich store selector (buttons). Per-day row with isClosed toggle + open/close time selects (30-min slots). Save button appears on dirty rows only.
+- **Tab 2 — School Holidays**: Scrollable list of periods. Add / Edit (dialog with name + date range) / Delete (confirm alert). Sorted by startDate.
+- **Tab 3 — Public Holidays**: Table with holiday name, date, and Closed/Open badge per roster-enabled store. Add / Edit (dialog with name, date, per-store closure switches) / Delete. Sorted by date.
+- **Tab 4 — Recommended Hours**: Card per store (Sushi / Sandwich). Two number inputs: Term weekly hours + Holiday weekly hours. Save per store, disabled until changed.
+
+**Sidebar re-structure** (`client/src/components/layouts/AdminLayout.tsx`):
+- Settings items are no longer listed as flat nav items in the sidebar.
+- A single "Settings" `SidebarMenuButton` using `Collapsible` + `CollapsibleTrigger` is shown under a "System" group (ADMIN only).
+- Expanding "Settings" reveals a `SidebarMenuSub` with 3 sub-items: **Access Control**, **Shift Presets**, **Store Settings**.
+- If the current route starts with `/admin/settings`, the collapsible is auto-opened on mount.
+
 ---
 
 ## 4. API Endpoints
@@ -596,6 +634,18 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 | POST | `/api/preset-buttons` | Create a new custom quick-fill button |
 | PUT | `/api/preset-buttons/:id` | Update a custom quick-fill button |
 | DELETE | `/api/preset-buttons/:id` | Delete a custom quick-fill button |
+| GET | `/api/store-config/trading-hours` | Get trading hours for a store (?storeId=) |
+| PUT | `/api/store-config/trading-hours` | Upsert one day's trading hours for a store |
+| GET | `/api/store-config/school-holidays` | List all school holiday periods (sorted by startDate) |
+| POST | `/api/store-config/school-holidays` | Create school holiday period |
+| PUT | `/api/store-config/school-holidays/:id` | Update school holiday period |
+| DELETE | `/api/store-config/school-holidays/:id` | Delete school holiday period |
+| GET | `/api/store-config/public-holidays` | List all public holidays (sorted by date) |
+| POST | `/api/store-config/public-holidays` | Create public holiday |
+| PUT | `/api/store-config/public-holidays/:id` | Update public holiday (name, date, storeClosures) |
+| DELETE | `/api/store-config/public-holidays/:id` | Delete public holiday |
+| GET | `/api/store-config/recommended-hours` | List recommended weekly hours for all stores |
+| PUT | `/api/store-config/recommended-hours` | Upsert recommended hours for a store |
 
 ### Time Logs & Timesheets
 | Method | Path | Description |
