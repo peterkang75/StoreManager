@@ -10,7 +10,34 @@ Report each item as PASS / FAIL / WARNING with file and line reference.
 5. DATE HANDLING: No toISOString().slice(0,10) in new code. Use toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" }).
 6. PROTECTED FILES: vite.ts, drizzle.config.ts, package.json were NOT modified.
 7. DB MIGRATION: If schema.ts was modified, db:push was executed successfully.
-8. PLAN.MD SYNC: plan.md updated to reflect all completed work.
+8. PLAN.MD SYNC — update ALL of the following sections that are affected by this task.
+   Do not skip any section. Vague or partial updates are not acceptable.
+
+   SECTION 2.x (Database Schema tables):
+   - Every new table added to schema.ts MUST appear in the correct Section 2.x table
+     with its full field list and a clear Notes description.
+   - If the table fits an existing section (e.g. 2.7 Operational Utilities), add it there.
+   - If it does not fit, create a new subsection.
+
+   SECTION 3.x (Implemented Modules & Features):
+   - Every new feature or module MUST be documented under the correct Phase section.
+   - Mark status clearly: ✅ COMPLETE / IN PROGRESS / ❌ NOT IMPLEMENTED.
+   - Include enough detail that another developer could understand what was built
+     without reading the code.
+
+   SECTION 4 (API Endpoints):
+   - Every new API endpoint registered in routes.ts MUST be added to the correct
+     table in Section 4 with Method, Path, and Description.
+   - This is non-negotiable. Missing endpoints in Section 4 = incomplete task.
+
+   SECTION 5 (Known Constraints & Conventions):
+   - If this task introduces a new architectural rule, convention, or constraint,
+     add it to Section 5.
+
+   SECTION 6 (Next Steps / Action Plan):
+   - Mark completed items with [x] and ✅ COMPLETE.
+   - Move newly started items to IN PROGRESS.
+   - Add any newly identified follow-up tasks as [ ] items.
 ---
 
 # Multi-Store Business Management System — Master Plan
@@ -143,6 +170,9 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 |---|---|---|
 | `shoppingItems` | `id`, `storeId`, `name`, `category`, `unit`, `createdAt` | Catalogue of purchasable items per store |
 | `activeShoppingList` | `id`, `storeId`, `itemId`, `quantity`, `addedBy`, `addedAt` | Current active shopping list (cleared once purchased) |
+| `storageUnits` | `id`, `name` (unique), `createdAt` | Dynamic unit catalogue. Seeded with: ea, pack, box, ctn. Used as Select options for storageItems. |
+| `storageItems` | `id`, `storeId`, `name`, `category`, `unit`, `currentStock`, `lastCheckedAt`, `lastCheckedBy`, `createdAt` | Storage room item catalogue per store. Unit references storageUnits.name. |
+| `activeStorageList` | `id`, `storeId`, `itemId`, `addedBy`, `addedAt` | Items an employee plans to fetch from storage today. Cleared after fetching. |
 
 ---
 
@@ -628,6 +658,22 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 | DELETE | `/api/shopping/active/:id` | Remove (tick off) an item from active list |
 | DELETE | `/api/shopping/active` | Clear entire active list for a store |
 
+### Storage
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/storage/items` | List storage item catalogue (filter by ?storeId=) |
+| POST | `/api/storage/items` | Create storage item |
+| PATCH | `/api/storage/items/:id` | Update storage item fields |
+| DELETE | `/api/storage/items/:id` | Delete storage item |
+| PATCH | `/api/storage/items/:id/stock` | Update stock count + lastCheckedAt + lastCheckedBy |
+| GET | `/api/storage/active` | Get active fetch list (filter by ?storeId=) |
+| POST | `/api/storage/active` | Add item to active fetch list |
+| DELETE | `/api/storage/active/:id` | Remove single item from fetch list (fetched) |
+| DELETE | `/api/storage/active` | Clear entire fetch list for a store (?storeId=) |
+| GET | `/api/storage/units` | List all units (seeds defaults if empty) |
+| POST | `/api/storage/units` | Create new unit (409 if duplicate) |
+| DELETE | `/api/storage/units/:id` | Delete unit (409 if in use by any item) |
+
 ### Intercompany Settlements
 | Method | Path | Description |
 |---|---|---|
@@ -718,6 +764,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - Employee Portal: `StorageListView` component replaces "Coming soon" in storage HomeSubTab. Amber-500 accent. Catalogue drawer, "Log stock" drawer, clear-all.
 - Shopping catalogue sort fixed: items now sorted by `selectionCount` descending within each category.
 - Admin page `client/src/pages/admin/StorageInventory.tsx` at route `/admin/storage`: category-grouped table, CRUD dialog, stock/last-checked display. Registered in `App.tsx` + AdminLayout Operations nav.
+- `storageUnits` table: dynamic unit management. Seeded with ea/pack/box/ctn on first `GET /api/storage/units` call. Admin can add/delete units via "Manage Units" collapsible panel in StorageInventory page (toggled by header button). Delete blocked with toast if unit is in use by any item. Unit Select in all item create/edit forms (both admin and portal) fetches dynamically from `GET /api/storage/units`. IStorage interface + MemStorage + DatabaseStorage implementations for 5 unit methods (`getStorageUnits`, `createStorageUnit`, `deleteStorageUnit`, `isStorageUnitInUse`, `seedStorageUnitsIfEmpty`).
 
 #### Design Notes
 - Storage UI accent color: amber-500 (consistent with unscheduled shift indicator already in portal)

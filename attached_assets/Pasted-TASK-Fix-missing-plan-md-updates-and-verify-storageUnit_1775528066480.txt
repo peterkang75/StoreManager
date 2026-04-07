@@ -1,0 +1,116 @@
+TASK: Fix missing plan.md updates and verify storageUnits implementation.
+
+═══════════════════════════════════════════════════════
+PART 1 — VERIFY storageUnits IMPLEMENTATION
+═══════════════════════════════════════════════════════
+
+Check each item below. If missing, implement it immediately.
+
+1. shared/schema.ts — storageUnits table exists:
+   export const storageUnits = pgTable("storage_units", {
+     id: serial("id").primaryKey(),
+     name: varchar("name", { length: 50 }).notNull().unique(),
+     createdAt: timestamp("created_at").defaultNow(),
+   });
+
+2. server/routes.ts — these 3 endpoints are registered:
+   GET    /api/storage/units        (list all units; seed ea/pack/box/ctn if empty)
+   POST   /api/storage/units        (create unit; return 409 if duplicate)
+   DELETE /api/storage/units/:id    (delete unit; return 409 if unit is in use by any storageItem)
+
+3. client/src/pages/admin/StorageInventory.tsx:
+   - Unit Select in Add/Edit item form fetches from GET /api/storage/units (not hardcoded)
+   - "Manage Units" section exists on the page:
+     - Shows list of current units
+     - Each unit has a Delete button (disabled/warned if in use)
+     - "Add Unit" input + button at bottom (Enter key supported)
+
+4. client/src/pages/mobile/EmployeePortal.tsx (StorageListView):
+   - Unit Select in Create New Item form fetches from GET /api/storage/units (not hardcoded)
+   - Unit label displayed next to stock input when checking off an item
+
+If db:push is needed after schema changes, run it.
+
+═══════════════════════════════════════════════════════
+PART 2 — FIX plan.md (MANDATORY — do not skip any item)
+═══════════════════════════════════════════════════════
+
+Open plan.md and make ALL of the following updates precisely.
+
+─── UPDATE A: Section 2.7 (Operational Utilities table) ───
+Add these 3 rows to the existing table in Section 2.7:
+
+| `storageUnits` | `id`, `name` (unique), `createdAt` | Dynamic unit catalogue. Seeded with: ea, pack, box, ctn. Used as Select options for storageItems. |
+| `storageItems` | `id`, `storeId`, `name`, `category`, `unit`, `currentStock`, `lastCheckedAt`, `lastCheckedBy`, `createdAt` | Storage room item catalogue per store. Unit references storageUnits.name. |
+| `activeStorageList` | `id`, `storeId`, `itemId`, `addedBy`, `addedAt` | Items an employee plans to fetch from storage today. Cleared after fetching. |
+
+─── UPDATE B: Section 3.5.2 (Storage List) ───
+Add this line to the existing 3.5.2 bullet list:
+- `storageUnits` table: dynamic unit management. Seeded with ea/pack/box/ctn. Admin can add/delete units via "Manage Units" panel in StorageInventory page. Unit Select in all item forms fetches dynamically from GET /api/storage/units.
+
+─── UPDATE C: Section 4 (API Endpoints) ───
+Add a new table after the Shopping List table in Section 4:
+
+### Storage
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/storage/items` | List storage item catalogue (filter by ?storeId=) |
+| POST | `/api/storage/items` | Create storage item |
+| PATCH | `/api/storage/items/:id` | Update storage item fields |
+| DELETE | `/api/storage/items/:id` | Delete storage item |
+| PATCH | `/api/storage/items/:id/stock` | Update stock count + lastCheckedAt + lastCheckedBy |
+| GET | `/api/storage/active` | Get active fetch list (filter by ?storeId=) |
+| POST | `/api/storage/active` | Add item to active fetch list |
+| DELETE | `/api/storage/active/:id` | Remove single item from fetch list (fetched) |
+| DELETE | `/api/storage/active` | Clear entire fetch list for a store (?storeId=) |
+| GET | `/api/storage/units` | List all units (seeds defaults if empty) |
+| POST | `/api/storage/units` | Create new unit (409 if duplicate) |
+| DELETE | `/api/storage/units/:id` | Delete unit (409 if in use) |
+
+═══════════════════════════════════════════════════════
+PART 3 — STRENGTHEN THE POST-TASK CHECKLIST IN plan.md
+═══════════════════════════════════════════════════════
+
+Find the MANDATORY POST-TASK CHECKLIST section at the top of plan.md.
+Replace item 8 with the following expanded version:
+
+8. PLAN.MD SYNC — update ALL of the following sections that are affected by this task.
+   Do not skip any section. Vague or partial updates are not acceptable.
+
+   SECTION 2.x (Database Schema tables):
+   - Every new table added to schema.ts MUST appear in the correct Section 2.x table
+     with its full field list and a clear Notes description.
+   - If the table fits an existing section (e.g. 2.7 Operational Utilities), add it there.
+   - If it does not fit, create a new subsection.
+
+   SECTION 3.x (Implemented Modules & Features):
+   - Every new feature or module MUST be documented under the correct Phase section.
+   - Mark status clearly: ✅ COMPLETE / IN PROGRESS / ❌ NOT IMPLEMENTED.
+   - Include enough detail that another developer could understand what was built
+     without reading the code.
+
+   SECTION 4 (API Endpoints):
+   - Every new API endpoint registered in routes.ts MUST be added to the correct
+     table in Section 4 with Method, Path, and Description.
+   - This is non-negotiable. Missing endpoints in Section 4 = incomplete task.
+
+   SECTION 5 (Known Constraints & Conventions):
+   - If this task introduces a new architectural rule, convention, or constraint,
+     add it to Section 5.
+
+   SECTION 6 (Next Steps / Action Plan):
+   - Mark completed items with [x] and ✅ COMPLETE.
+   - Move newly started items to IN PROGRESS.
+   - Add any newly identified follow-up tasks as [ ] items.
+
+After updating plan.md, re-read the updated sections and confirm each one
+is accurate and complete before finishing this task.
+
+═══════════════════════════════════════════════════════
+EXECUTION ORDER
+═══════════════════════════════════════════════════════
+1. Verify + implement storageUnits (Part 1)
+2. Run db:push if schema changed
+3. Update plan.md Sections 2.7, 3.5.2, 4 (Part 2)
+4. Strengthen checklist item 8 in plan.md (Part 3)
+5. Run the full post-task checklist and report results
