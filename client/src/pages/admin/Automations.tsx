@@ -130,7 +130,7 @@ function ruleToForm(rule: EnrichedRule): RuleForm {
 }
 
 type Store = { id: string; name: string };
-type Employee = { id: string; firstName: string; lastName: string; nickname?: string | null };
+type Employee = { id: string; firstName: string; lastName: string; nickname?: string | null; status: string };
 
 export function AdminAutomations() {
   const { toast } = useToast();
@@ -144,7 +144,8 @@ export function AdminAutomations() {
   });
 
   const { data: stores = [] } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
-  const { data: employees = [] } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
+  const { data: allEmployees = [] } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
+  const employees = allEmployees.filter(e => e.status === "ACTIVE");
 
   const rosterStores = stores.filter(s =>
     s.name.toLowerCase().includes("sushi") || s.name.toLowerCase().includes("sandwich")
@@ -417,7 +418,7 @@ export function AdminAutomations() {
                   </SelectTrigger>
                   <SelectContent>
                     {employees.map(e => (
-                      <SelectItem key={e.id} value={e.id}>{e.firstName} {e.lastName}</SelectItem>
+                      <SelectItem key={e.id} value={e.id}>{e.nickname || `${e.firstName} ${e.lastName}`}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
