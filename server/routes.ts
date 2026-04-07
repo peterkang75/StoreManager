@@ -16,8 +16,8 @@ import {
   insertTimeLogSchema,
   insertTimesheetSchema,
   insertPayrollSchema,
-  insertDailyClosingSchema
-periodEnd > endDate  insertCashSalesDetailSchema,
+  insertDailyClosingSchema,
+  insertCashSalesDetailSchema,
   insertDailyCloseFormSchema,
   insertSupplierSchema,
   insertSupplierInvoiceSchema,

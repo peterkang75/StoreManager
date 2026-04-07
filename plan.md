@@ -245,6 +245,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Unified Bank Transfer Tracker:** A modal tracking all pending banking outflows for a period. It combines both **Direct Employee Bank Deposits** (`bank > 0`) AND **Intercompany Settlements** (e.g., `Karma [ Transfer to Sandwich ]`) into a single actionable list for the manager.
 - **Settle Intercompany Debt:** `PATCH /api/settlements/:id/settle` — marks a settlement record as settled, linking it to a `financialTransaction` ID.
 - **Backfill Settlements:** `POST /api/admin/backfill-settlements` — admin utility to retroactively generate `intercompanySettlements` records for historical payroll periods that pre-date the feature.
+- **Dashboard Labor filter (bug fix):** `GET /api/dashboard/summary` now filters payroll periods using `periodStart > endDate` (previously `periodEnd > endDate`). This correctly includes any payroll period that overlaps the selected date range — a period is only excluded when its *start* is beyond the range end, not when its *end* is.
 
 ### 3.7 Finance / Cash (`/admin/finance`, `/admin/cash`)
 - **Inter-store transactions**: Convert (float transfer), Remittance (store → HO), Manual entry.
