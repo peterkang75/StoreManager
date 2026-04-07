@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
@@ -13,6 +13,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import {
   CheckCircle2,
@@ -970,6 +978,220 @@ function EmployeeSummaryCard({
   );
 }
 
+// ── Standalone Add Shift Dialog ────────────────────────────────────────────────
+
+type EmpOption = { id: string; firstName: string; lastName: string; nickname: string | null; status: string };
+type StoreOption = { id: string; name: string };
+
+function calcHoursPreview(start: string, end: string): string {
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  const total = (eh * 60 + em) - (sh * 60 + sm);
+  if (isNaN(total) || total <= 0) return "—";
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+function StandaloneAddShiftDialog({
+  open,
+  onOpenChange,
+  today,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  today: string;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const { data: rawEmployees = [] } = useQuery<EmpOption[]>({ queryKey: ["/api/employees"] });
+  const { data: rawStores = [] } = useQuery<StoreOption[]>({ queryKey: ["/api/stores"] });
+
+  const [empQuery, setEmpQuery] = useState("");
+  const [selectedEmp, setSelectedEmp] = useState<EmpOption | null>(null);
+  const [showDrop, setShowDrop] = useState(false);
+  const [storeId, setStoreId] = useState("");
+  const [date, setDate] = useState(today);
+  const [startTime, setStartTime] = useState("09:00");
+  const [endTime, setEndTime] = useState("17:00");
+  const [saving, setSaving] = useState(false);
+
+  // reset on open
+  useEffect(() => {
+    if (open) {
+      setEmpQuery(""); setSelectedEmp(null); setShowDrop(false);
+      setStoreId(""); setDate(today); setStartTime("09:00"); setEndTime("17:00");
+    }
+  }, [open, today]);
+
+  // close dropdown when clicking outside
+  useEffect(() => {
+    function handle(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowDrop(false);
+      }
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+
+  const filteredEmps = useMemo(() => {
+    const q = empQuery.trim().toLowerCase();
+    if (!q) return [];
+    return rawEmployees.filter(e => {
+      const full = `${e.firstName} ${e.lastName} ${e.nickname ?? ""}`.toLowerCase();
+      return full.includes(q);
+    }).slice(0, 8);
+  }, [rawEmployees, empQuery]);
+
+  const isFreeText = empQuery.trim().length > 0 && !selectedEmp;
+
+  async function handleSave() {
+    if (!storeId || !date || !startTime || !endTime) {
+      toast({ title: "Fill in all required fields", variant: "destructive" }); return;
+    }
+    setSaving(true);
+    try {
+      const payload: Record<string, unknown> = {
+        storeId,
+        date,
+        actualStartTime: startTime,
+        actualEndTime: endTime,
+      };
+      if (selectedEmp) {
+        payload.employeeId = selectedEmp.id;
+      } else if (isFreeText) {
+        payload.adjustmentReason = `Added by manager for: ${empQuery.trim()}`;
+      } else {
+        toast({ title: "Select or enter an employee name", variant: "destructive" });
+        setSaving(false); return;
+      }
+      await apiRequest("POST", "/api/admin/approvals/add-shift", payload);
+      toast({ title: "Shift added successfully" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/approvals"] });
+      onOpenChange(false);
+    } catch {
+      toast({ title: "Failed to add shift", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const hoursPreview = calcHoursPreview(startTime, endTime);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md" aria-describedby={undefined}>
+        <DialogHeader>
+          <DialogTitle>Add Shift</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* Employee Search */}
+          <div className="space-y-1.5">
+            <Label>Employee <span className="text-destructive">*</span></Label>
+            <div className="relative" ref={dropdownRef}>
+              <Input
+                placeholder="Search by name or nickname…"
+                value={selectedEmp ? (selectedEmp.nickname || `${selectedEmp.firstName} ${selectedEmp.lastName}`) : empQuery}
+                onChange={e => {
+                  setEmpQuery(e.target.value);
+                  setSelectedEmp(null);
+                  setShowDrop(true);
+                }}
+                onFocus={() => { if (empQuery && !selectedEmp) setShowDrop(true); }}
+                data-testid="input-standalone-employee"
+              />
+              {selectedEmp && (
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => { setSelectedEmp(null); setEmpQuery(""); setShowDrop(false); }}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {showDrop && filteredEmps.length > 0 && !selectedEmp && (
+                <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-md max-h-52 overflow-y-auto">
+                  {filteredEmps.map(e => (
+                    <button
+                      key={e.id}
+                      type="button"
+                      className="w-full flex items-center justify-between px-3 py-2 text-sm hover-elevate text-left"
+                      onMouseDown={ev => ev.preventDefault()}
+                      onClick={() => { setSelectedEmp(e); setEmpQuery(""); setShowDrop(false); }}
+                      data-testid={`option-emp-${e.id}`}
+                    >
+                      <span>{e.nickname || `${e.firstName} ${e.lastName}`}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${e.status === "ACTIVE" ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400" : "bg-muted text-muted-foreground"}`}>
+                        {e.status === "ACTIVE" ? "Active" : "Inactive"}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {isFreeText && (
+              <p className="text-[11px] text-muted-foreground">
+                No match found — will be saved as unscheduled shift with this name in memo.
+              </p>
+            )}
+          </div>
+
+          {/* Store */}
+          <div className="space-y-1.5">
+            <Label>Store <span className="text-destructive">*</span></Label>
+            <Select value={storeId} onValueChange={setStoreId}>
+              <SelectTrigger data-testid="select-standalone-store">
+                <SelectValue placeholder="Select store…" />
+              </SelectTrigger>
+              <SelectContent>
+                {rawStores.map(s => (
+                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Date */}
+          <div className="space-y-1.5">
+            <Label>Date <span className="text-destructive">*</span></Label>
+            <Input type="date" value={date} onChange={e => setDate(e.target.value)} data-testid="input-standalone-date" />
+          </div>
+
+          {/* Start / End Time + Hours Preview */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-1.5">
+              <Label>Start <span className="text-destructive">*</span></Label>
+              <Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} data-testid="input-standalone-start" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>End <span className="text-destructive">*</span></Label>
+              <Input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} data-testid="input-standalone-end" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-muted-foreground">Hours</Label>
+              <div className="h-9 flex items-center px-3 rounded-md border border-border bg-muted/40 text-sm font-medium text-foreground" data-testid="text-standalone-hours">
+                {hoursPreview}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="ghost" onClick={() => onOpenChange(false)} data-testid="button-standalone-cancel">Cancel</Button>
+          <Button onClick={handleSave} disabled={saving} className="gap-1.5" data-testid="button-standalone-save">
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Add Shift
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Cycle Navigator ────────────────────────────────────────────────────────────
 
 function CycleNavigator({
@@ -1047,6 +1269,7 @@ export function AdminTimesheetApprovals() {
   const [statusFilter, setStatusFilter] = useState("PENDING");
   const [storeFilter, setStoreFilter] = useState("ALL");
   const [reviewingGroup, setReviewingGroup] = useState<EmployeeGroup | null>(null);
+  const [addShiftOpen, setAddShiftOpen] = useState(false);
 
   const { data: timesheets, isLoading } = useQuery<EnrichedTimesheet[]>({
     queryKey: ["/api/admin/approvals", statusFilter],
@@ -1108,6 +1331,16 @@ export function AdminTimesheetApprovals() {
             <p className="text-muted-foreground text-xs mt-0.5">타임시트 검토 및 승인</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="outline"
+              className="h-9 gap-2 text-sm"
+              onClick={() => setAddShiftOpen(true)}
+              data-testid="button-standalone-add-shift"
+            >
+              <Plus className="h-4 w-4 text-primary" />
+              <span className="hidden sm:inline">Add Shift</span>
+              <span className="sm:hidden">Add</span>
+            </Button>
             <Button
               variant="outline"
               className="h-9 gap-2 text-sm"
@@ -1319,6 +1552,13 @@ export function AdminTimesheetApprovals() {
           onSaved={() => setReviewingGroup(null)}
         />
       )}
+
+      {/* ── Standalone Add Shift Dialog ───────────────────────────────────────── */}
+      <StandaloneAddShiftDialog
+        open={addShiftOpen}
+        onOpenChange={setAddShiftOpen}
+        today={today}
+      />
     </AdminLayout>
   );
 }

@@ -1,0 +1,40 @@
+Improve the "Add Shift" feature in the Pending Approvals page (client/src/pages/admin/TimesheetApprovals.tsx).
+
+CURRENT PROBLEM:
+The existing "Add Missing Shift" button only works inside a specific employee's modal, so you can only add a shift for that exact employee. There is no way to add a shift for an employee who has no existing timesheets in the current cycle (like an inactive employee who worked occasionally).
+
+REQUIRED CHANGES — frontend only (API already exists: POST /api/admin/approvals/add-shift):
+
+1. Add a standalone "Add Shift" button in the top-right area of the Pending Approvals page header, next to "Auto-Fill from Roster" and "Weekly Payroll" buttons.
+
+2. Clicking this button opens a new Dialog/Modal with these fields:
+
+FIELD 1 — Employee (required):
+- Search input that searches ALL employees (active AND inactive) from GET /api/employees
+- Shows results as a dropdown list while typing (name, nickname, store badge)
+- Also allows free-text manual entry if no match found (for one-off workers not in the system)
+- When free-text is used, show a small note: "Will be saved as unscheduled shift with this name in memo"
+
+FIELD 2 — Store (required):
+- Select dropdown from GET /api/stores (active stores only)
+
+FIELD 3 — Date (required):
+- Date picker input, defaults to today
+
+FIELD 4 — Start Time (required):
+- Time input, default 09:00
+
+FIELD 5 — End Time (required):
+- Time input, default 17:00
+
+FIELD 6 — Hours preview:
+- Auto-calculated from start/end times, displayed as read-only text (e.g. "8h 0m")
+
+3. Save button behavior:
+- If employee matched from list: call POST /api/admin/approvals/add-shift with { storeId, employeeId, date, actualStartTime, actualEndTime }
+- If free-text name entered (no employeeId): call POST /api/admin/approvals/add-shift with { storeId, date, actualStartTime, actualEndTime, adjustmentReason: "Added by manager for: [name]" } — use a placeholder employeeId if required by API or find a way to handle gracefully
+- On success: show toast "Shift added successfully", close modal, invalidate /api/admin/approvals query cache
+
+4. The existing "Add Missing Shift" button inside each employee's detail modal must remain unchanged.
+
+5. After completing, update plan.md Section 3.5 to note this improvement: "Standalone Add Shift button added to page header — allows adding shifts for any employee (active or inactive) or free-text name, independent of the employee list."

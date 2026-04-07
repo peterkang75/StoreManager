@@ -226,6 +226,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - Shows scheduled vs actual times; highlights discrepancies and unscheduled shifts.
 - **Auto-Fill from Roster**: creates PENDING timesheets for any rostered shift that has no submission yet.
 - **Add Missing Shift**: manager can manually add an ad-hoc shift directly from the review modal (`POST /api/admin/approvals/add-shift`).
+- **Standalone Add Shift button added to page header** — allows adding shifts for any employee (active or inactive) or free-text name, independent of the employee list. Searches all employees with active/inactive badge, supports free-text fallback for one-off workers.
 - **Mark Absent**: reject/tombstone a shift so Auto-Fill won't recreate it (`PUT /api/admin/approvals/:id/reject`).
 - **Bulk Revert**: revert all APPROVED timesheets for an employee back to PENDING (`POST /api/admin/approvals/bulk-revert`). Used when corrections are needed after approval.
 - **Responsive layout**: desktop shows employee table → click to open detail modal; mobile shows employee summary cards → tap to open bottom-sheet review modal with per-shift cards (no horizontal scroll on mobile).
