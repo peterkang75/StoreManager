@@ -130,7 +130,7 @@ function ruleToForm(rule: EnrichedRule): RuleForm {
 }
 
 type Store = { id: string; name: string };
-type Employee = { id: string; name: string };
+type Employee = { id: string; firstName: string; lastName: string; nickname?: string | null };
 
 export function AdminAutomations() {
   const { toast } = useToast();
@@ -417,7 +417,7 @@ export function AdminAutomations() {
                   </SelectTrigger>
                   <SelectContent>
                     {employees.map(e => (
-                      <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+                      <SelectItem key={e.id} value={e.id}>{e.firstName} {e.lastName}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

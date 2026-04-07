@@ -6815,7 +6815,7 @@ Rules:
       ]);
       const enriched = rules.map(r => ({
         ...r,
-        employeeName: allEmployees.find(e => e.id === r.targetEmployeeId)?.name ?? null,
+        employeeName: (() => { const emp = allEmployees.find(e => e.id === r.targetEmployeeId); return emp ? (emp.nickname || `${emp.firstName} ${emp.lastName}`) : null; })(),
         storeName: allStores.find(s => s.id === r.targetStoreId)?.name ?? null,
       }));
       res.json(enriched);
@@ -6833,7 +6833,7 @@ Rules:
       ]);
       const enriched = rules.map(r => ({
         ...r,
-        employeeName: allEmployees.find(e => e.id === r.targetEmployeeId)?.name ?? null,
+        employeeName: (() => { const emp = allEmployees.find(e => e.id === r.targetEmployeeId); return emp ? (emp.nickname || `${emp.firstName} ${emp.lastName}`) : null; })(),
         storeName: allStores.find(s => s.id === r.targetStoreId)?.name ?? null,
       }));
       res.json(enriched);
