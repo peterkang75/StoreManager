@@ -15,23 +15,30 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Calendar, Clock, ChevronLeft, ChevronRight, MapPin } from "lucide-react";
 import type { Store, Employee, Shift } from "@shared/schema";
 
+function toYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function getMonday(date: Date): string {
   const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff);
-  return d.toISOString().split("T")[0];
+  const day = d.getDay(); // local day (0=Sun)
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return toYMD(d);
+}
+
+function addDaysLocal(dateStr: string, n: number): string {
+  const [y, mo, day] = dateStr.split("-").map(Number);
+  const d = new Date(y, mo - 1, day);
+  d.setDate(d.getDate() + n);
+  return toYMD(d);
 }
 
 function getWeekDates(startDate: string): string[] {
-  const dates: string[] = [];
-  const start = new Date(startDate);
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    dates.push(d.toISOString().split("T")[0]);
-  }
-  return dates;
+  return Array.from({ length: 7 }, (_, i) => addDaysLocal(startDate, i));
 }
 
 export function MobileRoster() {
@@ -46,11 +53,7 @@ export function MobileRoster() {
     queryKey: ["/api/employees"],
   });
 
-  const weekEnd = (() => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + 6);
-    return d.toISOString().split("T")[0];
-  })();
+  const weekEnd = addDaysLocal(weekStart, 6);
 
   const { data: shifts, isLoading: shiftsLoading } = useQuery<Shift[]>({
     queryKey: ["/api/shifts", employeeId, weekStart, weekEnd],
@@ -72,9 +75,7 @@ export function MobileRoster() {
   };
 
   const navigateWeek = (direction: number) => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + direction * 7);
-    setWeekStart(d.toISOString().split("T")[0]);
+    setWeekStart(prev => addDaysLocal(prev, direction * 7));
   };
 
   const weekDates = getWeekDates(weekStart);
@@ -142,7 +143,7 @@ export function MobileRoster() {
               <div className="space-y-3">
                 {weekDates.map(date => {
                   const dayShifts = getShiftsForDate(date);
-                  const isToday = date === new Date().toISOString().split("T")[0];
+                  const isToday = date === toYMD(new Date());
                   
                   return (
                     <Card key={date} className={isToday ? "ring-2 ring-primary" : ""}>

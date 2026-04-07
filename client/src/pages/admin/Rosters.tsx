@@ -35,18 +35,26 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Store, Employee, Roster } from "@shared/schema";
 
 // ─── Date helpers ───────────────────────────────────────────────────────────
+function toYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function getMonday(date: Date): string {
   const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff);
-  return d.toISOString().split("T")[0];
+  const day = d.getDay(); // local day (0=Sun)
+  const diff = day === 0 ? -6 : 1 - day; // shift to Monday
+  d.setDate(d.getDate() + diff);
+  return toYMD(d); // local calendar fields — never toISOString()
 }
 
 function addDays(dateStr: string, n: number): string {
-  const d = new Date(dateStr);
+  const [y, m, day] = dateStr.split("-").map(Number);
+  const d = new Date(y, m - 1, day); // local date, no UTC shift
   d.setDate(d.getDate() + n);
-  return d.toISOString().split("T")[0];
+  return toYMD(d);
 }
 
 function getWeekDates(monday: string): string[] {
@@ -533,9 +541,9 @@ export function AdminRosters() {
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
   const weekEnd = addDays(weekStart, 6);
   const weekDates = getWeekDates(weekStart);
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = toYMD(new Date());
   const [selectedDay, setSelectedDay] = useState<string>(() => {
-    const today = new Date().toISOString().split("T")[0];
+    const today = toYMD(new Date());
     const monday = getMonday(new Date());
     const weekDs = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
     return weekDs.includes(today) ? today : monday;
@@ -544,7 +552,7 @@ export function AdminRosters() {
   // ── View mode: "grid" | "timeline" ────────────────────────────────────────
   const [viewMode, setViewMode] = useState<"grid" | "timeline">("grid");
   const [timelineDay, setTimelineDay] = useState<string>(() => {
-    const today = new Date().toISOString().split("T")[0];
+    const today = toYMD(new Date());
     const monday = getMonday(new Date());
     const weekDs = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
     return weekDs.includes(today) ? today : monday;
@@ -834,7 +842,7 @@ export function AdminRosters() {
                 size="sm"
                 onClick={() => {
                   setWeekStart(getMonday(new Date()));
-                  setSelectedDay(new Date().toISOString().split("T")[0]);
+                  setSelectedDay(toYMD(new Date()));
                 }}
                 data-testid="button-today"
               >
