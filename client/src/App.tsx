@@ -28,6 +28,7 @@ import { AdminAccessControl } from "@/pages/admin/AccessControl";
 import { AdminTriageInbox } from "@/pages/admin/TriageInbox";
 import { AdminShiftPresets } from "@/pages/admin/ShiftPresets";
 import { AdminStoreConfig } from "@/pages/admin/StoreConfig";
+import { AdminAutomations } from "@/pages/admin/Automations";
 import StorageInventory from "@/pages/admin/StorageInventory";
 
 import { MobileInterview } from "@/pages/mobile/Interview";
@@ -67,6 +68,7 @@ function Router() {
       <Route path="/admin/settings/access-control" component={AdminAccessControl} />
       <Route path="/admin/settings/shift-presets" component={AdminShiftPresets} />
       <Route path="/admin/settings/store-config" component={AdminStoreConfig} />
+      <Route path="/admin/automations" component={AdminAutomations} />
       <Route path="/admin/storage" component={StorageInventory} />
       
       <Route path="/m/interview" component={MobileInterview} />

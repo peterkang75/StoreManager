@@ -23,6 +23,7 @@ import {
   insertSupplierInvoiceSchema,
   insertSupplierPaymentSchema,
   insertFinancialTransactionSchema,
+  insertAutomationRuleSchema,
 } from "@shared/schema";
 import multer from "multer";
 import path from "path";
@@ -6799,6 +6800,84 @@ Rules:
       res.json(row);
     } catch {
       res.status(500).json({ error: "Failed to save recommended hours" });
+    }
+  });
+
+  // ── Automation Rules ───────────────────────────────────────────────────────
+  // GET /api/automation-rules/due-today — MUST come before :id route
+  app.get("/api/automation-rules/due-today", async (_req: Request, res: Response) => {
+    try {
+      const rules = await storage.getAutomationRulesDueToday();
+      // Enrich with employee / store names
+      const [allEmployees, allStores] = await Promise.all([
+        storage.getEmployees(),
+        storage.getStores(),
+      ]);
+      const enriched = rules.map(r => ({
+        ...r,
+        employeeName: allEmployees.find(e => e.id === r.targetEmployeeId)?.name ?? null,
+        storeName: allStores.find(s => s.id === r.targetStoreId)?.name ?? null,
+      }));
+      res.json(enriched);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch due rules" });
+    }
+  });
+
+  app.get("/api/automation-rules", async (_req: Request, res: Response) => {
+    try {
+      const rules = await storage.getAutomationRules();
+      const [allEmployees, allStores] = await Promise.all([
+        storage.getEmployees(),
+        storage.getStores(),
+      ]);
+      const enriched = rules.map(r => ({
+        ...r,
+        employeeName: allEmployees.find(e => e.id === r.targetEmployeeId)?.name ?? null,
+        storeName: allStores.find(s => s.id === r.targetStoreId)?.name ?? null,
+      }));
+      res.json(enriched);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch automation rules" });
+    }
+  });
+
+  app.post("/api/automation-rules", async (req: Request, res: Response) => {
+    try {
+      const parsed = insertAutomationRuleSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      const rule = await storage.createAutomationRule(parsed.data);
+      res.status(201).json(rule);
+    } catch {
+      res.status(500).json({ error: "Failed to create automation rule" });
+    }
+  });
+
+  app.put("/api/automation-rules/:id", async (req: Request, res: Response) => {
+    try {
+      const rule = await storage.updateAutomationRule(req.params.id, req.body);
+      if (!rule) return res.status(404).json({ error: "Not found" });
+      res.json(rule);
+    } catch {
+      res.status(500).json({ error: "Failed to update automation rule" });
+    }
+  });
+
+  app.delete("/api/automation-rules/:id", async (req: Request, res: Response) => {
+    try {
+      await storage.deleteAutomationRule(req.params.id);
+      res.json({ deleted: true });
+    } catch {
+      res.status(500).json({ error: "Failed to delete automation rule" });
+    }
+  });
+
+  app.post("/api/automation-rules/:id/execute", async (req: Request, res: Response) => {
+    try {
+      const result = await storage.executeAutomationRule(req.params.id);
+      res.json(result);
+    } catch {
+      res.status(500).json({ error: "Execution failed" });
     }
   });
 

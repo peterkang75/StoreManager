@@ -1,0 +1,96 @@
+Build the Automation Rules feature. This is a reminder + one-click execute system for recurring admin tasks.
+
+OVERVIEW:
+Managers set up recurring rules (e.g. "add Peter Kang to roster every Tue/Thu", "apply -$401 Car Finance adjustment to Karma's payroll each cycle", "transfer $300 Sushi->PYC monthly"). The admin dashboard shows a widget with due rules today, and a single click executes them by calling existing APIs.
+
+STEP 1 - DATABASE (shared/schema.ts):
+Add new table automation_rules:
+- id: uuid PK (gen_random_uuid())
+- title: varchar(255) NOT NULL
+- actionType: varchar(50) NOT NULL - one of: ROSTER, PAYROLL_ADJUSTMENT, FINANCE_TRANSFER
+- frequency: varchar(50) NOT NULL - one of: WEEKLY, MONTHLY_FIRST_WEEK, MONTHLY
+- daysOfWeek: integer[] nullable - e.g. [2,4] for Tue/Thu (0=Sun,1=Mon...6=Sat), used when frequency=WEEKLY
+- targetEmployeeId: uuid FK to employees.id nullable
+- targetStoreId: uuid FK to stores.id nullable
+- payload: jsonb NOT NULL
+- description: text nullable
+- isActive: boolean NOT NULL default true
+- lastExecutedAt: timestamp nullable
+- createdAt: timestamp NOT NULL defaultNow()
+
+payload shapes:
+- ROSTER: { storeId, startTime, endTime }
+- PAYROLL_ADJUSTMENT: { amount, reason }
+- FINANCE_TRANSFER: { fromStoreId, toStoreId, amount, transferType } where transferType is "convert" or "remittance"
+
+Add insertAutomationRuleSchema and AutomationRule type. Then run db:push.
+
+STEP 2 - STORAGE (server/storage.ts):
+Add to IStorage interface and DatabaseStorage:
+- getAutomationRules()
+- getAutomationRulesDueToday() - see logic below
+- getAutomationRule(id)
+- createAutomationRule(data)
+- updateAutomationRule(id, data)
+- deleteAutomationRule(id)
+- executeAutomationRule(id)
+
+getDueToday logic (Australia/Sydney timezone):
+- WEEKLY: due if today's dayOfWeek is in rule.daysOfWeek AND lastExecutedAt is not today
+- MONTHLY_FIRST_WEEK: due if current week is first week of month AND lastExecutedAt is not this week
+- MONTHLY: due if today is 1st of month AND lastExecutedAt is not this month
+- Only return isActive=true rules
+
+executeAutomationRule logic:
+- ROSTER: calculate this week's actual dates for each dayOfWeek, call storage.upsertRoster() for each date using payload.storeId, targetEmployeeId, payload.startTime, payload.endTime
+- PAYROLL_ADJUSTMENT: find current payroll cycle record for targetEmployeeId, update with payload.amount as adjustment and payload.reason as adjustmentReason
+- FINANCE_TRANSFER: call storage.createFinancialTransaction() with fromStoreId, toStoreId, amount - use CONVERT or REMITTANCE based on payload.transferType
+- After execution: update lastExecutedAt to now
+- Return { success: true, message: "..." } or { success: false, message: error }
+
+STEP 3 - API ROUTES (server/routes.ts):
+GET /api/automation-rules - all rules enriched with employee and store names
+POST /api/automation-rules - create rule
+PUT /api/automation-rules/:id - update rule
+DELETE /api/automation-rules/:id - delete, return { deleted: true }
+GET /api/automation-rules/due-today - rules due today enriched
+POST /api/automation-rules/:id/execute - execute rule, return { success, message }
+
+STEP 4 - ADMIN PAGE (client/src/pages/admin/Automations.tsx):
+New page at /admin/automations using AdminLayout title "Automation Rules".
+
+Layout:
+- Header with "New Rule" button opening a Sheet drawer
+- Rules list as cards: title, actionType badge, frequency, target, isActive toggle, Edit + Delete buttons
+- Empty state message if no rules
+
+New/Edit Rule Form fields in Sheet:
+- Title (text, required)
+- Action Type (select: Roster / Payroll Adjustment / Finance Transfer)
+- Frequency (select: Weekly / Monthly First Week / Monthly)
+- Days of Week (Mon-Sun checkboxes, only shown when Weekly)
+- Target Employee (select from /api/employees, shown for ROSTER and PAYROLL_ADJUSTMENT)
+- Payload fields dynamic by actionType:
+  ROSTER: Start Time, End Time, Store (select)
+  PAYROLL_ADJUSTMENT: Amount (number, allow negative), Reason (text)
+  FINANCE_TRANSFER: From Store, To Store, Amount, Transfer Type (Convert/Remittance)
+- Description (textarea, optional)
+- Is Active (switch, default true)
+- Save / Cancel buttons
+
+STEP 5 - DASHBOARD WIDGET (client/src/pages/admin/Dashboard.tsx):
+Add "Today's Recurring Tasks" section between Financial Performance and Needs Routing sections.
+- Fetch /api/automation-rules/due-today with useQuery
+- Hide widget entirely if no rules due
+- Show Card with title + count badge (amber-500 accent)
+- Each rule row: title, description, actionType badge, Execute button + Skip button
+- Execute: POST /api/automation-rules/:id/execute, loading spinner, success toast, remove card from list
+- Skip: remove from local list only, no API call
+
+STEP 6 - ROUTING (client/src/App.tsx):
+Add: <Route path="/admin/automations" component={Automations} />
+
+STEP 7 - SIDEBAR (client/src/components/layouts/AdminLayout.tsx):
+Add "Automations" nav item in Settings section with Repeat icon from lucide-react pointing to /admin/automations.
+
+After completing all steps, update plan.md Section 6 to mark as complete.

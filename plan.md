@@ -567,6 +567,49 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - Expanding "Settings" reveals a `SidebarMenuSub` with 3 sub-items: **Access Control**, **Shift Presets**, **Store Settings**.
 - If the current route starts with `/admin/settings`, the collapsible is auto-opened on mount.
 
+### 3.20 Automation Rules ✅ COMPLETE
+
+**Feature**: `/admin/automations` — Recurring task management. Managers configure rules that appear in the Dashboard when due, and execute them with one click.
+
+**DB** (1 new table, `db:push` run):
+- `automation_rules` — UUID PK, `title`, `actionType` (ROSTER/PAYROLL_ADJUSTMENT/FINANCE_TRANSFER), `frequency` (WEEKLY/MONTHLY_FIRST_WEEK/MONTHLY), `daysOfWeek` (integer[]), `targetEmployeeId` FK, `targetStoreId` FK, `payload` (jsonb), `description`, `isActive`, `lastExecutedAt`, `createdAt`.
+- Payload shapes: ROSTER `{ storeId, startTime, endTime }` · PAYROLL_ADJUSTMENT `{ amount, reason }` · FINANCE_TRANSFER `{ fromStoreId, toStoreId, amount, transferType: "convert"|"remittance" }`
+
+**Storage** (`server/storage.ts`): All methods added to `IStorage`, `MemStorage` (stubs), and `DatabaseStorage`:
+- `getAutomationRules()` — all rules sorted by createdAt desc
+- `getAutomationRulesDueToday()` — filters active rules by Sydney time logic:
+  - WEEKLY: today's dayOfWeek is in `daysOfWeek` + not already executed today
+  - MONTHLY_FIRST_WEEK: day 1-7 of month + not executed this week
+  - MONTHLY: today is 1st of month + not executed this month
+- `getAutomationRule(id)`, `createAutomationRule()`, `updateAutomationRule()`, `deleteAutomationRule()`
+- `executeAutomationRule(id)`: dispatches action based on `actionType`, then updates `lastExecutedAt`
+  - ROSTER: calculates current-week dates per dayOfWeek, calls `upsertRoster()` per date
+  - PAYROLL_ADJUSTMENT: finds latest payroll for employee, calls `updatePayroll()` with adjustment + reason
+  - FINANCE_TRANSFER: calls `createFinancialTransaction()` with CONVERT/REMITTANCE type
+
+**API** (`server/routes.ts`): All under `/api/automation-rules/`:
+- `GET /api/automation-rules/due-today` — (before `:id` route) returns active due rules enriched with employeeName + storeName
+- `GET /api/automation-rules` — all rules, enriched
+- `POST /api/automation-rules` — create (validates with `insertAutomationRuleSchema`)
+- `PUT /api/automation-rules/:id` — update (partial)
+- `DELETE /api/automation-rules/:id` — delete, returns `{ deleted: true }`
+- `POST /api/automation-rules/:id/execute` — execute rule, returns `{ success, message }`
+
+**Frontend** (`client/src/pages/admin/Automations.tsx`):
+- Rule cards: title, actionType badge (color-coded), frequency + days summary, employee/store name, isActive toggle, Edit / Delete buttons.
+- Empty state with icon and "New Rule" prompt.
+- Sheet drawer for Create/Edit with dynamic form fields by actionType + daysOfWeek checkboxes (only when WEEKLY).
+- AlertDialog for delete confirmation.
+
+**Dashboard Widget** (`client/src/pages/admin/Dashboard.tsx`):
+- `useQuery` for `/api/automation-rules/due-today` (staleTime: 0).
+- Widget is hidden entirely when `visibleRules.length === 0`.
+- Placed between Financial Performance and Triage sections.
+- Per-rule row: title, actionType badge, description, employee+store, **Execute** button (spinner while pending, removes from list on success) + **Skip** button (removes from local list only, no API call).
+- Execute calls `POST /api/automation-rules/:id/execute`, shows toast with result message.
+
+**Sidebar** (`AdminLayout.tsx`): "Automations" added to `settingsNavItems` under the collapsible Settings menu (Repeat icon). `isSettingsActive` updated to also match `/admin/automations`.
+
 ---
 
 ## 4. API Endpoints
@@ -646,6 +689,12 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 | DELETE | `/api/store-config/public-holidays/:id` | Delete public holiday |
 | GET | `/api/store-config/recommended-hours` | List recommended weekly hours for all stores |
 | PUT | `/api/store-config/recommended-hours` | Upsert recommended hours for a store |
+| GET | `/api/automation-rules` | All rules enriched with employeeName + storeName |
+| POST | `/api/automation-rules` | Create rule (validated via insertAutomationRuleSchema) |
+| GET | `/api/automation-rules/due-today` | Active rules due today (Sydney TZ logic), enriched |
+| PUT | `/api/automation-rules/:id` | Update rule (partial) |
+| DELETE | `/api/automation-rules/:id` | Delete rule, returns `{ deleted: true }` |
+| POST | `/api/automation-rules/:id/execute` | Execute rule — returns `{ success, message }` |
 
 ### Time Logs & Timesheets
 | Method | Path | Description |

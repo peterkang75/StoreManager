@@ -46,6 +46,7 @@ import {
   type SchoolHoliday, type InsertSchoolHoliday, schoolHolidays,
   type PublicHoliday, type InsertPublicHoliday, publicHolidays,
   type StoreRecommendedHours, type InsertStoreRecommendedHours, storeRecommendedHours,
+  type AutomationRule, type InsertAutomationRule, automationRules,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import { db } from "./db";
@@ -256,6 +257,14 @@ export interface IStorage {
   // Store Config — Recommended Hours
   getStoreRecommendedHours(): Promise<StoreRecommendedHours[]>;
   upsertStoreRecommendedHours(data: InsertStoreRecommendedHours): Promise<StoreRecommendedHours>;
+  // Automation Rules
+  getAutomationRules(): Promise<AutomationRule[]>;
+  getAutomationRulesDueToday(): Promise<AutomationRule[]>;
+  getAutomationRule(id: string): Promise<AutomationRule | undefined>;
+  createAutomationRule(data: InsertAutomationRule): Promise<AutomationRule>;
+  updateAutomationRule(id: string, data: Partial<InsertAutomationRule>): Promise<AutomationRule | undefined>;
+  deleteAutomationRule(id: string): Promise<void>;
+  executeAutomationRule(id: string): Promise<{ success: boolean; message: string }>;
 }
 
 export class MemStorage implements IStorage {
@@ -1680,6 +1689,18 @@ export class MemStorage implements IStorage {
   async upsertStoreRecommendedHours(data: InsertStoreRecommendedHours): Promise<StoreRecommendedHours> {
     return { updatedAt: new Date(), ...data } as StoreRecommendedHours;
   }
+  // Automation Rules — MemStorage stubs
+  async getAutomationRules(): Promise<AutomationRule[]> { return []; }
+  async getAutomationRulesDueToday(): Promise<AutomationRule[]> { return []; }
+  async getAutomationRule(_id: string): Promise<AutomationRule | undefined> { return undefined; }
+  async createAutomationRule(data: InsertAutomationRule): Promise<AutomationRule> {
+    return { id: randomUUID(), createdAt: new Date(), lastExecutedAt: null, daysOfWeek: null, targetEmployeeId: null, targetStoreId: null, description: null, ...data } as AutomationRule;
+  }
+  async updateAutomationRule(_id: string, _data: Partial<InsertAutomationRule>): Promise<AutomationRule | undefined> { return undefined; }
+  async deleteAutomationRule(_id: string): Promise<void> {}
+  async executeAutomationRule(_id: string): Promise<{ success: boolean; message: string }> {
+    return { success: false, message: "MemStorage: not implemented" };
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2868,6 +2889,124 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return row;
+  }
+
+  // ── Automation Rules ──────────────────────────────────────────────────────
+  async getAutomationRules(): Promise<AutomationRule[]> {
+    return db.select().from(automationRules).orderBy(desc(automationRules.createdAt));
+  }
+
+  async getAutomationRulesDueToday(): Promise<AutomationRule[]> {
+    const sydneyNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Australia/Sydney" }));
+    const todayDow = sydneyNow.getDay(); // 0=Sun, 1=Mon...6=Sat
+    const todayDate = sydneyNow.getDate();
+    const todayMonth = sydneyNow.getMonth();
+    const todayYear = sydneyNow.getFullYear();
+    const todayStr = `${todayYear}-${String(todayMonth + 1).padStart(2, "0")}-${String(todayDate).padStart(2, "0")}`;
+
+    const allRules = await db.select().from(automationRules).where(eq(automationRules.isActive, true));
+
+    return allRules.filter(rule => {
+      const lastExec = rule.lastExecutedAt;
+      if (rule.frequency === "WEEKLY") {
+        if (!rule.daysOfWeek?.includes(todayDow)) return false;
+        if (!lastExec) return true;
+        const lastStr = new Date(lastExec).toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
+        return lastStr !== todayStr;
+      }
+      if (rule.frequency === "MONTHLY_FIRST_WEEK") {
+        if (todayDate > 7) return false;
+        if (!lastExec) return true;
+        const lastSyd = new Date(new Date(lastExec).toLocaleString("en-US", { timeZone: "Australia/Sydney" }));
+        return !(lastSyd.getFullYear() === todayYear && lastSyd.getMonth() === todayMonth && lastSyd.getDate() <= 7);
+      }
+      if (rule.frequency === "MONTHLY") {
+        if (todayDate !== 1) return false;
+        if (!lastExec) return true;
+        const lastSyd = new Date(new Date(lastExec).toLocaleString("en-US", { timeZone: "Australia/Sydney" }));
+        return !(lastSyd.getFullYear() === todayYear && lastSyd.getMonth() === todayMonth);
+      }
+      return false;
+    });
+  }
+
+  async getAutomationRule(id: string): Promise<AutomationRule | undefined> {
+    const [row] = await db.select().from(automationRules).where(eq(automationRules.id, id));
+    return row;
+  }
+
+  async createAutomationRule(data: InsertAutomationRule): Promise<AutomationRule> {
+    const [row] = await db.insert(automationRules).values(data).returning();
+    return row;
+  }
+
+  async updateAutomationRule(id: string, data: Partial<InsertAutomationRule>): Promise<AutomationRule | undefined> {
+    const [row] = await db.update(automationRules).set(data).where(eq(automationRules.id, id)).returning();
+    return row;
+  }
+
+  async deleteAutomationRule(id: string): Promise<void> {
+    await db.delete(automationRules).where(eq(automationRules.id, id));
+  }
+
+  async executeAutomationRule(id: string): Promise<{ success: boolean; message: string }> {
+    const rule = await this.getAutomationRule(id);
+    if (!rule) return { success: false, message: "Rule not found" };
+
+    const payload = rule.payload as Record<string, any>;
+
+    try {
+      if (rule.actionType === "ROSTER") {
+        if (!rule.targetEmployeeId) throw new Error("No target employee set on rule");
+        const { storeId, startTime, endTime } = payload;
+        const daysOfWeek = rule.daysOfWeek ?? [];
+        const sydneyNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Australia/Sydney" }));
+        const todayDow = sydneyNow.getDay();
+        const diffToMon = todayDow === 0 ? -6 : 1 - todayDow;
+        const monday = new Date(sydneyNow);
+        monday.setDate(monday.getDate() + diffToMon);
+        for (const dow of daysOfWeek) {
+          const offset = dow === 0 ? 6 : dow - 1;
+          const d = new Date(monday);
+          d.setDate(d.getDate() + offset);
+          const dateStr = d.toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
+          await this.upsertRoster(storeId, rule.targetEmployeeId, dateStr, { startTime, endTime });
+        }
+
+      } else if (rule.actionType === "PAYROLL_ADJUSTMENT") {
+        if (!rule.targetEmployeeId) throw new Error("No target employee set on rule");
+        const payrollList = await this.getPayrolls({ employeeId: rule.targetEmployeeId });
+        if (!payrollList.length) throw new Error("No payroll record found for employee");
+        const latest = payrollList[0];
+        await this.updatePayroll(latest.id, {
+          adjustment: payload.amount,
+          adjustmentReason: payload.reason,
+        });
+
+      } else if (rule.actionType === "FINANCE_TRANSFER") {
+        const transactionType = (payload.transferType ?? "convert").toUpperCase();
+        await this.createFinancialTransaction({
+          transactionType,
+          fromStoreId: payload.fromStoreId,
+          toStoreId: payload.toStoreId,
+          cashAmount: payload.amount,
+          bankAmount: 0,
+          referenceNote: `Auto: ${rule.title}`,
+          isBankSettled: false,
+        });
+
+      } else {
+        throw new Error(`Unknown actionType: ${rule.actionType}`);
+      }
+
+      await db.update(automationRules)
+        .set({ lastExecutedAt: new Date() })
+        .where(eq(automationRules.id, id));
+
+      return { success: true, message: "Rule executed successfully" };
+    } catch (err: any) {
+      return { success: false, message: err?.message ?? "Unknown error" };
+    }
   }
 }
 

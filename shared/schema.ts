@@ -834,3 +834,29 @@ export const storeRecommendedHours = pgTable("store_recommended_hours", {
 export const insertStoreRecommendedHoursSchema = createInsertSchema(storeRecommendedHours).omit({ updatedAt: true });
 export type InsertStoreRecommendedHours = z.infer<typeof insertStoreRecommendedHoursSchema>;
 export type StoreRecommendedHours = typeof storeRecommendedHours.$inferSelect;
+
+// Automation rules — recurring tasks that managers can execute with one click
+// actionType: ROSTER | PAYROLL_ADJUSTMENT | FINANCE_TRANSFER
+// frequency:  WEEKLY | MONTHLY_FIRST_WEEK | MONTHLY
+// payload shapes:
+//   ROSTER:              { storeId, startTime, endTime }
+//   PAYROLL_ADJUSTMENT:  { amount, reason }
+//   FINANCE_TRANSFER:    { fromStoreId, toStoreId, amount, transferType: "convert"|"remittance" }
+export const automationRules = pgTable("automation_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: varchar("title", { length: 255 }).notNull(),
+  actionType: varchar("action_type", { length: 50 }).notNull(),
+  frequency: varchar("frequency", { length: 50 }).notNull(),
+  daysOfWeek: integer("days_of_week").array(),
+  targetEmployeeId: varchar("target_employee_id").references(() => employees.id),
+  targetStoreId: varchar("target_store_id").references(() => stores.id),
+  payload: jsonb("payload").notNull(),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  lastExecutedAt: timestamp("last_executed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertAutomationRuleSchema = createInsertSchema(automationRules).omit({ id: true, createdAt: true });
+export type InsertAutomationRule = z.infer<typeof insertAutomationRuleSchema>;
+export type AutomationRule = typeof automationRules.$inferSelect;

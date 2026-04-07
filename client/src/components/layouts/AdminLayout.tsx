@@ -25,6 +25,7 @@ import {
   Package,
   Settings,
   Building2,
+  Repeat,
 } from "lucide-react";
 import {
   Sidebar,
@@ -98,6 +99,7 @@ const settingsNavItems = [
   { title: "Access Control", url: "/admin/settings/access-control", icon: ShieldCheck },
   { title: "Shift Presets",  url: "/admin/settings/shift-presets",  icon: Clock },
   { title: "Store Settings", url: "/admin/settings/store-config",   icon: Building2 },
+  { title: "Automations",    url: "/admin/automations",             icon: Repeat },
 ];
 
 const ROLE_LABELS: Record<AdminRole, string> = {
@@ -111,7 +113,7 @@ const ROLE_LABELS: Record<AdminRole, string> = {
 function AdminSidebar() {
   const [location] = useLocation();
   const { currentRole, setCurrentRole, hasAccess } = useAdminRole();
-  const isSettingsActive = location.startsWith("/admin/settings");
+  const isSettingsActive = location.startsWith("/admin/settings") || location === "/admin/automations";
   const [settingsOpen, setSettingsOpen] = useState(isSettingsActive);
 
   const isActive = (url: string) => {

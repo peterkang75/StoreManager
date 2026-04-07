@@ -41,6 +41,9 @@ import {
   ChevronRight,
   Loader2,
   FileText,
+  Repeat,
+  Play,
+  SkipForward,
 } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -312,6 +315,8 @@ export function AdminDashboard() {
   const [selectedTypes, setSelectedTypes] = useState<string[]>(["Sushi", "Sandwich"]);
   const [settlementTarget, setSettlementTarget] = useState<EnrichedSettlement | null>(null);
   const [markingDoneId, setMarkingDoneId] = useState<string | null>(null);
+  const [skippedRuleIds, setSkippedRuleIds] = useState<Set<string>>(new Set());
+  const [executingRuleId, setExecutingRuleId] = useState<string | null>(null);
   const { toast } = useToast();
 
   // ── Data queries ──────────────────────────────────────────────────────────
@@ -358,6 +363,44 @@ export function AdminDashboard() {
     onError: () => toast({ title: "Failed to update task", variant: "destructive" }),
     onSettled: () => setMarkingDoneId(null),
   });
+
+  // ── Automation: Today's Due Rules ─────────────────────────────────────────
+  type EnrichedRule = { id: string; title: string; description: string | null; actionType: string; employeeName: string | null; storeName: string | null };
+  const { data: dueRules = [] } = useQuery<EnrichedRule[]>({
+    queryKey: ["/api/automation-rules/due-today"],
+    staleTime: 0,
+  });
+  const visibleRules = dueRules.filter(r => !skippedRuleIds.has(r.id));
+
+  async function executeRule(id: string) {
+    setExecutingRuleId(id);
+    try {
+      const res = await apiRequest("POST", `/api/automation-rules/${id}/execute`);
+      const result = await res.json();
+      if (result.success) {
+        toast({ title: "Rule executed", description: result.message });
+        setSkippedRuleIds(prev => new Set([...prev, id]));
+        queryClient.invalidateQueries({ queryKey: ["/api/automation-rules/due-today"] });
+      } else {
+        toast({ title: "Execution failed", description: result.message, variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Execution failed", variant: "destructive" });
+    } finally {
+      setExecutingRuleId(null);
+    }
+  }
+
+  const ACTION_BADGE_COLORS: Record<string, string> = {
+    ROSTER: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+    PAYROLL_ADJUSTMENT: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+    FINANCE_TRANSFER: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+  };
+  const ACTION_LABELS: Record<string, string> = {
+    ROSTER: "Roster",
+    PAYROLL_ADJUSTMENT: "Payroll Adj.",
+    FINANCE_TRANSFER: "Finance Transfer",
+  };
 
   const urgentTodos = allTodos
     .filter((t) => t.status === "TODO" || t.status === "IN_PROGRESS")
@@ -674,6 +717,69 @@ export function AdminDashboard() {
             </CardContent>
           </Card>
         </section>
+
+        {/* ── Section: Today's Recurring Tasks ─────────────────────────── */}
+        {visibleRules.length > 0 && (
+          <section data-testid="section-recurring-tasks">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-3 flex-wrap pb-4">
+                <div className="flex items-center gap-2">
+                  <Repeat className="w-5 h-5 text-amber-500" />
+                  <h2 className="text-xl font-semibold tracking-tight">Today's Recurring Tasks</h2>
+                  <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 ml-1" data-testid="badge-recurring-count">
+                    {visibleRules.length}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {visibleRules.map(rule => (
+                  <div key={rule.id} className="flex items-start justify-between gap-4 flex-wrap py-3 border-b last:border-b-0" data-testid={`row-recurring-${rule.id}`}>
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-sm" data-testid={`text-recurring-title-${rule.id}`}>{rule.title}</span>
+                        <Badge className={ACTION_BADGE_COLORS[rule.actionType] ?? ""} data-testid={`badge-recurring-type-${rule.id}`}>
+                          {ACTION_LABELS[rule.actionType] ?? rule.actionType}
+                        </Badge>
+                      </div>
+                      {rule.description && (
+                        <p className="text-xs text-muted-foreground">{rule.description}</p>
+                      )}
+                      {(rule.employeeName || rule.storeName) && (
+                        <p className="text-xs text-muted-foreground">
+                          {[rule.employeeName, rule.storeName].filter(Boolean).join(" · ")}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setSkippedRuleIds(prev => new Set([...prev, rule.id]))}
+                        data-testid={`button-skip-${rule.id}`}
+                      >
+                        <SkipForward className="w-3 h-3 mr-1" />
+                        Skip
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => executeRule(rule.id)}
+                        disabled={executingRuleId === rule.id}
+                        data-testid={`button-execute-${rule.id}`}
+                      >
+                        {executingRuleId === rule.id ? (
+                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                        ) : (
+                          <Play className="w-3 h-3 mr-1" />
+                        )}
+                        Execute
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </section>
+        )}
 
         {/* ── Section: Triage — Needs Routing ─────────────────────────── */}
         <section data-testid="section-triage-widget">
