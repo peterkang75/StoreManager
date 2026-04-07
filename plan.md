@@ -1,3 +1,18 @@
+---
+## MANDATORY POST-TASK CHECKLIST
+This checklist MUST be completed after every coding task before marking done.
+Report each item as PASS / FAIL / WARNING with file and line reference.
+
+1. API REGISTRATION: Every new endpoint in storage.ts is registered in routes.ts with correct HTTP method.
+2. SCHEMA-STORAGE SYNC: Every new table in schema.ts has methods in IStorage interface AND DatabaseStorage implementation.
+3. FRONTEND-BACKEND CONTRACT: Every fetch() or apiRequest() in frontend points to an endpoint that exists in routes.ts.
+4. TYPE SAFETY: No TypeScript errors. No undefined field access without null checks.
+5. DATE HANDLING: No toISOString().slice(0,10) in new code. Use toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" }).
+6. PROTECTED FILES: vite.ts, drizzle.config.ts, package.json were NOT modified.
+7. DB MIGRATION: If schema.ts was modified, db:push was executed successfully.
+8. PLAN.MD SYNC: plan.md updated to reflect all completed work.
+---
+
 # Multi-Store Business Management System — Master Plan
 
 > **Business context:** Australian retail/hospitality group operating multiple stores (Sushi, Sandwich, Meat, PYC, Holdings, Head Office).  
@@ -693,18 +708,20 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 #### 3.5.1 Shopping List — Nearly Complete
 - ShoppingListView component implemented in EmployeePortal.tsx
 - Catalogue-based item selection, category grouping, search, clear all implemented
-- `selectionCount` field exists on `shoppingItems` but sort-by-popularity NOT YET applied to catalogue display
+- `selectionCount` sort-by-popularity applied to catalogue — items sorted by `selectionCount` descending within each category (fixed in this session; `EmployeePortal.tsx` line 822)
 - Admin shopping widget on Dashboard is separate and admin-only — correct as-is
 
-#### 3.5.2 Storage List — NOT IMPLEMENTED → NOW IN PROGRESS
-- Tab shell exists in Employee Portal (HomeSubTab "storage") — currently shows "Coming soon" placeholder
-- Requires new DB tables: `storageItems`, `activeStorageList`
-- Employee portal: checklist of items to fetch from storage + optional remaining stock count input on check-off
-- Admin: `/admin/storage` page — read-only inventory view with inline stock edit capability
+#### 3.5.2 Storage List — ✅ COMPLETE
+- `storageItems` + `activeStorageList` DB tables created; FK constraints on `lastCheckedBy`/`addedBy` removed (plain varchar for display name). `db:push` run.
+- IStorage interface + MemStorage + DatabaseStorage: 9 methods (`getStorageItems`, `createStorageItem`, `updateStorageItem`, `deleteStorageItem`, `updateStorageItemStock`, `getActiveStorageList`, `addToActiveStorageList`, `removeFromActiveStorageList`, `clearActiveStorageList`).
+- API routes in `server/routes.ts` (after line 6287): `GET/POST /api/storage/items`, `PATCH /api/storage/items/:id`, `DELETE /api/storage/items/:id`, `PATCH /api/storage/items/:id/stock`, `GET/POST /api/storage/active`, `DELETE /api/storage/active/:id`, `DELETE /api/storage/active`.
+- Employee Portal: `StorageListView` component replaces "Coming soon" in storage HomeSubTab. Amber-500 accent. Catalogue drawer, "Log stock" drawer, clear-all.
+- Shopping catalogue sort fixed: items now sorted by `selectionCount` descending within each category.
+- Admin page `client/src/pages/admin/StorageInventory.tsx` at route `/admin/storage`: category-grouped table, CRUD dialog, stock/last-checked display. Registered in `App.tsx` + AdminLayout Operations nav.
 
 #### Design Notes
 - Storage UI accent color: amber-500 (consistent with unscheduled shift indicator already in portal)
-- Admin storage page: white card + subtle drop shadow (consistent with dashboard card style)
+- Admin storage page: Card-based grouped table (consistent with rest of admin UI)
 
 ---
 
