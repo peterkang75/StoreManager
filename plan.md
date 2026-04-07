@@ -133,7 +133,8 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 | `timeLogs` | `employeeId`, `storeId`, `shiftId`, `clockIn`, `clockOut`, `source`, `adjustmentReason` | Raw clock-in/out records |
 | `shiftTimesheets` | `storeId`, `employeeId`, `date`, `actualStartTime`, `actualEndTime`, `status`, `isUnscheduled` | Per-shift timesheet submission from portal. Status: PENDING / APPROVED / REJECTED |
 | `timesheets` | `employeeId`, `storeId`, `periodStart`, `periodEnd`, `totalHours`, `status`, `managerId`, `approvedAt` | Period-level timesheet aggregates |
-| `shift_presets` | `id`, `storeId` (unique FK), `fullDayStart`, `fullDayEnd`, `openShiftStart`, `openShiftEnd`, `closeShiftStart`, `closeShiftEnd` | Per-store preset times for the 3 quick-fill buttons in the Roster cell editor (Full Day / Open Shift / Close Shift). One row per store; upserted on save. |
+| `shift_presets` | `id`, `storeId` (unique FK), `fullDayStart`, `fullDayEnd`, `openShiftStart`, `openShiftEnd`, `closeShiftStart`, `closeShiftEnd` | Per-store preset times for the 3 fixed quick-fill buttons (Full Day / Open Shift / Close Shift). One row per store; upserted on save. |
+| `shift_preset_buttons` | `id` (serial PK), `storeId` (FK → stores), `name`, `startTime`, `endTime`, `sortOrder` | User-defined custom quick-fill buttons per store (e.g. "Full Day 2"). Unlimited per store. Displayed in CellEditor + Generate Shifts dialog alongside the 3 fixed presets. |
 
 ### 2.4 Payroll & Finance
 
@@ -206,7 +207,9 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Weekly grid roster** for Sushi and Sandwich stores only.
 - Select store + week → grid of employees × days.
 - Add/edit/delete shifts per cell with start/end times and notes.
+- **Cell quick-fill buttons**: Full Day / Open Shift / Close Shift (times from `shift_presets`) + any custom buttons (from `shift_preset_buttons`) for the selected store.
 - **Copy previous week** to clone an existing roster week.
+- **Generate Shifts** (bulk create): opens `GenerateRosterDialog` — select shift type, days (Mon–Sun), employees, and overwrite toggle → creates multiple shifts in one action via `POST /api/rosters/bulk-create`. See §3.18.
 - **Publish roster**: marks a `(storeId, weekStart)` as published, making it visible to employees in the portal.
 - Roster publication status shown in grid.
 
@@ -470,32 +473,61 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - Frontend `mutationFn` in `TriageInbox.tsx` parses the JSON response and shows a toast: `"N other emails from this sender were also dropped."` (only for SPAM_DROP, not FYI_ARCHIVE).
 - FYI_ARCHIVE does **not** trigger bulk-drop (FYI emails may have legitimate future correspondence).
 
-### 3.17 Shift Presets — Admin Settings ✅ COMPLETE
+### 3.17 Shift Presets & Custom Quick-Fill Buttons — Admin Settings ✅ COMPLETE
 
-**Feature**: Admin Settings → Shift Presets (`/admin/settings/shift-presets`) — lets the admin configure the times that auto-fill when clicking the **Full Day**, **Open Shift**, or **Close Shift** quick-fill buttons inside the Roster cell editor.
+**Feature**: Admin Settings → Shift Presets (`/admin/settings/shift-presets`) — lets the admin configure (1) the times for the 3 fixed quick-fill buttons and (2) create unlimited additional custom quick-fill buttons per store.
 
-**DB**: `shift_presets` table — one row per store (unique on `storeId`). Fields: `id` (UUID PK), `storeId` (FK → stores), `fullDayStart`, `fullDayEnd`, `openShiftStart`, `openShiftEnd`, `closeShiftStart`, `closeShiftEnd` (all text, HH:mm). Default values: Full Day 06:30–18:30, Open Shift 06:30–12:30, Close Shift 12:30–18:30.
+**DB**:
+- `shift_presets` — one row per store (unique on `storeId`). Fields: `id` (UUID PK), `storeId`, `fullDayStart`, `fullDayEnd`, `openShiftStart`, `openShiftEnd`, `closeShiftStart`, `closeShiftEnd` (all text, HH:mm). Default values: Full Day 06:30–18:30, Open Shift 06:30–12:30, Close Shift 12:30–18:30.
+- `shift_preset_buttons` — user-defined custom buttons. Fields: `id` (serial PK), `storeId` (FK → stores), `name` (varchar 50), `startTime`, `endTime`, `sortOrder`. Unlimited per store; `db:push` run after schema addition.
 
-**Storage** (`server/storage.ts`): `getShiftPresets()`, `getShiftPresetByStore(storeId)`, `upsertShiftPreset(data)` added to `IStorage`, `MemStorage`, and `DatabaseStorage` (upsert uses `onConflictDoUpdate` on `storeId`).
+**Storage** (`server/storage.ts`):
+- Fixed presets: `getShiftPresets()`, `getShiftPresetByStore(storeId)`, `upsertShiftPreset(data)` in `IStorage`, `MemStorage`, `DatabaseStorage`.
+- Custom buttons: `getPresetButtons(storeId)`, `upsertPresetButton(data)`, `deletePresetButton(id)` added to all three implementations.
 
 **API** (`server/routes.ts`):
-- `GET /api/shift-presets` — list all store presets
+- `GET /api/shift-presets` — list all store fixed presets
 - `GET /api/shift-presets/:storeId` — single store preset (404 if none)
-- `PUT /api/shift-presets/:storeId` — upsert preset for a store
+- `PUT /api/shift-presets/:storeId` — upsert fixed preset for a store
+- `GET /api/preset-buttons?storeId=` — list custom buttons for a store
+- `POST /api/preset-buttons` — create custom button
+- `PUT /api/preset-buttons/:id` — update custom button
+- `DELETE /api/preset-buttons/:id` — delete custom button
 
 **Frontend** (`client/src/pages/admin/ShiftPresets.tsx`):
-- Only shows Sushi + Sandwich stores (roster-enabled).
-- One Card per store with 3 rows: Full Day / Open Shift / Close Shift — each row has Start + End time selectors (30-min slots) + live hours display.
-- Save button per card (disabled when no change). Korean subtitle guidance per row.
-- Integrated into AdminLayout Settings nav (`settingsNavItems`) as "Shift Presets" with Clock icon.
-- Route registered in `App.tsx`.
+- **Sushi shown first, Sandwich below** (explicit ordering).
+- One Card per store: top section = 3 fixed preset rows (Full Day / Open Shift / Close Shift) with Start + End time selectors + live hours display + Save button. Korean subtitle guidance per row.
+- Bottom section = "Custom Buttons" (`CustomButtonsSection`) — inline add/edit/delete rows. "Add Button" opens an inline row: name input + Start/End time selects + Save/Cancel. Existing buttons show name + times + Save + Delete.
+- Integrated into AdminLayout Settings nav (`settingsNavItems`) as "Shift Presets" with Clock icon. Route registered in `App.tsx`.
 
 **Roster CellEditor integration** (`client/src/pages/admin/Rosters.tsx`):
 - `ShiftPreset` type imported from `@shared/schema`.
-- `useQuery<ShiftPreset[]>({ queryKey: ["/api/shift-presets"] })` fetches all presets.
-- `selectedStorePreset` derived from presets array matching `selectedStore`.
-- `CellEditorProps` extended with optional `preset?: ShiftPreset`.
-- Quick-fill buttons use `preset?.fullDayStart ?? storeOpenTime` pattern — preset values take priority; fallback to store hours calculation when no preset exists.
+- `useQuery<ShiftPreset[]>({ queryKey: ["/api/shift-presets"] })` fetches fixed presets; `useQuery<ShiftPresetButton[]>({ queryKey: ["/api/preset-buttons", selectedStore] })` fetches custom buttons.
+- `CellEditorProps` extended with `preset?: ShiftPreset` and `customButtons?: ShiftPresetButton[]`.
+- Fixed quick-fill buttons use `preset?.fullDayStart ?? storeOpenTime` pattern. Custom buttons appear as additional chips after the 3 fixed ones.
+
+**Generate Shifts dialog integration** (`GenerateRosterDialog`):
+- Accepts `customButtons?: ShiftPresetButton[]` prop.
+- Shift type selector shows: Full Day / Open Shift / Close Shift / Custom (time pickers) + each custom button as a selectable option (key pattern `"btn_${id}"`).
+- On selection, resolves and displays the preset start–end time for confirmation.
+
+### 3.18 Bulk Roster Generation ✅ COMPLETE
+
+**Feature**: "Generate Shifts" button in the Roster toolbar opens a dialog to apply a single shift type to multiple employees across multiple days at once.
+
+**Storage** (`server/storage.ts`): `bulkUpsertRosters(entries[], overwrite?)` — batch upserts roster rows. `overwrite=true` replaces existing entries; `overwrite=false` skips conflicts. Returns `{ created: number, skipped: number }`.
+
+**API** (`server/routes.ts`): `POST /api/rosters/bulk-create` — accepts `{ entries: [], overwrite?: boolean }`, calls `storage.bulkUpsertRosters()`, returns `{ created, skipped }`.
+
+**Frontend** (`client/src/pages/admin/Rosters.tsx`):
+- `GenerateRosterDialog` component with:
+  - **Shift type selector**: Full Day / Open Shift / Close Shift / Custom + any custom preset buttons (fetched via `/api/preset-buttons?storeId=`). Selecting a type previews the resolved start–end times from the store's fixed preset or the custom button definition.
+  - **Day selector**: Mon–Sun toggle buttons (default: Mon–Fri selected).
+  - **Employee selector**: "All employees" master checkbox + individual checkboxes per active employee in the selected store (scrollable list).
+  - **Overwrite toggle**: checkbox to allow overwriting existing shifts (default: OFF, skips existing).
+  - **Generate button**: shows `(N shifts)` count preview before generating.
+- Button added to toolbar ("Generate Shifts") next to "Copy Prev Week".
+- On success: invalidates roster query cache + shows toast with created/skipped counts.
 
 ---
 
@@ -542,6 +574,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 | POST | `/api/rosters` | Create roster entry |
 | DELETE | `/api/rosters/:id` | Delete roster entry |
 | POST | `/api/rosters/copy-week` | Copy previous week roster |
+| POST | `/api/rosters/bulk-create` | Bulk create/overwrite roster entries (Generate Shifts) |
 | POST | `/api/rosters/publish` | Publish roster for a store+week |
 | GET | `/api/rosters/published` | Check published status |
 | GET | `/api/rosters/employees` | Employees eligible for roster |
@@ -556,9 +589,13 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 ### Settings
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/shift-presets` | List all store shift presets |
-| GET | `/api/shift-presets/:storeId` | Get preset for a specific store |
-| PUT | `/api/shift-presets/:storeId` | Upsert (create or update) preset for a store |
+| GET | `/api/shift-presets` | List all store fixed shift presets |
+| GET | `/api/shift-presets/:storeId` | Get fixed preset for a specific store |
+| PUT | `/api/shift-presets/:storeId` | Upsert (create or update) fixed preset for a store |
+| GET | `/api/preset-buttons` | List custom quick-fill buttons (filter by ?storeId=) |
+| POST | `/api/preset-buttons` | Create a new custom quick-fill button |
+| PUT | `/api/preset-buttons/:id` | Update a custom quick-fill button |
+| DELETE | `/api/preset-buttons/:id` | Delete a custom quick-fill button |
 
 ### Time Logs & Timesheets
 | Method | Path | Description |
