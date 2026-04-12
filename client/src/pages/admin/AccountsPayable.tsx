@@ -1585,9 +1585,11 @@ export function AdminAccountsPayable() {
                                         isChecked
                                           ? "bg-primary/5"
                                           : overdue
-                                            ? "bg-red-50/40 dark:bg-red-950/10"
+                                            ? weekParity === 1
+                                              ? "bg-red-100/80 dark:bg-red-950/30"
+                                              : "bg-red-50/60 dark:bg-red-950/15"
                                             : weekParity === 1
-                                              ? "bg-slate-50 dark:bg-slate-800/30 hover:bg-slate-100 dark:hover:bg-slate-700/30"
+                                              ? "bg-slate-100 dark:bg-slate-800/50 hover:bg-slate-200/60 dark:hover:bg-slate-700/40"
                                               : "hover:bg-muted/20"
                                       } ${isAutoDebitRow ? "opacity-60" : ""}`}
                                       data-testid={`row-invoice-${inv.id}`}
