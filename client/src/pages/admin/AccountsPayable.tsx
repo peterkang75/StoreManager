@@ -1570,23 +1570,21 @@ export function AdminAccountsPayable() {
                               {group.invoices
                                 .slice()
                                 .sort((a, b) => (a.invoiceDate ?? "").localeCompare(b.invoiceDate ?? ""))
-                                .map(inv => {
+                                .map((inv, idx, arr) => {
                                   const overdue = isOverdue(inv.dueDate, inv.status);
                                   const dueSoon = isDueSoon(inv.dueDate, inv.status);
                                   const isChecked = selected.has(inv.id);
                                   const store = stores.find(s => s.id === inv.storeId);
                                   const isAutoDebitRow = inv.supplier?.isAutoPay === true;
-                                  const weekParity = getWeekParity(inv.invoiceDate);
+                                  const isWeekBoundary = idx > 0 && getWeekParity(inv.invoiceDate) !== getWeekParity(arr[idx - 1].invoiceDate);
 
                                   return (
                                     <tr
                                       key={inv.id}
                                       className={`border-b border-border/10 last:border-0 transition-colors ${
-                                        isChecked
-                                          ? "bg-primary/5"
-                                          : weekParity === 1
-                                            ? "bg-slate-100 dark:bg-slate-800/50 hover:bg-slate-200/60 dark:hover:bg-slate-700/40"
-                                            : "hover:bg-muted/20"
+                                        isWeekBoundary ? "border-t-2 border-t-border/50" : ""
+                                      } ${
+                                        isChecked ? "bg-primary/5" : "hover:bg-muted/20"
                                       } ${isAutoDebitRow ? "opacity-60" : ""}`}
                                       data-testid={`row-invoice-${inv.id}`}
                                     >
