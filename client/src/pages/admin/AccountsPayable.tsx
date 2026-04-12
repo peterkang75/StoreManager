@@ -192,15 +192,18 @@ function fmtReceived(date: Date | string | null | undefined): string {
   return d.toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-// Returns 0 or 1 based on which week (Mon–Sun) the date falls in, cycling every 2 weeks
-function getWeekParity(dateStr: string | null | undefined): number {
-  if (!dateStr) return 0;
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return 0;
-  const dayOfWeek = d.getUTCDay(); // 0=Sun
-  const monday = new Date(d);
-  monday.setUTCDate(d.getUTCDate() - ((dayOfWeek + 6) % 7));
-  return Math.floor(monday.getTime() / (7 * 24 * 60 * 60 * 1000)) % 2;
+// Returns "YYYY-MM-DD" of the Monday of the week containing dateStr (Mon–Sun).
+// Parses YYYY-MM-DD directly to avoid UTC/timezone offset issues.
+function getMondayStr(dateStr: string | null | undefined): string {
+  if (!dateStr) return "";
+  const m = dateStr.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return "";
+  const [y, mo, d] = [+m[1], +m[2], +m[3]];
+  const date = new Date(y, mo - 1, d); // local midnight — no timezone shift
+  const dow = date.getDay(); // 0=Sun, 1=Mon … 6=Sat
+  const daysBack = (dow + 6) % 7;   // days to subtract to reach Monday
+  date.setDate(d - daysBack);
+  return date.toLocaleDateString("en-CA"); // "YYYY-MM-DD"
 }
 
 function isOverdue(dueDate: string | null | undefined, status: string): boolean {
@@ -1576,15 +1579,13 @@ export function AdminAccountsPayable() {
                                   const isChecked = selected.has(inv.id);
                                   const store = stores.find(s => s.id === inv.storeId);
                                   const isAutoDebitRow = inv.supplier?.isAutoPay === true;
-                                  const isWeekBoundary = idx > 0 && getWeekParity(inv.invoiceDate) !== getWeekParity(arr[idx - 1].invoiceDate);
+                                  const isWeekBoundary = idx > 0 && getMondayStr(inv.invoiceDate) !== getMondayStr(arr[idx - 1].invoiceDate);
 
                                   const rows = [];
                                   if (isWeekBoundary) {
                                     rows.push(
                                       <tr key={`week-sep-${inv.id}`} aria-hidden="true">
-                                        <td colSpan={7} className="p-0">
-                                          <div className="h-[2px] bg-border/50" />
-                                        </td>
+                                        <td colSpan={7} className="p-0 h-[3px] bg-slate-300 dark:bg-slate-600" />
                                       </tr>
                                     );
                                   }
