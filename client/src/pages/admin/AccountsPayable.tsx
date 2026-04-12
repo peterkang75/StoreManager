@@ -1584,13 +1584,9 @@ export function AdminAccountsPayable() {
                                       className={`border-b border-border/10 last:border-0 transition-colors ${
                                         isChecked
                                           ? "bg-primary/5"
-                                          : overdue
-                                            ? weekParity === 1
-                                              ? "bg-red-100/80 dark:bg-red-950/30"
-                                              : "bg-red-50/60 dark:bg-red-950/15"
-                                            : weekParity === 1
-                                              ? "bg-slate-100 dark:bg-slate-800/50 hover:bg-slate-200/60 dark:hover:bg-slate-700/40"
-                                              : "hover:bg-muted/20"
+                                          : weekParity === 1
+                                            ? "bg-slate-100 dark:bg-slate-800/50 hover:bg-slate-200/60 dark:hover:bg-slate-700/40"
+                                            : "hover:bg-muted/20"
                                       } ${isAutoDebitRow ? "opacity-60" : ""}`}
                                       data-testid={`row-invoice-${inv.id}`}
                                     >
