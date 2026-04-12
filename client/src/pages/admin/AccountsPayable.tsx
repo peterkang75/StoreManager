@@ -1570,7 +1570,7 @@ export function AdminAccountsPayable() {
                               {group.invoices
                                 .slice()
                                 .sort((a, b) => (a.invoiceDate ?? "").localeCompare(b.invoiceDate ?? ""))
-                                .map((inv, idx, arr) => {
+                                .flatMap((inv, idx, arr) => {
                                   const overdue = isOverdue(inv.dueDate, inv.status);
                                   const dueSoon = isDueSoon(inv.dueDate, inv.status);
                                   const isChecked = selected.has(inv.id);
@@ -1578,12 +1578,21 @@ export function AdminAccountsPayable() {
                                   const isAutoDebitRow = inv.supplier?.isAutoPay === true;
                                   const isWeekBoundary = idx > 0 && getWeekParity(inv.invoiceDate) !== getWeekParity(arr[idx - 1].invoiceDate);
 
-                                  return (
+                                  const rows = [];
+                                  if (isWeekBoundary) {
+                                    rows.push(
+                                      <tr key={`week-sep-${inv.id}`} aria-hidden="true">
+                                        <td colSpan={7} className="p-0">
+                                          <div className="h-[2px] bg-border/50" />
+                                        </td>
+                                      </tr>
+                                    );
+                                  }
+
+                                  rows.push(
                                     <tr
                                       key={inv.id}
                                       className={`border-b border-border/10 last:border-0 transition-colors ${
-                                        isWeekBoundary ? "border-t-2 border-t-border/50" : ""
-                                      } ${
                                         isChecked ? "bg-primary/5" : "hover:bg-muted/20"
                                       } ${isAutoDebitRow ? "opacity-60" : ""}`}
                                       data-testid={`row-invoice-${inv.id}`}
@@ -1685,6 +1694,7 @@ export function AdminAccountsPayable() {
                                       </td>
                                     </tr>
                                   );
+                                  return rows;
                                 })}
                             </tbody>
                           </table>
