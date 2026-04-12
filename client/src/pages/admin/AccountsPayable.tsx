@@ -192,6 +192,17 @@ function fmtReceived(date: Date | string | null | undefined): string {
   return d.toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+// Returns 0 or 1 based on which week (Mon–Sun) the date falls in, cycling every 2 weeks
+function getWeekParity(dateStr: string | null | undefined): number {
+  if (!dateStr) return 0;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return 0;
+  const dayOfWeek = d.getUTCDay(); // 0=Sun
+  const monday = new Date(d);
+  monday.setUTCDate(d.getUTCDate() - ((dayOfWeek + 6) % 7));
+  return Math.floor(monday.getTime() / (7 * 24 * 60 * 60 * 1000)) % 2;
+}
+
 function isOverdue(dueDate: string | null | undefined, status: string): boolean {
   if (!dueDate) return false;
   if (status === "OVERDUE") return true;
@@ -1532,31 +1543,27 @@ export function AdminAccountsPayable() {
                             <tbody>
                               {group.invoices
                                 .slice()
-                                .sort((a, b) => {
-                                  const oa = isOverdue(a.dueDate, a.status) ? 0 : 1;
-                                  const ob = isOverdue(b.dueDate, b.status) ? 0 : 1;
-                                  if (oa !== ob) return oa - ob;
-                                  return (a.dueDate ?? "").localeCompare(b.dueDate ?? "");
-                                })
+                                .sort((a, b) => (a.invoiceDate ?? "").localeCompare(b.invoiceDate ?? ""))
                                 .map(inv => {
                                   const overdue = isOverdue(inv.dueDate, inv.status);
                                   const dueSoon = isDueSoon(inv.dueDate, inv.status);
                                   const isChecked = selected.has(inv.id);
                                   const store = stores.find(s => s.id === inv.storeId);
                                   const isAutoDebitRow = inv.supplier?.isAutoPay === true;
+                                  const weekParity = getWeekParity(inv.invoiceDate);
 
                                   return (
                                     <tr
                                       key={inv.id}
                                       className={`border-b border-border/10 last:border-0 transition-colors ${
-                                        isAutoDebitRow
-                                          ? "opacity-60"
-                                          : isChecked
-                                            ? "bg-primary/5"
-                                            : overdue
-                                              ? "bg-red-50/40 dark:bg-red-950/10"
+                                        isChecked
+                                          ? "bg-primary/5"
+                                          : overdue
+                                            ? "bg-red-50/40 dark:bg-red-950/10"
+                                            : weekParity === 1
+                                              ? "bg-slate-50 dark:bg-slate-800/30 hover:bg-slate-100 dark:hover:bg-slate-700/30"
                                               : "hover:bg-muted/20"
-                                      }`}
+                                      } ${isAutoDebitRow ? "opacity-60" : ""}`}
                                       data-testid={`row-invoice-${inv.id}`}
                                     >
                                       <td className="pl-4 py-2.5 w-10">
