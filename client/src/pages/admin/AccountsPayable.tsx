@@ -983,6 +983,23 @@ export function AdminAccountsPayable() {
       .reduce((s, inv) => s + (inv.amount ?? 0), 0);
   }, [toPayInvoices, selected]);
 
+  const selectedBySupplier = useMemo(() => {
+    const map = new Map<string, { name: string; total: number }>();
+    toPayInvoices
+      .filter(inv => selected.has(inv.id))
+      .forEach(inv => {
+        const sid = inv.supplierId ?? "unknown";
+        const name = inv.supplier?.name ?? "Unknown Supplier";
+        const existing = map.get(sid);
+        if (existing) {
+          existing.total += inv.amount ?? 0;
+        } else {
+          map.set(sid, { name, total: inv.amount ?? 0 });
+        }
+      });
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [toPayInvoices, selected]);
+
   // ── Mutations ───────────────────────────────────────────────────────────────
   const bulkMarkPaidMutation = useMutation({
     mutationFn: async (ids: string[]) => {
@@ -1304,14 +1321,23 @@ export function AdminAccountsPayable() {
             <Card className={selected.size > 0 ? "border-primary/40" : ""}>
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-2">
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <p className="text-xs text-muted-foreground mb-1">Selected Total</p>
                     <p className={`text-2xl font-bold tracking-tight tabular-nums transition-colors ${selected.size > 0 ? "text-primary" : "text-muted-foreground/50"}`} data-testid="text-selected-total-card">
                       {fmtAUD(selectedTotal)}
                     </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {selected.size > 0 ? `${selected.size} invoice${selected.size !== 1 ? "s" : ""} selected` : "None selected"}
-                    </p>
+                    {selected.size > 0 ? (
+                      <div className="mt-1.5 space-y-0.5">
+                        {selectedBySupplier.map(s => (
+                          <div key={s.name} className="flex items-center justify-between gap-3 text-xs">
+                            <span className="text-muted-foreground truncate">{s.name}</span>
+                            <span className="tabular-nums text-foreground/70 shrink-0">{fmtAUD(s.total)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground mt-0.5">None selected</p>
+                    )}
                   </div>
                   <CheckCircle className={`h-4 w-4 shrink-0 mt-0.5 transition-colors ${selected.size > 0 ? "text-primary" : "text-muted-foreground"}`} />
                 </div>
