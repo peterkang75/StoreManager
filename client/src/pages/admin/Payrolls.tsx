@@ -241,11 +241,38 @@ function recalcRow(row: PayrollRow, changedField?: string): PayrollRow {
 const ssKeyFor = (ctxKey: string) =>
   `payrollDraft_${ctxKey.replace(/\|/g, "_")}`;
 
+const PERIOD_SS_KEY = "payroll_selected_period";
+
 export function AdminPayrolls() {
   const { toast } = useToast();
   const fortnight = getLastFortnight();
-  const [periodStart, setPeriodStart] = useState(fortnight.start);
-  const [periodEnd, setPeriodEnd] = useState(fortnight.end);
+
+  // Restore previously selected period from sessionStorage so HMR / navigation
+  // doesn't silently reset it back to the default fortnight.
+  const [periodStart, setPeriodStart] = useState<string>(() => {
+    try {
+      const saved = sessionStorage.getItem(PERIOD_SS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as { start: string; end: string };
+        if (/^\d{4}-\d{2}-\d{2}$/.test(parsed.start) && /^\d{4}-\d{2}-\d{2}$/.test(parsed.end)) {
+          return parsed.start;
+        }
+      }
+    } catch { /* ignore */ }
+    return fortnight.start;
+  });
+  const [periodEnd, setPeriodEnd] = useState<string>(() => {
+    try {
+      const saved = sessionStorage.getItem(PERIOD_SS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as { start: string; end: string };
+        if (/^\d{4}-\d{2}-\d{2}$/.test(parsed.start) && /^\d{4}-\d{2}-\d{2}$/.test(parsed.end)) {
+          return parsed.end;
+        }
+      }
+    } catch { /* ignore */ }
+    return fortnight.end;
+  });
   const [selectedStoreId, setSelectedStoreId] = useState("");
   // Global draft state: keyed by ctxKey (`${storeId}|${periodStart}|${periodEnd}`) then employeeId.
   // Each ctxKey is lazily hydrated from its own sessionStorage key on first navigation.
@@ -281,6 +308,13 @@ export function AdminPayrolls() {
       sessionStorage.setItem("payroll_draft_v2_init", "1");
     }
   }, []);
+
+  // Persist selected period so page reload / HMR does not silently reset it.
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(PERIOD_SS_KEY, JSON.stringify({ start: periodStart, end: periodEnd }));
+    } catch { /* ignore */ }
+  }, [periodStart, periodEnd]);
 
   // Sync drafts to sessionStorage — each ctxKey gets its OWN key so periods are
   // perfectly isolated and switching stores never overwrites another period's data.
@@ -794,7 +828,8 @@ export function AdminPayrolls() {
   const shiftPeriod = (direction: number) => {
     const days = 14 * direction;
     const shift = (dateStr: string) => {
-      const d = new Date(dateStr);
+      // Append T00:00:00 to parse as LOCAL midnight and avoid UTC±offset date skew.
+      const d = new Date(dateStr + "T00:00:00");
       d.setDate(d.getDate() + days);
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, "0");
