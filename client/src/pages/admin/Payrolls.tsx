@@ -125,21 +125,38 @@ function CashCounter() {
   );
 }
 
+// Fixed fortnightly pay-cycle anchored to March 23, 2026 (Mon) as the first day
+// of a known cycle. Every 14 days from this anchor is a new pay period.
+// Example cycles:
+//   Mar 23 – Apr 5   (cycle 0)
+//   Apr  6 – Apr 19  (cycle 1)
+//   Apr 20 – May  3  (cycle 2)  …
+const PAY_CYCLE_ANCHOR = new Date(2026, 2, 23); // March 23, 2026 — local midnight
+
+function fmtYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function getCurrentPayCycle(): { start: string; end: string } {
+  // Use AEDT "today" so the cycle boundary flips at midnight Sydney time.
+  const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
+  const today = new Date(todayStr + "T00:00:00"); // local midnight
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const daysSinceAnchor = Math.floor((today.getTime() - PAY_CYCLE_ANCHOR.getTime()) / MS_PER_DAY);
+  const cycleIndex = Math.floor(daysSinceAnchor / 14);
+  const cycleStart = new Date(PAY_CYCLE_ANCHOR);
+  cycleStart.setDate(PAY_CYCLE_ANCHOR.getDate() + cycleIndex * 14);
+  const cycleEnd = new Date(cycleStart);
+  cycleEnd.setDate(cycleStart.getDate() + 13);
+  return { start: fmtYMD(cycleStart), end: fmtYMD(cycleEnd) };
+}
+
+// Keep for backward-compat with any callers — now delegates to the fixed cycle.
 function getLastFortnight(): { start: string; end: string } {
-  const today = new Date();
-  const dayOfWeek = today.getDay();
-  const daysToLastSunday = dayOfWeek === 0 ? 7 : dayOfWeek;
-  const lastSunday = new Date(today);
-  lastSunday.setDate(today.getDate() - daysToLastSunday);
-  const fortnightStart = new Date(lastSunday);
-  fortnightStart.setDate(lastSunday.getDate() - 13);
-  const fmt = (d: Date) => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  };
-  return { start: fmt(fortnightStart), end: fmt(lastSunday) };
+  return getCurrentPayCycle();
 }
 
 function calculatePaygTax(fortnightlyGross: number): number {
@@ -248,31 +265,25 @@ export function AdminPayrolls() {
   const fortnight = getLastFortnight();
 
   // Restore previously selected period from sessionStorage so HMR / navigation
-  // doesn't silently reset it back to the default fortnight.
-  const [periodStart, setPeriodStart] = useState<string>(() => {
+  // doesn't silently reset it back to the default cycle.
+  // Validates that the saved start date aligns with the fixed anchor cycle grid.
+  const restoredPeriod = (() => {
     try {
       const saved = sessionStorage.getItem(PERIOD_SS_KEY);
       if (saved) {
         const parsed = JSON.parse(saved) as { start: string; end: string };
         if (/^\d{4}-\d{2}-\d{2}$/.test(parsed.start) && /^\d{4}-\d{2}-\d{2}$/.test(parsed.end)) {
-          return parsed.start;
+          // Confirm the saved start aligns to the fixed cycle grid (multiple of 14 from anchor).
+          const savedStart = new Date(parsed.start + "T00:00:00");
+          const daysDiff = Math.round((savedStart.getTime() - PAY_CYCLE_ANCHOR.getTime()) / (24 * 60 * 60 * 1000));
+          if (daysDiff % 14 === 0) return parsed; // valid cycle boundary
         }
       }
     } catch { /* ignore */ }
-    return fortnight.start;
-  });
-  const [periodEnd, setPeriodEnd] = useState<string>(() => {
-    try {
-      const saved = sessionStorage.getItem(PERIOD_SS_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved) as { start: string; end: string };
-        if (/^\d{4}-\d{2}-\d{2}$/.test(parsed.start) && /^\d{4}-\d{2}-\d{2}$/.test(parsed.end)) {
-          return parsed.end;
-        }
-      }
-    } catch { /* ignore */ }
-    return fortnight.end;
-  });
+    return null;
+  })();
+  const [periodStart, setPeriodStart] = useState<string>(restoredPeriod?.start ?? fortnight.start);
+  const [periodEnd, setPeriodEnd] = useState<string>(restoredPeriod?.end ?? fortnight.end);
   const [selectedStoreId, setSelectedStoreId] = useState("");
   // Global draft state: keyed by ctxKey (`${storeId}|${periodStart}|${periodEnd}`) then employeeId.
   // Each ctxKey is lazily hydrated from its own sessionStorage key on first navigation.
