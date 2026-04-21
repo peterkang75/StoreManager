@@ -121,13 +121,7 @@ interface WeeklyPayrollResponse {
   };
 }
 
-const STORE_COLORS: Record<string, string> = {
-  Sushi: "#EE864A",
-  Sandwich: "#D13535",
-};
-function storeColor(name: string): string {
-  return STORE_COLORS[name] ?? "#6366f1";
-}
+import { STORE_COLORS, storeColorFor as storeColor } from "@shared/storeColors";
 
 // ── Week Navigator ─────────────────────────────────────────────────────────────
 

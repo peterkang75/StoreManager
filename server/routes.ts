@@ -6,6 +6,7 @@ import { db } from "./db";
 import { sql } from "drizzle-orm";
 import { supplierInvoices } from "@shared/schema";
 import { PAYROLL_CYCLE_ANCHOR, getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "../shared/payrollCycle";
+import { storeColorFor } from "../shared/storeColors";
 import { extractPdfText, parseInvoiceWithAI, parseUploadedFile, parseInvoiceFromUnknownSender, triageEmail, summarizeTaskFromEmail, classifyDocumentForAP } from "./invoiceParser";
 import { 
   insertStoreSchema, 
@@ -3745,7 +3746,7 @@ export async function registerRoutes(
         return {
           shift,
           storeName: store?.name ?? "Unknown",
-          storeColor: store?.name === "Sushi" ? "#16a34a" : store?.name === "Sandwich" ? "#dc2626" : "#888",
+          storeColor: storeColorFor(store?.name ?? null),
           timesheet: allTimesheets.length > 0 ? allTimesheets[0] : null,
         };
       }));
@@ -3757,7 +3758,7 @@ export async function registerRoutes(
         return {
           timesheet: ts,
           storeName: store?.name ?? "Unknown",
-          storeColor: store?.name === "Sushi" ? "#16a34a" : store?.name === "Sandwich" ? "#dc2626" : "#888",
+          storeColor: storeColorFor(store?.name ?? null),
         };
       });
 

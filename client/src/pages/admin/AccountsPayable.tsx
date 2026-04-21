@@ -1424,8 +1424,8 @@ export function AdminAccountsPayable() {
             {[...filteredStores.map(s => ({ id: s.id, label: s.name })), { id: "ALL", label: "All Stores" }].map(opt => {
               const isActive = storeFilter === opt.id;
               const brandColor =
-                opt.label.toLowerCase().includes("sushi") ? "#EE864A" :
-                opt.label.toLowerCase().includes("sandwich") ? "#D13535" : null;
+                opt.label.toLowerCase().includes("sushi") ? "#222222" :
+                opt.label.toLowerCase().includes("sandwich") ? "#ef4444" : null;
               return (
                 <button
                   key={opt.id}

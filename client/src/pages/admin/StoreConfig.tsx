@@ -714,7 +714,7 @@ function RecommendedHoursSection({ stores }: { stores: Store[] }) {
                     <CardTitle className="text-base flex items-center gap-2">
                       <div
                         className="w-2 h-2 rounded-full"
-                        style={{ background: isSushi ? "#16a34a" : "#dc2626" }}
+                        style={{ background: isSushi ? "#222222" : "#ef4444" }}
                       />
                       {store.name}
                     </CardTitle>

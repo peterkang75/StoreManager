@@ -130,11 +130,7 @@ function isOutsideHours(start: string, end: string, open: string, close: string)
   return toMins(start) < toMins(open) || toMins(end) > toMins(close);
 }
 
-// ─── Store brand colours ──────────────────────────────────────────────────────
-const STORE_COLORS: Record<string, string> = {
-  Sushi:    "#EE864A",
-  Sandwich: "#D13535",
-};
+import { STORE_COLORS } from "@shared/storeColors";
 
 // ─── Generate Roster Dialog ───────────────────────────────────────────────────
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];

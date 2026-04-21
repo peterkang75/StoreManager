@@ -26,11 +26,7 @@ import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Employee, Store, EmployeeStoreAssignment } from "@shared/schema";
-
-const STORE_BRAND: Record<string, string> = {
-  Sushi: "#EE864A",
-  Sandwich: "#D13535",
-};
+import { STORE_COLORS as STORE_BRAND } from "@shared/storeColors";
 
 export function AdminEmployees() {
   const [, setLocation] = useLocation();

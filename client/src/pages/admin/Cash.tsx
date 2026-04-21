@@ -17,11 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Wallet, Receipt, AlertTriangle } from "lucide-react";
 import type { Store, DailyClosing, CashSalesDetail } from "@shared/schema";
-
-const STORE_BRAND: Record<string, string> = {
-  Sushi: "#EE864A",
-  Sandwich: "#D13535",
-};
+import { STORE_COLORS as STORE_BRAND } from "@shared/storeColors";
 
 export function AdminCash() {
   const [storeFilter, setStoreFilter] = useState<string>("all");

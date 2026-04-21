@@ -66,6 +66,7 @@ import {
 } from "lucide-react";
 import type { Notice, ShiftTimesheet, ShoppingItem, ActiveShoppingListItem, StorageItem, ActiveStorageListItem, StorageUnit } from "@shared/schema";
 import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "@shared/payrollCycle";
+import { storeColorFor } from "@shared/storeColors";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -602,7 +603,7 @@ function UnscheduledShiftDrawer({
       onSubmitted({
         timesheet: ts,
         storeName: store?.name ?? "Unknown",
-        storeColor: store?.name === "Sushi" ? "#16a34a" : store?.name === "Sandwich" ? "#dc2626" : "#888",
+        storeColor: storeColorFor(store?.name ?? null),
       });
       onClose();
     },

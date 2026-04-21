@@ -149,13 +149,7 @@ function adjustTime(time: string, deltaMinutes: number): string {
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
-const STORE_COLORS: Record<string, string> = {
-  Sushi: "#EE864A",
-  Sandwich: "#D13535",
-};
-function storeColor(n: string): string {
-  return STORE_COLORS[n] ?? "#6366f1";
-}
+import { STORE_COLORS, storeColorFor as storeColor } from "@shared/storeColors";
 
 // ── Group by employee ──────────────────────────────────────────────────────────
 
