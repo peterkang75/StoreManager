@@ -199,11 +199,13 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
   });
 
   const handleDigit = (d: string) => {
-    if (pin.length >= 4) return;
-    const next = pin + d;
-    setPin(next);
     setError("");
-    if (next.length === 4) setTimeout(() => loginMutation.mutate(next), 80);
+    setPin(prev => {
+      if (prev.length >= 4) return prev;
+      const next = prev + d;
+      if (next.length === 4) setTimeout(() => loginMutation.mutate(next), 80);
+      return next;
+    });
   };
   const handleDel = () => { setPin(p => p.slice(0, -1)); setError(""); };
 
@@ -2638,10 +2640,14 @@ function ChangePinDrawer({ open, onClose, employeeId }: { open: boolean; onClose
   const [confirmPin, setConfirmPin] = useState("");
   const [error, setError] = useState("");
 
+  // Refs always hold the latest PIN values so setTimeout callbacks never read stale closures
+  const currentPinRef = useRef("");
+  const newPinRef = useRef("");
+
   const resetAll = () => {
     setStep("current");
-    setCurrentPin("");
-    setNewPin("");
+    setCurrentPin(""); currentPinRef.current = "";
+    setNewPin(""); newPinRef.current = "";
     setConfirmPin("");
     setError("");
   };
@@ -2663,6 +2669,8 @@ function ChangePinDrawer({ open, onClose, employeeId }: { open: boolean; onClose
       handleClose();
     },
     onError: (err: Error) => {
+      currentPinRef.current = "";
+      newPinRef.current = "";
       setCurrentPin("");
       setNewPin("");
       setConfirmPin("");
@@ -2673,44 +2681,60 @@ function ChangePinDrawer({ open, onClose, employeeId }: { open: boolean; onClose
 
   const activePin = step === "current" ? currentPin : step === "new" ? newPin : confirmPin;
 
+  // Use functional setState so rapid taps accumulate correctly even before re-render
   const handleDigit = (d: string) => {
-    if (activePin.length >= 4 || changePinMutation.isPending) return;
+    if (changePinMutation.isPending) return;
     setError("");
     if (step === "current") {
-      const next = currentPin + d;
-      setCurrentPin(next);
-      if (next.length === 4) setTimeout(() => setStep("new"), 200);
+      setCurrentPin(prev => {
+        if (prev.length >= 4) return prev;
+        const next = prev + d;
+        currentPinRef.current = next;
+        if (next.length === 4) setTimeout(() => setStep("new"), 200);
+        return next;
+      });
     } else if (step === "new") {
-      const next = newPin + d;
-      setNewPin(next);
-      if (next.length === 4) setTimeout(() => setStep("confirm"), 200);
+      setNewPin(prev => {
+        if (prev.length >= 4) return prev;
+        const next = prev + d;
+        newPinRef.current = next;
+        if (next.length === 4) setTimeout(() => setStep("confirm"), 200);
+        return next;
+      });
     } else {
-      const next = confirmPin + d;
-      setConfirmPin(next);
-      if (next.length === 4) {
-        setTimeout(() => {
-          if (next !== newPin) {
-            setError("PINs do not match. Please try again.");
-            setNewPin("");
-            setConfirmPin("");
-            setTimeout(() => setStep("new"), 100);
-          } else if (next === currentPin) {
-            setError("New PIN must be different from current PIN.");
-            setNewPin("");
-            setConfirmPin("");
-            setTimeout(() => setStep("new"), 100);
-          } else {
-            changePinMutation.mutate({ current: currentPin, next });
-          }
-        }, 80);
-      }
+      setConfirmPin(prev => {
+        if (prev.length >= 4) return prev;
+        const next = prev + d;
+        if (next.length === 4) {
+          setTimeout(() => {
+            const curPin = currentPinRef.current;
+            const nwPin = newPinRef.current;
+            if (next !== nwPin) {
+              setError("PINs do not match. Please try again.");
+              newPinRef.current = "";
+              setNewPin("");
+              setConfirmPin("");
+              setTimeout(() => setStep("new"), 100);
+            } else if (next === curPin) {
+              setError("New PIN must be different from current PIN.");
+              newPinRef.current = "";
+              setNewPin("");
+              setConfirmPin("");
+              setTimeout(() => setStep("new"), 100);
+            } else {
+              changePinMutation.mutate({ current: curPin, next });
+            }
+          }, 80);
+        }
+        return next;
+      });
     }
   };
 
   const handleDel = () => {
     setError("");
-    if (step === "current") setCurrentPin(p => p.slice(0, -1));
-    else if (step === "new") setNewPin(p => p.slice(0, -1));
+    if (step === "current") { setCurrentPin(p => { const v = p.slice(0, -1); currentPinRef.current = v; return v; }); }
+    else if (step === "new") { setNewPin(p => { const v = p.slice(0, -1); newPinRef.current = v; return v; }); }
     else setConfirmPin(p => p.slice(0, -1));
   };
 
