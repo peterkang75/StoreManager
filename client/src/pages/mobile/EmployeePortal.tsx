@@ -447,18 +447,20 @@ function TodayShiftCard({
     <>
       <div
         data-testid={`card-shift-${item.shift.storeId}`}
-        className="flex overflow-hidden rounded-2xl border border-border/40 bg-card shadow-sm"
+        style={{
+          background: "#fff",
+          borderRadius: 20,
+          boxShadow: "rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px",
+          overflow: "hidden",
+        }}
       >
-        {/* Left accent bar — store colour */}
-        <div className="w-1.5 shrink-0" style={{ backgroundColor: item.storeColor }} />
-
         {/* Content */}
         <div className="flex-1 p-5">
           {/* Row 1: store name + status badge */}
           <div className="flex items-start justify-between gap-2 mb-4">
-            <span className="font-semibold text-sm text-muted-foreground">{item.storeName} Store</span>
+            <span style={{ fontWeight: 600, fontSize: 13, color: "#6a6a6a" }}>{item.storeName} Store</span>
             {ts && st && (
-              <div className={`flex items-center gap-1 rounded-md px-2 py-1 shrink-0 ${st.bg}`}>
+              <div className={`flex items-center gap-1 px-2 py-1 shrink-0 ${st.bg}`} style={{ borderRadius: 14 }}>
                 <CheckCircle2 className={`h-3 w-3 ${st.text}`} />
                 <span className={`text-[11px] font-semibold ${st.text}`}>{st.label}</span>
               </div>
@@ -466,10 +468,14 @@ function TodayShiftCard({
           </div>
 
           {/* Time range */}
-          <p className="text-3xl font-bold tabular-nums tracking-tight leading-none" data-testid="text-shift-time">
+          <p
+            className="tabular-nums leading-none"
+            data-testid="text-shift-time"
+            style={{ fontSize: 32, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px" }}
+          >
             {shift.startTime} – {shift.endTime}
           </p>
-          <p className="text-sm text-muted-foreground mt-1.5">{hours.toFixed(1)} hours</p>
+          <p style={{ fontSize: 13, color: "#6a6a6a", marginTop: 6 }}>{hours.toFixed(1)} hours</p>
 
           {/* Adjustment reason memo block */}
           {ts?.adjustmentReason && (
@@ -483,7 +489,7 @@ function TodayShiftCard({
           {!ts && (
             <Button
               className="w-full mt-4"
-              style={{ backgroundColor: item.storeColor, borderColor: item.storeColor, color: "white" }}
+              style={{ backgroundColor: "#ef4444", borderColor: "#ef4444", color: "white", borderRadius: 8 }}
               onClick={() => setDrawerOpen(true)}
               data-testid={`button-submit-${shift.storeId}`}
             >
@@ -1403,11 +1409,16 @@ function HomeTab({ session }: { session: Session }) {
   ];
 
   return (
-    <div className="flex flex-col gap-5 px-4 py-5">
+    <div className="flex flex-col gap-5 px-4 py-5" style={{ background: "#f7f7f7", minHeight: "100%" }}>
       {/* Greeting */}
       <div>
-        <p className="text-sm text-muted-foreground">Good {getGreeting()},</p>
-        <h2 className="text-2xl font-bold" data-testid="text-employee-name">{displayName}</h2>
+        <p style={{ fontSize: 13, color: "#6a6a6a", marginBottom: 2 }}>Good {getGreeting()},</p>
+        <h2
+          data-testid="text-employee-name"
+          style={{ fontSize: 26, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px", lineHeight: 1.2 }}
+        >
+          {displayName}
+        </h2>
         {(session.role?.toUpperCase() === "OWNER" || session.role?.toUpperCase() === "MANAGER") && (
           <div className="mt-2">
             <Button
@@ -1423,28 +1434,46 @@ function HomeTab({ session }: { session: Session }) {
         )}
       </div>
 
-      {/* Sub-tab row */}
-      <div className="flex gap-1 rounded-xl bg-muted p-1">
+      {/* Sub-tab row — bottom-border style */}
+      <div style={{ display: "flex", borderBottom: "1px solid #e4e4e4", background: "#f7f7f7" }}>
         {([
           { id: "myDay", label: "My Day", icon: Home },
           { id: "shopping", label: "Shopping", icon: ShoppingCart },
           { id: "storage", label: "Storage", icon: Package },
-        ] as { id: HomeSubTab; label: string; icon: React.ElementType }[]).map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            type="button"
-            data-testid={`button-home-subtab-${id}`}
-            onClick={() => setHomeSubTab(id)}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${
-              homeSubTab === id
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover-elevate"
-            }`}
-          >
-            <Icon className="h-3.5 w-3.5" />
-            {label}
-          </button>
-        ))}
+        ] as { id: HomeSubTab; label: string; icon: React.ElementType }[]).map(({ id, label, icon: Icon }) => {
+          const isActive = homeSubTab === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              data-testid={`button-home-subtab-${id}`}
+              onClick={() => setHomeSubTab(id)}
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                paddingTop: 10,
+                paddingBottom: 10,
+                fontSize: 13,
+                fontWeight: isActive ? 700 : 500,
+                color: isActive ? "#222222" : "#6a6a6a",
+                borderBottom: isActive ? "2px solid #222222" : "2px solid transparent",
+                background: "transparent",
+                border: "none",
+                borderBottomStyle: "solid",
+                borderBottomWidth: 2,
+                borderBottomColor: isActive ? "#222222" : "transparent",
+                cursor: "pointer",
+                transition: "all 0.15s",
+              }}
+            >
+              <Icon style={{ width: 14, height: 14 }} />
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Shopping List tab */}
@@ -1461,8 +1490,8 @@ function HomeTab({ session }: { session: Session }) {
       {homeSubTab === "myDay" && (
       <><div>
         <div className="flex items-center gap-2 mb-3">
-          <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-          <h3 className="font-semibold text-xs uppercase tracking-widest text-muted-foreground">
+          <div className="h-2 w-2 rounded-full animate-pulse" style={{ background: "#ef4444" }} />
+          <h3 style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6a6a6a" }}>
             Today · {fmtLongDate(today)}
           </h3>
         </div>
@@ -1532,56 +1561,70 @@ function HomeTab({ session }: { session: Session }) {
 
       {/* Quick Actions */}
       <div>
-        <h3 className="font-semibold text-xs uppercase tracking-widest text-muted-foreground mb-3">
+        <h3 style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6a6a6a", marginBottom: 12 }}>
           Quick Actions
         </h3>
-        <Card>
-          <CardContent className="p-0">
-            <button
-              type="button"
-              data-testid="button-daily-close-report"
-              className="w-full flex items-center gap-4 px-4 py-4 hover-elevate active-elevate-2 rounded-md text-left"
-              onClick={() => navigate("/m/daily-close")}
-            >
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 shrink-0">
-                <FileText className="h-5 w-5 text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm">Submit Daily Close Report</p>
-                <p className="text-xs text-muted-foreground mt-0.5">End-of-day summary for managers</p>
-              </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-            </button>
-          </CardContent>
-        </Card>
+        <div style={{
+          background: "#fff",
+          borderRadius: 20,
+          boxShadow: "rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px",
+        }}>
+          <button
+            type="button"
+            data-testid="button-daily-close-report"
+            className="w-full flex items-center gap-4 text-left"
+            style={{ padding: "16px 20px", background: "transparent", border: "none", cursor: "pointer", borderRadius: 20 }}
+            onClick={() => navigate("/m/daily-close")}
+          >
+            <div style={{
+              width: 40, height: 40, borderRadius: "50%",
+              background: "#f7f7f7",
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+            }}>
+              <FileText style={{ width: 18, height: 18, color: "#222222" }} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p style={{ fontWeight: 600, fontSize: 14, color: "#222222" }}>Submit Daily Close Report</p>
+              <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 2 }}>End-of-day summary for managers</p>
+            </div>
+            <ChevronRight style={{ width: 16, height: 16, color: "#aaa", flexShrink: 0 }} />
+          </button>
+        </div>
       </div>
 
       {/* Notices */}
       {portalNotices.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-3">
-            <Megaphone className="h-3.5 w-3.5 text-muted-foreground" />
-            <h3 className="font-semibold text-xs uppercase tracking-widest text-muted-foreground">
+            <Megaphone style={{ width: 14, height: 14, color: "#6a6a6a" }} />
+            <h3 style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6a6a6a" }}>
               Notices
             </h3>
           </div>
           <div className="flex flex-col gap-3">
             {portalNotices.map(n => (
-              <Card key={n.id} data-testid={`card-portal-notice-${n.id}`}>
-                <CardContent className="px-4 py-3.5">
-                  <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                    <p className="font-semibold text-sm leading-tight">{n.title}</p>
-                    {!n.targetStoreId && (
-                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                        <Globe className="w-3 h-3" /> All Stores
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-sm text-muted-foreground whitespace-pre-line leading-relaxed">
-                    {n.content}
-                  </p>
-                </CardContent>
-              </Card>
+              <div
+                key={n.id}
+                data-testid={`card-portal-notice-${n.id}`}
+                style={{
+                  background: "#fff",
+                  borderRadius: 20,
+                  boxShadow: "rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px",
+                  padding: "14px 16px",
+                }}
+              >
+                <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                  <p style={{ fontWeight: 600, fontSize: 14, color: "#222222", lineHeight: 1.3 }}>{n.title}</p>
+                  {!n.targetStoreId && (
+                    <span className="inline-flex items-center gap-1" style={{ fontSize: 12, color: "#6a6a6a" }}>
+                      <Globe style={{ width: 12, height: 12 }} /> All Stores
+                    </span>
+                  )}
+                </div>
+                <p style={{ fontSize: 13, color: "#6a6a6a", whiteSpace: "pre-line", lineHeight: 1.55 }}>
+                  {n.content}
+                </p>
+              </div>
             ))}
           </div>
         </div>
@@ -2945,12 +2988,14 @@ function BottomNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => vo
               onClick={() => onChange(tab)}
             >
               <Icon
-                className={`h-5 w-5 transition-colors ${isActive ? "text-primary" : "text-muted-foreground"}`}
+                className="h-5 w-5 transition-colors"
+                style={{ color: isActive ? "#222222" : "#aaa" }}
                 strokeWidth={isActive ? 2.5 : 1.8}
               />
-              <span className={`text-[10px] font-medium tracking-wide transition-colors ${
-                isActive ? "text-primary" : "text-muted-foreground"
-              }`}>{label}</span>
+              <span
+                className="text-[10px] font-medium tracking-wide transition-colors"
+                style={{ color: isActive ? "#222222" : "#aaa" }}
+              >{label}</span>
             </button>
           );
         })}
