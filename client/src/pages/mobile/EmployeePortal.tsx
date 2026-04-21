@@ -1502,6 +1502,19 @@ function HomeTab({ session }: { session: Session }) {
     staleTime: 120_000,
   });
 
+  // Gate Admin Dashboard button by actual Access Control permissions.
+  // OWNER has full access; MANAGER only sees the button if at least one admin
+  // route is allowed for MANAGER in the permissions table.
+  const roleUpper = session.role?.toUpperCase();
+  const { data: portalPermissions = [] } = useQuery<Array<{ role: string; route: string; allowed: boolean }>>({
+    queryKey: ["/api/permissions"],
+    enabled: roleUpper === "MANAGER",
+    staleTime: 60_000,
+  });
+  const showAdminDashboard =
+    roleUpper === "OWNER" ||
+    (roleUpper === "MANAGER" && portalPermissions.some(p => p.role === "MANAGER" && p.allowed));
+
   const todayShifts: TodayShiftItem[] = (todayData?.shifts ?? []).map(item => ({
     ...item,
     timesheet: localTimesheets[item.shift.storeId] ?? item.timesheet,
@@ -1526,7 +1539,7 @@ function HomeTab({ session }: { session: Session }) {
         >
           {displayName}
         </h2>
-        {(session.role?.toUpperCase() === "OWNER" || session.role?.toUpperCase() === "MANAGER") && (
+        {showAdminDashboard && (
           <div className="mt-2">
             <Button
               variant="outline"

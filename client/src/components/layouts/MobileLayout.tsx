@@ -1,5 +1,6 @@
 import { ArrowLeft, LayoutDashboard } from "lucide-react";
 import { Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 
 const A = {
   font: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, 'Helvetica Neue', sans-serif",
@@ -12,14 +13,20 @@ interface MobileLayoutProps {
   showHeader?: boolean;
 }
 
-function loadMobileSession() {
+function loadPortalRole(): string | null {
   try {
-    const raw = localStorage.getItem("mobile_session");
-    if (!raw) return null;
-    return JSON.parse(raw) as { role?: string };
-  } catch {
-    return null;
-  }
+    const portal = sessionStorage.getItem("ep_session_v4");
+    if (portal) {
+      const s = JSON.parse(portal);
+      if (s?.role) return String(s.role).toUpperCase();
+    }
+    const legacy = localStorage.getItem("mobile_session");
+    if (legacy) {
+      const s = JSON.parse(legacy);
+      if (s?.role) return String(s.role).toUpperCase();
+    }
+  } catch {}
+  return null;
 }
 
 export function MobileLayout({
@@ -28,8 +35,17 @@ export function MobileLayout({
   backUrl,
   showHeader = true,
 }: MobileLayoutProps) {
-  const session = loadMobileSession();
-  const isAdmin = session?.role === "OWNER" || session?.role === "MANAGER";
+  const role = loadPortalRole();
+
+  const { data: permissions = [] } = useQuery<Array<{ role: string; route: string; allowed: boolean }>>({
+    queryKey: ["/api/permissions"],
+    enabled: role === "MANAGER",
+    staleTime: 60_000,
+  });
+
+  const isAdmin =
+    role === "OWNER" ||
+    (role === "MANAGER" && permissions.some(p => p.role === "MANAGER" && p.allowed));
 
   return (
     <div style={{ minHeight: "100vh", background: "#ffffff", display: "flex", flexDirection: "column", fontFamily: A.font }}>
