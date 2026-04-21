@@ -99,7 +99,15 @@ interface TodayData {
 }
 interface StoreOption { id: string; name: string; }
 
-interface DayData { date: string; shift: ShiftInfo | null; timesheet: TimesheetInfo | null }
+interface ShiftWithStore extends ShiftInfo { storeName?: string; storeColor?: string }
+interface DayData {
+  date: string;
+  shifts: ShiftWithStore[];
+  timesheets: TimesheetInfo[];
+  // Legacy alias — first shift/timesheet for backwards compat.
+  shift: ShiftWithStore | null;
+  timesheet: TimesheetInfo | null;
+}
 interface WeekData { days: DayData[]; published: boolean; weekStart: string; weekEnd: string }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -484,13 +492,22 @@ function TodayShiftCard({
           borderRadius: 20,
           boxShadow: "rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px",
           overflow: "hidden",
+          borderLeft: `4px solid ${item.storeColor ?? "#6a6a6a"}`,
         }}
       >
         {/* Content */}
         <div className="flex-1 p-5">
           {/* Row 1: store name + status badge */}
           <div className="flex items-start justify-between gap-2 mb-4">
-            <span style={{ fontWeight: 600, fontSize: 13, color: "#6a6a6a" }}>{item.storeName} Store</span>
+            <span style={{
+              display: "inline-flex", alignItems: "center", gap: 8,
+              fontWeight: 700, fontSize: 13,
+              color: item.storeColor ?? "#6a6a6a",
+              letterSpacing: "0.02em",
+            }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: item.storeColor ?? "#6a6a6a" }} />
+              {item.storeName} Store
+            </span>
             {ts && st && (
               <div className={`flex items-center gap-1 px-2 py-1 shrink-0 ${st.bg}`} style={{ borderRadius: 14 }}>
                 <CheckCircle2 className={`h-3 w-3 ${st.text}`} />
@@ -2021,11 +2038,15 @@ function WeekRow({ day, today, employeeId, onSubmitted, openCycleStart }: { day:
   const { abbr, num } = fmtDay(day.date);
   const isToday = day.date === today;
   const isPast  = day.date < today;
-  const ts = day.timesheet;
-  const st = ts ? STATUS_STYLE[ts.status] ?? STATUS_STYLE.PENDING : null;
-  // Allow logging only for past days within the current open payroll cycle.
-  // Once the cycle ends (every 2 Sundays), the window closes.
-  const canLogPast = isPast && !!day.shift && !ts && day.date >= openCycleStart;
+  const shifts = day.shifts ?? (day.shift ? [day.shift] : []);
+  const hasShift = shifts.length > 0;
+  // Timesheet lookup per shift (match by storeId first, else legacy single timesheet)
+  const tsByStore = new Map<string, TimesheetInfo>();
+  (day.timesheets ?? []).forEach(t => { tsByStore.set((t as any).storeId ?? "", t); });
+  const allSubmitted = hasShift && shifts.every(s => tsByStore.has(s.storeId) || (day.timesheets?.length ?? 0) > 0);
+  const anyMissing = hasShift && !allSubmitted;
+  // Allow logging past shifts within the current open payroll cycle.
+  const canLogPast = isPast && hasShift && anyMissing && day.date >= openCycleStart;
 
   return (
     <>
@@ -2042,37 +2063,55 @@ function WeekRow({ day, today, employeeId, onSubmitted, openCycleStart }: { day:
           <span className={`text-lg font-bold leading-tight ${isToday ? "text-primary" : ""}`}>{num}</span>
         </div>
 
-        {/* Shift info */}
+        {/* Shift info — one line per shift, coloured by store */}
         <div className="flex-1 min-w-0">
-          {day.shift ? (
-            <>
-              <p className={`font-semibold text-sm tabular-nums ${
-                !isToday && isPast ? "text-muted-foreground" :
-                !isToday && !isPast ? "text-muted-foreground/50" : ""
-              }`}>
-                {day.shift.startTime} – {day.shift.endTime}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {calcHours(day.shift.startTime, day.shift.endTime).toFixed(1)}h
-              </p>
-            </>
+          {hasShift ? (
+            <div className="flex flex-col gap-1">
+              {shifts.map(s => (
+                <div key={s.id} className="flex items-center gap-2">
+                  <span
+                    className="inline-block w-2 h-2 rounded-full shrink-0"
+                    style={{ background: s.storeColor ?? "#6a6a6a" }}
+                    aria-label={s.storeName ?? ""}
+                  />
+                  <span className={`font-semibold text-sm tabular-nums ${
+                    !isToday && isPast ? "text-muted-foreground" :
+                    !isToday && !isPast ? "" : ""
+                  }`} style={{ color: s.storeColor ?? undefined }}>
+                    {s.startTime} – {s.endTime}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {calcHours(s.startTime, s.endTime).toFixed(1)}h
+                  </span>
+                  {s.storeName && (
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground ml-auto">
+                      {s.storeName}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
           ) : (
             <p className="text-sm text-muted-foreground/40 italic">Day off</p>
           )}
         </div>
 
-        {/* Timesheet badge / Log prompt */}
+        {/* Status badge / Log prompt */}
         <div className="shrink-0">
-          {st && ts && (
-            <div className={`flex items-center gap-1 rounded-md px-2 py-1 ${st.bg}`}>
-              <CheckCircle2 className={`h-3 w-3 ${st.text}`} />
-              <span className={`text-xs font-medium ${st.text}`}>{st.label.split(" ")[0]}</span>
-            </div>
-          )}
+          {allSubmitted && (day.timesheets?.[0] || day.timesheet) && (() => {
+            const ts = day.timesheets?.[0] ?? day.timesheet!;
+            const st = STATUS_STYLE[ts.status] ?? STATUS_STYLE.PENDING;
+            return (
+              <div className={`flex items-center gap-1 rounded-md px-2 py-1 ${st.bg}`}>
+                <CheckCircle2 className={`h-3 w-3 ${st.text}`} />
+                <span className={`text-xs font-medium ${st.text}`}>{st.label.split(" ")[0]}</span>
+              </div>
+            );
+          })()}
           {canLogPast && (
             <span className="text-xs text-primary font-medium">Log</span>
           )}
-          {day.shift && !ts && !isPast && (
+          {hasShift && !allSubmitted && !isPast && (
             <span className="text-xs text-muted-foreground/40">–</span>
           )}
         </div>
@@ -2116,9 +2155,12 @@ function ScheduleTab({ session }: { session: Session }) {
   });
 
   const days = weekData?.days ?? [];
-  const shiftDays   = days.filter(d => d.shift);
-  const totalHours  = shiftDays.reduce((s, d) => s + calcHours(d.shift!.startTime, d.shift!.endTime), 0);
-  const submitted   = days.filter(d => d.timesheet).length;
+  // Count individual shifts (a day can hold multiple — e.g. Sushi + Sandwich).
+  const allShifts = days.flatMap(d => d.shifts ?? (d.shift ? [d.shift] : []));
+  const totalShiftCount = allShifts.length;
+  const totalHours = allShifts.reduce((sum, s) => sum + calcHours(s.startTime, s.endTime), 0);
+  const submitted = days.reduce((sum, d) => sum + (d.timesheets?.length ?? (d.timesheet ? 1 : 0)), 0);
+  const shiftDays = days.filter(d => (d.shifts?.length ?? (d.shift ? 1 : 0)) > 0);
 
   const A = {
     font: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, 'Helvetica Neue', sans-serif",
@@ -2156,15 +2198,15 @@ function ScheduleTab({ session }: { session: Session }) {
       </div>
 
       {/* Summary strip */}
-      {!isLoading && weekData?.published && shiftDays.length > 0 && (
+      {!isLoading && weekData?.published && totalShiftCount > 0 && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", borderRadius: 8, border: "1px solid #c1c1c1" }}>
           <span style={{ fontSize: 13, color: "#6a6a6a" }}>
-            <span style={{ fontWeight: 600, color: "#222222" }}>{shiftDays.length}</span> shifts ·{" "}
+            <span style={{ fontWeight: 600, color: "#222222" }}>{totalShiftCount}</span> shifts ·{" "}
             <span style={{ fontWeight: 600, color: "#222222" }}>{totalHours.toFixed(1)}h</span> total
           </span>
           <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#6a6a6a" }}>
-            <CheckCircle2 style={{ width: 14, height: 14, color: submitted === shiftDays.length ? "#222222" : "#ef4444" }} />
-            {submitted}/{shiftDays.length} submitted
+            <CheckCircle2 style={{ width: 14, height: 14, color: submitted >= totalShiftCount ? "#222222" : "#ef4444" }} />
+            {submitted}/{totalShiftCount} submitted
           </span>
         </div>
       )}

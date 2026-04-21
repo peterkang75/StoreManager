@@ -3820,15 +3820,43 @@ export async function registerRoutes(
 
       const timesheets = await storage.getShiftTimesheets({ employeeId: employeeId as string });
 
-      // Build day-by-day map
-      const days: Array<{ date: string; shift: typeof shifts[0] | null; timesheet: typeof timesheets[0] | null }> = [];
+      // Resolve store names once (for colour + label)
+      const neededStoreIds = [...new Set(shifts.map(s => s.storeId))];
+      const stores = await Promise.all(neededStoreIds.map(id => storage.getStore(id)));
+      const storeNameById = new Map<string, string>();
+      stores.forEach(s => { if (s) storeNameById.set(s.id, s.name); });
+      const decorate = (s: typeof shifts[0]) => ({
+        ...s,
+        storeName: storeNameById.get(s.storeId) ?? "",
+        storeColor: storeColorFor(storeNameById.get(s.storeId) ?? null),
+      });
+
+      // Build day-by-day map. A day may have multiple shifts (e.g. Sushi in
+      // the morning + Sandwich in the evening), so return an array.
+      const days: Array<{
+        date: string;
+        shifts: ReturnType<typeof decorate>[];
+        timesheets: typeof timesheets;
+        // Legacy single-shift aliases for older clients; deprecated.
+        shift: ReturnType<typeof decorate> | null;
+        timesheet: typeof timesheets[0] | null;
+      }> = [];
       for (let i = 0; i < 7; i++) {
         const d = new Date(weekStartStr + "T00:00:00");
         d.setDate(d.getDate() + i);
         const dateStr = d.toISOString().split("T")[0];
-        const shift = shifts.find(s => s.date === dateStr) ?? null;
-        const timesheet = timesheets.find(t => t.date === dateStr) ?? null;
-        days.push({ date: dateStr, shift, timesheet });
+        const dayShifts = shifts
+          .filter(s => s.date === dateStr)
+          .sort((a, b) => a.startTime.localeCompare(b.startTime))
+          .map(decorate);
+        const dayTimesheets = timesheets.filter(t => t.date === dateStr);
+        days.push({
+          date: dateStr,
+          shifts: dayShifts,
+          timesheets: dayTimesheets,
+          shift: dayShifts[0] ?? null,
+          timesheet: dayTimesheets[0] ?? null,
+        });
       }
 
       res.json({ days, published, weekStart: weekStartStr, weekEnd });
