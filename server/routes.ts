@@ -4800,11 +4800,67 @@ export async function registerRoutes(
       }
 
       // ── TRIAGE GATE ────────────────────────────────────────────────────────────
-      // Auto-process ONLY when the sender is a confirmed direct supplier in the DB
-      // (highest-confidence match: email address registered to a real supplier).
-      // ALL other senders — even those with ROUTE_TO_AP / ROUTE_TO_TODO rules —
-      // go to Triage Inbox first so the manager can review before processing.
-      // Exceptions: SPAM_DROP and FYI_ARCHIVE (handled above, no human review needed).
+      // Direct supplier match (email in supplier table) → auto-process AP pipeline.
+      // Otherwise, honour an existing routing rule:
+      //   ROUTE_TO_AP    → try finding supplier by rule.supplierName, fall back to
+      //                    REVIEW-status invoice placeholder (no triage detour).
+      //   ROUTE_TO_TODO  → create the TODO directly, skip triage.
+      //   SPAM_DROP / FYI_ARCHIVE were handled above.
+      // Senders without any rule still fall through to the Triage Inbox.
+      if (!matchedSupplier && action === "ROUTE_TO_AP" && routingRule?.supplierName) {
+        const bySupplierName = await storage.findSupplierByName(routingRule.supplierName);
+        if (bySupplierName) {
+          matchedSupplier = bySupplierName;
+          console.log(`[Webhook] Rule-based supplier resolution: email ${senderEmail} → supplier "${bySupplierName.name}"`);
+        }
+      }
+
+      if (!matchedSupplier && action === "ROUTE_TO_TODO") {
+        console.log(`[Webhook] Rule ROUTE_TO_TODO — bypassing triage, creating TODO directly for ${senderEmail}`);
+        res.status(200).json({ received: true, action: "todo_created_by_rule", sender: senderEmail });
+        setImmediate(async () => {
+          try {
+            const taskData = await summarizeTaskFromEmail(subject, emailBody);
+            if (taskData?.title) {
+              await storage.createTodo({
+                title: taskData.title,
+                description: taskData.description || null,
+                sourceEmail: senderEmail,
+                senderEmail,
+                originalSubject: subject,
+                originalBody: emailBody.slice(0, 8000),
+                dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
+                status: "TODO",
+              });
+              console.log(`[Webhook] Rule-based TODO created: "${taskData.title}"`);
+            }
+          } catch (err) {
+            console.error("[Webhook] Background TODO creation failed:", err);
+          }
+        });
+        return;
+      }
+
+      if (!matchedSupplier && action === "ROUTE_TO_AP") {
+        const todayStr = new Date().toISOString().split("T")[0];
+        const placeholder = await storage.createSupplierInvoice({
+          supplierId: null as any,
+          storeId: null,
+          invoiceNumber: `EMAIL-${Date.now()}`,
+          invoiceDate: todayStr,
+          dueDate: undefined,
+          amount: 0,
+          status: "REVIEW",
+          notes:
+            `Auto-routed by email rule (Payables). Supplier not matched automatically — please confirm.\n` +
+            `From: ${senderEmail}${resolvedSenderName ? ` (${resolvedSenderName})` : ""}\n` +
+            `Subject: ${subject}\n` +
+            `Rule supplierName: ${routingRule?.supplierName ?? "-"}`,
+        });
+        console.log(`[Webhook] Rule ROUTE_TO_AP — created REVIEW invoice placeholder ${placeholder.id} for ${senderEmail}`);
+        return res.status(200).json({ received: true, action: "ap_review_created_by_rule", sender: senderEmail, invoiceId: placeholder.id });
+      }
+
       if (!matchedSupplier) {
         console.log(`[Webhook] Not a direct supplier — routing to Triage Inbox: ${senderEmail} (suggestedAction=${action ?? "none"})`);
         await storage.createUniversalInboxItem({
