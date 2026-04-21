@@ -5249,6 +5249,127 @@ export async function registerRoutes(
     }
   });
 
+  // Re-apply supplier directory + routing rules to every NEEDS_ROUTING item
+  // currently parked in the Triage Inbox. Emails that match a supplier get a
+  // REVIEW invoice placeholder; those that match a SPAM/FYI rule are dropped;
+  // AP/TODO rules create the corresponding record. Anything without a match
+  // stays in Triage.
+  app.post("/api/universal-inbox/apply-rules", async (_req: Request, res: Response) => {
+    try {
+      const pending = await storage.getUniversalInboxItems("NEEDS_ROUTING");
+      const summary = { total: pending.length, supplierMatched: 0, spamDropped: 0, fyiDropped: 0, apReview: 0, todoCreated: 0, skipped: 0 };
+      const todayStr = new Date().toISOString().split("T")[0];
+
+      for (const item of pending) {
+        const senderEmail = (item.senderEmail ?? "").trim().toLowerCase();
+        if (!senderEmail) { summary.skipped++; continue; }
+
+        // 1. Supplier directory match → REVIEW invoice placeholder
+        const supplier = await storage.findSupplierByEmail(senderEmail);
+        if (supplier) {
+          const rawPayload = item.rawPayload as any;
+          const attachments: any[] = Array.isArray(rawPayload?.attachments) ? rawPayload.attachments : [];
+          const pdfAttachment = attachments.find((a: any) => {
+            const n = (a.file_name ?? a.filename ?? a.name ?? "").toLowerCase();
+            const t = (a.content_type ?? a.contentType ?? a.mimeType ?? a.type ?? "").toLowerCase();
+            return n.endsWith(".pdf") || t.includes("pdf");
+          });
+          const pdfBase64 = pdfAttachment ? (
+            typeof pdfAttachment.content === "string" ? pdfAttachment.content :
+            typeof pdfAttachment.data === "string" ? pdfAttachment.data :
+            typeof pdfAttachment.body === "string" ? pdfAttachment.body : undefined
+          ) : undefined;
+          await storage.createSupplierInvoice({
+            supplierId: supplier.id,
+            storeId: null,
+            invoiceNumber: `TRIAGE-${Date.now()}-${summary.apReview}`,
+            invoiceDate: todayStr,
+            dueDate: undefined,
+            amount: 0,
+            status: "REVIEW",
+            notes: `Re-applied from Triage Inbox. Parsing in progress…\nFrom: ${item.senderEmail}\nSubject: ${item.subject}`,
+            rawExtractedData: { senderEmail: item.senderEmail, subject: item.subject, supplier: { supplierName: supplier.name }, body: item.body?.slice(0, 8000), pdfBase64 },
+          } as any);
+          await storage.updateUniversalInboxItem(item.id, { status: "PROCESSED" });
+          summary.supplierMatched++;
+          summary.apReview++;
+          continue;
+        }
+
+        // 2. Routing rule match
+        const rule = await storage.getEmailRoutingRule(senderEmail);
+        if (!rule) { summary.skipped++; continue; }
+
+        const ruleAction = rule.action === "ALLOW" ? "ROUTE_TO_AP"
+                        : rule.action === "IGNORE" ? "SPAM_DROP"
+                        : rule.action;
+
+        if (ruleAction === "SPAM_DROP") {
+          await storage.updateUniversalInboxItem(item.id, { status: "DROPPED" });
+          summary.spamDropped++;
+          continue;
+        }
+        if (ruleAction === "FYI_ARCHIVE") {
+          await storage.updateUniversalInboxItem(item.id, { status: "DROPPED" });
+          summary.fyiDropped++;
+          continue;
+        }
+        if (ruleAction === "ROUTE_TO_TODO") {
+          // Fire-and-forget TODO summarisation in background
+          const subject = item.subject;
+          const body = item.body;
+          const sender = item.senderEmail;
+          setImmediate(async () => {
+            try {
+              const taskData = await summarizeTaskFromEmail(subject, body);
+              if (taskData?.title) {
+                await storage.createTodo({
+                  title: taskData.title,
+                  description: taskData.description || null,
+                  sourceEmail: sender,
+                  senderEmail: sender,
+                  originalSubject: subject,
+                  originalBody: body.slice(0, 8000),
+                  dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
+                  status: "TODO",
+                });
+              }
+            } catch (e) {
+              console.error("[ApplyRules] TODO creation failed:", e);
+            }
+          });
+          await storage.updateUniversalInboxItem(item.id, { status: "PROCESSED" });
+          summary.todoCreated++;
+          continue;
+        }
+        if (ruleAction === "ROUTE_TO_AP") {
+          // Rule exists but supplier not found — create supplierId-less REVIEW placeholder
+          await storage.createSupplierInvoice({
+            supplierId: null as any,
+            storeId: null,
+            invoiceNumber: `EMAIL-${Date.now()}-${summary.apReview}`,
+            invoiceDate: todayStr,
+            dueDate: undefined,
+            amount: 0,
+            status: "REVIEW",
+            notes: `Auto-routed by Triage rule (Payables). Supplier match failed — please confirm.\nFrom: ${item.senderEmail}\nSubject: ${item.subject}`,
+          } as any);
+          await storage.updateUniversalInboxItem(item.id, { status: "PROCESSED" });
+          summary.apReview++;
+          continue;
+        }
+
+        summary.skipped++;
+      }
+
+      console.log(`[ApplyRules] ${JSON.stringify(summary)}`);
+      res.json(summary);
+    } catch (err) {
+      console.error("Error applying triage rules:", err);
+      res.status(500).json({ error: "Failed to apply rules" });
+    }
+  });
+
   // Route a universal inbox item: save routing rule + re-process email
   app.post("/api/universal-inbox/:id/route", async (req: Request, res: Response) => {
     try {

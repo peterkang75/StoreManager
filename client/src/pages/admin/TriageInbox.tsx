@@ -540,6 +540,36 @@ export function AdminTriageInbox() {
     queryKey: ["/api/universal-inbox"],
   });
 
+  const applyRulesMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/universal-inbox/apply-rules", {});
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/universal-inbox"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/todos"] });
+      const parts = [];
+      if (data?.supplierMatched) parts.push(`${data.supplierMatched} matched supplier`);
+      if (data?.apReview && data.apReview > (data.supplierMatched ?? 0)) parts.push(`${data.apReview - (data.supplierMatched ?? 0)} routed to Payables`);
+      if (data?.todoCreated) parts.push(`${data.todoCreated} TODOs`);
+      if (data?.spamDropped) parts.push(`${data.spamDropped} spam dropped`);
+      if (data?.fyiDropped) parts.push(`${data.fyiDropped} FYI dropped`);
+      const moved = (data?.supplierMatched ?? 0) + ((data?.apReview ?? 0) - (data?.supplierMatched ?? 0)) + (data?.todoCreated ?? 0) + (data?.spamDropped ?? 0) + (data?.fyiDropped ?? 0);
+      toast({
+        title: moved > 0 ? "Rules applied" : "No matching rules",
+        description: moved > 0
+          ? parts.join(" · ")
+          : `${data?.total ?? 0} item(s) checked. None matched a supplier or rule.`,
+      });
+    },
+    onError: () => {
+      toast({ title: "Failed to apply rules", variant: "destructive" });
+    },
+  });
+
   const routeMutation = useMutation({
     mutationFn: async ({ id, action, matchType }: { id: string; action: RouteAction; matchType?: SpamMatchType }) => {
       const body: any = { action };
@@ -665,6 +695,17 @@ export function AdminTriageInbox() {
                 <span>{needsRouting.length} item{needsRouting.length !== 1 ? "s" : ""} need routing</span>
               </div>
             )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => applyRulesMutation.mutate()}
+              disabled={applyRulesMutation.isPending || needsRouting.length === 0}
+              data-testid="button-apply-rules"
+              title="Re-check every pending item against the supplier directory and saved rules"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${applyRulesMutation.isPending ? "animate-spin" : ""}`} />
+              Apply Rules
+            </Button>
             <Button
               size="sm"
               variant="outline"

@@ -1039,8 +1039,10 @@ export class MemStorage implements IStorage {
   }
 
   async findSupplierByEmail(email: string): Promise<Supplier | undefined> {
+    const needle = email.trim().toLowerCase();
+    if (!needle) return undefined;
     return Array.from(this.suppliers.values()).find(s =>
-      s.contactEmails && s.contactEmails.includes(email)
+      (s.contactEmails ?? []).some(e => (e ?? "").trim().toLowerCase() === needle)
     );
   }
 
@@ -2185,8 +2187,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async findSupplierByEmail(email: string): Promise<Supplier | undefined> {
+    const needle = email.trim().toLowerCase();
+    if (!needle) return undefined;
     const all = await db.select().from(suppliers).where(eq(suppliers.active, true));
-    return all.find(s => s.contactEmails && s.contactEmails.includes(email));
+    return all.find(s => (s.contactEmails ?? []).some(e => (e ?? "").trim().toLowerCase() === needle));
   }
 
   async findSupplierByName(name: string): Promise<Supplier | undefined> {
