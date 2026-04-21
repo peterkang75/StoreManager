@@ -1380,6 +1380,7 @@ function HomeTab({ session }: { session: Session }) {
       return res.json();
     },
     staleTime: 0,
+    refetchInterval: 30_000,
   });
 
   const { data: employeeProfile } = useQuery<{ storeId?: string }>({
@@ -1844,6 +1845,7 @@ function ScheduleTab({ session }: { session: Session }) {
       return res.json();
     },
     staleTime: 0,
+    refetchInterval: 30_000,
   });
 
   const days = weekData?.days ?? [];
