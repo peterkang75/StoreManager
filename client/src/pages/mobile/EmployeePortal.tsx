@@ -186,6 +186,7 @@ const AL = {
 function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
+  const [pressedKey, setPressedKey] = useState<string | null>(null);
 
   const loginMutation = useMutation({
     mutationFn: async (p: string) => {
@@ -281,30 +282,49 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
 
       {/* Numpad */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, width: "100%", maxWidth: 320, marginTop: 8 }}>
-        {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((key, idx) => (
-          <button
-            key={idx} type="button"
-            disabled={loginMutation.isPending || key === ""}
-            data-testid={key === "⌫" ? "pin-delete" : key ? `pin-digit-${key}` : undefined}
-            onClick={() => key === "⌫" ? handleDel() : key ? handleDigit(key) : undefined}
-            style={{
-              height: 72,
-              borderRadius: 16,
-              border: "none",
-              cursor: key ? "pointer" : "default",
-              visibility: key === "" ? "hidden" : "visible",
-              background: key === "⌫" ? "transparent" : "#f2f2f2",
-              color: key === "⌫" ? "#6a6a6a" : "#222222",
-              fontSize: 24,
-              fontWeight: 600,
-              fontFamily: AL.font,
-              touchAction: "manipulation",
-              WebkitTapHighlightColor: "transparent",
-              userSelect: "none",
-              transition: "background 160ms",
-            }}
-          >{key}</button>
-        ))}
+        {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((key, idx) => {
+          const isPressed = pressedKey === `${idx}`;
+          const isDel = key === "⌫";
+          const isEmpty = key === "";
+          return (
+            <button
+              key={idx} type="button"
+              disabled={loginMutation.isPending || isEmpty}
+              data-testid={isDel ? "pin-delete" : key ? `pin-digit-${key}` : undefined}
+              onPointerDown={(e) => {
+                if (isEmpty || loginMutation.isPending) return;
+                e.preventDefault();
+                (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
+                setPressedKey(`${idx}`);
+                if (isDel) handleDel();
+                else handleDigit(key);
+              }}
+              onPointerUp={() => setPressedKey(null)}
+              onPointerCancel={() => setPressedKey(null)}
+              onPointerLeave={() => setPressedKey(null)}
+              style={{
+                height: 72,
+                borderRadius: 16,
+                border: "none",
+                cursor: isEmpty ? "default" : "pointer",
+                visibility: isEmpty ? "hidden" : "visible",
+                background: isDel
+                  ? (isPressed ? "rgba(239,68,68,0.12)" : "transparent")
+                  : (isPressed ? "rgba(239,68,68,0.15)" : "#f2f2f2"),
+                color: isPressed ? "#ef4444" : (isDel ? "#6a6a6a" : "#222222"),
+                transform: isPressed ? "scale(0.96)" : "scale(1)",
+                fontSize: 24,
+                fontWeight: 600,
+                fontFamily: AL.font,
+                touchAction: "manipulation",
+                WebkitTapHighlightColor: "transparent",
+                userSelect: "none",
+                WebkitUserSelect: "none",
+                transition: "background 80ms, color 80ms, transform 80ms",
+              }}
+            >{key}</button>
+          );
+        })}
       </div>
     </div>
   );
@@ -1586,18 +1606,7 @@ function HomeTab({ session }: { session: Session }) {
     staleTime: 120_000,
   });
 
-  // Gate Admin Dashboard button by actual Access Control permissions.
-  // OWNER has full access; MANAGER only sees the button if at least one admin
-  // route is allowed for MANAGER in the permissions table.
-  const roleUpper = session.role?.toUpperCase();
-  const { data: portalPermissions = [] } = useQuery<Array<{ role: string; route: string; allowed: boolean }>>({
-    queryKey: ["/api/permissions"],
-    enabled: roleUpper === "MANAGER",
-    staleTime: 60_000,
-  });
-  const showAdminDashboard =
-    roleUpper === "OWNER" ||
-    (roleUpper === "MANAGER" && portalPermissions.some(p => p.role === "MANAGER" && p.allowed));
+  // Admin Dashboard button lives in the top header (see EmployeePortal).
 
   const todayShifts: TodayShiftItem[] = (todayData?.shifts ?? []).map(item => ({
     ...item,
@@ -1623,19 +1632,6 @@ function HomeTab({ session }: { session: Session }) {
         >
           {displayName}
         </h2>
-        {showAdminDashboard && (
-          <div className="mt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => { window.location.href = "/admin"; }}
-              data-testid="button-admin-dashboard"
-            >
-              <LayoutDashboard className="h-3.5 w-3.5 mr-1.5" />
-              Admin Dashboard
-            </Button>
-          </div>
-        )}
       </div>
 
       {/* Sub-tab row — bottom-border style */}
@@ -2287,7 +2283,6 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
   const selfieFileRef = useRef<HTMLInputElement>(null);
   const selfieCamRef = useRef<HTMLInputElement>(null);
   const passportFileRef = useRef<HTMLInputElement>(null);
-  const passportCamRef = useRef<HTMLInputElement>(null);
 
   const [fhcUploading, setFhcUploading] = useState(false);
   const [selfieUploading, setSelfieUploading] = useState(false);
@@ -2634,16 +2629,7 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
           </div>
           <Card>
             <CardContent className="pt-4 pb-4 flex flex-col gap-3">
-              {/* Hidden inputs */}
-              <input
-                ref={passportCamRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={e => handlePassportUpload(e, passportCamRef)}
-                data-testid="input-passport-camera"
-              />
+              {/* Hidden input (native picker on mobile offers camera + library) */}
               <input
                 ref={passportFileRef}
                 type="file"
@@ -2671,40 +2657,23 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
                       <X className="h-4 w-4" />
                     </Button>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Button variant="outline" size="sm" onClick={() => passportCamRef.current?.click()} data-testid="button-passport-retake-camera">
-                      <Camera className="h-4 w-4 mr-1.5" />
-                      Take Photo
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => passportFileRef.current?.click()} data-testid="button-passport-retake-file">
-                      <ImagePlus className="h-4 w-4 mr-1.5" />
-                      From Library
-                    </Button>
-                  </div>
+                  <Button variant="outline" size="sm" onClick={() => passportFileRef.current?.click()} data-testid="button-passport-replace">
+                    <ImagePlus className="h-4 w-4 mr-1.5" />
+                    Replace Photo or PDF
+                  </Button>
                 </div>
               )}
 
               {!passportUploading && !form.passportUrl && (
-                <div className="grid grid-cols-2 gap-3">
-                  <Button
-                    variant="outline"
-                    className="h-16 flex-col gap-1.5"
-                    onClick={() => passportCamRef.current?.click()}
-                    data-testid="button-passport-camera"
-                  >
-                    <Camera className="h-5 w-5 text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">Take Photo</span>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="h-16 flex-col gap-1.5"
-                    onClick={() => passportFileRef.current?.click()}
-                    data-testid="button-passport-library"
-                  >
-                    <ImagePlus className="h-5 w-5 text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">From Library</span>
-                  </Button>
-                </div>
+                <Button
+                  variant="outline"
+                  className="h-16 flex-col gap-1.5"
+                  onClick={() => passportFileRef.current?.click()}
+                  data-testid="button-passport-upload"
+                >
+                  <ImagePlus className="h-5 w-5 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Upload Photo or PDF</span>
+                </Button>
               )}
               <p className="text-xs text-muted-foreground">Photo of your passport or government ID. Accepted: image or PDF.</p>
             </CardContent>
@@ -2834,6 +2803,7 @@ function ChangePinDrawer({ open, onClose, employeeId }: { open: boolean; onClose
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [error, setError] = useState("");
+  const [pressedKey, setPressedKey] = useState<string | null>(null);
 
   // Refs always hold the latest PIN values so setTimeout callbacks never read stale closures
   const currentPinRef = useRef("");
@@ -2976,29 +2946,49 @@ function ChangePinDrawer({ open, onClose, employeeId }: { open: boolean; onClose
 
           {/* Numpad */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, width: "100%", maxWidth: 320 }}>
-            {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((key, idx) => (
-              <button
-                key={idx} type="button"
-                disabled={changePinMutation.isPending || key === ""}
-                data-testid={key === "⌫" ? "changepin-delete" : key ? `changepin-digit-${key}` : undefined}
-                onClick={() => key === "⌫" ? handleDel() : key ? handleDigit(key) : undefined}
-                style={{
-                  height: 72,
-                  borderRadius: 16,
-                  border: "none",
-                  cursor: key ? "pointer" : "default",
-                  visibility: key === "" ? "hidden" : "visible",
-                  background: key === "⌫" ? "transparent" : "#f2f2f2",
-                  color: key === "⌫" ? "#6a6a6a" : "#222222",
-                  fontSize: 24,
-                  fontWeight: 600,
-                  touchAction: "manipulation",
-                  WebkitTapHighlightColor: "transparent",
-                  userSelect: "none",
-                  fontFamily: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, sans-serif",
-                }}
-              >{key}</button>
-            ))}
+            {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((key, idx) => {
+              const isPressed = pressedKey === `${idx}`;
+              const isDel = key === "⌫";
+              const isEmpty = key === "";
+              return (
+                <button
+                  key={idx} type="button"
+                  disabled={changePinMutation.isPending || isEmpty}
+                  data-testid={isDel ? "changepin-delete" : key ? `changepin-digit-${key}` : undefined}
+                  onPointerDown={(e) => {
+                    if (isEmpty || changePinMutation.isPending) return;
+                    e.preventDefault();
+                    (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
+                    setPressedKey(`${idx}`);
+                    if (isDel) handleDel();
+                    else handleDigit(key);
+                  }}
+                  onPointerUp={() => setPressedKey(null)}
+                  onPointerCancel={() => setPressedKey(null)}
+                  onPointerLeave={() => setPressedKey(null)}
+                  style={{
+                    height: 72,
+                    borderRadius: 16,
+                    border: "none",
+                    cursor: isEmpty ? "default" : "pointer",
+                    visibility: isEmpty ? "hidden" : "visible",
+                    background: isDel
+                      ? (isPressed ? "rgba(239,68,68,0.12)" : "transparent")
+                      : (isPressed ? "rgba(239,68,68,0.15)" : "#f2f2f2"),
+                    color: isPressed ? "#ef4444" : (isDel ? "#6a6a6a" : "#222222"),
+                    transform: isPressed ? "scale(0.96)" : "scale(1)",
+                    fontSize: 24,
+                    fontWeight: 600,
+                    touchAction: "manipulation",
+                    WebkitTapHighlightColor: "transparent",
+                    userSelect: "none",
+                    WebkitUserSelect: "none",
+                    transition: "background 80ms, color 80ms, transform 80ms",
+                    fontFamily: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, sans-serif",
+                  }}
+                >{key}</button>
+              );
+            })}
           </div>
         </div>
 
@@ -3212,6 +3202,18 @@ export function EmployeePortal() {
   const handleLogout = () => setSession(null);
   const handleLogin  = (s: Session) => { saveSession(s); setSession(s); };
 
+  const roleUpper = session?.role?.toUpperCase();
+  const { data: headerPermissions = [] } = useQuery<Array<{ role: string; route: string; allowed: boolean }>>({
+    queryKey: ["/api/permissions"],
+    enabled: roleUpper === "MANAGER",
+    staleTime: 60_000,
+  });
+  const showAdminDashboard =
+    !!session && (
+      roleUpper === "OWNER" ||
+      (roleUpper === "MANAGER" && headerPermissions.some(p => p.role === "MANAGER" && p.allowed))
+    );
+
   return (
     <div style={{ height: "100dvh", overflow: "hidden", background: "#ffffff", display: "flex", flexDirection: "column", alignItems: "center", fontFamily: AL.font }}>
       <div style={{ width: "100%", maxWidth: 448, height: "100%", display: "flex", flexDirection: "column", borderLeft: "1px solid #c1c1c1", borderRight: "1px solid #c1c1c1" }}>
@@ -3219,6 +3221,27 @@ export function EmployeePortal() {
         <header style={{ flexShrink: 0, zIndex: 50, background: "rgba(255,255,255,0.9)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", borderBottom: "1px solid #c1c1c1", height: 48, display: "flex", alignItems: "center", gap: 10, padding: "0 16px" }}>
           <img src="/icon-192.png" alt="" style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "contain" }} />
           <span style={{ fontWeight: 600, fontSize: 14, color: "#222222", letterSpacing: "-0.1px", fontFamily: AL.font }}>Staff Portal</span>
+          {showAdminDashboard && (
+            <button
+              type="button"
+              data-testid="button-admin-dashboard-header"
+              onClick={() => { window.location.href = "/admin"; }}
+              style={{
+                marginLeft: "auto",
+                display: "flex", alignItems: "center", gap: 6,
+                height: 32, padding: "0 12px",
+                background: "#222222", color: "#ffffff",
+                border: "none", borderRadius: 8,
+                fontSize: 12, fontWeight: 600,
+                cursor: "pointer", fontFamily: AL.font,
+                touchAction: "manipulation",
+                WebkitTapHighlightColor: "transparent",
+              }}
+            >
+              <LayoutDashboard style={{ width: 14, height: 14 }} />
+              Dashboard
+            </button>
+          )}
         </header>
 
         {/* Main content fills remaining height */}
