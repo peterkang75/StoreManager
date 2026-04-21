@@ -980,14 +980,21 @@ A grouped record of incremental polish work that landed across multiple modules 
 
 - [ ] **Platform migration: Replit → Claude Code + Railway** 🚧 (2026-04-21~)
   - Live checklist: `Migration.md` (project root)
-  - Phase 1b/1c complete 2026-04-21: `.replit` deleted, `replit.md` → `ARCHITECTURE.md`, Neon driver swapped to `pg`, `reusePort` removed, Replit Vite plugins purged, package deps cleaned, `.gitignore` hardened, `.env.example` + `Dockerfile` added.
-  - Blocks on user action: Phase 0 (Replit DB dump + uploads download + env secrets collection), Phase 2 (GitHub repo), Phase 3/4 (Railway project).
+  - **Railway production URL**: `https://storemanager-production-103d.up.railway.app`
+  - Phase 0~5 완료 (2026-04-21). Phase 6a (feature smoke test) 이관 회귀 없음 확인.
+  - **잔여 작업**: Phase 6b (Cloudmailin webhook URL 전환 — 사용자 직접), Phase 6c (1~3일 Railway 관찰), Phase 7 (Replit Archive — 1~2주 관찰 후).
   - On completion: Replit Production 401 bug (below) becomes obsolete — Railway env vars are set explicitly in Phase 4.3.
 
 - [ ] **Production 401 Unauthorized error** — API requests in the deployed environment intermittently return HTTP 401 even for endpoints that succeed in development.
   - **Investigation surface**: API auth middleware in `server/routes.ts` (PIN-protected routes + webhook Basic Auth), plus the production environment-variable set in Replit Secrets.
   - **Likely culprits**: missing or stale `CLOUDMAILIN_USER` / `CLOUDMAILIN_PASS` / `OPENAI_API_KEY` in production, session/cookie middleware behaving differently behind the deploy proxy, or a CORS/credentials mismatch on cross-subdomain requests.
   - **First step**: pull deployment logs around the 401 timestamps + diff the production secrets list against the dev secrets list.
+
+- [ ] **Payroll UX: Approve 후 해당 cycle로 자동 이동 안 됨** (2026-04-21 관찰, 이관과 무관)
+  - **증상**: Pending Approval에서 shift를 Approve해도 Payroll 화면은 여전히 현재 cycle(오늘 날짜 기준 14일 구간)로 로드됨. Approve된 shift가 과거 cycle에 속하면 Hours가 0으로 표시되어 "누락된 것처럼" 보임.
+  - **예시**: 오늘=2026-04-21(Cycle 2: 04-20~05-03). 04-06 shift(Cycle 1) Approve → Payroll 진입 시 Cycle 2 표시 → Aiden Hours 0h → 사용자가 "이전 기간" 버튼 클릭 → Cycle 1 이동 → 16h 정상 표시.
+  - **원인**: `client/src/pages/admin/Payrolls.tsx:143` `getCurrentPayCycle()`은 `today`를 기준으로 계산. Approve한 shift의 날짜 기반으로 자동 이동하는 로직 없음.
+  - **개선안**: Approve 후 Payroll 화면으로 넘어올 때 방금 Approve한 shift의 date가 속한 cycle로 default 이동. 또는 여러 Approve된 shift의 period들을 dropdown/뱃지로 노출.
 
 - [ ] **Statement vs Invoice reconciliation stability** — Suppliers that send Statements of Account occasionally produce duplicate AP records or miss individual invoice extraction.
   - **Current safeguards** (§3.15): `isStatement` flag on every `ParsedInvoice`, statement-with-1-row → forced REVIEW with `"possibly a grand-total error"` note, multi-row statements deduplicated by `(supplierId, invoiceNumber)`.
