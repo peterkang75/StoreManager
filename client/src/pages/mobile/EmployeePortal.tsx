@@ -833,51 +833,55 @@ function ShoppingListView({ storeId }: { storeId?: string | null }) {
   }, {});
   const catalogCategories = Object.keys(catalogGrouped).sort();
 
+  const A = {
+    font: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, 'Helvetica Neue', sans-serif",
+    shadow: "rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px",
+  };
+
   return (
-    <div className="flex flex-col gap-4 pb-32">
-      <div className="flex items-center justify-between">
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingBottom: 120, fontFamily: A.font }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <h3 className="font-bold text-lg">Today's List</h3>
-          <p className="text-xs text-muted-foreground">
+          <h3 style={{ fontWeight: 700, fontSize: 18, color: "#222222", letterSpacing: "-0.18px" }}>Today's List</h3>
+          <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 2 }}>
             {activeList.length} item{activeList.length !== 1 ? "s" : ""}
           </p>
         </div>
         {activeList.length > 0 && (
           <button
             type="button"
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover-elevate rounded-md px-2 py-1"
+            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#6a6a6a", background: "transparent", border: "none", cursor: "pointer" }}
             onClick={() => clearMutation.mutate()}
             disabled={clearMutation.isPending}
             data-testid="button-clear-list"
           >
-            <Trash2 className="h-4 w-4" />
+            <Trash2 style={{ width: 14, height: 14 }} />
             Clear all
           </button>
         )}
       </div>
 
       {listLoading && (
-        <div className="flex justify-center py-10">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <div style={{ display: "flex", justifyContent: "center", padding: "40px 0" }}>
+          <Loader2 style={{ width: 24, height: 24, color: "#6a6a6a" }} className="animate-spin" />
         </div>
       )}
 
       {!listLoading && activeList.length === 0 && (
-        <Card>
-          <CardContent className="py-10 text-center">
-            <ShoppingCart className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-            <p className="font-medium">Your list is empty</p>
-            <p className="text-sm text-muted-foreground mt-1">Tap "Add Items" to build today's shopping list.</p>
-          </CardContent>
-        </Card>
+        <div style={{ background: "#ffffff", borderRadius: 20, padding: "40px 20px", textAlign: "center", boxShadow: A.shadow }}>
+          <ShoppingCart style={{ width: 40, height: 40, color: "#c1c1c1", margin: "0 auto 12px" }} />
+          <p style={{ fontWeight: 600, fontSize: 15, color: "#222222" }}>Your list is empty</p>
+          <p style={{ fontSize: 13, color: "#6a6a6a", marginTop: 4 }}>Tap "Add Items" to build today's shopping list.</p>
+        </div>
       )}
 
       {activeCategories.map(category => (
         <div key={category}>
-          <div className="sticky top-0 bg-background/95 backdrop-blur-sm py-2 z-10">
-            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{category}</p>
+          <div style={{ position: "sticky", top: 0, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(8px)", paddingTop: 8, paddingBottom: 8, zIndex: 10 }}>
+            <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6a6a6a" }}>{category}</p>
           </div>
-          <div className="flex flex-col gap-2">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {grouped[category].map(entry => (
               <button
                 key={entry.id}
@@ -885,25 +889,26 @@ function ShoppingListView({ storeId }: { storeId?: string | null }) {
                 data-testid={`button-check-item-${entry.id}`}
                 onClick={() => removeMutation.mutate(entry.id)}
                 disabled={removeMutation.isPending}
-                className="flex items-center gap-4 min-h-[3.5rem] w-full px-4 py-3 rounded-xl border bg-card text-left hover-elevate active-elevate-2"
+                style={{ display: "flex", alignItems: "center", gap: 16, minHeight: 56, width: "100%", padding: "12px 16px", borderRadius: 20, background: "#ffffff", border: "none", cursor: "pointer", textAlign: "left", boxShadow: A.shadow }}
               >
-                <div className="h-6 w-6 rounded-full border-2 border-muted-foreground/40 shrink-0" />
-                <span className="text-base font-medium flex-1">{entry.item.name}</span>
-                <CheckCheck className="h-4 w-4 text-muted-foreground/30 shrink-0" />
+                <div style={{ width: 24, height: 24, borderRadius: "50%", border: "2px solid #c1c1c1", flexShrink: 0 }} />
+                <span style={{ fontSize: 16, fontWeight: 500, color: "#222222", flex: 1 }}>{entry.item.name}</span>
+                <CheckCheck style={{ width: 16, height: 16, color: "rgba(0,0,0,0.15)", flexShrink: 0 }} />
               </button>
             ))}
           </div>
         </div>
       ))}
 
-      <Button
-        className="w-full h-14 text-base gap-2 mt-2"
+      <button
+        type="button"
+        style={{ width: "100%", height: 56, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#222222", color: "#ffffff", border: "none", borderRadius: 8, fontSize: 16, fontWeight: 500, cursor: "pointer", marginTop: 8, fontFamily: A.font }}
         onClick={() => setAddSheetOpen(true)}
         data-testid="button-open-add-items"
       >
-        <Plus className="h-5 w-5" />
+        <Plus style={{ width: 20, height: 20 }} />
         Add Items
-      </Button>
+      </button>
 
       {/* Add Items Drawer */}
       <Drawer open={addSheetOpen} onOpenChange={setAddSheetOpen}>
@@ -926,7 +931,7 @@ function ShoppingListView({ storeId }: { storeId?: string | null }) {
 
             {catalogCategories.map(category => (
               <div key={category} className="mb-5">
-                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">{category}</p>
+                <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6a6a6a", marginBottom: 8 }}>{category}</p>
                 <div className="flex flex-col gap-2">
                   {catalogGrouped[category].map(item => {
                     const inList = activeItemIds.has(item.id);
@@ -937,19 +942,15 @@ function ShoppingListView({ storeId }: { storeId?: string | null }) {
                         data-testid={`button-catalog-item-${item.id}`}
                         onClick={() => !inList && addMutation.mutate(item.id)}
                         disabled={inList || addMutation.isPending}
-                        className={`flex items-center gap-3 min-h-[3rem] w-full px-4 py-3 rounded-xl border text-left transition-all ${
-                          inList
-                            ? "bg-primary/10 border-primary/20 cursor-default"
-                            : "bg-card hover-elevate active-elevate-2"
-                        }`}
+                        style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 48, width: "100%", padding: "10px 14px", borderRadius: 14, background: inList ? "#f2f2f2" : "#ffffff", border: "1px solid #c1c1c1", cursor: inList ? "default" : "pointer", textAlign: "left" }}
                       >
                         {inList
-                          ? <CheckCheck className="h-4 w-4 text-primary shrink-0" />
-                          : <Plus className="h-4 w-4 text-muted-foreground shrink-0" />
+                          ? <CheckCheck style={{ width: 16, height: 16, color: "#222222", flexShrink: 0 }} />
+                          : <Plus style={{ width: 16, height: 16, color: "#6a6a6a", flexShrink: 0 }} />
                         }
-                        <span className="flex-1 font-medium text-sm">{item.name}</span>
+                        <span style={{ flex: 1, fontWeight: 500, fontSize: 14, color: "#222222" }}>{item.name}</span>
                         {item.selectionCount > 0 && (
-                          <span className="text-xs text-muted-foreground/60 tabular-nums">{item.selectionCount}×</span>
+                          <span style={{ fontSize: 12, color: "#6a6a6a" }}>{item.selectionCount}×</span>
                         )}
                       </button>
                     );
@@ -959,14 +960,14 @@ function ShoppingListView({ storeId }: { storeId?: string | null }) {
             ))}
 
             {catalog.length === 0 && !catalogSearch && (
-              <p className="text-sm text-muted-foreground text-center py-4">No items in catalog yet. Create one below.</p>
+              <p style={{ fontSize: 13, color: "#6a6a6a", textAlign: "center", padding: "16px 0" }}>No items in catalog yet. Create one below.</p>
             )}
             {catalog.length > 0 && filteredCatalog.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-4">No items match "{catalogSearch}".</p>
+              <p style={{ fontSize: 13, color: "#6a6a6a", textAlign: "center", padding: "16px 0" }}>No items match "{catalogSearch}".</p>
             )}
 
-            <div className="border-t mt-4 pt-4 pb-4">
-              <p className="text-sm font-semibold mb-3">Create New Item</p>
+            <div style={{ borderTop: "1px solid #c1c1c1", marginTop: 16, paddingTop: 16, paddingBottom: 16 }}>
+              <p style={{ fontSize: 14, fontWeight: 600, color: "#222222", marginBottom: 12 }}>Create New Item</p>
               <div className="flex flex-col gap-3">
                 <Input
                   placeholder="Item name"
@@ -984,17 +985,18 @@ function ShoppingListView({ storeId }: { storeId?: string | null }) {
                     ))}
                   </SelectContent>
                 </Select>
-                <Button
-                  className="w-full"
+                <button
+                  type="button"
+                  style={{ width: "100%", padding: "12px 24px", background: !newItemName.trim() || !newItemCategory || createMutation.isPending ? "#f2f2f2" : "#222222", color: !newItemName.trim() || !newItemCategory || createMutation.isPending ? "#6a6a6a" : "#ffffff", border: "none", borderRadius: 8, fontSize: 16, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontFamily: A.font }}
                   disabled={!newItemName.trim() || !newItemCategory || createMutation.isPending}
                   onClick={() => createMutation.mutate()}
                   data-testid="button-create-new-item"
                 >
                   {createMutation.isPending
-                    ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    : <Plus className="h-4 w-4 mr-2" />}
+                    ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" />
+                    : <Plus style={{ width: 16, height: 16 }} />}
                   Add to List
-                </Button>
+                </button>
               </div>
             </div>
           </div>
@@ -1133,60 +1135,64 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
   }, {});
   const pendingCategories = Object.keys(pendingByCategory).sort();
 
+  const A = {
+    font: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, 'Helvetica Neue', sans-serif",
+    shadow: "rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px",
+  };
+
   return (
-    <div className="flex flex-col gap-4 pb-32">
-      <div className="flex items-center justify-between">
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingBottom: 120, fontFamily: A.font }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <h3 className="font-bold text-lg">Storage Check</h3>
-          <p className="text-xs text-muted-foreground">
+          <h3 style={{ fontWeight: 700, fontSize: 18, color: "#222222", letterSpacing: "-0.18px" }}>Storage Check</h3>
+          <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 2 }}>
             {activeList.length} item{activeList.length !== 1 ? "s" : ""} to fetch
           </p>
         </div>
         {activeList.length > 0 && (
           <button
             type="button"
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover-elevate rounded-md px-2 py-1"
+            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#6a6a6a", background: "transparent", border: "none", cursor: "pointer" }}
             onClick={() => clearMutation.mutate()}
             disabled={clearMutation.isPending}
             data-testid="button-clear-storage-list"
           >
-            <Trash2 className="h-4 w-4" />
+            <Trash2 style={{ width: 14, height: 14 }} />
             Clear all
           </button>
         )}
       </div>
 
       {activeList.length === 0 && (
-        <Card>
-          <CardContent className="py-10 text-center">
-            <Package className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-            <p className="font-medium">Nothing to fetch</p>
-            <p className="text-sm text-muted-foreground mt-1">Add items from the catalogue below.</p>
-          </CardContent>
-        </Card>
+        <div style={{ background: "#ffffff", borderRadius: 20, padding: "40px 20px", textAlign: "center", boxShadow: A.shadow }}>
+          <Package style={{ width: 40, height: 40, color: "#c1c1c1", margin: "0 auto 12px" }} />
+          <p style={{ fontWeight: 600, fontSize: 15, color: "#222222" }}>Nothing to fetch</p>
+          <p style={{ fontSize: 13, color: "#6a6a6a", marginTop: 4 }}>Add items from the catalogue below.</p>
+        </div>
       )}
 
       {pendingCategories.map(cat => (
         <div key={cat}>
-          <div className="sticky top-0 bg-background/95 backdrop-blur-sm py-2 z-10">
-            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{cat}</p>
+          <div style={{ position: "sticky", top: 0, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(8px)", paddingTop: 8, paddingBottom: 8, zIndex: 10 }}>
+            <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6a6a6a" }}>{cat}</p>
           </div>
-          <div className="flex flex-col gap-2">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {pendingByCategory[cat].map(entry => (
               <div
                 key={entry.id}
-                className="flex items-center gap-3 min-h-[3.5rem] px-4 py-3 rounded-xl border bg-card"
+                style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 56, padding: "12px 16px", borderRadius: 20, background: "#ffffff", boxShadow: A.shadow }}
               >
                 <button
                   type="button"
                   data-testid={`button-fetch-storage-${entry.id}`}
                   onClick={() => removeFromActiveMutation.mutate(entry.id)}
                   disabled={removeFromActiveMutation.isPending}
-                  className="h-6 w-6 rounded-full border-2 border-amber-500/60 shrink-0 flex items-center justify-center hover-elevate"
+                  style={{ width: 24, height: 24, borderRadius: "50%", border: "2px solid #c1c1c1", background: "transparent", flexShrink: 0, cursor: "pointer" }}
                 />
-                <div className="flex-1 min-w-0">
-                  <span className="text-base font-medium">{entry.item.name}</span>
-                  <span className="ml-2 text-xs text-muted-foreground/70 font-normal">{entry.item.unit ?? "ea"}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ fontSize: 16, fontWeight: 500, color: "#222222" }}>{entry.item.name}</span>
+                  <span style={{ marginLeft: 8, fontSize: 12, color: "#6a6a6a" }}>{entry.item.unit ?? "ea"}</span>
                 </div>
                 <button
                   type="button"
@@ -1196,7 +1202,7 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
                     setStockValue(entry.item.currentStock !== null ? String(entry.item.currentStock) : "");
                     setCheckSheetOpen(true);
                   }}
-                  className="text-xs text-amber-600 dark:text-amber-400 font-medium px-2 py-1 rounded-md hover-elevate shrink-0"
+                  style={{ fontSize: 12, fontWeight: 600, color: "#ef4444", background: "transparent", border: "none", cursor: "pointer", padding: "4px 8px", flexShrink: 0 }}
                 >
                   Log stock
                 </button>
@@ -1206,15 +1212,15 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
         </div>
       ))}
 
-      <Button
-        className="w-full h-14 text-base gap-2 mt-2 bg-amber-500 hover:bg-amber-500 border-amber-600"
-        variant="default"
+      <button
+        type="button"
+        style={{ width: "100%", height: 56, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#222222", color: "#ffffff", border: "none", borderRadius: 8, fontSize: 16, fontWeight: 500, cursor: "pointer", marginTop: 8, fontFamily: A.font }}
         onClick={() => setAddItemOpen(true)}
         data-testid="button-open-add-storage"
       >
-        <Plus className="h-5 w-5" />
+        <Plus style={{ width: 20, height: 20 }} />
         Add Items
-      </Button>
+      </button>
 
       {/* Catalogue Drawer */}
       <Drawer open={addItemOpen} onOpenChange={setAddItemOpen}>
@@ -1224,13 +1230,13 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
           </DrawerHeader>
           <div className="flex-1 overflow-y-auto px-4">
             {catalogLoading && (
-              <div className="flex justify-center py-10">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <div style={{ display: "flex", justifyContent: "center", padding: "40px 0" }}>
+                <Loader2 style={{ width: 24, height: 24, color: "#6a6a6a" }} className="animate-spin" />
               </div>
             )}
             {catalogCategories.map(cat => (
               <div key={cat} className="mb-5">
-                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">{cat}</p>
+                <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6a6a6a", marginBottom: 8 }}>{cat}</p>
                 <div className="flex flex-col gap-2">
                   {catalogByCategory[cat].map(item => {
                     const inList = activeItemIds.has(item.id);
@@ -1241,15 +1247,13 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
                         data-testid={`button-storage-catalog-${item.id}`}
                         onClick={() => !inList && addToActiveMutation.mutate(item.id)}
                         disabled={inList || addToActiveMutation.isPending}
-                        className={`flex items-center gap-3 min-h-[3rem] w-full px-4 py-3 rounded-xl border text-left ${
-                          inList ? "bg-amber-500/10 border-amber-500/20 cursor-default" : "bg-card hover-elevate active-elevate-2"
-                        }`}
+                        style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 48, width: "100%", padding: "10px 14px", borderRadius: 14, background: inList ? "#f2f2f2" : "#ffffff", border: "1px solid #c1c1c1", cursor: inList ? "default" : "pointer", textAlign: "left" }}
                       >
                         {inList
-                          ? <CheckCheck className="h-4 w-4 text-amber-500 shrink-0" />
-                          : <Plus className="h-4 w-4 text-muted-foreground shrink-0" />}
-                        <span className="flex-1 font-medium text-sm">{item.name}</span>
-                        <span className="text-xs text-muted-foreground/60">{item.unit}</span>
+                          ? <CheckCheck style={{ width: 16, height: 16, color: "#222222", flexShrink: 0 }} />
+                          : <Plus style={{ width: 16, height: 16, color: "#6a6a6a", flexShrink: 0 }} />}
+                        <span style={{ flex: 1, fontWeight: 500, fontSize: 14, color: "#222222" }}>{item.name}</span>
+                        <span style={{ fontSize: 12, color: "#6a6a6a" }}>{item.unit}</span>
                       </button>
                     );
                   })}
@@ -1257,11 +1261,11 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
               </div>
             ))}
             {catalog.length === 0 && !catalogLoading && (
-              <p className="text-sm text-muted-foreground text-center py-4">No items in catalogue yet. Create one below.</p>
+              <p style={{ fontSize: 13, color: "#6a6a6a", textAlign: "center", padding: "16px 0" }}>No items in catalogue yet. Create one below.</p>
             )}
 
-            <div className="border-t mt-4 pt-4 pb-4">
-              <p className="text-sm font-semibold mb-3">Create New Item</p>
+            <div style={{ borderTop: "1px solid #c1c1c1", marginTop: 16, paddingTop: 16, paddingBottom: 16 }}>
+              <p style={{ fontSize: 14, fontWeight: 600, color: "#222222", marginBottom: 12 }}>Create New Item</p>
               <div className="flex flex-col gap-3">
                 <Input
                   placeholder="Item name"
@@ -1289,17 +1293,18 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
                     ))}
                   </SelectContent>
                 </Select>
-                <Button
-                  className="w-full"
+                <button
+                  type="button"
+                  style={{ width: "100%", padding: "12px 24px", background: !newName.trim() || !newCategory || createItemMutation.isPending ? "#f2f2f2" : "#222222", color: !newName.trim() || !newCategory || createItemMutation.isPending ? "#6a6a6a" : "#ffffff", border: "none", borderRadius: 8, fontSize: 16, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontFamily: A.font }}
                   disabled={!newName.trim() || !newCategory || createItemMutation.isPending}
                   onClick={() => createItemMutation.mutate()}
                   data-testid="button-create-storage-item"
                 >
                   {createItemMutation.isPending
-                    ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    : <Plus className="h-4 w-4 mr-2" />}
+                    ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" />
+                    : <Plus style={{ width: 16, height: 16 }} />}
                   Add to List
-                </Button>
+                </button>
               </div>
             </div>
           </div>
@@ -1316,7 +1321,7 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
             <DrawerTitle>Log Stock — {selectedItem?.name}</DrawerTitle>
           </DrawerHeader>
           <div className="px-4 py-4 flex flex-col gap-4">
-            <p className="text-sm text-muted-foreground">How many left?</p>
+            <p style={{ fontSize: 13, color: "#6a6a6a" }}>How many left?</p>
             <div className="flex items-center gap-3">
               <Input
                 type="number"
@@ -1327,22 +1332,23 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
                 data-testid="input-stock-value"
                 className="flex-1"
               />
-              <span className="text-sm font-medium text-muted-foreground shrink-0 min-w-[2.5rem]">
+              <span style={{ fontSize: 14, fontWeight: 500, color: "#6a6a6a", flexShrink: 0, minWidth: 40 }}>
                 {selectedItem?.unit ?? "ea"}
               </span>
             </div>
           </div>
           <DrawerFooter>
-            <Button
-              className="w-full bg-amber-500 hover:bg-amber-500 border-amber-600"
+            <button
+              type="button"
+              style={{ width: "100%", padding: "14px 24px", background: !stockValue || updateStockMutation.isPending ? "#f2f2f2" : "#222222", color: !stockValue || updateStockMutation.isPending ? "#6a6a6a" : "#ffffff", border: "none", borderRadius: 8, fontSize: 16, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontFamily: A.font }}
               disabled={!stockValue || updateStockMutation.isPending}
               onClick={() => {
                 if (selectedItem) updateStockMutation.mutate({ id: selectedItem.id, currentStock: Number(stockValue) });
               }}
               data-testid="button-submit-stock"
             >
-              {updateStockMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
-            </Button>
+              {updateStockMutation.isPending ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" /> : "Save"}
+            </button>
             <Button variant="outline" onClick={() => setCheckSheetOpen(false)}>Cancel</Button>
           </DrawerFooter>
         </DrawerContent>
@@ -1845,84 +1851,86 @@ function ScheduleTab({ session }: { session: Session }) {
   const totalHours  = shiftDays.reduce((s, d) => s + calcHours(d.shift!.startTime, d.shift!.endTime), 0);
   const submitted   = days.filter(d => d.timesheet).length;
 
+  const A = {
+    font: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, 'Helvetica Neue', sans-serif",
+    shadow: "rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px",
+  };
+
   return (
-    <div className="flex flex-col gap-4 px-4 py-5">
+    <div style={{ display: "flex", flexDirection: "column", gap: 20, padding: "20px 16px", background: "#ffffff", minHeight: "100%", fontFamily: A.font }}>
       {/* Header */}
       <div>
-        <h2 className="text-xl font-bold">My Schedule</h2>
-        <p className="text-sm text-muted-foreground mt-0.5">Your weekly shift roster</p>
+        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px", lineHeight: 1.18 }}>My Schedule</h2>
+        <p style={{ fontSize: 13, color: "#6a6a6a", marginTop: 3 }}>Your weekly shift roster</p>
       </div>
 
       {/* Week navigation */}
-      <div className="flex items-center justify-between">
-        <Button
-          size="icon" variant="ghost"
-          onClick={() => setWeekStart(s => addDays(s, -7))}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <button
+          type="button"
           data-testid="button-prev-week"
+          onClick={() => setWeekStart(s => addDays(s, -7))}
+          style={{ width: 36, height: 36, borderRadius: "50%", background: "#f2f2f2", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
         >
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <span className="text-sm font-medium">{fmtWeekRange(weekStart)}</span>
-        <Button
-          size="icon" variant="ghost"
+          <ChevronLeft style={{ width: 16, height: 16, color: "#222222" }} />
+        </button>
+        <span style={{ fontSize: 14, fontWeight: 600, color: "#222222" }}>{fmtWeekRange(weekStart)}</span>
+        <button
+          type="button"
+          data-testid="button-next-week"
           onClick={() => setWeekStart(s => addDays(s, 7))}
           disabled={isCurrentWeek}
-          data-testid="button-next-week"
+          style={{ width: 36, height: 36, borderRadius: "50%", background: "#f2f2f2", border: "none", cursor: isCurrentWeek ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: isCurrentWeek ? 0.3 : 1 }}
         >
-          <ChevronRight className="h-4 w-4" />
-        </Button>
+          <ChevronRight style={{ width: 16, height: 16, color: "#222222" }} />
+        </button>
       </div>
 
       {/* Summary strip */}
       {!isLoading && weekData?.published && shiftDays.length > 0 && (
-        <div className="flex items-center justify-between bg-muted/40 rounded-md px-4 py-2.5 text-xs text-muted-foreground">
-          <span>
-            <span className="font-semibold text-foreground">{shiftDays.length}</span> shifts ·{" "}
-            <span className="font-semibold text-foreground">{totalHours.toFixed(1)}h</span> total
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", borderRadius: 8, border: "1px solid #c1c1c1" }}>
+          <span style={{ fontSize: 13, color: "#6a6a6a" }}>
+            <span style={{ fontWeight: 600, color: "#222222" }}>{shiftDays.length}</span> shifts ·{" "}
+            <span style={{ fontWeight: 600, color: "#222222" }}>{totalHours.toFixed(1)}h</span> total
           </span>
-          <span className="flex items-center gap-1.5">
-            <CheckCircle2 className={`h-3.5 w-3.5 ${submitted === shiftDays.length ? "text-green-600" : "text-amber-500"}`} />
+          <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#6a6a6a" }}>
+            <CheckCircle2 style={{ width: 14, height: 14, color: submitted === shiftDays.length ? "#222222" : "#ef4444" }} />
             {submitted}/{shiftDays.length} submitted
           </span>
         </div>
       )}
 
-      {/* Days list */}
+      {/* Loading */}
       {isLoading && (
-        <div className="flex justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <div style={{ display: "flex", justifyContent: "center", padding: "48px 0" }}>
+          <Loader2 style={{ width: 24, height: 24, color: "#6a6a6a", animation: "spin 1s linear infinite" }} className="animate-spin" />
         </div>
       )}
 
+      {/* Not published */}
       {!isLoading && !weekData?.published && (
-        <Card>
-          <CardContent className="py-10 flex flex-col items-center gap-2 text-center">
-            <CalendarDays className="h-8 w-8 text-muted-foreground/40" />
-            <p className="font-medium text-muted-foreground">Roster not published yet</p>
-            <p className="text-xs text-muted-foreground">
-              Check back once the manager publishes the week's roster.
-            </p>
-          </CardContent>
-        </Card>
+        <div style={{ background: "#ffffff", borderRadius: 20, padding: "40px 20px", textAlign: "center", boxShadow: A.shadow }}>
+          <CalendarDays style={{ width: 32, height: 32, color: "#c1c1c1", margin: "0 auto 8px" }} />
+          <p style={{ fontWeight: 600, fontSize: 15, color: "#222222", marginBottom: 4 }}>Roster not published yet</p>
+          <p style={{ fontSize: 13, color: "#6a6a6a" }}>Check back once the manager publishes the week's roster.</p>
+        </div>
       )}
 
+      {/* Days list */}
       {!isLoading && weekData?.published && (
-        <Card>
-          <CardContent className="py-2 px-1">
-            <div className="divide-y">
-              {days.map(day => (
-                <WeekRow
-                  key={day.date}
-                  day={day}
-                  today={today}
-                  employeeId={session.id}
-                  onSubmitted={() => qc.invalidateQueries({ queryKey: weekQK })}
-                  openCycleStart={openCycleStart}
-                />
-              ))}
+        <div style={{ background: "#ffffff", borderRadius: 20, boxShadow: A.shadow, overflow: "hidden" }}>
+          {days.map((day, i) => (
+            <div key={day.date} style={{ borderTop: i === 0 ? "none" : "1px solid #c1c1c1" }}>
+              <WeekRow
+                day={day}
+                today={today}
+                employeeId={session.id}
+                onSubmitted={() => qc.invalidateQueries({ queryKey: weekQK })}
+                openCycleStart={openCycleStart}
+              />
             </div>
-          </CardContent>
-        </Card>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -2773,88 +2781,89 @@ function SettingsTab({ session, onLogout, onEditProfile }: { session: Session; o
   const displayName = session.nickname || session.firstName;
   const [changePinOpen, setChangePinOpen] = useState(false);
 
+  const A = {
+    font: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, 'Helvetica Neue', sans-serif",
+    shadow: "rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px",
+  };
+
   return (
-    <div className="flex flex-col gap-5 px-4 py-5">
+    <div style={{ display: "flex", flexDirection: "column", gap: 20, padding: "20px 16px", background: "#ffffff", minHeight: "100%", fontFamily: A.font }}>
       <div>
-        <h2 className="text-xl font-bold">Settings</h2>
-        <p className="text-sm text-muted-foreground mt-1">Manage your account</p>
+        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px", lineHeight: 1.18 }}>Settings</h2>
+        <p style={{ fontSize: 13, color: "#6a6a6a", marginTop: 3 }}>Manage your account</p>
       </div>
 
       {/* User info card */}
-      <Card>
-        <CardContent className="pt-4 pb-4">
-          <div className="flex items-center gap-3">
-            {session.selfieUrl ? (
-              <img
-                src={session.selfieUrl}
-                alt={displayName}
-                className="h-14 w-14 rounded-full object-cover shrink-0 border border-border/40"
-              />
-            ) : (
-              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 shrink-0">
-                <User className="h-7 w-7 text-primary" />
-              </div>
-            )}
-            <div>
-              <p className="font-semibold text-base" data-testid="text-settings-name">{displayName}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{session.firstName} • Staff</p>
+      <div style={{ background: "#ffffff", borderRadius: 20, padding: "16px 20px", boxShadow: A.shadow }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          {session.selfieUrl ? (
+            <img
+              src={session.selfieUrl}
+              alt={displayName}
+              style={{ width: 56, height: 56, borderRadius: "50%", objectFit: "cover", flexShrink: 0, border: "1px solid #c1c1c1" }}
+            />
+          ) : (
+            <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#f2f2f2", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <User style={{ width: 28, height: 28, color: "#222222" }} />
             </div>
+          )}
+          <div>
+            <p data-testid="text-settings-name" style={{ fontWeight: 600, fontSize: 16, color: "#222222" }}>{displayName}</p>
+            <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 2 }}>{session.firstName} · Staff</p>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Actions */}
-      <div className="flex flex-col gap-2">
-        <p className="text-xs uppercase tracking-widest text-muted-foreground font-semibold px-1 mb-1">Account</p>
-        <Card>
-          <CardContent className="p-0 divide-y">
-            {/* Edit My Profile */}
-            <button
-              type="button"
-              data-testid="button-edit-profile"
-              className="w-full flex items-center gap-4 px-4 py-4 hover-elevate active-elevate-2 rounded-t-md text-left"
-              onClick={onEditProfile}
-            >
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 shrink-0">
-                <PenLine className="h-5 w-5 text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm">Edit My Profile</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Update address, visa, bank &amp; super details</p>
-              </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-            </button>
-            {/* Change PIN */}
-            <button
-              type="button"
-              data-testid="button-change-pin"
-              className="w-full flex items-center gap-4 px-4 py-4 hover-elevate active-elevate-2 rounded-b-md text-left"
-              onClick={() => setChangePinOpen(true)}
-            >
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted shrink-0">
-                <KeyRound className="h-5 w-5 text-muted-foreground" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm">Change PIN</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Default: last 4 digits of your phone</p>
-              </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-            </button>
-          </CardContent>
-        </Card>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6a6a6a", paddingLeft: 4, marginBottom: 4 }}>Account</p>
+        <div style={{ background: "#ffffff", borderRadius: 20, boxShadow: A.shadow, overflow: "hidden" }}>
+          {/* Edit My Profile */}
+          <button
+            type="button"
+            data-testid="button-edit-profile"
+            onClick={onEditProfile}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 16, padding: "16px 20px", background: "transparent", border: "none", borderBottom: "1px solid #c1c1c1", cursor: "pointer", textAlign: "left" }}
+          >
+            <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#f2f2f2", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <PenLine style={{ width: 18, height: 18, color: "#222222" }} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontWeight: 600, fontSize: 14, color: "#222222" }}>Edit My Profile</p>
+              <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 2 }}>Update address, visa, bank &amp; super details</p>
+            </div>
+            <ChevronRight style={{ width: 16, height: 16, color: "#6a6a6a", flexShrink: 0 }} />
+          </button>
+          {/* Change PIN */}
+          <button
+            type="button"
+            data-testid="button-change-pin"
+            onClick={() => setChangePinOpen(true)}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 16, padding: "16px 20px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
+          >
+            <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#f2f2f2", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <KeyRound style={{ width: 18, height: 18, color: "#222222" }} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontWeight: 600, fontSize: 14, color: "#222222" }}>Change PIN</p>
+              <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 2 }}>Default: last 4 digits of your phone</p>
+            </div>
+            <ChevronRight style={{ width: 16, height: 16, color: "#6a6a6a", flexShrink: 0 }} />
+          </button>
+        </div>
       </div>
 
       {/* Log out */}
-      <div className="pt-2">
-        <Button
-          variant="destructive"
-          className="w-full"
-          onClick={onLogout}
+      <div style={{ paddingTop: 8 }}>
+        <button
+          type="button"
           data-testid="button-logout"
+          onClick={onLogout}
+          style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "14px 24px", background: "#222222", color: "#ffffff", border: "none", borderRadius: 8, fontSize: 16, fontWeight: 500, cursor: "pointer", fontFamily: A.font }}
         >
-          <LogOut className="h-4 w-4 mr-2" />
+          <LogOut style={{ width: 16, height: 16 }} />
           Log Out
-        </Button>
+        </button>
       </div>
 
       <ChangePinDrawer
