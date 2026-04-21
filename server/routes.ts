@@ -3661,7 +3661,9 @@ export async function registerRoutes(
         await storage.updateEmployee(emp.id, { pin: hashed });
       }
       clearPinAttempts(`loginpin:${pinStr}`);
-      res.json({ id: emp.id, nickname: emp.nickname, firstName: emp.firstName, storeId: emp.storeId, selfieUrl: emp.selfieUrl ?? null, role: emp.role ?? null });
+      const portalAssignments = await storage.getEmployeeStoreAssignments({ employeeId: emp.id });
+      const portalStoreIds = portalAssignments.map((a: any) => a.storeId);
+      res.json({ id: emp.id, nickname: emp.nickname, firstName: emp.firstName, storeId: emp.storeId, storeIds: portalStoreIds, selfieUrl: emp.selfieUrl ?? null, role: emp.role ?? null });
     } catch (err) {
       res.status(500).json({ error: "Login failed" });
     }

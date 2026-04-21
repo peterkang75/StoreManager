@@ -71,7 +71,7 @@ import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "@shared/pay
 
 type Tab = "home" | "schedule" | "timesheets" | "settings";
 
-interface Session { id: string; nickname: string | null; firstName: string; selfieUrl?: string | null; role?: string | null }
+interface Session { id: string; nickname: string | null; firstName: string; selfieUrl?: string | null; role?: string | null; storeId?: string | null; storeIds?: string[] }
 
 interface ShiftInfo {
   id: string; storeId: string; startTime: string; endTime: string; date: string;
@@ -194,7 +194,7 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
       if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? "Invalid PIN"); }
       return res.json();
     },
-    onSuccess: (data) => onSuccess({ id: data.id, nickname: data.nickname, firstName: data.firstName, selfieUrl: data.selfieUrl ?? null, role: data.role ?? null }),
+    onSuccess: (data) => onSuccess({ id: data.id, nickname: data.nickname, firstName: data.firstName, selfieUrl: data.selfieUrl ?? null, role: data.role ?? null, storeId: data.storeId ?? null, storeIds: data.storeIds ?? [] }),
     onError: (err: Error) => { setError(err.message); setPin(""); },
   });
 
@@ -2751,17 +2751,28 @@ function ChangePinDrawer({ open, onClose, employeeId }: { open: boolean; onClose
           </div>
 
           {/* Numpad */}
-          <div className="grid grid-cols-3 gap-3 w-full max-w-xs">
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, width: "100%", maxWidth: 320 }}>
             {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((key, idx) => (
               <button
                 key={idx} type="button"
                 disabled={changePinMutation.isPending || key === ""}
                 data-testid={key === "⌫" ? "changepin-delete" : key ? `changepin-digit-${key}` : undefined}
-                className={`h-[64px] rounded-2xl text-2xl font-semibold transition-all select-none ${
-                  key === "" ? "invisible pointer-events-none" :
-                  "bg-muted hover-elevate active-elevate-2"
-                } ${key === "⌫" ? "text-muted-foreground" : "text-foreground"}`}
-                onClick={() => key === "⌫" ? handleDel() : handleDigit(key)}
+                onClick={() => key === "⌫" ? handleDel() : key ? handleDigit(key) : undefined}
+                style={{
+                  height: 72,
+                  borderRadius: 16,
+                  border: "none",
+                  cursor: key ? "pointer" : "default",
+                  visibility: key === "" ? "hidden" : "visible",
+                  background: key === "⌫" ? "transparent" : "#f2f2f2",
+                  color: key === "⌫" ? "#6a6a6a" : "#222222",
+                  fontSize: 24,
+                  fontWeight: 600,
+                  touchAction: "manipulation",
+                  WebkitTapHighlightColor: "transparent",
+                  userSelect: "none",
+                  fontFamily: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, sans-serif",
+                }}
               >{key}</button>
             ))}
           </div>

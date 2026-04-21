@@ -3,21 +3,12 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { MobileLayout } from "@/components/layouts/MobileLayout";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { useMobileSession } from "@/hooks/use-mobile-session";
 import {
   Wallet,
   CheckCircle2,
   Loader2,
   AlertTriangle,
-  LogOut,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Store } from "@shared/schema";
@@ -38,14 +29,26 @@ const NOTE_DENOMS = [
 type NoteDenomKey = typeof NOTE_DENOMS[number]["key"];
 type NoteCounts = Record<NoteDenomKey, number>;
 
+interface PortalSession {
+  id: string;
+  nickname: string | null;
+  firstName: string;
+  storeId: string | null;
+  storeIds: string[];
+  role: string | null;
+}
+
+function loadPortalSession(): PortalSession | null {
+  try {
+    const raw = sessionStorage.getItem("ep_session_v4");
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    return { id: s.id, nickname: s.nickname ?? null, firstName: s.firstName ?? "", storeId: s.storeId ?? null, storeIds: s.storeIds ?? [], role: s.role ?? null };
+  } catch { return null; }
+}
+
 function emptyNotes(): NoteCounts {
-  return {
-    note100Count: 0,
-    note50Count: 0,
-    note20Count: 0,
-    note10Count: 0,
-    note5Count: 0,
-  };
+  return { note100Count: 0, note50Count: 0, note20Count: 0, note10Count: 0, note5Count: 0 };
 }
 
 function SectionCard({ title, children }: { title?: string; children: React.ReactNode }) {
@@ -65,9 +68,18 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+function LockedField({ value }: { value: string }) {
+  return (
+    <div style={{ height: 44, display: "flex", alignItems: "center", padding: "0 12px", borderRadius: 8, border: "1px solid #c1c1c1", background: "#f2f2f2", fontSize: 15, color: "#222222" }}>
+      {value}
+    </div>
+  );
+}
+
 export function MobileDailyClose() {
   const { toast } = useToast();
-  const { session, clearSession } = useMobileSession();
+  const portalSession = useMemo(() => loadPortalSession(), []);
+  const displayName = portalSession?.nickname || portalSession?.firstName || "—";
 
   const [storeId, setStoreId] = useState<string>("");
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
@@ -87,19 +99,24 @@ export function MobileDailyClose() {
 
   const [notes, setNotes] = useState<NoteCounts>(emptyNotes);
 
-  useEffect(() => {
-    if (!session) return;
-    const assignedIds = session.storeIds ?? [];
-    if (assignedIds.length === 1) {
-      setStoreId(assignedIds[0]);
-    } else if (assignedIds.length === 0 && session.storeId) {
-      setStoreId(session.storeId);
-    }
-  }, [session]);
-
   const { data: stores, isLoading: storesLoading } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
   });
+
+  // Determine assigned stores from portal session
+  const assignedIds: string[] = portalSession?.storeIds ?? (portalSession?.storeId ? [portalSession.storeId] : []);
+  const assignedStores: Store[] = useMemo(() => {
+    if (!stores) return [];
+    if (assignedIds.length > 0) return stores.filter(s => assignedIds.includes(s.id));
+    return stores.filter(s => s.active && !s.isExternal);
+  }, [stores, assignedIds]);
+
+  // Auto-select if only one store assigned
+  useEffect(() => {
+    if (assignedStores.length === 1 && !storeId) {
+      setStoreId(assignedStores[0].id);
+    }
+  }, [assignedStores, storeId]);
 
   const totalCounted = useMemo(() => {
     let sum = 0;
@@ -121,8 +138,7 @@ export function MobileDailyClose() {
   const submitMutation = useMutation({
     mutationFn: async () => {
       const closingData = {
-        storeId,
-        date,
+        storeId, date,
         previousFloat: form.previousFloat,
         salesTotal: form.salesTotal,
         cashSales: form.cashSales,
@@ -135,27 +151,18 @@ export function MobileDailyClose() {
         doordashAmount: form.doordashAmount,
         notes: form.notes || null,
       };
-
       const closeFormData = {
-        storeId,
-        date,
-        submitterName: session?.name || null,
+        storeId, date,
+        submitterName: displayName,
         envelopeAmount: expectedCredit,
         totalCalculated: totalCounted,
         numberOfReceipts: form.numberOfReceipts,
         notes: form.notes || null,
         ...notes,
-        coin2Count: 0,
-        coin1Count: 0,
-        coin050Count: 0,
-        coin020Count: 0,
-        coin010Count: 0,
-        coin005Count: 0,
+        coin2Count: 0, coin1Count: 0, coin050Count: 0, coin020Count: 0, coin010Count: 0, coin005Count: 0,
       };
-
       await apiRequest("POST", "/api/daily-closings", closingData);
       await apiRequest("POST", "/api/daily-close-forms", closeFormData);
-
       return true;
     },
     onSuccess: () => {
@@ -171,18 +178,9 @@ export function MobileDailyClose() {
 
   const resetForm = () => {
     setSubmitted(false);
-    setForm({
-      previousFloat: 0,
-      salesTotal: 0,
-      cashSales: 0,
-      cashOutTotal: 0,
-      numberOfReceipts: 0,
-      nextFloat: 0,
-      ubereatsAmount: 0,
-      doordashAmount: 0,
-      notes: "",
-    });
+    setForm({ previousFloat: 0, salesTotal: 0, cashSales: 0, cashOutTotal: 0, numberOfReceipts: 0, nextFloat: 0, ubereatsAmount: 0, doordashAmount: 0, notes: "" });
     setNotes(emptyNotes());
+    if (assignedStores.length !== 1) setStoreId("");
   };
 
   if (storesLoading) {
@@ -190,7 +188,7 @@ export function MobileDailyClose() {
       <MobileLayout title="Daily Close">
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {[0, 1].map(i => (
-            <div key={i} style={{ height: 80, background: "#f2f2f2", borderRadius: 20, animation: "pulse 1.5s ease-in-out infinite" }} />
+            <div key={i} style={{ height: 80, background: "#f2f2f2", borderRadius: 20 }} className="animate-pulse" />
           ))}
         </div>
       </MobileLayout>
@@ -204,82 +202,73 @@ export function MobileDailyClose() {
           <CheckCircle2 style={{ width: 64, height: 64, color: "#222222", margin: "0 auto 16px" }} />
           <h2 style={{ fontSize: 24, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px", marginBottom: 8 }} data-testid="text-success-title">Submitted!</h2>
           <p style={{ fontSize: 14, color: "#6a6a6a", marginBottom: 24 }}>Daily close has been successfully recorded.</p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <button
-              type="button"
-              onClick={resetForm}
-              style={{ width: "100%", height: 48, background: "#222222", color: "#ffffff", border: "none", borderRadius: 8, fontSize: 16, fontWeight: 500, cursor: "pointer", fontFamily: A.font }}
-              data-testid="button-new-close"
-            >
-              Submit Another
-            </button>
-            <button
-              type="button"
-              onClick={() => clearSession()}
-              style={{ width: "100%", height: 48, background: "transparent", color: "#6a6a6a", border: "1px solid #c1c1c1", borderRadius: 8, fontSize: 16, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontFamily: A.font }}
-              data-testid="button-logout"
-            >
-              <LogOut style={{ width: 16, height: 16 }} />
-              Sign Out
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={resetForm}
+            style={{ width: "100%", height: 48, background: "#222222", color: "#ffffff", border: "none", borderRadius: 8, fontSize: 16, fontWeight: 500, cursor: "pointer", fontFamily: A.font }}
+            data-testid="button-new-close"
+          >
+            Submit Another
+          </button>
         </div>
       </MobileLayout>
     );
   }
 
-  const assignedIds = session?.storeIds ?? [];
-  const assignedStores = stores?.filter(s => assignedIds.includes(s.id)) ?? [];
-  const availableStores = assignedStores.length > 0 ? assignedStores : (stores?.filter(s => s.active && !s.isExternal) ?? []);
-  const lockedStore = storeId && stores ? stores.find(s => s.id === storeId) : null;
-  const isStoreLocked = assignedIds.length === 1;
-
+  const isSingleStore = assignedStores.length === 1;
+  const isMultiStore = assignedStores.length >= 2;
   const canSubmit = !!storeId && !!date && !submitMutation.isPending;
 
   return (
     <MobileLayout title="Daily Close">
       <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingBottom: 96, fontFamily: A.font }}>
 
-        {/* Session banner */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <p style={{ fontSize: 14, fontWeight: 600, color: "#222222" }}>{session?.name ?? "Unknown"}</p>
-            <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 1, textTransform: "capitalize" }}>{(session?.role ?? "").toLowerCase()}</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => clearSession()}
-            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#6a6a6a", background: "transparent", border: "none", cursor: "pointer" }}
-            data-testid="button-signout"
-          >
-            <LogOut style={{ width: 14, height: 14 }} />
-            Sign Out
-          </button>
+        {/* Session banner — name only, no sign out */}
+        <div>
+          <p style={{ fontSize: 15, fontWeight: 600, color: "#222222" }}>{displayName}</p>
+          <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 1, textTransform: "capitalize" }}>{(portalSession?.role ?? "").toLowerCase()}</p>
         </div>
 
         {/* Store & Date */}
         <SectionCard>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {/* Store */}
             <div>
               <FieldLabel>Store</FieldLabel>
-              {isStoreLocked ? (
-                <div style={{ height: 48, display: "flex", alignItems: "center", padding: "0 12px", borderRadius: 8, border: "1px solid #c1c1c1", background: "#f2f2f2", fontSize: 16, fontWeight: 500, color: "#222222" }} data-testid="text-store-locked">
-                  {lockedStore?.name ?? "—"}
+              {isSingleStore && (
+                <LockedField value={assignedStores[0].name} />
+              )}
+              {isMultiStore && (
+                <div style={{ display: "flex", gap: 8 }}>
+                  {assignedStores.map(store => {
+                    const active = storeId === store.id;
+                    return (
+                      <button
+                        key={store.id}
+                        type="button"
+                        onClick={() => setStoreId(store.id)}
+                        style={{
+                          flex: 1, height: 44, borderRadius: 8, border: "none", cursor: "pointer",
+                          background: active ? "#222222" : "#f2f2f2",
+                          color: active ? "#ffffff" : "#6a6a6a",
+                          fontSize: 15, fontWeight: active ? 600 : 500,
+                          transition: "background 160ms, color 160ms",
+                          fontFamily: A.font,
+                        }}
+                        data-testid={`button-store-${store.id}`}
+                      >
+                        {store.name}
+                      </button>
+                    );
+                  })}
                 </div>
-              ) : (
-                <Select value={storeId} onValueChange={setStoreId}>
-                  <SelectTrigger className="h-12 text-base" data-testid="select-store">
-                    <SelectValue placeholder="Select store" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableStores.map(store => (
-                      <SelectItem key={store.id} value={store.id}>{store.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              )}
+              {!isSingleStore && !isMultiStore && (
+                <LockedField value="No store assigned" />
               )}
             </div>
 
+            {/* Date */}
             <div>
               <FieldLabel>Date</FieldLabel>
               <Input
@@ -293,11 +282,10 @@ export function MobileDailyClose() {
               />
             </div>
 
+            {/* Submitted By */}
             <div>
               <FieldLabel>Submitted By</FieldLabel>
-              <div style={{ height: 48, display: "flex", alignItems: "center", padding: "0 12px", borderRadius: 8, border: "1px solid #c1c1c1", background: "#f2f2f2", fontSize: 16, color: "#222222" }} data-testid="text-submitter-locked">
-                {session?.name ?? "—"}
-              </div>
+              <LockedField value={displayName} />
             </div>
           </div>
         </SectionCard>
@@ -307,17 +295,8 @@ export function MobileDailyClose() {
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div>
               <FieldLabel>Previous Float</FieldLabel>
-              <Input
-                id="previousFloat"
-                type="text"
-                inputMode="decimal"
-                value={form.previousFloat || ""}
-                onChange={(e) => updateForm("previousFloat", e.target.value)}
-                className="h-12 text-base"
-                data-testid="input-previousFloat"
-              />
+              <Input id="previousFloat" type="text" inputMode="decimal" value={form.previousFloat || ""} onChange={(e) => updateForm("previousFloat", e.target.value)} className="h-12 text-base" data-testid="input-previousFloat" />
             </div>
-
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
               <div>
                 <FieldLabel>Sales Total</FieldLabel>
@@ -328,7 +307,6 @@ export function MobileDailyClose() {
                 <Input id="cashSales" type="text" inputMode="decimal" value={form.cashSales || ""} onChange={(e) => updateForm("cashSales", e.target.value)} className="h-12 text-base" data-testid="input-cashSales" />
               </div>
             </div>
-
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
               <div>
                 <FieldLabel>Cash Out Total</FieldLabel>
@@ -339,12 +317,10 @@ export function MobileDailyClose() {
                 <Input id="numberOfReceipts" type="text" inputMode="numeric" value={form.numberOfReceipts || ""} onChange={(e) => setForm(prev => ({ ...prev, numberOfReceipts: parseInt(e.target.value) || 0 }))} className="h-12 text-base" data-testid="input-numberOfReceipts" />
               </div>
             </div>
-
             <div>
               <FieldLabel>Next Float</FieldLabel>
               <Input id="nextFloat" type="text" inputMode="decimal" value={form.nextFloat || ""} onChange={(e) => updateForm("nextFloat", e.target.value)} className="h-12 text-base" data-testid="input-nextFloat" />
             </div>
-
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
               <div>
                 <FieldLabel>UberEats</FieldLabel>
@@ -359,7 +335,7 @@ export function MobileDailyClose() {
         </SectionCard>
 
         {/* Note Count */}
-        <SectionCard title="Note Count">
+        <SectionCard title="Note Count — Credit Amount">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
             {NOTE_DENOMS.map(d => (
               <div key={d.key} style={{ textAlign: "center" }}>
@@ -381,7 +357,6 @@ export function MobileDailyClose() {
               </div>
             ))}
           </div>
-
           <div style={{ marginTop: 16, padding: "12px 16px", background: "#f2f2f2", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 14, color: "#6a6a6a" }}>Counted Total</span>
             <span style={{ fontSize: 22, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px" }} data-testid="text-counted-total">${totalCounted.toFixed(2)}</span>
@@ -401,7 +376,6 @@ export function MobileDailyClose() {
                 ${form.previousFloat.toFixed(2)} + ${form.cashSales.toFixed(2)} − ${form.cashOutTotal.toFixed(2)} − ${form.nextFloat.toFixed(2)}
               </p>
             </div>
-
             <div style={{ borderTop: "1px solid #c1c1c1", paddingTop: 12 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
                 <span style={{ fontSize: 14, fontWeight: 600, color: "#222222" }}>Difference</span>
@@ -409,11 +383,7 @@ export function MobileDailyClose() {
                   style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.44px", color: differenceAmount > 0.005 ? "#ef4444" : differenceAmount < -0.005 ? "#222222" : "#6a6a6a" }}
                   data-testid="text-difference"
                 >
-                  {differenceAmount > 0.005
-                    ? `-$${differenceAmount.toFixed(2)}`
-                    : differenceAmount < -0.005
-                    ? `+$${Math.abs(differenceAmount).toFixed(2)}`
-                    : `$${differenceAmount.toFixed(2)}`}
+                  {differenceAmount > 0.005 ? `-$${differenceAmount.toFixed(2)}` : differenceAmount < -0.005 ? `+$${Math.abs(differenceAmount).toFixed(2)}` : `$${differenceAmount.toFixed(2)}`}
                   {differenceAmount > 0.005 && <span style={{ fontSize: 11, marginLeft: 4 }}>(Shortage)</span>}
                   {differenceAmount < -0.005 && <span style={{ fontSize: 11, marginLeft: 4 }}>(Overage)</span>}
                 </span>
@@ -431,6 +401,12 @@ export function MobileDailyClose() {
 
         {/* Notes */}
         <SectionCard>
+          {/* Envelope instruction */}
+          <div style={{ background: "#f2f2f2", borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
+            <p style={{ fontSize: 13, color: "#6a6a6a", lineHeight: 1.5 }}>
+              On the envelope, write only the date — nothing else is needed.
+            </p>
+          </div>
           <FieldLabel>Notes</FieldLabel>
           <Textarea
             id="notes"
@@ -445,11 +421,7 @@ export function MobileDailyClose() {
 
       {/* Fixed submit bar */}
       <div style={{
-        position: "fixed",
-        bottom: 0,
-        left: 0,
-        right: 0,
-        padding: 16,
+        position: "fixed", bottom: 0, left: 0, right: 0, padding: 16,
         background: "rgba(255,255,255,0.9)",
         backdropFilter: "blur(12px)",
         WebkitBackdropFilter: "blur(12px)",
@@ -461,21 +433,12 @@ export function MobileDailyClose() {
           onClick={() => submitMutation.mutate()}
           disabled={!canSubmit}
           style={{
-            width: "100%",
-            height: 56,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 8,
+            width: "100%", height: 56, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
             background: canSubmit ? "#222222" : "#f2f2f2",
             color: canSubmit ? "#ffffff" : "#6a6a6a",
-            border: "none",
-            borderRadius: 8,
-            fontSize: 16,
-            fontWeight: 500,
+            border: "none", borderRadius: 8, fontSize: 16, fontWeight: 500,
             cursor: canSubmit ? "pointer" : "default",
-            fontFamily: A.font,
-            transition: "background 160ms, color 160ms",
+            fontFamily: A.font, transition: "background 160ms, color 160ms",
           }}
           data-testid="button-submit"
         >
