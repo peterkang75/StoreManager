@@ -990,11 +990,11 @@ A grouped record of incremental polish work that landed across multiple modules 
   - **Likely culprits**: missing or stale `CLOUDMAILIN_USER` / `CLOUDMAILIN_PASS` / `OPENAI_API_KEY` in production, session/cookie middleware behaving differently behind the deploy proxy, or a CORS/credentials mismatch on cross-subdomain requests.
   - **First step**: pull deployment logs around the 401 timestamps + diff the production secrets list against the dev secrets list.
 
-- [ ] **Payroll UX: Approve 후 해당 cycle로 자동 이동 안 됨** (2026-04-21 관찰, 이관과 무관)
-  - **증상**: Pending Approval에서 shift를 Approve해도 Payroll 화면은 여전히 현재 cycle(오늘 날짜 기준 14일 구간)로 로드됨. Approve된 shift가 과거 cycle에 속하면 Hours가 0으로 표시되어 "누락된 것처럼" 보임.
-  - **예시**: 오늘=2026-04-21(Cycle 2: 04-20~05-03). 04-06 shift(Cycle 1) Approve → Payroll 진입 시 Cycle 2 표시 → Aiden Hours 0h → 사용자가 "이전 기간" 버튼 클릭 → Cycle 1 이동 → 16h 정상 표시.
-  - **원인**: `client/src/pages/admin/Payrolls.tsx:143` `getCurrentPayCycle()`은 `today`를 기준으로 계산. Approve한 shift의 날짜 기반으로 자동 이동하는 로직 없음.
-  - **개선안**: Approve 후 Payroll 화면으로 넘어올 때 방금 Approve한 shift의 date가 속한 cycle로 default 이동. 또는 여러 Approve된 shift의 period들을 dropdown/뱃지로 노출.
+- [x] **Payroll: 신규 Approve된 shift의 Hours가 해당 cycle에서 0으로 표시되는 버그** (2026-04-21 해결)
+  - **증상**: Pending Approval에서 shift를 Approve한 뒤 Payroll 화면 해당 cycle로 이동해도 Hours가 0으로 유지. sessionStorage를 수동으로 비우고 새로고침하면 정상 표시.
+  - **근본 원인**: `client/src/pages/admin/Payrolls.tsx` draft hydration 로직이 기존에 `if (!merged[employee.id])` 패턴으로 작동 — sessionStorage에 draft row가 있으면 아예 재계산을 스킵. 과거에 해당 cycle을 방문했던 시점(approve 전)에 `hours:0`으로 저장된 draft가 이후 approve된 데이터를 덮어씀.
+  - **수정**: `mergeDraftOverManagerInputs()` 헬퍼 추가. API 출처 필드(hours, rate, fixedAmount, 직원 플래그)는 항상 최신 데이터로 재계산, 매니저 타이핑 필드(adjustment, memo, tax override, gross/cash 수동 분할)만 sessionStorage에서 보존 후 `recalcRow` 재실행. `isNewContext` 경로와 background refetch 경로 둘 다 동일하게 정정.
+  - **영향**: 기존 draft 보존 스펙(§2.1.1)은 매니저 입력 필드에 한정되어 유지됨. 탭/매장 전환·HMR 후에도 typed adjustment/memo/tax 계속 보존, 대신 새로 승인된 shift는 즉시 반영.
 
 - [ ] **Statement vs Invoice reconciliation stability** — Suppliers that send Statements of Account occasionally produce duplicate AP records or miss individual invoice extraction.
   - **Current safeguards** (§3.15): `isStatement` flag on every `ParsedInvoice`, statement-with-1-row → forced REVIEW with `"possibly a grand-total error"` note, multi-row statements deduplicated by `(supplierId, invoiceNumber)`.

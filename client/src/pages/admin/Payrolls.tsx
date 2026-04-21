@@ -220,6 +220,26 @@ function roundTo5(v: number): number {
   return Math.round(v / 5) * 5;
 }
 
+// Merge a stored draft's manager-typed fields onto a freshly-computed row.
+// API-sourced fields (hours, rate, fixedAmount, isCover/Intercompany/DualRole, names)
+// always come from `fresh` so that newly approved shifts, rate changes, or
+// employee attribute updates surface immediately. Manager-authored inputs
+// (adjustment, memo, manual gross/cash split, tax override) are preserved.
+function mergeDraftOverManagerInputs(fresh: PayrollRow, prior: PayrollRow): PayrollRow {
+  const merged: PayrollRow = {
+    ...fresh,
+    adjustment: prior.adjustment,
+    adjustmentReason: prior.adjustmentReason,
+    persistentMemo: prior.persistentMemo,
+    taxOverridden: prior.taxOverridden,
+    lastEditedField: prior.lastEditedField,
+  };
+  if (prior.taxOverridden) merged.taxAmount = prior.taxAmount;
+  if (prior.lastEditedField === "gross") merged.grossAmount = prior.grossAmount;
+  if (prior.lastEditedField === "cash") merged.cashAmount = prior.cashAmount;
+  return recalcRow(merged);
+}
+
 function recalcRow(row: PayrollRow, changedField?: string): PayrollRow {
   const r = { ...row };
   r.calculatedAmount = r.fixedAmount > 0 ? r.fixedAmount : r.hours * r.rate;
@@ -569,36 +589,37 @@ export function AdminPayrolls() {
         }
         setPayrollDrafts((prev) => ({ ...prev, [currentCtxKey]: fresh }));
       } else {
-        // Period not yet saved — hydrate from the individual sessionStorage key,
-        // then fill in any employees not yet represented.
+        // Period not yet saved — hydrate from sessionStorage, but always refresh
+        // API-sourced fields (hours, rate, etc.) from the latest currentData so
+        // newly approved shifts don't get masked by a stale draft's hours=0.
         let storedDraft: Record<string, PayrollRow> = {};
         try {
           const raw = sessionStorage.getItem(ssKeyFor(currentCtxKey));
           if (raw) storedDraft = JSON.parse(raw) as Record<string, PayrollRow>;
         } catch {}
-        const merged = { ...storedDraft };
+        const merged: Record<string, PayrollRow> = {};
         for (const { employee, payroll } of currentData) {
-          if (!merged[employee.id]) {
-            merged[employee.id] = buildPayrollRow(employee, payroll);
-          }
+          const fresh = buildPayrollRow(employee, payroll);
+          const prior = storedDraft[employee.id];
+          merged[employee.id] = prior ? mergeDraftOverManagerInputs(fresh, prior) : fresh;
         }
         setPayrollDrafts((prev) => ({ ...prev, [currentCtxKey]: merged }));
       }
       // Auto-select first employee if none selected (or pick persisted selection)
       setSelectedEmployeeId((id) => id || (currentData[0]?.employee.id ?? ""));
     } else {
-      // Same context (background refetch) — only add employees not yet in draft
+      // Same context (background refetch) — refresh API-sourced fields on every
+      // existing row so newly approved shifts reflect in hours immediately.
+      // Manager-typed fields survive via mergeDraftOverManagerInputs.
       setPayrollDrafts((prev) => {
         const existing = prev[currentCtxKey] ?? {};
-        const merged = { ...existing };
-        let changed = false;
+        const merged: Record<string, PayrollRow> = {};
         for (const { employee, payroll } of currentData) {
-          if (!merged[employee.id]) {
-            merged[employee.id] = buildPayrollRow(employee, payroll);
-            changed = true;
-          }
+          const fresh = buildPayrollRow(employee, payroll);
+          const prior = existing[employee.id];
+          merged[employee.id] = prior ? mergeDraftOverManagerInputs(fresh, prior) : fresh;
         }
-        return changed ? { ...prev, [currentCtxKey]: merged } : prev;
+        return { ...prev, [currentCtxKey]: merged };
       });
     }
   }, [currentData, buildPayrollRow, currentCtxKey]);
