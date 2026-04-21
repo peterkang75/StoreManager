@@ -1653,10 +1653,10 @@ function HomeTab({ session }: { session: Session }) {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 6,
-                paddingTop: 10,
-                paddingBottom: 10,
-                fontSize: 14,
+                gap: 7,
+                paddingTop: 12,
+                paddingBottom: 12,
+                fontSize: 15,
                 fontWeight: isActive ? 600 : 500,
                 color: isActive ? "#222222" : "#6a6a6a",
                 background: "transparent",
@@ -1667,7 +1667,7 @@ function HomeTab({ session }: { session: Session }) {
                 fontFamily: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, sans-serif",
               }}
             >
-              <Icon style={{ width: 14, height: 14 }} />
+              <Icon style={{ width: 16, height: 16 }} />
               {label}
             </button>
           );
@@ -1782,8 +1782,8 @@ function HomeTab({ session }: { session: Session }) {
               <FileText style={{ width: 18, height: 18, color: "#222222" }} />
             </div>
             <div className="flex-1 min-w-0">
-              <p style={{ fontWeight: 600, fontSize: 14, color: "#222222" }}>Submit Daily Close Report</p>
-              <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 2 }}>End-of-day summary for managers</p>
+              <p style={{ fontWeight: 600, fontSize: 17, color: "#222222" }}>Submit Daily Close Report</p>
+              <p style={{ fontSize: 14, color: "#6a6a6a", marginTop: 2 }}>End-of-day summary for managers</p>
             </div>
             <ChevronRight style={{ width: 16, height: 16, color: "#aaa", flexShrink: 0 }} />
           </button>
@@ -3134,13 +3134,12 @@ function BottomNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => vo
               onClick={() => onChange(tab)}
             >
               <Icon
-                className="h-5 w-5"
-                style={{ color: isActive ? "#222222" : "#6a6a6a", transition: "color 160ms" }}
+                style={{ width: 24, height: 24, color: isActive ? "#222222" : "#6a6a6a", transition: "color 160ms" }}
                 strokeWidth={isActive ? 2.5 : 1.8}
               />
               <span
                 style={{
-                  fontSize: 10,
+                  fontSize: 11,
                   fontWeight: isActive ? 600 : 500,
                   letterSpacing: "0.02em",
                   color: isActive ? "#222222" : "#6a6a6a",
@@ -3218,30 +3217,32 @@ export function EmployeePortal() {
     <div style={{ height: "100dvh", overflow: "hidden", background: "#ffffff", display: "flex", flexDirection: "column", alignItems: "center", fontFamily: AL.font }}>
       <div style={{ width: "100%", maxWidth: 448, height: "100%", display: "flex", flexDirection: "column", borderLeft: "1px solid #c1c1c1", borderRight: "1px solid #c1c1c1" }}>
         {/* Top bar */}
-        <header style={{ flexShrink: 0, zIndex: 50, background: "rgba(255,255,255,0.9)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", borderBottom: "1px solid #c1c1c1", height: 48, display: "flex", alignItems: "center", gap: 10, padding: "0 16px" }}>
-          <img src="/icon-192.png" alt="" style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "contain" }} />
-          <span style={{ fontWeight: 600, fontSize: 14, color: "#222222", letterSpacing: "-0.1px", fontFamily: AL.font }}>Staff Portal</span>
-          {showAdminDashboard && (
-            <button
-              type="button"
-              data-testid="button-admin-dashboard-header"
-              onClick={() => { window.location.href = "/admin"; }}
-              style={{
-                marginLeft: "auto",
-                display: "flex", alignItems: "center", gap: 6,
-                height: 32, padding: "0 12px",
-                background: "#222222", color: "#ffffff",
-                border: "none", borderRadius: 8,
-                fontSize: 12, fontWeight: 600,
-                cursor: "pointer", fontFamily: AL.font,
-                touchAction: "manipulation",
-                WebkitTapHighlightColor: "transparent",
-              }}
-            >
-              <LayoutDashboard style={{ width: 14, height: 14 }} />
-              Dashboard
-            </button>
-          )}
+        <header style={{ flexShrink: 0, zIndex: 50, background: "rgba(255,255,255,0.9)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", borderBottom: "1px solid #c1c1c1", paddingTop: "env(safe-area-inset-top)" }}>
+          <div style={{ height: 52, display: "flex", alignItems: "center", gap: 10, padding: "0 16px" }}>
+            <img src="/icon-192.png" alt="" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "contain" }} />
+            <span style={{ fontWeight: 600, fontSize: 15, color: "#222222", letterSpacing: "-0.1px", fontFamily: AL.font }}>Staff Portal</span>
+            {showAdminDashboard && (
+              <button
+                type="button"
+                data-testid="button-admin-dashboard-header"
+                onClick={() => { window.location.href = "/admin"; }}
+                style={{
+                  marginLeft: "auto",
+                  display: "flex", alignItems: "center", gap: 6,
+                  height: 36, padding: "0 14px",
+                  background: "#222222", color: "#ffffff",
+                  border: "none", borderRadius: 8,
+                  fontSize: 13, fontWeight: 600,
+                  cursor: "pointer", fontFamily: AL.font,
+                  touchAction: "manipulation",
+                  WebkitTapHighlightColor: "transparent",
+                }}
+              >
+                <LayoutDashboard style={{ width: 15, height: 15 }} />
+                Dashboard
+              </button>
+            )}
+          </div>
         </header>
 
         {/* Main content fills remaining height */}
