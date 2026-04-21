@@ -287,7 +287,8 @@ export function MobileDailyClose() {
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="h-12 text-base"
+                className="text-base"
+                style={{ height: 44, padding: "0 12px", fontSize: 15 }}
                 data-testid="input-date"
               />
             </div>
