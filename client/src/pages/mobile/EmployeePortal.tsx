@@ -2879,7 +2879,7 @@ const NAV_ITEMS: { tab: Tab; label: string; Icon: typeof Home }[] = [
 
 function BottomNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
   return (
-    <nav className="shrink-0 z-50 w-full border-t bg-background/95 backdrop-blur-sm">
+    <nav className="shrink-0 z-50 w-full border-t bg-background/95 backdrop-blur-sm" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
       <div className="flex items-stretch h-16">
         {NAV_ITEMS.map(({ tab, label, Icon }) => {
           const isActive = active === tab;
