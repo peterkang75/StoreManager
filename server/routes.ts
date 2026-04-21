@@ -3655,8 +3655,9 @@ export async function registerRoutes(
         return res.status(401).json({ error: "Invalid PIN" });
       }
 
-      // Auto-upgrade plain-text PIN to bcrypt on successful login
-      if (emp.pin && !emp.pin.startsWith("$2")) {
+      // Auto-upgrade: hash the PIN if it's plain-text OR if the user logged in via phone fallback (emp.pin is null)
+      // Without this, change-pin fails because verifyPin(pin, null) always returns false.
+      if (!emp.pin || !emp.pin.startsWith("$2")) {
         const hashed = await bcrypt.hash(pinStr, 10);
         await storage.updateEmployee(emp.id, { pin: hashed });
       }
@@ -3682,8 +3683,15 @@ export async function registerRoutes(
       const emp = await storage.getEmployee(employeeId);
       if (!emp) return res.status(404).json({ error: "Employee not found" });
 
-      // Verify current PIN (supports plain-text + bcrypt)
-      const currentValid = await verifyPin(String(currentPin), emp.pin);
+      // Verify current PIN: supports plain-text, bcrypt, AND phone last-4 fallback
+      // (phone fallback covers users whose PIN is still null — they logged in with phone last-4)
+      let currentValid = false;
+      if (emp.pin) {
+        currentValid = await verifyPin(String(currentPin), emp.pin);
+      } else {
+        const phoneDigits = (emp.phone ?? "").replace(/\D/g, "");
+        currentValid = phoneDigits.length >= 4 && phoneDigits.slice(-4) === String(currentPin);
+      }
       if (!currentValid) return res.status(401).json({ error: "Current PIN is incorrect" });
 
       if (String(currentPin) === String(newPin)) {
