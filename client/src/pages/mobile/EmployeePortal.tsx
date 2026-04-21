@@ -71,7 +71,7 @@ import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "@shared/pay
 
 type Tab = "home" | "schedule" | "timesheets" | "settings";
 
-interface Session { id: string; nickname: string | null; firstName: string; selfieUrl?: string | null; role?: string | null; storeId?: string | null; storeIds?: string[] }
+interface Session { id: string; nickname: string | null; firstName: string; selfieUrl?: string | null; role?: string | null; storeId?: string | null; storeIds?: string[]; isFirstLogin?: boolean }
 
 interface ShiftInfo {
   id: string; storeId: string; startTime: string; endTime: string; date: string;
@@ -199,7 +199,7 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
       if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? "Invalid PIN"); }
       return res.json();
     },
-    onSuccess: (data) => onSuccess({ id: data.id, nickname: data.nickname, firstName: data.firstName, selfieUrl: data.selfieUrl ?? null, role: data.role ?? null, storeId: data.storeId ?? null, storeIds: data.storeIds ?? [] }),
+    onSuccess: (data) => onSuccess({ id: data.id, nickname: data.nickname, firstName: data.firstName, selfieUrl: data.selfieUrl ?? null, role: data.role ?? null, storeId: data.storeId ?? null, storeIds: data.storeIds ?? [], isFirstLogin: !!data.isFirstLogin }),
     onError: (err: Error) => { setError(err.message); setPin(""); },
   });
 
@@ -2844,7 +2844,7 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
 
 type ChangePinStep = "current" | "new" | "confirm";
 
-function ChangePinDrawer({ open, onClose, employeeId }: { open: boolean; onClose: () => void; employeeId: string }) {
+function ChangePinDrawer({ open, onClose, employeeId, required = false, onChanged }: { open: boolean; onClose: () => void; employeeId: string; required?: boolean; onChanged?: () => void }) {
   const { toast } = useToast();
   const [step, setStep] = useState<ChangePinStep>("current");
   const [currentPin, setCurrentPin] = useState("");
@@ -2879,6 +2879,7 @@ function ChangePinDrawer({ open, onClose, employeeId }: { open: boolean; onClose
     },
     onSuccess: () => {
       toast({ title: "PIN changed successfully" });
+      onChanged?.();
       handleClose();
     },
     onError: (err: Error) => {
@@ -2958,11 +2959,15 @@ function ChangePinDrawer({ open, onClose, employeeId }: { open: boolean; onClose
   };
 
   return (
-    <Drawer open={open} onOpenChange={o => { if (!o) handleClose(); }}>
+    <Drawer open={open} onOpenChange={o => { if (!o && !required) handleClose(); }}>
       <DrawerContent className="px-4 max-w-md mx-auto">
         <DrawerHeader className="pb-2">
-          <DrawerTitle>Change PIN</DrawerTitle>
-          <p className="text-sm text-muted-foreground">Enter your current PIN, then choose a new 4-digit PIN</p>
+          <DrawerTitle>{required ? "Set a New PIN" : "Change PIN"}</DrawerTitle>
+          <p className="text-sm text-muted-foreground">
+            {required
+              ? "For your security, please choose a new 4-digit PIN before continuing."
+              : "Enter your current PIN, then choose a new 4-digit PIN"}
+          </p>
         </DrawerHeader>
 
         <div className="flex flex-col items-center gap-5 py-4">
@@ -3040,9 +3045,11 @@ function ChangePinDrawer({ open, onClose, employeeId }: { open: boolean; onClose
           </div>
         </div>
 
-        <DrawerFooter className="pb-6">
-          <Button variant="outline" onClick={handleClose} data-testid="button-changepin-cancel">Cancel</Button>
-        </DrawerFooter>
+        {!required && (
+          <DrawerFooter className="pb-6">
+            <Button variant="outline" onClick={handleClose} data-testid="button-changepin-cancel">Cancel</Button>
+          </DrawerFooter>
+        )}
       </DrawerContent>
     </Drawer>
   );
@@ -3205,7 +3212,7 @@ function BottomNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => vo
 // ── Logged-in App Shell ───────────────────────────────────────────────────────
 
 function AppShell({
-  session, onLogout, activeTab, setActiveTab, subView, setSubView,
+  session, onLogout, activeTab, setActiveTab, subView, setSubView, onPinChanged,
 }: {
   session: Session;
   onLogout: () => void;
@@ -3213,6 +3220,7 @@ function AppShell({
   setActiveTab: (t: Tab) => void;
   subView: "edit-profile" | null;
   setSubView: (v: "edit-profile" | null) => void;
+  onPinChanged: () => void;
 }) {
   if (subView === "edit-profile") {
     return (
@@ -3242,6 +3250,15 @@ function AppShell({
 
       {/* Bottom nav — always pinned to bottom because parent height is exact viewport */}
       <BottomNav active={activeTab} onChange={setActiveTab} />
+
+      {/* Forced PIN change on first login (default PIN = phone last 4) */}
+      <ChangePinDrawer
+        open={!!session.isFirstLogin}
+        required
+        employeeId={session.id}
+        onClose={() => {}}
+        onChanged={onPinChanged}
+      />
     </div>
   );
 }
@@ -3257,6 +3274,7 @@ export function EmployeePortal() {
 
   const handleLogout = () => setSession(null);
   const handleLogin  = (s: Session) => { saveSession(s); setSession(s); };
+  const handlePinChanged = () => setSession(s => s ? { ...s, isFirstLogin: false } : s);
   const showBack = !!session && (subView !== null || activeTab !== "home");
   const handleBack = () => {
     if (subView) setSubView(null);
@@ -3334,6 +3352,7 @@ export function EmployeePortal() {
               setActiveTab={setActiveTab}
               subView={subView}
               setSubView={setSubView}
+              onPinChanged={handlePinChanged}
             />
           : <div style={{ flex: 1, display: "flex", flexDirection: "column", overflowY: "auto" }}>
               <PinLogin onSuccess={handleLogin} />

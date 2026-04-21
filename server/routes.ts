@@ -3655,6 +3655,12 @@ export async function registerRoutes(
         return res.status(401).json({ error: "Invalid PIN" });
       }
 
+      // Determine "first login" — user is still using their default PIN
+      // (last 4 digits of phone number). Used to prompt mandatory PIN change.
+      const phoneDigits = (emp.phone ?? "").replace(/\D/g, "");
+      const defaultPin = phoneDigits.length >= 4 ? phoneDigits.slice(-4) : null;
+      const isFirstLogin = defaultPin !== null && pinStr === defaultPin;
+
       // Auto-upgrade: hash the PIN if it's plain-text OR if the user logged in via phone fallback (emp.pin is null)
       // Without this, change-pin fails because verifyPin(pin, null) always returns false.
       if (!emp.pin || !emp.pin.startsWith("$2")) {
@@ -3664,7 +3670,16 @@ export async function registerRoutes(
       clearPinAttempts(`loginpin:${pinStr}`);
       const portalAssignments = await storage.getEmployeeStoreAssignments({ employeeId: emp.id });
       const portalStoreIds = portalAssignments.map((a: any) => a.storeId);
-      res.json({ id: emp.id, nickname: emp.nickname, firstName: emp.firstName, storeId: emp.storeId, storeIds: portalStoreIds, selfieUrl: emp.selfieUrl ?? null, role: emp.role ?? null });
+      res.json({
+        id: emp.id,
+        nickname: emp.nickname,
+        firstName: emp.firstName,
+        storeId: emp.storeId,
+        storeIds: portalStoreIds,
+        selfieUrl: emp.selfieUrl ?? null,
+        role: emp.role ?? null,
+        isFirstLogin,
+      });
     } catch (err) {
       res.status(500).json({ error: "Login failed" });
     }
