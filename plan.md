@@ -978,6 +978,12 @@ A grouped record of incremental polish work that landed across multiple modules 
 
 > Open production bugs and stability issues that take precedence over §6.2 feature work.
 
+- [ ] **Platform migration: Replit → Claude Code + Railway** 🚧 (2026-04-21~)
+  - Live checklist: `Migration.md` (project root)
+  - Phase 1b/1c complete 2026-04-21: `.replit` deleted, `replit.md` → `ARCHITECTURE.md`, Neon driver swapped to `pg`, `reusePort` removed, Replit Vite plugins purged, package deps cleaned, `.gitignore` hardened, `.env.example` + `Dockerfile` added.
+  - Blocks on user action: Phase 0 (Replit DB dump + uploads download + env secrets collection), Phase 2 (GitHub repo), Phase 3/4 (Railway project).
+  - On completion: Replit Production 401 bug (below) becomes obsolete — Railway env vars are set explicitly in Phase 4.3.
+
 - [ ] **Production 401 Unauthorized error** — API requests in the deployed environment intermittently return HTTP 401 even for endpoints that succeed in development.
   - **Investigation surface**: API auth middleware in `server/routes.ts` (PIN-protected routes + webhook Basic Auth), plus the production environment-variable set in Replit Secrets.
   - **Likely culprits**: missing or stale `CLOUDMAILIN_USER` / `CLOUDMAILIN_PASS` / `OPENAI_API_KEY` in production, session/cookie middleware behaving differently behind the deploy proxy, or a CORS/credentials mismatch on cross-subdomain requests.

@@ -4,13 +4,13 @@
 This project aims to develop an integrated staff management system for multi-store food and retail businesses based in Australia. It digitalizes the entire operational process, from recruitment and onboarding to work schedules, timekeeping, payroll, daily cash reconciliation, and supplier invoice management. Administrators will use a desktop interface, while on-site staff will utilize a mobile interface for tasks like interviews, clocking in/out, and daily closing procedures. The vision is to streamline operations, reduce manual errors, and provide real-time insights into store performance and staff management, enhancing efficiency and scalability for businesses.
 
 ## User Preferences
-I prefer clear and concise communication. For coding tasks, I appreciate an iterative development approach where major changes are discussed before implementation. Please ensure that all new features or modifications align with the existing architectural patterns and coding conventions. Do not modify the `vite.ts`, `drizzle.config.ts`, and `package.json` files. For all other files, I want you to make necessary changes to implement the requested features.
+I prefer clear and concise communication. For coding tasks, I appreciate an iterative development approach where major changes are discussed before implementation. Please ensure that all new features or modifications align with the existing architectural patterns and coding conventions. Do not modify the `vite.ts`, `drizzle.config.ts`, and `package.json` files unless strictly required. For all other files, I want you to make necessary changes to implement the requested features.
 
 ## Mandatory Rules (Always Apply — No Exceptions)
 - **After EVERY task, update `plan.md` automatically.** Do not wait to be reminded. If the task added, changed, or removed any feature, API endpoint, architectural decision, DB schema, or design convention, reflect it in the appropriate section of `plan.md`. This applies to every task, no matter how small.
 
 ## System Architecture
-The system is built as a Single Page Application (SPA) using React 18 with Vite and TypeScript for the frontend, and Node.js with Express for the backend API. PostgreSQL, backed by Neon, serves as the primary database, with Drizzle ORM for type-safe query building.
+The system is built as a Single Page Application (SPA) using React 18 with Vite and TypeScript for the frontend, and Node.js with Express for the backend API. PostgreSQL (Railway-hosted in production, Docker locally in development) serves as the primary database, accessed via the standard `pg` driver, with Drizzle ORM for type-safe query building.
 
 ### UI/UX Decisions
 - **Admin Web (`/admin/*`)**: Designed for PC desktops, featuring a fixed left sidebar based on Shadcn UI, with three navigation sections (Hiring, Operations, Finance). The main content area has a `max-width 7xl` and `p-6` padding.
@@ -57,7 +57,8 @@ The system is built as a Single Page Application (SPA) using React 18 with Vite 
 - **Key Mapping**: Seed data uses snake_case (from PostgreSQL export); the seed script converts to camelCase for Drizzle ORM.
 
 ## External Dependencies
-- **Database**: PostgreSQL (Neon-backed)
+- **Database**: PostgreSQL (Railway Postgres in production, Docker Postgres on port 5433 for local dev). Accessed via standard `pg` driver + `drizzle-orm/node-postgres`.
+- **Hosting**: Railway (app service + Postgres + Persistent Volume for `/app/uploads`).
 - **Frontend Framework**: React 18
 - **Build Tool**: Vite
 - **Language**: TypeScript
