@@ -39,6 +39,7 @@ import { MobileDailyClose } from "@/pages/mobile/DailyClose";
 import { MobileDirectRegister } from "@/pages/mobile/DirectRegister";
 import { EmployeePortal } from "@/pages/mobile/EmployeePortal";
 import { PortalDashboardSample } from "@/pages/mobile/PortalDashboardSample";
+import { PortalDashboardSampleAirbnb } from "@/pages/mobile/PortalDashboardSampleAirbnb";
 
 function Router() {
   return (
@@ -80,6 +81,7 @@ function Router() {
       <Route path="/m/register" component={MobileDirectRegister} />
       <Route path="/m/portal" component={EmployeePortal} />
       <Route path="/m/portal-sample" component={PortalDashboardSample} />
+      <Route path="/m/portal-sample-2" component={PortalDashboardSampleAirbnb} />
       
       <Route component={NotFound} />
     </Switch>
