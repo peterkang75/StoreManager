@@ -2,51 +2,54 @@
 @tailwind components;
 @tailwind utilities;
 
-/* LIGHT MODE */
+/* LIGHT MODE — DESIGN.md palette (Airbnb) */
 :root {
   --button-outline: rgba(0,0,0, .10);
   --badge-outline: rgba(0,0,0, .05);
   --opaque-button-border-intensity: -8;
   --elevate-1: rgba(0,0,0, .03);
   --elevate-2: rgba(0,0,0, .08);
-  --background: 0 0% 94.12%;
-  --foreground: 0 0% 10.2%;
-  --border: 0 0% 90.98%;
-  --card: 0 0% 98.82%;
-  --card-foreground: 0 0% 0%;
-  --card-border: 0 0% 94%;
-  --sidebar: 45 25% 97%;
-  --sidebar-foreground: 20 14% 17%;
-  --sidebar-border: 45 15% 80%;
-  --sidebar-primary: 9 75% 61%;
+  --background: 0 0% 100%;           /* #ffffff */
+  --foreground: 0 0% 13.3%;          /* #222222 warm near-black */
+  --border: 0 0% 75.7%;              /* #c1c1c1 */
+  --card: 0 0% 100%;                 /* #ffffff */
+  --card-foreground: 0 0% 13.3%;     /* #222222 */
+  --card-border: 0 0% 75.7%;         /* #c1c1c1 */
+  --sidebar: 0 0% 98%;
+  --sidebar-foreground: 0 0% 13.3%;  /* #222222 */
+  --sidebar-border: 0 0% 75.7%;      /* #c1c1c1 */
+  --sidebar-primary: 0 84.2% 60.2%;  /* #ef4444 Rausch Red */
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 25 45% 80%;
-  --sidebar-accent-foreground: 20 14% 17%;
-  --sidebar-ring: 9 75% 61%;
-  --popover: 45 25% 97%;
-  --popover-foreground: 0 0% 10%;
-  --popover-border: 0 0% 90%;
-  --primary: 342 85.11% 52.55%;
+  --sidebar-accent: 0 0% 94.9%;      /* #f2f2f2 Light Surface */
+  --sidebar-accent-foreground: 0 0% 13.3%;
+  --sidebar-ring: 0 84.2% 60.2%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 13.3%;
+  --popover-border: 0 0% 75.7%;
+  --primary: 0 84.2% 60.2%;          /* #ef4444 Rausch Red */
   --primary-foreground: 0 0% 100%;
-  --secondary: 0 0% 76.86%;
-  --secondary-foreground: 0 0% 10.2%;
-  --muted: 0 0% 89.02%;
-  --muted-foreground: 0 0% 12.94%;
-  --accent: 0 0% 100%;
-  --accent-foreground: 0 0% 10.2%;
-  --destructive: 0 0% 0%;
+  --secondary: 0 0% 13.3%;           /* #222222 Primary Dark */
+  --secondary-foreground: 0 0% 100%;
+  --muted: 0 0% 94.9%;               /* #f2f2f2 */
+  --muted-foreground: 0 0% 41.6%;    /* #6a6a6a */
+  --accent: 0 0% 94.9%;              /* #f2f2f2 */
+  --accent-foreground: 0 0% 13.3%;
+  --destructive: 11 80.4% 42%;       /* #c13515 Error Red */
   --destructive-foreground: 0 0% 100%;
-  --input: 0 0% 70.98%;
-  --ring: 0 0% 41.96%;
-  --chart-1: 203.8863 88.2845% 53.1373%;
-  --chart-2: 159.7826 100% 36.0784%;
-  --chart-3: 42.0290 92.8251% 56.2745%;
-  --chart-4: 147.1429 78.5047% 41.9608%;
-  --chart-5: 341.4894 75.2000% 50.9804%;
-  --font-sans: 'Poppins', sans-serif;
-  --font-serif: 'Poppins', sans-serif;
+  --input: 0 0% 75.7%;               /* #c1c1c1 */
+  --ring: 0 0% 13.3%;                /* #222222 */
+  --chart-1: 0 84.2% 60.2%;          /* Rausch Red */
+  --chart-2: 0 0% 13.3%;             /* Primary Dark */
+  --chart-3: 0 0% 41.6%;             /* Secondary Gray */
+  --chart-4: 273.8 93.6% 24.5%;      /* Luxe Purple */
+  --chart-5: 216.8 100% 62.9%;       /* Legal Blue */
+  --font-sans: 'Airbnb Cereal VF', Circular, -apple-system, system-ui, Roboto, 'Helvetica Neue', sans-serif;
+  --font-serif: 'Airbnb Cereal VF', Circular, -apple-system, system-ui, Roboto, 'Helvetica Neue', sans-serif;
   --font-mono: Menlo, monospace;
-  --radius: 0.8rem;
+  --radius: 0.5rem;                  /* 8px per DESIGN.md for buttons */
+  /* Store tokens — functional, within DESIGN.md palette */
+  --store-sushi: 0 0% 13.3%;         /* #222222 Primary Dark */
+  --store-sandwich: 0 84.2% 60.2%;   /* #ef4444 Rausch Red */
   --shadow-2xs: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00);
   --shadow-xs: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00);
   --shadow-sm: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00), 0px 1px 2px -1px hsl(9, 75%, 61% / 0.00);

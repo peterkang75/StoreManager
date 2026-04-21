@@ -86,10 +86,13 @@ function fmtDate(d: string): string {
   }
 }
 
-// ─── Brand design system ─────────────────────────────────────────────────────
+// ─── Brand design system (DESIGN.md palette) ─────────────────────────────────
+// Each store is a single hue family; sales/cogs/labour differentiate by shade.
+// Sushi   = Primary Dark  family (#222222 → #6a6a6a → #c1c1c1)
+// Sandwich = Rausch Red   family (#ef4444 → #c13515 → #fca5a5)
 const BRAND = {
-  sushi:    { sales: "#EE864A", cogs: "#1E3A5F", labour: "#FCD34D" },
-  sandwich: { sales: "#D13535", cogs: "#14452F", labour: "#F87171" },
+  sushi:    { sales: "#222222", cogs: "#6a6a6a", labour: "#c1c1c1" },
+  sandwich: { sales: "#ef4444", cogs: "#c13515", labour: "#fca5a5" },
 };
 
 // ─── Payroll cycle (2-week) chart helpers ────────────────────────────────────
@@ -618,13 +621,13 @@ export function AdminDashboard() {
             </div>
           </div>
 
-          {/* KPI Cards */}
+          {/* KPI Cards — monotone icon badges per DESIGN.md (accent colour is CTA-only) */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <KpiCard
               title="Total Sales"
               amount={displaySummary?.salesTotal ?? 0}
               icon={DollarSign}
-              colorClass="bg-blue-500"
+              colorClass="bg-[#222222]"
               isLoading={summaryLoading && !noneSelected}
               testId="text-kpi-sales"
               subtitle="from daily closings"
@@ -634,7 +637,7 @@ export function AdminDashboard() {
               amount={displaySummary?.laborTotal ?? 0}
               percent={displaySummary?.laborPercent}
               icon={Briefcase}
-              colorClass="bg-orange-500"
+              colorClass="bg-[#222222]"
               isLoading={summaryLoading && !noneSelected}
               testId="text-kpi-labor"
             />
@@ -643,7 +646,7 @@ export function AdminDashboard() {
               amount={displaySummary?.cogsTotal ?? 0}
               percent={displaySummary?.cogsPercent}
               icon={ShoppingCart}
-              colorClass="bg-purple-500"
+              colorClass="bg-[#222222]"
               isLoading={summaryLoading && !noneSelected}
               testId="text-kpi-cogs"
               subtitle="supplier invoices"
@@ -653,7 +656,7 @@ export function AdminDashboard() {
               amount={displaySummary?.grossProfit ?? 0}
               percent={displaySummary?.grossProfitPercent}
               icon={(displaySummary?.grossProfit ?? 0) >= 0 ? TrendingUp : TrendingDown}
-              colorClass={(displaySummary?.grossProfit ?? 0) >= 0 ? "bg-green-500" : "bg-red-500"}
+              colorClass={(displaySummary?.grossProfit ?? 0) >= 0 ? "bg-[#222222]" : "bg-[#ef4444]"}
               isLoading={summaryLoading && !noneSelected}
               testId="text-kpi-profit"
               subtitle="Sales − Labor − COGS"
