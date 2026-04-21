@@ -740,8 +740,7 @@ function UnscheduledTimesheetCard({ item }: { item: UnscheduledTimesheetItem }) 
 type ActiveListEntry = ActiveShoppingListItem & { item: ShoppingItem };
 
 const SHOPPING_CATEGORIES = [
-  "Vegetables", "Fruit", "Meat & Seafood", "Dairy & Eggs", "Beverages",
-  "Pantry & Dry Goods", "Frozen", "Bakery", "Cleaning & Supplies", "Other",
+  "Vegetables", "Beverages", "Pantry & Dry Goods", "Other",
 ];
 
 function groupByCat<T extends { item: ShoppingItem }>(entries: T[]): Record<string, T[]> {
@@ -954,27 +953,35 @@ function ShoppingListView({ storeId }: { storeId?: string | null }) {
 
       {/* Add Items Drawer */}
       <Drawer open={addSheetOpen} onOpenChange={setAddSheetOpen}>
-        <DrawerContent className="max-h-[92vh] flex flex-col">
+        <DrawerContent className="max-h-[92vh] flex flex-col" style={{ fontFamily: A.font }}>
           <DrawerHeader className="shrink-0">
-            <DrawerTitle>Add Items</DrawerTitle>
+            <DrawerTitle style={{ fontSize: 20, fontWeight: 700, color: "#222222", letterSpacing: "-0.2px" }}>Add Items</DrawerTitle>
           </DrawerHeader>
 
-          <div className="flex-1 overflow-y-auto px-4">
-            <div className="relative mb-4 sticky top-0 bg-background pt-1 pb-2 z-10">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search items…"
-                className="pl-9"
-                value={catalogSearch}
-                onChange={e => setCatalogSearch(e.target.value)}
-                data-testid="input-catalog-search"
-              />
+          <div className="flex-1 overflow-y-auto" style={{ padding: "0 16px" }}>
+            <div style={{ position: "sticky", top: 0, background: "#ffffff", paddingTop: 4, paddingBottom: 12, zIndex: 10 }}>
+              <div style={{ position: "relative" }}>
+                <Search style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", width: 18, height: 18, color: "#6a6a6a" }} />
+                <input
+                  placeholder="Search items…"
+                  value={catalogSearch}
+                  onChange={e => setCatalogSearch(e.target.value)}
+                  data-testid="input-catalog-search"
+                  style={{
+                    width: "100%", boxSizing: "border-box",
+                    height: 52, paddingLeft: 44, paddingRight: 14,
+                    fontSize: 16, color: "#222222",
+                    background: "#f2f2f2", border: "none", borderRadius: 12,
+                    fontFamily: A.font, outline: "none",
+                  }}
+                />
+              </div>
             </div>
 
             {catalogCategories.map(category => (
-              <div key={category} className="mb-5">
-                <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6a6a6a", marginBottom: 8 }}>{category}</p>
-                <div className="flex flex-col gap-2">
+              <div key={category} style={{ marginBottom: 20 }}>
+                <p style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6a6a6a", marginBottom: 10 }}>{category}</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {catalogGrouped[category].map(item => {
                     const inList = activeItemIds.has(item.id);
                     return (
@@ -985,10 +992,13 @@ function ShoppingListView({ storeId }: { storeId?: string | null }) {
                         onClick={() => !inList && addMutation.mutate(item.id)}
                         disabled={inList}
                         style={{
-                          display: "flex", alignItems: "center", gap: 12, minHeight: 48, width: "100%",
-                          padding: "10px 14px", borderRadius: 14,
-                          background: inList ? "#f2f2f2" : "#ffffff", border: "1px solid #c1c1c1",
+                          display: "flex", alignItems: "center", gap: 14, minHeight: 60, width: "100%",
+                          padding: "14px 16px", borderRadius: 16,
+                          background: inList ? "rgba(239,68,68,0.08)" : "#ffffff",
+                          border: `1px solid ${inList ? "#ef4444" : "#c1c1c1"}`,
                           cursor: inList ? "default" : "pointer", textAlign: "left",
+                          fontFamily: A.font,
+                          transition: "background 160ms, border-color 160ms",
                           touchAction: "manipulation",
                           WebkitTapHighlightColor: "transparent",
                           userSelect: "none",
@@ -996,12 +1006,12 @@ function ShoppingListView({ storeId }: { storeId?: string | null }) {
                         }}
                       >
                         {inList
-                          ? <CheckCheck style={{ width: 16, height: 16, color: "#222222", flexShrink: 0 }} />
-                          : <Plus style={{ width: 16, height: 16, color: "#6a6a6a", flexShrink: 0 }} />
+                          ? <CheckCheck style={{ width: 22, height: 22, color: "#ef4444", flexShrink: 0 }} />
+                          : <Plus style={{ width: 22, height: 22, color: "#6a6a6a", flexShrink: 0 }} />
                         }
-                        <span style={{ flex: 1, fontWeight: 500, fontSize: 14, color: "#222222" }}>{item.name}</span>
+                        <span style={{ flex: 1, fontWeight: inList ? 600 : 500, fontSize: 17, color: inList ? "#ef4444" : "#222222" }}>{item.name}</span>
                         {item.selectionCount > 0 && (
-                          <span style={{ fontSize: 12, color: "#6a6a6a" }}>{item.selectionCount}×</span>
+                          <span style={{ fontSize: 13, color: inList ? "#ef4444" : "#6a6a6a" }}>{item.selectionCount}×</span>
                         )}
                       </button>
                     );
@@ -1011,41 +1021,56 @@ function ShoppingListView({ storeId }: { storeId?: string | null }) {
             ))}
 
             {catalog.length === 0 && !catalogSearch && (
-              <p style={{ fontSize: 13, color: "#6a6a6a", textAlign: "center", padding: "16px 0" }}>No items in catalog yet. Create one below.</p>
+              <p style={{ fontSize: 15, color: "#6a6a6a", textAlign: "center", padding: "20px 0" }}>No items in catalog yet. Create one below.</p>
             )}
             {catalog.length > 0 && filteredCatalog.length === 0 && (
-              <p style={{ fontSize: 13, color: "#6a6a6a", textAlign: "center", padding: "16px 0" }}>No items match "{catalogSearch}".</p>
+              <p style={{ fontSize: 15, color: "#6a6a6a", textAlign: "center", padding: "20px 0" }}>No items match "{catalogSearch}".</p>
             )}
 
-            <div style={{ borderTop: "1px solid #c1c1c1", marginTop: 16, paddingTop: 16, paddingBottom: 16 }}>
-              <p style={{ fontSize: 14, fontWeight: 600, color: "#222222", marginBottom: 12 }}>Create New Item</p>
-              <div className="flex flex-col gap-3">
-                <Input
+            <div style={{ borderTop: "1px solid #c1c1c1", marginTop: 20, paddingTop: 20, paddingBottom: 20 }}>
+              <p style={{ fontSize: 16, fontWeight: 600, color: "#222222", marginBottom: 14 }}>Create New Item</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <input
                   placeholder="Item name"
                   value={newItemName}
                   onChange={e => setNewItemName(e.target.value)}
                   data-testid="input-new-item-name"
+                  style={{
+                    width: "100%", boxSizing: "border-box",
+                    height: 52, padding: "0 14px", fontSize: 16, color: "#222222",
+                    background: "#ffffff", border: "1px solid #c1c1c1", borderRadius: 12,
+                    fontFamily: A.font, outline: "none",
+                  }}
                 />
                 <Select value={newItemCategory} onValueChange={setNewItemCategory}>
-                  <SelectTrigger data-testid="select-new-item-category">
+                  <SelectTrigger data-testid="select-new-item-category" style={{ height: 52, fontSize: 16, borderRadius: 12, fontFamily: A.font }}>
                     <SelectValue placeholder="Select category…" />
                   </SelectTrigger>
                   <SelectContent>
                     {SHOPPING_CATEGORIES.map(c => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                      <SelectItem key={c} value={c} style={{ fontSize: 16, padding: "12px 14px" }}>{c}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <button
                   type="button"
-                  style={{ width: "100%", padding: "12px 24px", background: !newItemName.trim() || !newItemCategory || createMutation.isPending ? "#f2f2f2" : "#222222", color: !newItemName.trim() || !newItemCategory || createMutation.isPending ? "#6a6a6a" : "#ffffff", border: "none", borderRadius: 8, fontSize: 16, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontFamily: A.font }}
                   disabled={!newItemName.trim() || !newItemCategory || createMutation.isPending}
                   onClick={() => createMutation.mutate()}
                   data-testid="button-create-new-item"
+                  style={{
+                    width: "100%", height: 56,
+                    background: !newItemName.trim() || !newItemCategory || createMutation.isPending ? "#f2f2f2" : "#222222",
+                    color: !newItemName.trim() || !newItemCategory || createMutation.isPending ? "#6a6a6a" : "#ffffff",
+                    border: "none", borderRadius: 12, fontSize: 17, fontWeight: 600,
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                    fontFamily: A.font,
+                    touchAction: "manipulation",
+                    WebkitTapHighlightColor: "transparent",
+                  }}
                 >
                   {createMutation.isPending
-                    ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" />
-                    : <Plus style={{ width: 16, height: 16 }} />}
+                    ? <Loader2 style={{ width: 18, height: 18 }} className="animate-spin" />
+                    : <Plus style={{ width: 20, height: 20 }} />}
                   Add to List
                 </button>
               </div>
@@ -1053,7 +1078,19 @@ function ShoppingListView({ storeId }: { storeId?: string | null }) {
           </div>
 
           <DrawerFooter className="shrink-0">
-            <Button variant="outline" onClick={() => setAddSheetOpen(false)}>Done</Button>
+            <button
+              type="button"
+              onClick={() => setAddSheetOpen(false)}
+              style={{
+                width: "100%", height: 56,
+                background: "#ffffff", color: "#222222",
+                border: "1px solid #c1c1c1", borderRadius: 12,
+                fontSize: 17, fontWeight: 600, cursor: "pointer",
+                fontFamily: A.font,
+                touchAction: "manipulation",
+                WebkitTapHighlightColor: "transparent",
+              }}
+            >Done</button>
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
@@ -1315,20 +1352,20 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
 
       {/* Catalogue Drawer */}
       <Drawer open={addItemOpen} onOpenChange={setAddItemOpen}>
-        <DrawerContent className="max-h-[92vh] flex flex-col">
+        <DrawerContent className="max-h-[92vh] flex flex-col" style={{ fontFamily: A.font }}>
           <DrawerHeader className="shrink-0">
-            <DrawerTitle>Storage Catalogue</DrawerTitle>
+            <DrawerTitle style={{ fontSize: 20, fontWeight: 700, color: "#222222", letterSpacing: "-0.2px" }}>Storage Catalogue</DrawerTitle>
           </DrawerHeader>
-          <div className="flex-1 overflow-y-auto px-4">
+          <div className="flex-1 overflow-y-auto" style={{ padding: "0 16px" }}>
             {catalogLoading && (
               <div style={{ display: "flex", justifyContent: "center", padding: "40px 0" }}>
                 <Loader2 style={{ width: 24, height: 24, color: "#6a6a6a" }} className="animate-spin" />
               </div>
             )}
             {catalogCategories.map(cat => (
-              <div key={cat} className="mb-5">
-                <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6a6a6a", marginBottom: 8 }}>{cat}</p>
-                <div className="flex flex-col gap-2">
+              <div key={cat} style={{ marginBottom: 20 }}>
+                <p style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6a6a6a", marginBottom: 10 }}>{cat}</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {catalogByCategory[cat].map(item => {
                     const inList = activeItemIds.has(item.id);
                     return (
@@ -1339,10 +1376,13 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
                         onClick={() => !inList && addToActiveMutation.mutate(item.id)}
                         disabled={inList}
                         style={{
-                          display: "flex", alignItems: "center", gap: 12, minHeight: 48, width: "100%",
-                          padding: "10px 14px", borderRadius: 14,
-                          background: inList ? "#f2f2f2" : "#ffffff", border: "1px solid #c1c1c1",
+                          display: "flex", alignItems: "center", gap: 14, minHeight: 60, width: "100%",
+                          padding: "14px 16px", borderRadius: 16,
+                          background: inList ? "rgba(239,68,68,0.08)" : "#ffffff",
+                          border: `1px solid ${inList ? "#ef4444" : "#c1c1c1"}`,
                           cursor: inList ? "default" : "pointer", textAlign: "left",
+                          fontFamily: A.font,
+                          transition: "background 160ms, border-color 160ms",
                           touchAction: "manipulation",
                           WebkitTapHighlightColor: "transparent",
                           userSelect: "none",
@@ -1350,10 +1390,10 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
                         }}
                       >
                         {inList
-                          ? <CheckCheck style={{ width: 16, height: 16, color: "#222222", flexShrink: 0 }} />
-                          : <Plus style={{ width: 16, height: 16, color: "#6a6a6a", flexShrink: 0 }} />}
-                        <span style={{ flex: 1, fontWeight: 500, fontSize: 14, color: "#222222" }}>{item.name}</span>
-                        <span style={{ fontSize: 12, color: "#6a6a6a" }}>{item.unit}</span>
+                          ? <CheckCheck style={{ width: 22, height: 22, color: "#ef4444", flexShrink: 0 }} />
+                          : <Plus style={{ width: 22, height: 22, color: "#6a6a6a", flexShrink: 0 }} />}
+                        <span style={{ flex: 1, fontWeight: inList ? 600 : 500, fontSize: 17, color: inList ? "#ef4444" : "#222222" }}>{item.name}</span>
+                        <span style={{ fontSize: 13, color: inList ? "#ef4444" : "#6a6a6a" }}>{item.unit}</span>
                       </button>
                     );
                   })}
@@ -1361,55 +1401,82 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
               </div>
             ))}
             {catalog.length === 0 && !catalogLoading && (
-              <p style={{ fontSize: 13, color: "#6a6a6a", textAlign: "center", padding: "16px 0" }}>No items in catalogue yet. Create one below.</p>
+              <p style={{ fontSize: 15, color: "#6a6a6a", textAlign: "center", padding: "20px 0" }}>No items in catalogue yet. Create one below.</p>
             )}
 
-            <div style={{ borderTop: "1px solid #c1c1c1", marginTop: 16, paddingTop: 16, paddingBottom: 16 }}>
-              <p style={{ fontSize: 14, fontWeight: 600, color: "#222222", marginBottom: 12 }}>Create New Item</p>
-              <div className="flex flex-col gap-3">
-                <Input
+            <div style={{ borderTop: "1px solid #c1c1c1", marginTop: 20, paddingTop: 20, paddingBottom: 20 }}>
+              <p style={{ fontSize: 16, fontWeight: 600, color: "#222222", marginBottom: 14 }}>Create New Item</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <input
                   placeholder="Item name"
                   value={newName}
                   onChange={e => setNewName(e.target.value)}
                   data-testid="input-storage-new-name"
+                  style={{
+                    width: "100%", boxSizing: "border-box",
+                    height: 52, padding: "0 14px", fontSize: 16, color: "#222222",
+                    background: "#ffffff", border: "1px solid #c1c1c1", borderRadius: 12,
+                    fontFamily: A.font, outline: "none",
+                  }}
                 />
                 <Select value={newCategory} onValueChange={setNewCategory}>
-                  <SelectTrigger data-testid="select-storage-category">
+                  <SelectTrigger data-testid="select-storage-category" style={{ height: 52, fontSize: 16, borderRadius: 12, fontFamily: A.font }}>
                     <SelectValue placeholder="Select category…" />
                   </SelectTrigger>
                   <SelectContent>
                     {STORAGE_CATEGORIES.map(c => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                      <SelectItem key={c} value={c} style={{ fontSize: 16, padding: "12px 14px" }}>{c}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <Select value={newUnit} onValueChange={setNewUnit}>
-                  <SelectTrigger data-testid="select-storage-unit">
+                  <SelectTrigger data-testid="select-storage-unit" style={{ height: 52, fontSize: 16, borderRadius: 12, fontFamily: A.font }}>
                     <SelectValue placeholder="Unit…" />
                   </SelectTrigger>
                   <SelectContent>
                     {storageUnits.map(u => (
-                      <SelectItem key={u.id} value={u.name}>{u.name}</SelectItem>
+                      <SelectItem key={u.id} value={u.name} style={{ fontSize: 16, padding: "12px 14px" }}>{u.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <button
                   type="button"
-                  style={{ width: "100%", padding: "12px 24px", background: !newName.trim() || !newCategory || createItemMutation.isPending ? "#f2f2f2" : "#222222", color: !newName.trim() || !newCategory || createItemMutation.isPending ? "#6a6a6a" : "#ffffff", border: "none", borderRadius: 8, fontSize: 16, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontFamily: A.font }}
                   disabled={!newName.trim() || !newCategory || createItemMutation.isPending}
                   onClick={() => createItemMutation.mutate()}
                   data-testid="button-create-storage-item"
+                  style={{
+                    width: "100%", height: 56,
+                    background: !newName.trim() || !newCategory || createItemMutation.isPending ? "#f2f2f2" : "#222222",
+                    color: !newName.trim() || !newCategory || createItemMutation.isPending ? "#6a6a6a" : "#ffffff",
+                    border: "none", borderRadius: 12, fontSize: 17, fontWeight: 600,
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                    fontFamily: A.font,
+                    touchAction: "manipulation",
+                    WebkitTapHighlightColor: "transparent",
+                  }}
                 >
                   {createItemMutation.isPending
-                    ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" />
-                    : <Plus style={{ width: 16, height: 16 }} />}
+                    ? <Loader2 style={{ width: 18, height: 18 }} className="animate-spin" />
+                    : <Plus style={{ width: 20, height: 20 }} />}
                   Add to List
                 </button>
               </div>
             </div>
           </div>
           <DrawerFooter className="shrink-0">
-            <Button variant="outline" onClick={() => setAddItemOpen(false)}>Done</Button>
+            <button
+              type="button"
+              onClick={() => setAddItemOpen(false)}
+              style={{
+                width: "100%", height: 56,
+                background: "#ffffff", color: "#222222",
+                border: "1px solid #c1c1c1", borderRadius: 12,
+                fontSize: 17, fontWeight: 600, cursor: "pointer",
+                fontFamily: A.font,
+                touchAction: "manipulation",
+                WebkitTapHighlightColor: "transparent",
+              }}
+            >Done</button>
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
