@@ -790,7 +790,16 @@ function ShoppingListView({ storeId }: { storeId?: string | null }) {
   const removeMutation = useMutation({
     mutationFn: (id: number) =>
       fetch(`/api/shopping/active/${id}`, { method: "DELETE" }).then(r => r.json()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: activeQK }),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: activeQK });
+      const prev = qc.getQueryData<ActiveListEntry[]>(activeQK);
+      qc.setQueryData<ActiveListEntry[]>(activeQK, (old = []) => old.filter(e => e.id !== id));
+      return { prev };
+    },
+    onError: (_err, _id, ctx) => {
+      if (ctx?.prev) qc.setQueryData(activeQK, ctx.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: activeQK }),
   });
 
   const addMutation = useMutation({
@@ -800,7 +809,22 @@ function ShoppingListView({ storeId }: { storeId?: string | null }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ itemId, storeId }),
       }).then(r => r.json()),
-    onSuccess: invalidateBoth,
+    onMutate: async (itemId) => {
+      await qc.cancelQueries({ queryKey: activeQK });
+      const prev = qc.getQueryData<ActiveListEntry[]>(activeQK);
+      const catalogItem = catalog.find(c => c.id === itemId);
+      if (catalogItem) {
+        qc.setQueryData<ActiveListEntry[]>(activeQK, (old = []) => [
+          ...old,
+          { id: -Date.now(), itemId, storeId: storeId ?? null, createdAt: new Date().toISOString(), item: catalogItem } as any,
+        ]);
+      }
+      return { prev };
+    },
+    onError: (_err, _id, ctx) => {
+      if (ctx?.prev) qc.setQueryData(activeQK, ctx.prev);
+    },
+    onSettled: invalidateBoth,
   });
 
   const createMutation = useMutation({
@@ -899,8 +923,15 @@ function ShoppingListView({ storeId }: { storeId?: string | null }) {
                 type="button"
                 data-testid={`button-check-item-${entry.id}`}
                 onClick={() => removeMutation.mutate(entry.id)}
-                disabled={removeMutation.isPending}
-                style={{ display: "flex", alignItems: "center", gap: 16, minHeight: 56, width: "100%", padding: "12px 16px", borderRadius: 20, background: "#ffffff", border: "none", cursor: "pointer", textAlign: "left", boxShadow: A.shadow }}
+                style={{
+                  display: "flex", alignItems: "center", gap: 16, minHeight: 56, width: "100%",
+                  padding: "12px 16px", borderRadius: 20, background: "#ffffff", border: "none",
+                  cursor: "pointer", textAlign: "left", boxShadow: A.shadow,
+                  touchAction: "manipulation",
+                  WebkitTapHighlightColor: "transparent",
+                  userSelect: "none",
+                  WebkitUserSelect: "none",
+                }}
               >
                 <div style={{ width: 24, height: 24, borderRadius: "50%", border: "2px solid #c1c1c1", flexShrink: 0 }} />
                 <span style={{ fontSize: 16, fontWeight: 500, color: "#222222", flex: 1 }}>{entry.item.name}</span>
@@ -952,8 +983,17 @@ function ShoppingListView({ storeId }: { storeId?: string | null }) {
                         type="button"
                         data-testid={`button-catalog-item-${item.id}`}
                         onClick={() => !inList && addMutation.mutate(item.id)}
-                        disabled={inList || addMutation.isPending}
-                        style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 48, width: "100%", padding: "10px 14px", borderRadius: 14, background: inList ? "#f2f2f2" : "#ffffff", border: "1px solid #c1c1c1", cursor: inList ? "default" : "pointer", textAlign: "left" }}
+                        disabled={inList}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 12, minHeight: 48, width: "100%",
+                          padding: "10px 14px", borderRadius: 14,
+                          background: inList ? "#f2f2f2" : "#ffffff", border: "1px solid #c1c1c1",
+                          cursor: inList ? "default" : "pointer", textAlign: "left",
+                          touchAction: "manipulation",
+                          WebkitTapHighlightColor: "transparent",
+                          userSelect: "none",
+                          WebkitUserSelect: "none",
+                        }}
                       >
                         {inList
                           ? <CheckCheck style={{ width: 16, height: 16, color: "#222222", flexShrink: 0 }} />
@@ -1094,13 +1134,37 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ itemId, storeId, addedBy: employeeName }),
       }).then(r => r.json()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: activeQK }),
+    onMutate: async (itemId) => {
+      await qc.cancelQueries({ queryKey: activeQK });
+      const prev = qc.getQueryData<ActiveStorageEntry[]>(activeQK);
+      const catalogItem = catalog.find(c => c.id === itemId);
+      if (catalogItem) {
+        qc.setQueryData<ActiveStorageEntry[]>(activeQK, (old = []) => [
+          ...old,
+          { id: -Date.now(), itemId, storeId: storeId ?? null, createdAt: new Date().toISOString(), item: catalogItem } as any,
+        ]);
+      }
+      return { prev };
+    },
+    onError: (_err, _id, ctx) => {
+      if (ctx?.prev) qc.setQueryData(activeQK, ctx.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: activeQK }),
   });
 
   const removeFromActiveMutation = useMutation({
     mutationFn: (id: number) =>
       fetch(`/api/storage/active/${id}`, { method: "DELETE" }).then(r => r.json()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: activeQK }),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: activeQK });
+      const prev = qc.getQueryData<ActiveStorageEntry[]>(activeQK);
+      qc.setQueryData<ActiveStorageEntry[]>(activeQK, (old = []) => old.filter(e => e.id !== id));
+      return { prev };
+    },
+    onError: (_err, _id, ctx) => {
+      if (ctx?.prev) qc.setQueryData(activeQK, ctx.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: activeQK }),
   });
 
   const createItemMutation = useMutation({
@@ -1192,15 +1256,24 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
             {pendingByCategory[cat].map(entry => (
               <div
                 key={entry.id}
-                style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 56, padding: "12px 16px", borderRadius: 20, background: "#ffffff", boxShadow: A.shadow }}
+                style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 56, padding: "8px 12px 8px 8px", borderRadius: 20, background: "#ffffff", boxShadow: A.shadow }}
               >
                 <button
                   type="button"
                   data-testid={`button-fetch-storage-${entry.id}`}
                   onClick={() => removeFromActiveMutation.mutate(entry.id)}
-                  disabled={removeFromActiveMutation.isPending}
-                  style={{ width: 24, height: 24, borderRadius: "50%", border: "2px solid #c1c1c1", background: "transparent", flexShrink: 0, cursor: "pointer" }}
-                />
+                  aria-label={`Fetched ${entry.item.name}`}
+                  style={{
+                    width: 44, height: 44, borderRadius: "50%", border: "none", background: "transparent",
+                    flexShrink: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                    touchAction: "manipulation",
+                    WebkitTapHighlightColor: "transparent",
+                    userSelect: "none",
+                    WebkitUserSelect: "none",
+                  }}
+                >
+                  <span style={{ width: 24, height: 24, borderRadius: "50%", border: "2px solid #c1c1c1", display: "block" }} />
+                </button>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ fontSize: 16, fontWeight: 500, color: "#222222" }}>{entry.item.name}</span>
                   <span style={{ marginLeft: 8, fontSize: 12, color: "#6a6a6a" }}>{entry.item.unit ?? "ea"}</span>
@@ -1213,7 +1286,14 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
                     setStockValue(entry.item.currentStock !== null ? String(entry.item.currentStock) : "");
                     setCheckSheetOpen(true);
                   }}
-                  style={{ fontSize: 12, fontWeight: 600, color: "#ef4444", background: "transparent", border: "none", cursor: "pointer", padding: "4px 8px", flexShrink: 0 }}
+                  style={{
+                    fontSize: 12, fontWeight: 600, color: "#ef4444", background: "transparent",
+                    border: "none", cursor: "pointer", padding: "8px 12px", flexShrink: 0,
+                    touchAction: "manipulation",
+                    WebkitTapHighlightColor: "transparent",
+                    userSelect: "none",
+                    WebkitUserSelect: "none",
+                  }}
                 >
                   Log stock
                 </button>
@@ -1257,8 +1337,17 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
                         type="button"
                         data-testid={`button-storage-catalog-${item.id}`}
                         onClick={() => !inList && addToActiveMutation.mutate(item.id)}
-                        disabled={inList || addToActiveMutation.isPending}
-                        style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 48, width: "100%", padding: "10px 14px", borderRadius: 14, background: inList ? "#f2f2f2" : "#ffffff", border: "1px solid #c1c1c1", cursor: inList ? "default" : "pointer", textAlign: "left" }}
+                        disabled={inList}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 12, minHeight: 48, width: "100%",
+                          padding: "10px 14px", borderRadius: 14,
+                          background: inList ? "#f2f2f2" : "#ffffff", border: "1px solid #c1c1c1",
+                          cursor: inList ? "default" : "pointer", textAlign: "left",
+                          touchAction: "manipulation",
+                          WebkitTapHighlightColor: "transparent",
+                          userSelect: "none",
+                          WebkitUserSelect: "none",
+                        }}
                       >
                         {inList
                           ? <CheckCheck style={{ width: 16, height: 16, color: "#222222", flexShrink: 0 }} />
