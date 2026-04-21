@@ -1957,12 +1957,8 @@ function fmtCycleRange(start: string, end: string): string {
 }
 
 function TimesheetsTab({ session }: { session: Session }) {
-  const today = getTodayStr();
-  const qc = useQueryClient();
-  const [drawerDay, setDrawerDay] = useState<DayData | null>(null);
-
   const historyQK = ["/api/portal/history", session.id];
-  const { data: cycles = [], isLoading } = useQuery<HistoryCycle[]>({
+  const { data: rawCycles = [], isLoading } = useQuery<HistoryCycle[]>({
     queryKey: historyQK,
     queryFn: async () => {
       const res = await fetch(`/api/portal/history?employeeId=${session.id}`, { credentials: "include" });
@@ -1972,180 +1968,88 @@ function TimesheetsTab({ session }: { session: Session }) {
     staleTime: 0,
   });
 
-  // Stores for color lookup
-  const { data: storeList = [] } = useQuery<StoreOption[]>({
-    queryKey: ["/api/portal/stores"],
-    queryFn: async () => {
-      const res = await fetch("/api/portal/stores", { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch stores");
-      return res.json();
-    },
-    staleTime: 300_000,
-  });
-  const storeColorOf = (storeId: string): string => {
-    const name = storeList.find(s => s.id === storeId)?.name ?? "";
-    return name === "Sushi" ? "#16a34a" : name === "Sandwich" ? "#dc2626" : "#888";
-  };
+  // Latest first
+  const cycles = [...rawCycles].sort((a, b) => b.cycleStart.localeCompare(a.cycleStart));
 
   return (
-    <div className="flex flex-col gap-5 px-4 pt-5 pb-8">
+    <div className="flex flex-col gap-4 px-4 pt-5 pb-8" style={{ background: "#f7f7f7", minHeight: "100%" }}>
       <div>
-        <h2 className="text-xl font-bold">My Timesheets</h2>
-        <p className="text-xs text-muted-foreground mt-0.5">History by pay cycle</p>
+        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px" }}>My Timesheets</h2>
+        <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 2 }}>History by pay cycle</p>
       </div>
 
       {isLoading && (
         <div className="flex flex-col gap-3">
           {[0, 1].map(i => (
-            <Card key={i}><CardContent className="py-4 px-4">
+            <div key={i} style={{ background: "#fff", borderRadius: 20, padding: "18px 20px",
+              boxShadow: "rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px" }}>
               <div className="h-4 bg-muted rounded animate-pulse w-2/3 mb-2" />
               <div className="h-3 bg-muted rounded animate-pulse w-1/3" />
-            </CardContent></Card>
+            </div>
           ))}
         </div>
       )}
 
       {!isLoading && cycles.length === 0 && (
-        <Card><CardContent className="py-8 flex flex-col items-center gap-2 text-center">
-          <ListChecks className="h-8 w-8 text-muted-foreground/40" />
-          <p className="text-sm text-muted-foreground">No timesheet history yet.</p>
-        </CardContent></Card>
+        <div style={{ background: "#fff", borderRadius: 20, padding: "32px 20px", textAlign: "center",
+          boxShadow: "rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px" }}>
+          <ListChecks style={{ width: 32, height: 32, color: "#ccc", margin: "0 auto 8px" }} />
+          <p style={{ fontSize: 13, color: "#6a6a6a" }}>No timesheet history yet.</p>
+        </div>
       )}
 
       {cycles.map(cycle => {
-        const ss = CYCLE_STATUS_STYLE[cycle.cycleStatus];
         const rangeStr = fmtCycleRange(cycle.cycleStart, cycle.cycleEnd);
-
-        // PAID: show compact summary only
-        if (cycle.cycleStatus === "PAID") {
-          return (
-            <Card key={cycle.cycleStart} data-testid={`card-cycle-paid-${cycle.cycleStart}`}>
-              <CardContent className="px-4 py-4">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2">
-                    <Banknote className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
-                    <p className="font-semibold text-sm">{rangeStr}</p>
-                  </div>
-                  <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${ss.bg} ${ss.text}`}>
-                    {ss.label}
-                  </span>
-                </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Payroll for this period has been finalized and paid.
-                </p>
-              </CardContent>
-            </Card>
-          );
-        }
-
-        // PENDING / APPROVED: show per-day entries
-        const canSubmit = cycle.cycleStatus === "PENDING";
-        const totalShifts = cycle.entries.filter(e => e.shift).length;
-        const submitted = cycle.entries.filter(e => e.timesheet).length;
+        const totalHours = cycle.entries.reduce((sum, e) => {
+          if (!e.timesheet) return sum;
+          return sum + calcHours(e.timesheet.actualStartTime, e.timesheet.actualEndTime);
+        }, 0);
+        const isPaid = cycle.cycleStatus === "PAID";
+        const isApproved = cycle.cycleStatus === "APPROVED" || isPaid;
+        const isProgressing = cycle.cycleStatus === "PENDING";
 
         return (
-          <Card key={cycle.cycleStart} data-testid={`card-cycle-${cycle.cycleStart}`}>
-            <CardContent className="p-0">
-              {/* Cycle header */}
-              <div className="flex items-center justify-between gap-2 flex-wrap px-4 py-3.5 border-b border-border/50">
-                <div>
-                  <p className="font-semibold text-sm">{rangeStr}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {submitted}/{totalShifts} submitted
-                  </p>
-                </div>
-                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full shrink-0 ${ss.bg} ${ss.text}`}>
-                  {ss.label}
-                </span>
+          <div
+            key={cycle.cycleStart}
+            data-testid={`card-cycle-${cycle.cycleStart}`}
+            style={{
+              background: "#fff",
+              borderRadius: 20,
+              padding: "18px 20px",
+              boxShadow: "rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div>
+                <p style={{ fontWeight: 700, fontSize: 15, color: "#222222" }}>{rangeStr}</p>
+                {totalHours > 0 && (
+                  <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 3 }}>{totalHours.toFixed(1)} hrs total</p>
+                )}
               </div>
-
-              {/* Per-day entries */}
-              <div className="divide-y divide-border/40">
-                {cycle.entries.map(entry => {
-                  const { abbr, num } = fmtDay(entry.date);
-                  const color = entry.shift ? storeColorOf(entry.shift.storeId) : "#888";
-                  const ts = entry.timesheet;
-                  const tsSt = ts ? (STATUS_STYLE[ts.status] ?? STATUS_STYLE.PENDING) : null;
-                  const unsubmitted = canSubmit && !!entry.shift && !ts && entry.date < today;
-
-                  const rowContent = (
-                    <>
-                      {/* Date */}
-                      <div className="flex flex-col items-center w-9 shrink-0">
-                        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{abbr}</span>
-                        <span className="text-base font-bold leading-tight" style={{ color }}>{num}</span>
-                      </div>
-
-                      {/* Shift info */}
-                      <div className="flex-1 min-w-0">
-                        {entry.shift && (
-                          <p className="text-xs text-muted-foreground">
-                            Rostered: {entry.shift.startTime} – {entry.shift.endTime}
-                          </p>
-                        )}
-                        {ts ? (
-                          <p className="font-semibold text-sm">{ts.actualStartTime} – {ts.actualEndTime}
-                            <span className="text-muted-foreground font-normal ml-1">
-                              ({calcHours(ts.actualStartTime, ts.actualEndTime).toFixed(1)}h)
-                            </span>
-                          </p>
-                        ) : (
-                          <p className="text-sm font-medium text-muted-foreground">
-                            {unsubmitted ? "Tap to submit" : entry.shift ? "Not submitted" : "Unscheduled"}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Status */}
-                      {tsSt && (
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${tsSt.bg} ${tsSt.text}`}>
-                          {tsSt.label}
-                        </span>
-                      )}
-                      {unsubmitted && <ChevronRight className="h-4 w-4 text-amber-500 shrink-0" />}
-                    </>
-                  );
-
-                  if (unsubmitted) {
-                    const dayData: DayData = {
-                      date: entry.date,
-                      shift: { id: entry.date, storeId: entry.shift!.storeId, startTime: entry.shift!.startTime, endTime: entry.shift!.endTime, date: entry.date },
-                      timesheet: null,
-                    };
-                    return (
-                      <button
-                        key={entry.date}
-                        type="button"
-                        data-testid={`button-submit-entry-${entry.date}`}
-                        className="w-full flex items-center gap-3 px-4 py-3 hover-elevate active-elevate-2 text-left"
-                        onClick={() => setDrawerDay(dayData)}
-                      >
-                        {rowContent}
-                      </button>
-                    );
-                  }
-
-                  return (
-                    <div key={entry.date} className="flex items-center gap-3 px-4 py-3">
-                      {rowContent}
-                    </div>
-                  );
-                })}
+              <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                {isProgressing && (
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 99,
+                    background: "#fff7ed", color: "#c2410c",
+                  }}>Progressing</span>
+                )}
+                {isApproved && (
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 99,
+                    background: "#eff6ff", color: "#1d4ed8",
+                  }}>Approved</span>
+                )}
+                {isPaid && (
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 99,
+                    background: "#f0fdf4", color: "#15803d",
+                  }}>Paid</span>
+                )}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         );
       })}
-
-      {drawerDay && (
-        <PastShiftTimesheetDrawer
-          open={!!drawerDay}
-          employeeId={session.id}
-          day={drawerDay}
-          onClose={() => setDrawerDay(null)}
-          onSubmitted={() => qc.invalidateQueries({ queryKey: historyQK })}
-        />
-      )}
     </div>
   );
 }
