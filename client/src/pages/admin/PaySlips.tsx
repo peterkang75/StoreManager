@@ -59,8 +59,12 @@ export function AdminPaySlips() {
 
     fetch(`/api/payrolls/envelope-slips?${qs}`)
       .then((res) => res.json())
-      .then((data) => {
-        setSlips(data);
+      .then((data: PaySlip[]) => {
+        setSlips(data.filter(s =>
+          s.grandTotals.grossAmount > 0 ||
+          s.grandTotals.cashAmount > 0 ||
+          s.grandTotals.bankDepositAmount > 0
+        ));
         setLoading(false);
         setTimeout(() => window.print(), 500);
       })
