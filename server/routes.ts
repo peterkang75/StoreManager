@@ -1875,7 +1875,7 @@ export async function registerRoutes(
         const refNote = `CASH_WAGE:${storeId}:${periodStart}~${periodEnd}`;
 
         const totalCash = Math.round(
-          rows.reduce((sum: number, r: any) => sum + (parseFloat(r.cashAmount) || 0), 0) * 100
+          results.reduce((sum: number, r: any) => sum + (parseFloat(r.cashAmount) || 0), 0) * 100
         ) / 100;
 
         // Clean up any duplicate orphaned transactions (safety measure)
