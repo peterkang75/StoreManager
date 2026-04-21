@@ -256,7 +256,10 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Settle Intercompany Debt:** `PATCH /api/settlements/:id/settle` — marks a settlement record as settled, linking it to a `financialTransaction` ID.
 - **Backfill Settlements:** `POST /api/admin/backfill-settlements` — admin utility to retroactively generate `intercompanySettlements` records for historical payroll periods that pre-date the feature.
 - **Dashboard Labor filter (bug fix):** `GET /api/dashboard/summary` now filters payroll periods using `periodStart > endDate` (previously `periodEnd > endDate`). This correctly includes any payroll period that overlaps the selected date range — a period is only excluded when its *start* is beyond the range end, not when its *end* is.
-- **Draft Cash Balance (Real-time):** While editing payroll, the top CashBalances widget shows a "Draft: $X,XXX" line under each store's balance card. This reflects the current session's total cash outflow in real-time before saving to DB. All store drafts (Sushi, Sandwich, etc.) are visible simultaneously regardless of which store is currently selected in the payroll form. Implemented via `draftByStore` prop (Record<storeId, totalCash>) computed from `payrollDrafts` state in PayrollPage and passed down to CashBalances widget.
+- **Draft Cash Balance (Real-time):** While editing payroll, the top CashBalances widget shows a "Draft: $X,XXX" line under each store's balance card. This reflects the current session's total cash outflow in real-time before saving to DB. All store drafts (Sushi, Sandwich, etc.) are visible simultaneously regardless of which store is currently selected in the payroll form. Implemented via `draftByStore` prop (Record<storeId, totalCash>) computed from `payrollDrafts` state in PayrollPage and passed down to CashBalances widget. **A negative `Draft: -$X` value is expected behavior** — it represents the projected cash balance *after* the pending payroll outflow is settled (current cash − draft outflow), not a calculation bug.
+- **Fixed Fortnightly Pay Cycle (anchored, never drifting):** `getCurrentPayCycle()` replaces the legacy "last completed Sunday" logic with a fixed 14-day grid anchored to `PAY_CYCLE_ANCHOR = new Date(2026, 2, 23)` (Monday March 23, 2026, local midnight). `cycleIndex = floor(daysSinceAnchor / 14)`, then `cycleStart = anchor + cycleIndex * 14` and `cycleEnd = cycleStart + 13`. Example cycles: Mar 23 – Apr 5 (cycle 0), **Apr 6 – Apr 19** (cycle 1), Apr 20 – May 3 (cycle 2), and so on indefinitely in both directions. Today's cycle is computed from AEDT (`Australia/Sydney`) so the boundary flips at Sydney midnight, not UTC midnight. Prev / Next navigation moves by exactly ±14 days, always landing on a valid cycle boundary.
+- **Period Persistence Across HMR / Reload:** The selected pay period is mirrored to `sessionStorage` under `PERIOD_SS_KEY` (key: `"payroll_selected_period"`) as `{ start, end }`. On mount, the stored value is restored *only if* its `start` aligns with the fixed-cycle grid (i.e. `(savedStart − PAY_CYCLE_ANCHOR) % 14 === 0`). Misaligned legacy entries (e.g. saved when the old `getLastFortnight()` returned non-cycle dates) are silently discarded and the current cycle is used instead. This prevents Vite HMR or accidental page reloads from snapping the manager back to the default cycle while they are mid-edit.
+- **Local-midnight date parsing:** All date math inside Payroll (`shiftPeriod`, period validation, etc.) parses `YYYY-MM-DD` strings via `new Date(dateStr + "T00:00:00")` so that the resulting `Date` represents local midnight in the browser's timezone. Using bare `new Date(dateStr)` would parse as UTC midnight, which lands on the previous calendar day in AEDT — causing the wrong day-of-week and off-by-one period errors.
 
 ### 3.7 Finance / Cash (`/admin/finance`, `/admin/cash`)
 - **Inter-store transactions**: Convert (float transfer), Remittance (store → HO), Manual entry.
@@ -445,6 +448,13 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
   - **Left**: Checkbox · Supplier Name (truncatable) · Direct Debit badge · "N invoices" count
   - **Centre**: Total amount (`font-semibold`) · Selected amount with checkmark icon + primary accent colour (visible only when ≥1 invoice selected)
   - **Far right**: Overdue badge (red) · ChevronDown (rotates 180° via `group-data-[state=open]:rotate-180`)
+
+**Weekly separator inside expanded supplier tables (`flatMap` row builder):**
+- Within each expanded supplier accordion, invoice rows are emitted via `flatMap`. Between two consecutive rows whose **Monday-of-due-date** differs, an extra `<tr>` divider is injected:
+  - `<tr><td colSpan={7} className="h-[3px] bg-slate-300 dark:bg-slate-600 p-0" /></tr>`
+  - Explicit Tailwind colour (slate-300 / slate-600) is used instead of `bg-border` so the line is reliably visible against the muted table-row background in both themes.
+- `getMondayStr(dateStr)` parses `YYYY-MM-DD` with `new Date(y, mo − 1, d)` (local-midnight components) — never `new Date(dateStr)` — to avoid the AEDT/UTC skew that would otherwise put rows into the wrong "week bucket". The Monday is computed as `date − ((dayOfWeek + 6) % 7)` days, then re-formatted as `YYYY-MM-DD`.
+- Replaces the older `getWeekParity` (zebra-stripe) approach which only alternated row backgrounds and was hard to see when rows were already tinted (e.g. overdue red wash).
 
 ---
 
@@ -914,138 +924,123 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Store filter for roster/portal**: only stores where `name.toLowerCase()` includes `"sushi"` or `"sandwich"` show in roster builder and employee portal.
 - **PIN storage**: always `bcryptjs` hashed (cost 10). Never store plain text. During migration, existing plain-text PINs continue to work and are auto-upgraded to bcrypt hash on first successful login. The `verifyPin(inputPin, storedPin)` helper in `server/routes.ts` handles both formats transparently.
 - **Webhook Basic Auth**: `POST /api/webhooks/inbound-invoices` requires HTTP Basic Authentication. Credentials `CLOUDMAILIN_USER` and `CLOUDMAILIN_PASS` are stored as Replit Secrets (never in code). Auth check runs before all body parsing — unauthenticated requests receive HTTP 401 immediately.
+- **Date-string parsing — local midnight**: Whenever a `YYYY-MM-DD` string must be turned into a `Date` for date-arithmetic (week buckets, cycle math, day-of-week, etc.), parse it as `new Date(dateStr + "T00:00:00")` *or* `new Date(y, mo − 1, d)`. Never `new Date(dateStr)` alone — that parses as UTC midnight and silently shifts to the previous calendar day in AEDT, producing off-by-one errors. This rule applies to Payroll period math, AccountsPayable week-grouping (`getMondayStr`), Roster grids, and anywhere similar.
+- **Payroll cycle anchor (single source of truth)**: The fortnightly pay cycle grid is anchored to a fixed constant `PAY_CYCLE_ANCHOR = new Date(2026, 2, 23)` — Monday March 23, 2026, local midnight. Every pay period in the system (past or future) must align to this 14-day grid. Any UI that surfaces a pay period MUST validate that `(start − anchor) % 14 === 0` before treating it as a real cycle, and reject / round to the nearest valid cycle otherwise. This anchor MUST NOT be changed — moving it would invalidate every historical payroll record.
+- **Mobile portal language**: English only. Admin: subtitle/guidance text in Korean, button/label/heading text in English. Mixing is intentional, not a bug.
+- **Brand colours (hard-coded everywhere)**: Sushi `#16a34a` (green-600), Sandwich `#dc2626` (red-600). Used in store badges, payroll headers, AP store toggle buttons, dashboard cards, and roster grid colour-coding.
 
 ---
 
 ## 6. Next Steps / Action Plan
 
-### Phase 1: Accounts Payable Fine-Tuning — ✅ COMPLETE
+> Single source of truth for all project phases — completed, in-progress, and deferred.
+> Cross-references the detailed feature documentation in §3 (Implemented Modules).
 
-- [x] **AI Parser Update (Statements & Routing):** `invoiceParser.ts` updated with OpenAI system prompt that handles both single invoices and statements. Always returns a JSON **array** of `ParsedInvoice[]`, never a lumped total. `storeCode` determined from "Bill To"/"Invoice To" text: `"SUSHI"` for Olitin/Sushime, `"SANDWICH"` for Eatem Pty Ltd/Eatem Sandwich, `"UNKNOWN"` otherwise. `max_tokens` set to 1000 to accommodate multi-invoice responses.
+### 6.1 Completed Phases ✅
 
-- [x] **Webhook DB Logic:** `POST /api/webhooks/inbound-invoices` iterates over the parsed array, resolves `storeCode` → `storeId` via store name matching, performs per-invoice duplicate check on `(supplierId, invoiceNumber)`, and inserts each invoice individually. Returns `{ created: N, skipped: N }`.
+| Phase | Title | Detail Section |
+|---|---|---|
+| Phase 1 | Accounts Payable Fine-Tuning (AI parser, webhook routing, dashboard checkboxes, bulk pay) | §3.8 – §3.16 |
+| Phase 2 | Communication & Mobile (Notice Board, PWA install) | §3.12 |
+| Phase 3 | Executive Cockpit + RBAC (AI email reply, Smart Inbox widget, permission matrix) | §3.11, §6.4 below |
+| Phase 4 | Settings Consolidation (Shift Presets, Store Settings, Automation Rules) | §3.17 – §3.20 |
+| Phase 5 | Storage & Shopping Module (storage room inventory, dynamic units, shopping cart) | §3.5.2 below |
+| Phase 6 | Payroll Cycle Hardening (fixed-anchor 14-day grid, sessionStorage period persistence, AP week separator, local-midnight date parsing) | §3.6, §3.14, §5 |
 
-- [x] **AP Dashboard UI Upgrades:**
-  - Store filter dropdown added alongside Status and Supplier filters.
-  - Checkbox column added to invoice table; header checkbox selects all PENDING rows.
-  - Real-time **Selected Total** display (`$X,XXX.XX selected (N)`) shown when items are checked.
-  - Bulk **Mark N as Paid** button triggers parallel PATCH requests, invalidates cache, clears selection.
+#### 6.1.1 Phase 1 — Accounts Payable Fine-Tuning ✅
+- [x] **AI Parser Update (Statements & Routing):** `invoiceParser.ts` returns `ParsedInvoice[]` arrays (never a lumped total). `storeCode` derived from "Bill To" text: `"SUSHI"` (Olitin/Sushime), `"SANDWICH"` (Eatem). `max_tokens = 1000` for multi-invoice responses.
+- [x] **Webhook DB Logic:** `POST /api/webhooks/inbound-invoices` iterates the array, resolves `storeCode` → `storeId`, deduplicates per `(supplierId, invoiceNumber)`. Returns `{ created, skipped }`.
+- [x] **AP Dashboard UI Upgrades:** Store filter dropdown, checkbox column, real-time Selected Total, bulk Mark-N-as-Paid.
+
+#### 6.1.2 Phase 2 — Communication & Mobile ✅
+- [x] **Notice Board** — `notices` table + `/admin/notices` admin page + portal HomeTab notices feed.
+- [x] **PWA Install** — `manifest.json`, `theme-color`, `apple-mobile-web-app-capable`. Service worker / offline / push are deferred (see §6.3).
+
+#### 6.1.3 Phase 5.0 — AI Email Reply Workflow ✅
+- `todos` table extended with `originalSubject`, `originalBody`, `senderEmail`.
+- `server/mailer.ts` created (nodemailer Gmail SMTP).
+- `POST /api/todos/:id/draft-reply` — Korean → English via GPT-4o.
+- `POST /api/todos/:id/send-reply` — sends via SMTP, marks DONE.
+- `POST /api/todos/:id/korean-summary` — GPT-4o Korean summary, cached per task.
+- `POST /api/ai/email-translate-summarize` — standalone endpoint used by Triage Inbox.
+- `ExecutiveDashboard.tsx`: `EmailReplyModal` (left = original English + Korean summary, right = Korean input → translate → editable English → send).
+
+#### 6.1.4 Phase 5.1 — Dashboard Cockpit ✅
+- AI Smart Inbox widget on `/admin` (top 5 urgent tasks).
+- Shopping List widget (per-store cart, tick off / clear).
+- Today's Recurring Tasks widget (from §3.20 Automation Rules).
+
+#### 6.1.5 Phase 5.2 — Role-Based Access Control (RBAC) ✅
+- `admin_permissions` table (composite PK).
+- `GET /api/permissions` (seeds defaults), `PATCH /api/permissions` (bulk replace).
+- Defaults: ADMIN = all, MANAGER = most ops, STAFF = Dashboard + Rosters.
+- `AdminRoleContext` (localStorage `admin_role_v1`), sidebar role dropdown, dynamic nav filtering, header role badge.
+- `/admin/settings/access-control` — ADMIN-only permission matrix editor.
+
+#### 6.1.6 Phase 5 — Storage & Shopping Module ✅
+- **Shopping List**: `ShoppingListView` in EmployeePortal, catalogue grouping + search + clear, sorted by `selectionCount` desc within each category.
+- **Storage List**: `storageItems` + `activeStorageList` tables (FK to lastCheckedBy/addedBy intentionally removed — plain varchar for display name). 9 storage methods + 7 API routes. Portal `StorageListView` (amber-500 accent), admin `/admin/storage` page.
+- **Dynamic Units**: `storageUnits` table seeded with ea/pack/box/ctn. Manager via "Manage Units" panel in admin page; Select in all forms reads from `GET /api/storage/units`. Delete blocked when unit is in use.
+
+#### 6.1.7 Phase 6 — Payroll Cycle Hardening ✅
+- [x] **Fixed-anchor pay cycle** (`getCurrentPayCycle`, `PAY_CYCLE_ANCHOR = Mar 23 2026`) — see §3.6 + §5.
+- [x] **Period sessionStorage persistence** with cycle-grid validation (`PERIOD_SS_KEY`) — survives HMR / reload, rejects misaligned legacy entries.
+- [x] **AP week separator** — `flatMap` row builder + `getMondayStr` injects a `bg-slate-300 dark:bg-slate-600` 3px divider between weeks; replaces the old zebra-stripe approach.
+- [x] **Local-midnight date parsing rule** — `new Date(dateStr + "T00:00:00")` mandated everywhere; documented in §5 Conventions.
 
 ---
 
-### Phase 2: Data & Reporting — Upcoming (High Priority)
+### 6.2 In Progress 🚧
 
-- [ ] **Manager Dashboard:** Combine payroll totals (labor cost) and AP invoice data (COGS) against daily sales totals per store. Calculate and display:
+#### 6.2.1 Manager Reporting Dashboard (High Priority)
+- [ ] Combine payroll totals (labour cost) + AP invoice totals (COGS) + daily sales totals per store.
+- [ ] Calculate and display:
   - Labor % = Total Payroll ÷ Total Sales × 100
   - COGS % = Total Supplier Invoices ÷ Total Sales × 100
   - Gross Profit % = (Sales − Labor − COGS) ÷ Sales × 100
-  - Weekly and monthly trend charts per store.
+- [ ] Weekly and monthly trend charts per store.
+- [ ] Reuses existing `/api/dashboard/summary` (with the `periodStart > endDate` fix from §3.6) — extend with COGS aggregation.
 
 ---
 
-### Phase 3.5: Shopping & Storage Module — IN PROGRESS
+### 6.3 Deferred / Future Backlog 📋
 
-#### 3.5.1 Shopping List — Nearly Complete
-- ShoppingListView component implemented in EmployeePortal.tsx
-- Catalogue-based item selection, category grouping, search, clear all implemented
-- `selectionCount` sort-by-popularity applied to catalogue — items sorted by `selectionCount` descending within each category (fixed in this session; `EmployeePortal.tsx` line 822)
-- Admin shopping widget on Dashboard is separate and admin-only — correct as-is
+> Items intentionally postponed. Each entry includes the reason it was deferred and any prerequisite work.
 
-#### 3.5.2 Storage List — ✅ COMPLETE
-- `storageItems` + `activeStorageList` DB tables created; FK constraints on `lastCheckedBy`/`addedBy` removed (plain varchar for display name). `db:push` run.
-- IStorage interface + MemStorage + DatabaseStorage: 9 methods (`getStorageItems`, `createStorageItem`, `updateStorageItem`, `deleteStorageItem`, `updateStorageItemStock`, `getActiveStorageList`, `addToActiveStorageList`, `removeFromActiveStorageList`, `clearActiveStorageList`).
-- API routes in `server/routes.ts` (after line 6287): `GET/POST /api/storage/items`, `PATCH /api/storage/items/:id`, `DELETE /api/storage/items/:id`, `PATCH /api/storage/items/:id/stock`, `GET/POST /api/storage/active`, `DELETE /api/storage/active/:id`, `DELETE /api/storage/active`.
-- Employee Portal: `StorageListView` component replaces "Coming soon" in storage HomeSubTab. Amber-500 accent. Catalogue drawer, "Log stock" drawer, clear-all.
-- Shopping catalogue sort fixed: items now sorted by `selectionCount` descending within each category.
-- Admin page `client/src/pages/admin/StorageInventory.tsx` at route `/admin/storage`: category-grouped table, CRUD dialog, stock/last-checked display. Registered in `App.tsx` + AdminLayout Operations nav.
-- `storageUnits` table: dynamic unit management. Seeded with ea/pack/box/ctn on first `GET /api/storage/units` call. Admin can add/delete units via "Manage Units" collapsible panel in StorageInventory page (toggled by header button). Delete blocked with toast if unit is in use by any item. Unit Select in all item create/edit forms (both admin and portal) fetches dynamically from `GET /api/storage/units`. IStorage interface + MemStorage + DatabaseStorage implementations for 5 unit methods (`getStorageUnits`, `createStorageUnit`, `deleteStorageUnit`, `isStorageUnitInUse`, `seedStorageUnitsIfEmpty`).
+#### 6.3.1 PWA Service Worker (offline + push)
+- **Status:** Deferred from Phase 2.
+- **Scope:** Register a service worker for offline shell caching, background sync for timesheet submissions, and Web Push notifications for shift reminders.
+- **Prereq:** None — `manifest.json` and theme-color are already in place.
 
-#### Design Notes
-- Storage UI accent color: amber-500 (consistent with unscheduled shift indicator already in portal)
-- Admin storage page: Card-based grouped table (consistent with rest of admin UI)
+#### 6.3.2 AI Executive Assistant — Smart Inbox v2
+- **Status:** Logged for later (originally Phase 4).
+- **Scope:** Beyond the existing Triage Inbox + AI translation, add: per-email AI categorisation (Action / FYI / Spam) with confidence score, one-click "smart reply" suggestions, and a daily Korean digest email summarising overnight inbound mail.
+- **Prereq:** Existing `POST /api/ai/email-translate-summarize` endpoint can be reused.
 
----
+#### 6.3.3 Auto To-Do Extraction & Time-Based Reminders
+- **Status:** Logged for later (originally Phase 4).
+- **Scope:** GPT pipeline that reads inbound emails, extracts actionable tasks + implicit due dates, and creates `todos` rows automatically. Background scheduler fires reminders ("Invoice from X due in 3 days") via `mailer.ts` or in-app notification.
+- **Prereq:** None — `todos` schema already supports `dueDate` and `senderEmail`.
 
-### Phase 3: Communication & Mobile — ✅ COMPLETE
+#### 6.3.4 B2B Catering & Delivery App (separate project)
+- **Status:** Future, separate codebase.
+- **Scope:** Standalone web app for Sushi + Sandwich corporate catering orders (menu browsing, quote requests, advance ordering). Reuses existing Stripe e-commerce code from a sister project.
+- **Prereq:** None — independent repo.
 
-- [x] **Notice Board / Messaging:** In-app announcement system. `notices` DB table (title, content, targetStoreId, authorId, isActive, createdAt). Admin `/admin/notices` page — create/edit/delete with store targeting & active toggle. Employee Portal home tab shows active notices filtered by employee's store + global notices. API: `GET/POST /api/notices`, `PUT/DELETE /api/notices/:id`.
+#### 6.3.5 DoorDash Drive Integration (in catering app)
+- **Status:** Future, dependent on §6.3.4.
+- **Scope:** White-label flat-fee last-mile delivery via DoorDash Drive API. Replaces consumer-facing DoorDash for catering orders to retain brand control.
 
-- [x] **PWA / Mobile Optimization:** Employee Portal installable as Progressive Web App:
-  - `client/public/manifest.json` — name, start_url `/m/portal`, display standalone, theme_color green.
-  - `client/index.html` — linked manifest, `apple-mobile-web-app-capable`, `theme-color` meta tags.
-  - (Service worker / offline + push notifications deferred to Phase 5.)
-
----
-
-### Phase 5: Executive Cockpit + RBAC ✅ COMPLETE
-
-**Phase 5.0 — AI Email Reply Workflow**
-- `todos` table: 3 new columns — `originalSubject` (varchar), `originalBody` (text), `senderEmail` (varchar)
-- DB pushed successfully
-- Webhook handler updated to store raw English email content (`originalSubject`, `originalBody`, `senderEmail`) when creating a task from inbound email
-- `server/mailer.ts` created: nodemailer Gmail SMTP transporter utility
-- `POST /api/todos/:id/draft-reply` — accepts `koreanDraft`, uses GPT-4o to translate to professional English, returns `englishReply`
-- `POST /api/todos/:id/send-reply` — accepts `finalEnglishReply`, sends via nodemailer to `senderEmail || sourceEmail`, marks todo as DONE
-- `POST /api/todos/:id/korean-summary` — generates Korean AI summary of the original English email body via GPT-4o; cached per task.
-- `POST /api/ai/email-translate-summarize` — standalone endpoint: accepts `{ subject, body }`, returns `{ koreanSummary, translatedBody }`. Used by Triage Inbox to show Korean previews of incoming emails.
-- `ExecutiveDashboard.tsx` updated:
-  - `TaskCard`: "View & Reply" button shown for email-originated tasks (has `sourceEmail`, `senderEmail`, or `originalSubject`)
-  - Email badge pill on cards with email context
-  - `EmailReplyModal`: Left panel — original English email (subject + body) + Korean AI summary. Right panel — Korean input → Translate button (calls draft API) → English textarea (editable) → Send button (calls send API, closes modal, marks done)
-  - Fallback: tasks without email context show no "View & Reply" button
-
-**Phase 5.1 — Dashboard Cockpit**
-- AI Smart Inbox widget added to main Dashboard (`/admin`)
-- Fetches `/api/todos`, filters TODO+IN_PROGRESS, sorts by urgency (overdue first, then due date), shows top 5
-- Each task card: title, sender email, due date, overdue badge, "Mark Done" quick-action button
-- "View All Tasks" button links to `/admin/executive`
-- **Shopping List widget** on Dashboard: per-store shopping cart for items that need purchasing. Catalogue of items (`shoppingItems`) + active list (`activeShoppingList`). Add items with quantity, tick off when purchased (deletes from active list), clear entire list. Accessible via ShoppingCart icon on Dashboard.
-
-**Phase 5.2 — Role-Based Access Control (RBAC)**
-- `admin_permissions` DB table: composite PK (role, route, label, allowed)
-- `GET /api/permissions` — returns full matrix; seeds defaults on first load
-- `PATCH /api/permissions` — bulk replace permissions
-- Default permissions: ADMIN=all, MANAGER=most ops, STAFF=Dashboard+Rosters
-- `AdminRoleContext` — React context storing current role in localStorage (`admin_role_v1`)
-- Role selector dropdown in sidebar header (Global Admin / Manager / Staff)
-- Sidebar nav groups filtered dynamically by role permissions
-- Header badge shows current role
-- `/admin/settings/access-control` — full-page permissions matrix with checkboxes; Save Changes / Reset buttons; ADMIN-only access enforced
-- App.tsx wrapped with `AdminRoleProvider`
-
-### Phase 4: AI Executive Assistant — Future (Logged for Later)
-
-- [ ] **Smart Inbox:** AI reads all incoming emails, categorizes them (Action Required / FYI / Spam), translates body to Korean, and presents a concise summary per email. CEO can respond with one click.
-- [ ] **Auto To-Do & Reminders:** AI extracts actionable tasks and due dates from emails, populates a centralized To-Do list, and fires a background scheduler for time-based notifications (e.g. "Invoice from X due in 3 days").
+#### 6.3.6 Sales Sync Webhook (catering → management)
+- **Status:** Future, dependent on §6.3.4.
+- **Scope:** Catering app POSTs completed order/sales data to this management system's `/api/dashboard/summary` in real-time, eliminating manual sales entry for catering revenue.
 
 ---
 
-### Phase 5: External Ecosystem & Integrations — Separate Project (Future)
+### 6.4 Architectural Principles (Maintained)
 
-- [ ] **B2B Catering & Delivery App:** Build a standalone, separate web application (reusing existing Stripe e-commerce code) dedicated to catering and large orders for the Sushi and Sandwich stores. Supports menu browsing, quote requests, and advance ordering for corporate clients.
-- [ ] **DoorDash Drive Integration:** Integrate the DoorDash Drive API into the Catering App for flat-fee, white-label last-mile delivery of large catering orders. Replaces consumer-facing DoorDash and gives full brand control.
-- [ ] **Sales Sync (Webhook):** Build a webhook pipeline so the separate Catering App posts completed order and sales data back to this Management System's `/api/dashboard/summary` in real-time, keeping the Manager Dashboard accurate without manual entry.
----
-
-## Section 6: Automation Rules (Reminder + One-Click Execute) — ✅ COMPLETE
-
-### 구현 완료 내역
-- DB table created (`automation_rules`), schema.ts updated, db:push complete
-- storage.ts: `getAutomationRules`, `getAutomationRulesDueToday`, `getAutomationRule`, `createAutomationRule`, `updateAutomationRule`, `deleteAutomationRule`, `executeAutomationRule` all implemented
-- routes.ts: 6 endpoints registered under `/api/automation-rules/`
-- `/admin/automations` settings page: rule cards with actionType badge, isActive toggle, Sheet drawer for create/edit with dynamic fields per actionType (ROSTER / PAYROLL_ADJUSTMENT / FINANCE_TRANSFER), days-of-week checkboxes (WEEKLY only), AlertDialog for delete
-- Dashboard widget: "Today's Recurring Tasks" section between Financial Performance and Needs Routing — hidden when no rules due, Execute (spinner, removes on success) + Skip buttons per rule
-- Sidebar: "Automations" added to Settings submenu with Repeat icon
-
-### payload 구조
-- ROSTER: `{ storeId, startTime, endTime }`
-- PAYROLL_ADJUSTMENT: `{ amount, reason }`
-- FINANCE_TRANSFER: `{ fromStoreId, toStoreId, amount, transferType: "convert"|"remittance" }`
-
-### 설계 원칙 (유지)
-- 완전 자동 실행 없음 — 항상 사람이 확인 후 실행
-- 리마인더 중심 — 대시보드 로드 시 오늘 실행할 규칙 체크 (Sydney TZ 기준)
-- 기존 API 재활용 — 실행 로직은 이미 있는 storage/API 호출만
-
-### 우선순위
+- **Automation Rules — no fully-automatic execution.** Every recurring task always requires a human "Execute" click on the Dashboard widget. Reminders only — never silent background mutations to payroll, finance, or rosters. Reuse existing storage/API methods inside `executeAutomationRule()` rather than building parallel logic paths.
+- **Sydney timezone everywhere.** All "today" / "this week" / "this cycle" calculations use `Australia/Sydney` via `toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" })`. Never `toISOString()` for date strings.
+- **Anchor-based cycles.** The fortnightly payroll grid is anchored to a fixed constant (§5) and must never drift. Adding new cycle-aware UI must validate against the anchor before treating any period as legitimate.
+- **Session vs database boundary.** Drafts (payroll inputs, selected period, etc.) live in `sessionStorage` keyed by context. The DB only ever sees finalised, validated data. On commit, the matching session key is purged to prevent ghost re-hydration.
 파일 분리 리팩토링 완료 이후 구현 예정
