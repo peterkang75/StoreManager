@@ -179,6 +179,10 @@ const STATUS_STYLE: Record<string, { bg: string; text: string; label: string }> 
 
 // ── 1-Step PIN Login ──────────────────────────────────────────────────────────
 
+const AL = {
+  font: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, 'Helvetica Neue', sans-serif",
+};
+
 function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
@@ -210,90 +214,95 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
   const handleDel = () => { setPin(p => p.slice(0, -1)); setError(""); };
 
   return (
-    <div className="flex flex-col items-center justify-between flex-1 px-4 py-8 gap-6">
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1, padding: "40px 24px 32px", gap: 0, fontFamily: AL.font, background: "#ffffff" }}>
 
-      {/* Logos — horizontal row, no box */}
-      <div className="flex flex-col items-center gap-4 w-full">
-        <div className="flex flex-row items-center justify-center gap-2 w-full">
-          {/* Sushime circular logo */}
-          <div className="relative overflow-hidden flex items-center justify-center h-28 w-28 shrink-0">
-            <img
-              src={sushimeLogo}
-              alt="Sushime"
-              className="absolute inset-0 w-full h-full object-contain"
-              style={{ transform: "scale(2.8)", transformOrigin: "center" }}
-              data-testid="img-logo-sushime"
-            />
-          </div>
-
-          {/* Vertical divider */}
-          <div className="h-16 w-px bg-border/40 shrink-0" />
-
-          {/* Eat'em text logo */}
-          <div className="relative overflow-hidden flex items-center justify-center h-20 w-40 shrink-0">
-            <img
-              src={eatemLogo}
-              alt="Eat'em"
-              className="absolute inset-0 w-full h-full object-contain"
-              style={{ transform: "scale(1.9)", transformOrigin: "center" }}
-              data-testid="img-logo-eatem"
-            />
-          </div>
+      {/* Logos */}
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16, width: "100%", marginBottom: 28 }}>
+        <div style={{ position: "relative", overflow: "hidden", width: 96, height: 96, flexShrink: 0 }}>
+          <img
+            src={sushimeLogo}
+            alt="Sushime"
+            data-testid="img-logo-sushime"
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", transform: "scale(2.8)", transformOrigin: "center" }}
+          />
         </div>
-
-        {/* Welcome text */}
-        <div className="text-center">
-          <p className="font-semibold text-foreground text-[19px]">
-            Welcome to the Eat'em &amp; Sushime
-          </p>
-          <p className="text-xs text-muted-foreground mt-0.5">Team Portal</p>
+        <div style={{ width: 1, height: 56, background: "#c1c1c1", flexShrink: 0 }} />
+        <div style={{ position: "relative", overflow: "hidden", width: 128, height: 72, flexShrink: 0 }}>
+          <img
+            src={eatemLogo}
+            alt="Eat'em"
+            data-testid="img-logo-eatem"
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", transform: "scale(1.9)", transformOrigin: "center" }}
+          />
         </div>
       </div>
 
-      {/* PIN entry section */}
-      <div className="flex flex-col items-center gap-5 w-full max-w-xs">
-        <div className="text-center">
-          <p className="text-sm text-muted-foreground">Enter your 4-digit PIN to continue</p>
-          <p className="text-xs text-muted-foreground/50 mt-1">Default PIN: last 4 digits of your phone number</p>
-        </div>
+      {/* Welcome text */}
+      <div style={{ textAlign: "center", marginBottom: 36 }}>
+        <p style={{ fontSize: 22, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px", lineHeight: 1.2, margin: 0 }}>
+          Welcome to the<br />Eat'em &amp; Sushime
+        </p>
+        <p style={{ fontSize: 13, color: "#6a6a6a", marginTop: 6 }}>Team Portal</p>
+      </div>
 
-        {/* PIN dots */}
-        <div className="flex gap-6" data-testid="pin-dots">
-          {[0,1,2,3].map(i => (
-            <div key={i} className={`h-4 w-4 rounded-full border-2 transition-all duration-150 ${
-              i < pin.length ? "bg-foreground border-foreground scale-110" : "border-muted-foreground/50"
-            }`} />
-          ))}
-        </div>
+      {/* PIN prompt */}
+      <div style={{ textAlign: "center", marginBottom: 24 }}>
+        <p style={{ fontSize: 14, fontWeight: 500, color: "#222222", margin: 0 }}>Enter your 4-digit PIN</p>
+        <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 4 }}>Default: last 4 digits of your phone number</p>
+      </div>
 
-        {/* Error / loading */}
-        <div className="w-full" style={{ minHeight: "36px" }}>
-          {error && (
-            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 rounded-md px-4 py-2.5">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-          {loginMutation.isPending && (
-            <div className="flex justify-center">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          )}
-        </div>
+      {/* PIN dots */}
+      <div style={{ display: "flex", gap: 20, marginBottom: 20 }} data-testid="pin-dots">
+        {[0,1,2,3].map(i => (
+          <div key={i} style={{
+            width: 14, height: 14, borderRadius: "50%",
+            border: `2px solid ${i < pin.length ? "#222222" : "#c1c1c1"}`,
+            background: i < pin.length ? "#222222" : "transparent",
+            transform: i < pin.length ? "scale(1.15)" : "scale(1)",
+            transition: "all 150ms",
+          }} />
+        ))}
+      </div>
+
+      {/* Error / loading */}
+      <div style={{ width: "100%", maxWidth: 320, minHeight: 40, marginBottom: 8 }}>
+        {error && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#ef4444", background: "rgba(239,68,68,0.08)", borderRadius: 8, padding: "10px 14px" }}>
+            <AlertCircle style={{ width: 15, height: 15, flexShrink: 0 }} />
+            <span>{error}</span>
+          </div>
+        )}
+        {loginMutation.isPending && (
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <Loader2 style={{ width: 22, height: 22, color: "#6a6a6a", animation: "spin 1s linear infinite" }} className="animate-spin" />
+          </div>
+        )}
       </div>
 
       {/* Numpad */}
-      <div className="grid grid-cols-3 gap-3 w-full max-w-xs">
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, width: "100%", maxWidth: 320, marginTop: 8 }}>
         {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((key, idx) => (
           <button
             key={idx} type="button"
             disabled={loginMutation.isPending || key === ""}
             data-testid={key === "⌫" ? "pin-delete" : key ? `pin-digit-${key}` : undefined}
-            className={`h-[68px] rounded-2xl text-2xl font-semibold transition-all select-none ${
-              key === "" ? "invisible pointer-events-none" :
-              "bg-muted hover-elevate active-elevate-2"
-            } ${key === "⌫" ? "text-muted-foreground" : "text-foreground"}`}
-            onClick={() => key === "⌫" ? handleDel() : handleDigit(key)}
+            onClick={() => key === "⌫" ? handleDel() : key ? handleDigit(key) : undefined}
+            style={{
+              height: 72,
+              borderRadius: 16,
+              border: "none",
+              cursor: key ? "pointer" : "default",
+              visibility: key === "" ? "hidden" : "visible",
+              background: key === "⌫" ? "transparent" : "#f2f2f2",
+              color: key === "⌫" ? "#6a6a6a" : "#222222",
+              fontSize: 24,
+              fontWeight: 600,
+              fontFamily: AL.font,
+              touchAction: "manipulation",
+              WebkitTapHighlightColor: "transparent",
+              userSelect: "none",
+              transition: "background 160ms",
+            }}
           >{key}</button>
         ))}
       </div>
@@ -3018,21 +3027,18 @@ export function EmployeePortal() {
   const handleLogin  = (s: Session) => { saveSession(s); setSession(s); };
 
   return (
-    <div className="h-screen overflow-hidden bg-background flex flex-col items-center">
-      {/* Mobile-optimised shell: constrained width, exact viewport height */}
-      <div className="w-full max-w-md h-full flex flex-col border-x border-border/30">
-        {/* Top bar — always visible, never scrolls */}
-        <header className="shrink-0 z-50 bg-background/95 backdrop-blur-sm border-b">
-          <div className="flex items-center gap-2 px-4 h-12">
-            <div className="h-2.5 w-2.5 rounded-full bg-primary" />
-            <span className="font-semibold text-sm tracking-wide">Staff Portal</span>
-          </div>
+    <div style={{ height: "100dvh", overflow: "hidden", background: "#ffffff", display: "flex", flexDirection: "column", alignItems: "center", fontFamily: AL.font }}>
+      <div style={{ width: "100%", maxWidth: 448, height: "100%", display: "flex", flexDirection: "column", borderLeft: "1px solid #c1c1c1", borderRight: "1px solid #c1c1c1" }}>
+        {/* Top bar */}
+        <header style={{ flexShrink: 0, zIndex: 50, background: "rgba(255,255,255,0.9)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", borderBottom: "1px solid #c1c1c1", height: 48, display: "flex", alignItems: "center", gap: 10, padding: "0 16px" }}>
+          <img src="/icon-192.png" alt="" style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "contain" }} />
+          <span style={{ fontWeight: 600, fontSize: 14, color: "#222222", letterSpacing: "-0.1px", fontFamily: AL.font }}>Staff Portal</span>
         </header>
 
         {/* Main content fills remaining height */}
         {session
           ? <AppShell session={session} onLogout={handleLogout} />
-          : <div className="flex-1 flex flex-col overflow-y-auto">
+          : <div style={{ flex: 1, display: "flex", flexDirection: "column", overflowY: "auto" }}>
               <PinLogin onSuccess={handleLogin} />
             </div>
         }
