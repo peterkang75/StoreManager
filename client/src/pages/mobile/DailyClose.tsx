@@ -269,16 +269,31 @@ export function MobileDailyClose() {
             </div>
 
             {/* Date */}
-            <div>
+            <div style={{ width: "100%", minWidth: 0 }}>
               <FieldLabel>Date</FieldLabel>
-              <Input
+              <input
                 id="date"
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="text-base"
-                style={{ height: 44, padding: "0 12px", fontSize: 15 }}
                 data-testid="input-date"
+                style={{
+                  display: "block",
+                  width: "100%",
+                  maxWidth: "100%",
+                  boxSizing: "border-box",
+                  height: 44,
+                  padding: "0 12px",
+                  fontSize: 15,
+                  lineHeight: "44px",
+                  border: "1px solid #c1c1c1",
+                  borderRadius: 8,
+                  background: "#ffffff",
+                  color: "#222222",
+                  fontFamily: A.font,
+                  WebkitAppearance: "none",
+                  appearance: "none",
+                }}
               />
             </div>
 
