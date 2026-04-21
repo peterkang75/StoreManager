@@ -1600,7 +1600,7 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
 
 type HomeSubTab = "myDay" | "shopping" | "storage";
 
-function HomeTab({ session }: { session: Session }) {
+function HomeTab({ session, onEditProfile }: { session: Session; onEditProfile: () => void }) {
   const today = getTodayStr();
   const [, navigate] = useLocation();
   const [localTimesheets, setLocalTimesheets] = useState<Record<string, TimesheetInfo>>({});
@@ -1622,11 +1622,22 @@ function HomeTab({ session }: { session: Session }) {
     refetchInterval: 30_000,
   });
 
-  const { data: employeeProfile } = useQuery<{ storeId?: string }>({
+  const { data: employeeProfile } = useQuery<any>({
     queryKey: ["/api/employees", session.id],
     queryFn: () => fetch(`/api/employees/${session.id}`).then(r => r.ok ? r.json() : {}),
     staleTime: 60_000,
   });
+
+  // Action-required banner: fire if any financial / super field is empty.
+  const missingFinancial = employeeProfile ? (() => {
+    const isEmpty = (v: any) => v === null || v === undefined || String(v).trim() === "";
+    const financialMissing = isEmpty(employeeProfile.tfn) || isEmpty(employeeProfile.bsb) || isEmpty(employeeProfile.accountNo);
+    const superMissing = isEmpty(employeeProfile.superCompany) || isEmpty(employeeProfile.superMembershipNo);
+    const list: string[] = [];
+    if (financialMissing) list.push("Financial Details");
+    if (superMissing) list.push("Superannuation");
+    return list;
+  })() : [];
 
   const { data: portalNotices = [] } = useQuery<Notice[]>({
     queryKey: ["/api/notices", "portal", employeeProfile?.storeId],
@@ -1658,6 +1669,33 @@ function HomeTab({ session }: { session: Session }) {
 
   return (
     <div className="flex flex-col gap-5 px-4 py-5" style={{ background: "#ffffff", minHeight: "100%", fontFamily: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, Roboto, 'Helvetica Neue', sans-serif" }}>
+      {/* Action required banner — missing Financial / Super details */}
+      {missingFinancial.length > 0 && (
+        <button
+          type="button"
+          onClick={onEditProfile}
+          data-testid="banner-action-required"
+          style={{
+            display: "flex", alignItems: "center", gap: 12,
+            padding: "14px 16px", borderRadius: 14,
+            background: "rgba(239,68,68,0.08)", border: "1px solid #ef4444",
+            cursor: "pointer", textAlign: "left", width: "100%",
+            fontFamily: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, sans-serif",
+            touchAction: "manipulation",
+            WebkitTapHighlightColor: "transparent",
+          }}
+        >
+          <AlertTriangle style={{ width: 22, height: 22, color: "#ef4444", flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 15, fontWeight: 700, color: "#ef4444", letterSpacing: "-0.1px" }}>Action Required!</p>
+            <p style={{ fontSize: 13, color: "#222222", marginTop: 2, lineHeight: 1.35 }}>
+              Please complete your {missingFinancial.join(" and ")} in your profile.
+            </p>
+          </div>
+          <ChevronRight style={{ width: 18, height: 18, color: "#ef4444", flexShrink: 0 }} />
+        </button>
+      )}
+
       {/* Greeting */}
       <div>
         <p style={{ fontSize: 13, color: "#6a6a6a", marginBottom: 2 }}>Good {getGreeting()},</p>
@@ -2316,7 +2354,6 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
   // File input refs
   const fhcFileRef = useRef<HTMLInputElement>(null);
   const selfieFileRef = useRef<HTMLInputElement>(null);
-  const selfieCamRef = useRef<HTMLInputElement>(null);
   const passportFileRef = useRef<HTMLInputElement>(null);
 
   const [fhcUploading, setFhcUploading] = useState(false);
@@ -2576,16 +2613,7 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
           </div>
           <Card>
             <CardContent className="pt-4 pb-4 flex flex-col gap-3">
-              {/* Hidden inputs */}
-              <input
-                ref={selfieCamRef}
-                type="file"
-                accept="image/*"
-                capture="user"
-                className="hidden"
-                onChange={e => handleSelfieUpload(e, selfieCamRef)}
-                data-testid="input-selfie-camera"
-              />
+              {/* Single hidden input — native mobile picker offers camera + library */}
               <input
                 ref={selfieFileRef}
                 type="file"
@@ -2611,13 +2639,9 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
                     data-testid="img-selfie-preview"
                   />
                   <div className="flex flex-col gap-2 flex-1">
-                    <Button variant="outline" size="sm" onClick={() => selfieCamRef.current?.click()} data-testid="button-selfie-retake-camera">
-                      <Camera className="h-4 w-4 mr-1.5" />
-                      Retake Photo
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => selfieFileRef.current?.click()} data-testid="button-selfie-retake-file">
+                    <Button variant="outline" size="sm" onClick={() => selfieFileRef.current?.click()} data-testid="button-selfie-replace">
                       <ImagePlus className="h-4 w-4 mr-1.5" />
-                      Choose from Library
+                      Replace Photo
                     </Button>
                     <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setForm(f => ({ ...f, selfieUrl: "" }))} data-testid="button-selfie-remove">
                       <X className="h-4 w-4 mr-1.5" />
@@ -2628,26 +2652,15 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
               )}
 
               {!selfieUploading && !form.selfieUrl && (
-                <div className="grid grid-cols-2 gap-3">
-                  <Button
-                    variant="outline"
-                    className="h-16 flex-col gap-1.5"
-                    onClick={() => selfieCamRef.current?.click()}
-                    data-testid="button-selfie-camera"
-                  >
-                    <Camera className="h-5 w-5 text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">Take Photo</span>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="h-16 flex-col gap-1.5"
-                    onClick={() => selfieFileRef.current?.click()}
-                    data-testid="button-selfie-library"
-                  >
-                    <ImagePlus className="h-5 w-5 text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">From Library</span>
-                  </Button>
-                </div>
+                <Button
+                  variant="outline"
+                  className="h-16 flex-col gap-1.5"
+                  onClick={() => selfieFileRef.current?.click()}
+                  data-testid="button-selfie-upload"
+                >
+                  <ImagePlus className="h-5 w-5 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Upload Photo</span>
+                </Button>
               )}
               <p className="text-xs text-muted-foreground">Used for identification on your staff profile.</p>
             </CardContent>
@@ -3191,10 +3204,16 @@ function BottomNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => vo
 
 // ── Logged-in App Shell ───────────────────────────────────────────────────────
 
-function AppShell({ session, onLogout }: { session: Session; onLogout: () => void }) {
-  const [activeTab, setActiveTab] = useState<Tab>("home");
-  const [subView, setSubView] = useState<"edit-profile" | null>(null);
-
+function AppShell({
+  session, onLogout, activeTab, setActiveTab, subView, setSubView,
+}: {
+  session: Session;
+  onLogout: () => void;
+  activeTab: Tab;
+  setActiveTab: (t: Tab) => void;
+  subView: "edit-profile" | null;
+  setSubView: (v: "edit-profile" | null) => void;
+}) {
   if (subView === "edit-profile") {
     return (
       <div className="flex-1 flex flex-col min-h-0">
@@ -3209,7 +3228,7 @@ function AppShell({ session, onLogout }: { session: Session; onLogout: () => voi
     <div className="flex-1 flex flex-col min-h-0">
       {/* Scrollable content area — fills available space between header and bottom nav */}
       <div className="flex-1 overflow-y-auto">
-        {activeTab === "home"       && <HomeTab session={session} />}
+        {activeTab === "home"       && <HomeTab session={session} onEditProfile={() => setSubView("edit-profile")} />}
         {activeTab === "schedule"   && <ScheduleTab session={session} />}
         {activeTab === "timesheets" && <TimesheetsTab session={session} />}
         {activeTab === "settings"   && (
@@ -3233,8 +3252,16 @@ export function EmployeePortal() {
   const [session, setSession] = useState<Session | null>(() => loadSession());
   useEffect(() => { saveSession(session); }, [session]);
 
+  const [activeTab, setActiveTab] = useState<Tab>("home");
+  const [subView, setSubView] = useState<"edit-profile" | null>(null);
+
   const handleLogout = () => setSession(null);
   const handleLogin  = (s: Session) => { saveSession(s); setSession(s); };
+  const showBack = !!session && (subView !== null || activeTab !== "home");
+  const handleBack = () => {
+    if (subView) setSubView(null);
+    else setActiveTab("home");
+  };
 
   const roleUpper = session?.role?.toUpperCase();
   const { data: headerPermissions = [] } = useQuery<Array<{ role: string; route: string; allowed: boolean }>>({
@@ -3254,7 +3281,25 @@ export function EmployeePortal() {
         {/* Top bar */}
         <header style={{ flexShrink: 0, zIndex: 50, background: "rgba(255,255,255,0.9)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", borderBottom: "1px solid #c1c1c1", paddingTop: "env(safe-area-inset-top)" }}>
           <div style={{ height: 52, display: "flex", alignItems: "center", gap: 10, padding: "0 16px" }}>
-            <img src="/icon-192.png" alt="" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "contain" }} />
+            {showBack ? (
+              <button
+                type="button"
+                onClick={handleBack}
+                data-testid="button-header-back"
+                style={{
+                  width: 36, height: 36, borderRadius: "50%",
+                  background: "#f2f2f2", border: "none", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  flexShrink: 0,
+                  touchAction: "manipulation",
+                  WebkitTapHighlightColor: "transparent",
+                }}
+              >
+                <ArrowLeft style={{ width: 18, height: 18, color: "#222222" }} />
+              </button>
+            ) : (
+              <img src="/icon-192.png" alt="" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "contain" }} />
+            )}
             <span style={{ fontWeight: 600, fontSize: 15, color: "#222222", letterSpacing: "-0.1px", fontFamily: AL.font }}>Staff Portal</span>
             {showAdminDashboard && (
               <button
@@ -3282,7 +3327,14 @@ export function EmployeePortal() {
 
         {/* Main content fills remaining height */}
         {session
-          ? <AppShell session={session} onLogout={handleLogout} />
+          ? <AppShell
+              session={session}
+              onLogout={handleLogout}
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              subView={subView}
+              setSubView={setSubView}
+            />
           : <div style={{ flex: 1, display: "flex", flexDirection: "column", overflowY: "auto" }}>
               <PinLogin onSuccess={handleLogin} />
             </div>
