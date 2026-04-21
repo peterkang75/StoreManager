@@ -1,10 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { MobileLayout } from "@/components/layouts/MobileLayout";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -13,7 +10,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useMobileSession } from "@/hooks/use-mobile-session";
 import {
@@ -25,6 +21,11 @@ import {
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Store } from "@shared/schema";
+
+const A = {
+  font: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, 'Helvetica Neue', sans-serif",
+  shadow: "rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px",
+};
 
 const NOTE_DENOMS = [
   { key: "note100Count", label: "$100", value: 100 },
@@ -45,6 +46,23 @@ function emptyNotes(): NoteCounts {
     note10Count: 0,
     note5Count: 0,
   };
+}
+
+function SectionCard({ title, children }: { title?: string; children: React.ReactNode }) {
+  return (
+    <div style={{ background: "#ffffff", borderRadius: 20, padding: "16px 20px", boxShadow: A.shadow }}>
+      {title && (
+        <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6a6a6a", marginBottom: 16 }}>{title}</p>
+      )}
+      {children}
+    </div>
+  );
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p style={{ fontSize: 13, fontWeight: 500, color: "#222222", marginBottom: 6 }}>{children}</p>
+  );
 }
 
 export function MobileDailyClose() {
@@ -69,7 +87,6 @@ export function MobileDailyClose() {
 
   const [notes, setNotes] = useState<NoteCounts>(emptyNotes);
 
-  // Auto-select store when session loads or stores data arrives
   useEffect(() => {
     if (!session) return;
     const assignedIds = session.storeIds ?? [];
@@ -78,7 +95,6 @@ export function MobileDailyClose() {
     } else if (assignedIds.length === 0 && session.storeId) {
       setStoreId(session.storeId);
     }
-    // length > 1: leave blank so user must choose
   }, [session]);
 
   const { data: stores, isLoading: storesLoading } = useQuery<Store[]>({
@@ -91,9 +107,7 @@ export function MobileDailyClose() {
     return Math.round(sum * 100) / 100;
   }, [notes]);
 
-  // expectedCredit = Prev Float + Cash Sales - Cash Out Total - Next Float
   const expectedCredit = form.previousFloat + form.cashSales - form.cashOutTotal - form.nextFloat;
-  // difference = Expected Credit - Counted Total (shortage is positive)
   const differenceAmount = expectedCredit - totalCounted;
 
   const updateNote = (key: NoteDenomKey, val: string) => {
@@ -122,7 +136,6 @@ export function MobileDailyClose() {
         notes: form.notes || null,
       };
 
-      // envelopeAmount = expectedCredit (for CashSalesEntry auto-fill mapping)
       const closeFormData = {
         storeId,
         date,
@@ -132,7 +145,6 @@ export function MobileDailyClose() {
         numberOfReceipts: form.numberOfReceipts,
         notes: form.notes || null,
         ...notes,
-        // coin fields default to 0 (still in DB schema, just not entered)
         coin2Count: 0,
         coin1Count: 0,
         coin050Count: 0,
@@ -176,9 +188,10 @@ export function MobileDailyClose() {
   if (storesLoading) {
     return (
       <MobileLayout title="Daily Close">
-        <div className="space-y-4">
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-48 w-full" />
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {[0, 1].map(i => (
+            <div key={i} style={{ height: 80, background: "#f2f2f2", borderRadius: 20, animation: "pulse 1.5s ease-in-out infinite" }} />
+          ))}
         </div>
       </MobileLayout>
     );
@@ -187,24 +200,30 @@ export function MobileDailyClose() {
   if (submitted) {
     return (
       <MobileLayout title="Daily Close">
-        <Card>
-          <CardContent className="p-8 text-center">
-            <CheckCircle2 className="w-16 h-16 mx-auto mb-4 text-green-600" />
-            <h2 className="text-2xl font-bold mb-2" data-testid="text-success-title">Submitted!</h2>
-            <p className="text-muted-foreground mb-6">Daily close has been successfully recorded.</p>
-            <div className="space-y-3">
-              <Button onClick={resetForm} className="w-full h-12" data-testid="button-new-close">
-                Submit Another
-              </Button>
-              <Button variant="outline" className="w-full h-12" onClick={() => {
-                clearSession();
-              }} data-testid="button-logout">
-                <LogOut className="w-4 h-4 mr-2" />
-                Sign Out
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <div style={{ background: "#ffffff", borderRadius: 20, padding: 32, textAlign: "center", boxShadow: A.shadow }}>
+          <CheckCircle2 style={{ width: 64, height: 64, color: "#222222", margin: "0 auto 16px" }} />
+          <h2 style={{ fontSize: 24, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px", marginBottom: 8 }} data-testid="text-success-title">Submitted!</h2>
+          <p style={{ fontSize: 14, color: "#6a6a6a", marginBottom: 24 }}>Daily close has been successfully recorded.</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <button
+              type="button"
+              onClick={resetForm}
+              style={{ width: "100%", height: 48, background: "#222222", color: "#ffffff", border: "none", borderRadius: 8, fontSize: 16, fontWeight: 500, cursor: "pointer", fontFamily: A.font }}
+              data-testid="button-new-close"
+            >
+              Submit Another
+            </button>
+            <button
+              type="button"
+              onClick={() => clearSession()}
+              style={{ width: "100%", height: 48, background: "transparent", color: "#6a6a6a", border: "1px solid #c1c1c1", borderRadius: 8, fontSize: 16, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontFamily: A.font }}
+              data-testid="button-logout"
+            >
+              <LogOut style={{ width: 16, height: 16 }} />
+              Sign Out
+            </button>
+          </div>
+        </div>
       </MobileLayout>
     );
   }
@@ -215,28 +234,36 @@ export function MobileDailyClose() {
   const lockedStore = storeId && stores ? stores.find(s => s.id === storeId) : null;
   const isStoreLocked = assignedIds.length === 1;
 
+  const canSubmit = !!storeId && !!date && !submitMutation.isPending;
+
   return (
     <MobileLayout title="Daily Close">
-      <div className="space-y-4 pb-24">
-        {/* Session Info Banner */}
-        <div className="flex items-center justify-between px-1">
+      <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingBottom: 96, fontFamily: A.font }}>
+
+        {/* Session banner */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
-            <p className="text-sm font-semibold">{session?.name ?? "Unknown"}</p>
-            <p className="text-xs text-muted-foreground capitalize">{(session?.role ?? "").toLowerCase()}</p>
+            <p style={{ fontSize: 14, fontWeight: 600, color: "#222222" }}>{session?.name ?? "Unknown"}</p>
+            <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 1, textTransform: "capitalize" }}>{(session?.role ?? "").toLowerCase()}</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => { clearSession(); }} data-testid="button-signout">
-            <LogOut className="w-4 h-4 mr-1" />
+          <button
+            type="button"
+            onClick={() => clearSession()}
+            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#6a6a6a", background: "transparent", border: "none", cursor: "pointer" }}
+            data-testid="button-signout"
+          >
+            <LogOut style={{ width: 14, height: 14 }} />
             Sign Out
-          </Button>
+          </button>
         </div>
 
         {/* Store & Date */}
-        <Card>
-          <CardContent className="p-4 space-y-4">
-            <div className="space-y-2">
-              <Label>Store</Label>
+        <SectionCard>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <FieldLabel>Store</FieldLabel>
               {isStoreLocked ? (
-                <div className="h-12 flex items-center px-3 rounded-md border bg-muted text-base font-medium" data-testid="text-store-locked">
+                <div style={{ height: 48, display: "flex", alignItems: "center", padding: "0 12px", borderRadius: 8, border: "1px solid #c1c1c1", background: "#f2f2f2", fontSize: 16, fontWeight: 500, color: "#222222" }} data-testid="text-store-locked">
                   {lockedStore?.name ?? "—"}
                 </div>
               ) : (
@@ -246,17 +273,15 @@ export function MobileDailyClose() {
                   </SelectTrigger>
                   <SelectContent>
                     {availableStores.map(store => (
-                      <SelectItem key={store.id} value={store.id}>
-                        {store.name}
-                      </SelectItem>
+                      <SelectItem key={store.id} value={store.id}>{store.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               )}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="date">Date</Label>
+            <div>
+              <FieldLabel>Date</FieldLabel>
               <Input
                 id="date"
                 type="date"
@@ -267,26 +292,20 @@ export function MobileDailyClose() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label>Submitted By</Label>
-              <div className="h-12 flex items-center px-3 rounded-md border bg-muted text-base" data-testid="text-submitter-locked">
+            <div>
+              <FieldLabel>Submitted By</FieldLabel>
+              <div style={{ height: 48, display: "flex", alignItems: "center", padding: "0 12px", borderRadius: 8, border: "1px solid #c1c1c1", background: "#f2f2f2", fontSize: 16, color: "#222222" }} data-testid="text-submitter-locked">
                 {session?.name ?? "—"}
               </div>
             </div>
-
-          </CardContent>
-        </Card>
+          </div>
+        </SectionCard>
 
         {/* Sales & Float */}
-        <Card>
-          <CardContent className="p-4 space-y-4">
-            <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
-              Sales & Float
-            </h3>
-
-            {/* Row 1: Previous Float — full width */}
-            <div className="space-y-2">
-              <Label htmlFor="previousFloat">Previous Float</Label>
+        <SectionCard title="Sales & Float">
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <FieldLabel>Previous Float</FieldLabel>
               <Input
                 id="previousFloat"
                 type="text"
@@ -298,222 +317,172 @@ export function MobileDailyClose() {
               />
             </div>
 
-            {/* Row 2: Sales Total + Cash Sales */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="salesTotal">Sales Total</Label>
-                <Input
-                  id="salesTotal"
-                  type="text"
-                  inputMode="decimal"
-                  value={form.salesTotal || ""}
-                  onChange={(e) => updateForm("salesTotal", e.target.value)}
-                  className="h-12 text-base"
-                  data-testid="input-salesTotal"
-                />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <div>
+                <FieldLabel>Sales Total</FieldLabel>
+                <Input id="salesTotal" type="text" inputMode="decimal" value={form.salesTotal || ""} onChange={(e) => updateForm("salesTotal", e.target.value)} className="h-12 text-base" data-testid="input-salesTotal" />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="cashSales">Cash Sales</Label>
-                <Input
-                  id="cashSales"
-                  type="text"
-                  inputMode="decimal"
-                  value={form.cashSales || ""}
-                  onChange={(e) => updateForm("cashSales", e.target.value)}
-                  className="h-12 text-base"
-                  data-testid="input-cashSales"
-                />
+              <div>
+                <FieldLabel>Cash Sales</FieldLabel>
+                <Input id="cashSales" type="text" inputMode="decimal" value={form.cashSales || ""} onChange={(e) => updateForm("cashSales", e.target.value)} className="h-12 text-base" data-testid="input-cashSales" />
               </div>
             </div>
 
-            {/* Row 3: Cash Out Total + No. of Receipts */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="cashOutTotal">Cash Out Total</Label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <div>
+                <FieldLabel>Cash Out Total</FieldLabel>
+                <Input id="cashOutTotal" type="text" inputMode="decimal" value={form.cashOutTotal || ""} onChange={(e) => updateForm("cashOutTotal", e.target.value)} className="h-12 text-base" data-testid="input-cashOutTotal" />
+              </div>
+              <div>
+                <FieldLabel>No. of Receipts</FieldLabel>
+                <Input id="numberOfReceipts" type="text" inputMode="numeric" value={form.numberOfReceipts || ""} onChange={(e) => setForm(prev => ({ ...prev, numberOfReceipts: parseInt(e.target.value) || 0 }))} className="h-12 text-base" data-testid="input-numberOfReceipts" />
+              </div>
+            </div>
+
+            <div>
+              <FieldLabel>Next Float</FieldLabel>
+              <Input id="nextFloat" type="text" inputMode="decimal" value={form.nextFloat || ""} onChange={(e) => updateForm("nextFloat", e.target.value)} className="h-12 text-base" data-testid="input-nextFloat" />
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <div>
+                <FieldLabel>UberEats</FieldLabel>
+                <Input id="ubereats" type="text" inputMode="decimal" value={form.ubereatsAmount || ""} onChange={(e) => updateForm("ubereatsAmount", e.target.value)} className="h-12 text-base" data-testid="input-ubereats" />
+              </div>
+              <div>
+                <FieldLabel>DoorDash</FieldLabel>
+                <Input id="doordash" type="text" inputMode="decimal" value={form.doordashAmount || ""} onChange={(e) => updateForm("doordashAmount", e.target.value)} className="h-12 text-base" data-testid="input-doordash" />
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+
+        {/* Note Count */}
+        <SectionCard title="Note Count">
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
+            {NOTE_DENOMS.map(d => (
+              <div key={d.key} style={{ textAlign: "center" }}>
+                <p style={{ fontSize: 12, fontWeight: 600, color: "#222222", marginBottom: 6 }}>{d.label}</p>
                 <Input
-                  id="cashOutTotal"
-                  type="text"
-                  inputMode="decimal"
-                  value={form.cashOutTotal || ""}
-                  onChange={(e) => updateForm("cashOutTotal", e.target.value)}
-                  className="h-12 text-base"
-                  data-testid="input-cashOutTotal"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={notes[d.key] || ""}
+                  onChange={(e) => updateNote(d.key, e.target.value)}
+                  className="h-14 text-center text-lg font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                  data-testid={`input-${d.key}`}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="numberOfReceipts">No. of Receipts</Label>
-                <Input
-                  id="numberOfReceipts"
-                  type="text"
-                  inputMode="numeric"
-                  value={form.numberOfReceipts || ""}
-                  onChange={(e) => setForm(prev => ({ ...prev, numberOfReceipts: parseInt(e.target.value) || 0 }))}
-                  className="h-12 text-base"
-                  data-testid="input-numberOfReceipts"
-                />
-              </div>
-            </div>
-
-            {/* Row 4: Next Float — full width */}
-            <div className="space-y-2">
-              <Label htmlFor="nextFloat">Next Float</Label>
-              <Input
-                id="nextFloat"
-                type="text"
-                inputMode="decimal"
-                value={form.nextFloat || ""}
-                onChange={(e) => updateForm("nextFloat", e.target.value)}
-                className="h-12 text-base"
-                data-testid="input-nextFloat"
-              />
-            </div>
-
-            {/* Row 5: UberEats + DoorDash */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="ubereats">UberEats</Label>
-                <Input
-                  id="ubereats"
-                  type="text"
-                  inputMode="decimal"
-                  value={form.ubereatsAmount || ""}
-                  onChange={(e) => updateForm("ubereatsAmount", e.target.value)}
-                  className="h-12 text-base"
-                  data-testid="input-ubereats"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="doordash">DoorDash</Label>
-                <Input
-                  id="doordash"
-                  type="text"
-                  inputMode="decimal"
-                  value={form.doordashAmount || ""}
-                  onChange={(e) => updateForm("doordashAmount", e.target.value)}
-                  className="h-12 text-base"
-                  data-testid="input-doordash"
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Notes Count */}
-        <Card>
-          <CardContent className="p-4 space-y-4">
-            <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
-              Note Count
-            </h3>
-
-            <div className="grid grid-cols-5 gap-2">
-              {NOTE_DENOMS.map(d => (
-                <div key={d.key} className="space-y-1 text-center">
-                  <Label className="text-xs font-semibold">{d.label}</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={notes[d.key] || ""}
-                    onChange={(e) => updateNote(d.key, e.target.value)}
-                    className="h-14 text-center text-lg font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
-                    data-testid={`input-${d.key}`}
-                  />
-                  {notes[d.key] > 0 && (
-                    <p className="text-[10px] text-muted-foreground tabular-nums">
-                      ${(notes[d.key] * d.value).toFixed(0)}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <div className="p-3 bg-muted rounded-md">
-              <div className="flex justify-between gap-1">
-                <span className="text-muted-foreground text-sm">Counted Total:</span>
-                <span className="font-bold text-xl" data-testid="text-counted-total">${totalCounted.toFixed(2)}</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Reconciliation */}
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
-              Reconciliation
-            </h3>
-
-            <div className="p-4 bg-muted rounded-md space-y-3">
-              <div className="space-y-1">
-                <div className="flex justify-between gap-1">
-                  <span className="font-semibold">Expected Credit:</span>
-                  <span className="font-bold text-xl" data-testid="text-expected-credit">${expectedCredit.toFixed(2)}</span>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Prev Float + Cash Sales − Cash Out − Next Float
-                </div>
-                <div className="text-xs text-muted-foreground font-mono">
-                  ${form.previousFloat.toFixed(2)} + ${form.cashSales.toFixed(2)} − ${form.cashOutTotal.toFixed(2)} − ${form.nextFloat.toFixed(2)}
-                </div>
-              </div>
-
-              <div className="border-t pt-3">
-                <div className="flex justify-between gap-1 items-center">
-                  <span className="font-semibold">Difference:</span>
-                  <span
-                    className={`font-bold text-xl ${differenceAmount > 0.005 ? "text-red-600" : differenceAmount < -0.005 ? "text-green-600" : ""}`}
-                    data-testid="text-difference"
-                  >
-                    {differenceAmount > 0.005 ? `-$${differenceAmount.toFixed(2)}` : differenceAmount < -0.005 ? `+$${Math.abs(differenceAmount).toFixed(2)}` : `$${differenceAmount.toFixed(2)}`}
-                    {differenceAmount > 0.005 && <span className="text-xs ml-1">(Shortage)</span>}
-                    {differenceAmount < -0.005 && <span className="text-xs ml-1">(Overage)</span>}
-                  </span>
-                </div>
-                <div className="text-xs text-muted-foreground">Expected Credit − Counted Total</div>
-                {differenceAmount > 0.005 && (
-                  <div className="flex items-center gap-1 mt-2 text-red-600 text-sm">
-                    <AlertTriangle className="w-4 h-4" />
-                    <span>Cash shortage detected</span>
-                  </div>
+                {notes[d.key] > 0 && (
+                  <p style={{ fontSize: 10, color: "#6a6a6a", marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
+                    ${(notes[d.key] * d.value).toFixed(0)}
+                  </p>
                 )}
               </div>
+            ))}
+          </div>
+
+          <div style={{ marginTop: 16, padding: "12px 16px", background: "#f2f2f2", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 14, color: "#6a6a6a" }}>Counted Total</span>
+            <span style={{ fontSize: 22, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px" }} data-testid="text-counted-total">${totalCounted.toFixed(2)}</span>
+          </div>
+        </SectionCard>
+
+        {/* Reconciliation */}
+        <SectionCard title="Reconciliation">
+          <div style={{ background: "#f2f2f2", borderRadius: 8, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: "#222222" }}>Expected Credit</span>
+                <span style={{ fontSize: 22, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px" }} data-testid="text-expected-credit">${expectedCredit.toFixed(2)}</span>
+              </div>
+              <p style={{ fontSize: 11, color: "#6a6a6a" }}>Prev Float + Cash Sales − Cash Out − Next Float</p>
+              <p style={{ fontSize: 11, color: "#6a6a6a", fontFamily: "monospace", marginTop: 2 }}>
+                ${form.previousFloat.toFixed(2)} + ${form.cashSales.toFixed(2)} − ${form.cashOutTotal.toFixed(2)} − ${form.nextFloat.toFixed(2)}
+              </p>
             </div>
-          </CardContent>
-        </Card>
+
+            <div style={{ borderTop: "1px solid #c1c1c1", paddingTop: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: "#222222" }}>Difference</span>
+                <span
+                  style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.44px", color: differenceAmount > 0.005 ? "#ef4444" : differenceAmount < -0.005 ? "#222222" : "#6a6a6a" }}
+                  data-testid="text-difference"
+                >
+                  {differenceAmount > 0.005
+                    ? `-$${differenceAmount.toFixed(2)}`
+                    : differenceAmount < -0.005
+                    ? `+$${Math.abs(differenceAmount).toFixed(2)}`
+                    : `$${differenceAmount.toFixed(2)}`}
+                  {differenceAmount > 0.005 && <span style={{ fontSize: 11, marginLeft: 4 }}>(Shortage)</span>}
+                  {differenceAmount < -0.005 && <span style={{ fontSize: 11, marginLeft: 4 }}>(Overage)</span>}
+                </span>
+              </div>
+              <p style={{ fontSize: 11, color: "#6a6a6a" }}>Expected Credit − Counted Total</p>
+              {differenceAmount > 0.005 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, color: "#ef4444", fontSize: 13 }}>
+                  <AlertTriangle style={{ width: 14, height: 14 }} />
+                  <span>Cash shortage detected</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </SectionCard>
 
         {/* Notes */}
-        <Card>
-          <CardContent className="p-4">
-            <div className="space-y-2">
-              <Label htmlFor="notes">Notes</Label>
-              <Textarea
-                id="notes"
-                value={form.notes}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                placeholder="Any additional notes..."
-                className="text-base"
-                data-testid="input-notes"
-              />
-            </div>
-          </CardContent>
-        </Card>
+        <SectionCard>
+          <FieldLabel>Notes</FieldLabel>
+          <Textarea
+            id="notes"
+            value={form.notes}
+            onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            placeholder="Any additional notes..."
+            className="text-base"
+            data-testid="input-notes"
+          />
+        </SectionCard>
+      </div>
 
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t">
-          <Button
-            size="lg"
-            className="w-full h-14 text-base font-semibold"
-            onClick={() => submitMutation.mutate()}
-            disabled={!storeId || !date || submitMutation.isPending}
-            data-testid="button-submit"
-          >
-            {submitMutation.isPending ? (
-              <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-            ) : (
-              <Wallet className="w-5 h-5 mr-2" />
-            )}
-            Submit Daily Close
-          </Button>
-        </div>
+      {/* Fixed submit bar */}
+      <div style={{
+        position: "fixed",
+        bottom: 0,
+        left: 0,
+        right: 0,
+        padding: 16,
+        background: "rgba(255,255,255,0.9)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        borderTop: "1px solid #c1c1c1",
+        paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
+      }}>
+        <button
+          type="button"
+          onClick={() => submitMutation.mutate()}
+          disabled={!canSubmit}
+          style={{
+            width: "100%",
+            height: 56,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            background: canSubmit ? "#222222" : "#f2f2f2",
+            color: canSubmit ? "#ffffff" : "#6a6a6a",
+            border: "none",
+            borderRadius: 8,
+            fontSize: 16,
+            fontWeight: 500,
+            cursor: canSubmit ? "pointer" : "default",
+            fontFamily: A.font,
+            transition: "background 160ms, color 160ms",
+          }}
+          data-testid="button-submit"
+        >
+          {submitMutation.isPending
+            ? <Loader2 style={{ width: 20, height: 20 }} className="animate-spin" />
+            : <Wallet style={{ width: 20, height: 20 }} />}
+          Submit Daily Close
+        </button>
       </div>
     </MobileLayout>
   );
