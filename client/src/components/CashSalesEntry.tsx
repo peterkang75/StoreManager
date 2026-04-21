@@ -185,11 +185,13 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     // First: saved cash-sales records (only meaningful ones — skip pure-zero records)
     if (existingData) {
       for (const rec of [...existingData].filter(isMeaningfulCashSale).sort((a, b) => a.date.localeCompare(b.date))) {
+        const env = typeof rec.envelopeAmount === "string" ? parseFloat(rec.envelopeAmount) || 0 : (rec.envelopeAmount ?? 0);
+        const cnt = typeof rec.countedAmount === "string" ? parseFloat(rec.countedAmount) || 0 : (rec.countedAmount ?? 0);
         const row: RowData = {
           date: rec.date,
           envelopeAmount: rec.envelopeAmount,
           countedAmount: rec.countedAmount,
-          differenceAmount: rec.differenceAmount,
+          differenceAmount: Math.round((cnt - env) * 100) / 100,
           memo: (rec as any).memo ?? "",
         };
         for (const denom of ALL_DENOMINATIONS) row[denom.key] = (rec as any)[denom.key] ?? 0;
@@ -212,7 +214,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
           date: cf.date,
           envelopeAmount: expectedCredit,
           countedAmount: countedTotal,
-          differenceAmount: Math.round((expectedCredit - countedTotal) * 100) / 100,
+          differenceAmount: Math.round((countedTotal - expectedCredit) * 100) / 100,
           memo: cf.notes ?? "",
         };
         for (const denom of ALL_DENOMINATIONS) row[denom.key] = (cf as any)[denom.key] ?? 0;
@@ -255,7 +257,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
         if (field !== "envelopeAmount") {
           row.countedAmount = calcCounted(row);
         }
-        row.differenceAmount = Math.round(((row.envelopeAmount as number) - (row.countedAmount as number)) * 100) / 100;
+        row.differenceAmount = Math.round(((row.countedAmount as number) - (row.envelopeAmount as number)) * 100) / 100;
         next[index] = row;
         return next;
       });
@@ -273,7 +275,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
   }, [rows]);
 
   const totalDifference = useMemo(() => {
-    return Math.round((totalEnvelope - grandTotal) * 100) / 100;
+    return Math.round((grandTotal - totalEnvelope) * 100) / 100;
   }, [totalEnvelope, grandTotal]);
 
   const saveMutation = useMutation({
@@ -676,7 +678,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                       className={`px-1 py-0.5 border-b border-r text-right font-mono text-xs tabular-nums ${hasDiff ? "text-red-600 dark:text-red-400 font-bold" : "text-muted-foreground"}`}
                       data-testid={`text-diff-${idx}`}
                     >
-                      {hasDiff ? `$${diff.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
+                      {hasDiff ? `${diff > 0 ? "+" : "-"}$${Math.abs(diff).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
                     </td>
                     <td className="px-0.5 py-0.5 border-b border-r relative">
                       {expandedMemoIdx === idx ? (
@@ -788,7 +790,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                   data-testid="text-total-diff"
                 >
                   {Math.abs(totalDifference) >= 0.01
-                    ? `$${totalDifference.toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+                    ? `${totalDifference > 0 ? "+" : "-"}$${Math.abs(totalDifference).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
                     : "—"}
                 </td>
                 <td className="px-1 py-1.5 border-t-2 border-r"></td>
