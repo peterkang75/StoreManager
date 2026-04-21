@@ -609,96 +609,131 @@ function UnscheduledShiftDrawer({
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  const A = {
+    font: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, 'Helvetica Neue', sans-serif",
+  };
+
   return (
     <Drawer open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DrawerContent>
+      <DrawerContent style={{ fontFamily: A.font, background: "#ffffff" }}>
         <DrawerHeader>
-          <DrawerTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
+          <DrawerTitle style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 20, fontWeight: 700, color: "#222222", letterSpacing: "-0.2px" }}>
+            <AlertTriangle style={{ width: 18, height: 18, color: "#ef4444" }} />
             Log Unscheduled Shift
           </DrawerTitle>
-          <p className="text-sm text-muted-foreground text-left">{today} · Hours will be pending manager approval</p>
+          <p style={{ fontSize: 13, color: "#6a6a6a", textAlign: "left", marginTop: 4 }}>{today} · Hours will be pending manager approval</p>
         </DrawerHeader>
 
-        <div className="flex flex-col gap-4 px-4 pb-2">
+        <div style={{ display: "flex", flexDirection: "column", gap: 18, padding: "0 16px 8px" }}>
           {/* Store */}
-          <div className="flex flex-col gap-1.5">
-            <Label>Store worked at</Label>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <label style={{ fontSize: 13, fontWeight: 500, color: "#222222" }}>Store worked at</label>
             <Select value={storeId} onValueChange={setStoreId}>
-              <SelectTrigger data-testid="select-unscheduled-store">
+              <SelectTrigger data-testid="select-unscheduled-store" style={{ height: 52, fontSize: 16, borderRadius: 12, fontFamily: A.font, background: "#ffffff", border: "1px solid #c1c1c1", color: "#222222" }}>
                 <SelectValue placeholder="Select store…" />
               </SelectTrigger>
               <SelectContent>
                 {stores.map(s => (
-                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  <SelectItem key={s.id} value={s.id} style={{ fontSize: 16, padding: "12px 14px" }}>{s.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
 
           {/* Start / End time */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label>Start Time</Label>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label style={{ fontSize: 13, fontWeight: 500, color: "#222222" }}>Start Time</label>
               <Select value={startTime} onValueChange={setStartTime}>
-                <SelectTrigger data-testid="select-unscheduled-start">
+                <SelectTrigger data-testid="select-unscheduled-start" style={{ height: 52, fontSize: 16, borderRadius: 12, fontFamily: A.font, background: "#ffffff", border: "1px solid #c1c1c1", color: "#222222" }}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="max-h-52">
-                  {TIME_SLOTS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                  {TIME_SLOTS.map(t => <SelectItem key={t} value={t} style={{ fontSize: 16, padding: "12px 14px" }}>{t}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>End Time</Label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label style={{ fontSize: 13, fontWeight: 500, color: "#222222" }}>End Time</label>
               <Select value={endTime} onValueChange={setEndTime}>
-                <SelectTrigger data-testid="select-unscheduled-end">
+                <SelectTrigger data-testid="select-unscheduled-end" style={{ height: 52, fontSize: 16, borderRadius: 12, fontFamily: A.font, background: "#ffffff", border: "1px solid #c1c1c1", color: "#222222" }}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="max-h-52">
-                  {TIME_SLOTS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                  {TIME_SLOTS.map(t => <SelectItem key={t} value={t} style={{ fontSize: 16, padding: "12px 14px" }}>{t}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
           </div>
 
           {hours > 0 && (
-            <p className="text-xs text-muted-foreground tabular-nums">
-              Total: <span className="font-semibold text-foreground">{hours.toFixed(1)} hrs</span>
+            <p style={{ fontSize: 13, color: "#6a6a6a", fontVariantNumeric: "tabular-nums" }}>
+              Total: <span style={{ fontWeight: 600, color: "#222222" }}>{hours.toFixed(1)} hrs</span>
             </p>
           )}
           {hours <= 0 && startTime && endTime && (
-            <p className="text-xs text-destructive">End time must be after start time</p>
+            <p style={{ fontSize: 13, color: "#ef4444" }}>End time must be after start time</p>
           )}
 
           {/* Reason — required */}
-          <div className="flex flex-col gap-1.5">
-            <Label>
-              Reason <span className="text-destructive">*</span>
-            </Label>
-            <Textarea
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <label style={{ fontSize: 13, fontWeight: 500, color: "#222222" }}>
+              Reason <span style={{ color: "#ef4444" }}>*</span>
+            </label>
+            <textarea
               data-testid="textarea-unscheduled-reason"
               placeholder="e.g. Covering for sick staff, called in by manager…"
               value={reason}
               onChange={e => setReason(e.target.value)}
-              className="resize-none text-sm"
               rows={3}
+              style={{
+                width: "100%", boxSizing: "border-box",
+                padding: "12px 14px", fontSize: 16, color: "#222222",
+                background: "#ffffff", border: "1px solid #c1c1c1", borderRadius: 12,
+                fontFamily: A.font, outline: "none", resize: "none",
+                lineHeight: 1.5,
+              }}
             />
-            <p className="text-xs text-muted-foreground">Required — explain why you worked without a scheduled shift</p>
+            <p style={{ fontSize: 12, color: "#6a6a6a" }}>Required — explain why you worked without a scheduled shift</p>
           </div>
         </div>
 
-        <DrawerFooter className="pt-2">
-          <Button
+        <DrawerFooter style={{ paddingTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+          <button
+            type="button"
             data-testid="button-submit-unscheduled"
             onClick={() => submitMutation.mutate()}
             disabled={!canSubmit || submitMutation.isPending}
-            className="w-full"
+            style={{
+              width: "100%", height: 56,
+              background: !canSubmit || submitMutation.isPending ? "#f2f2f2" : "#ef4444",
+              color: !canSubmit || submitMutation.isPending ? "#6a6a6a" : "#ffffff",
+              border: "none", borderRadius: 12,
+              fontSize: 17, fontWeight: 600,
+              cursor: !canSubmit || submitMutation.isPending ? "default" : "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              fontFamily: A.font,
+              touchAction: "manipulation",
+              WebkitTapHighlightColor: "transparent",
+            }}
           >
-            {submitMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            {submitMutation.isPending && <Loader2 style={{ width: 18, height: 18 }} className="animate-spin" />}
             Submit for Approval
-          </Button>
-          <Button variant="ghost" onClick={onClose} disabled={submitMutation.isPending}>Cancel</Button>
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitMutation.isPending}
+            style={{
+              width: "100%", height: 48,
+              background: "transparent", color: "#222222",
+              border: "none", borderRadius: 12,
+              fontSize: 15, fontWeight: 500,
+              cursor: "pointer", fontFamily: A.font,
+              touchAction: "manipulation",
+              WebkitTapHighlightColor: "transparent",
+            }}
+          >Cancel</button>
         </DrawerFooter>
       </DrawerContent>
     </Drawer>
