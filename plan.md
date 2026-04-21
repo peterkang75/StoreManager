@@ -625,6 +625,44 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 
 ---
 
+### 3.21 Recent Polish & UX Hardening ✅ COMPLETE
+
+A grouped record of incremental polish work that landed across multiple modules but doesn't warrant its own section. Each item is fully shipped to production.
+
+**Global Design System & Brand Colours ✅**
+- Sushime brand green (`#16a34a`) and Eat'em brand red (`#dc2626`) applied consistently as the source of truth for store identity across every surface: store cards, payroll headers, AP store toggle buttons, dashboard stat cards, roster grid colour bars, and badge colour mapping.
+- Hard-coded brand hex values are intentional (not theme tokens) so the colours never shift between light/dark mode or accidentally inherit a Shadcn theme change.
+
+**Dashboard — 2-Week Payroll Cycle Stacked Bar ✅**
+- Replaced the older daily/weekly bar with a **fortnightly Stacked Bar** keyed to the fixed pay-cycle anchor (§5).
+- Each bar = one full 14-day cycle; stacks layer Sushi (green) on top of Sandwich (red) for direct visual comparison of labour cost per cycle.
+- X-axis labels use the cycle's `start – end` range (e.g. `Apr 6 – Apr 19`); tooltip shows per-store breakdown + total.
+- Source data: `/api/dashboard/summary` aggregated by cycle, with the `periodStart > endDate` overlap fix (§3.6).
+
+**Triage Inbox Polish ✅**
+- **CSS / HTML body sanitisation**: `sanitizeInboxBodies()` startup migration strips raw HTML, inline CSS, and email-client scaffolding from `universal_inbox.body` so cards render clean Korean/English plain text. Runs once on every deploy in `server/index.ts`.
+- **"View Full Email" modal**: Each inbox card now has a "View Full Email" action that opens a modal with the full sanitised body, AI-generated Korean summary (cached per item), and original sender + reply-to header inspection.
+- **Advanced sender parsing**: 6-priority resolution hierarchy (§3.13) — handles Google Groups `via` pattern, Xero/MYOB/QuickBooks generic-service Reply-To extraction, internal-group "Name via Group" Pattern B cleanup, and standard From fallback. Re-applied retroactively via `fixViaEmailSenders()` + `fixGenericServiceSenders()` startup migrations.
+
+**AccountsPayable UI Polish ✅**
+- Supplier accordions default to **collapsed** on every page/tab load (`openAccordions = []`) — no more long scrolling past hundreds of expanded rows.
+- **Selected amount display**: Real-time "$X selected (N)" appears in primary accent colour next to each supplier's total whenever ≥1 invoice in that group is checked. Replicated in the page-header summary card.
+- **Header re-alignment**: 3-zone flex row (Left = checkbox + supplier name + Direct Debit badge + count · Centre = Total + Selected · Far right = Overdue badge + ChevronDown rotating 180° on open). See §3.14 for full layout spec.
+
+**Payroll Field Polish ✅**
+- **Memo field persistence**: Per-employee payroll Memo notes are saved into the same `sessionStorage` draft envelope as the rest of the row (`payrollDrafts_${storeId}_${periodStart}_${periodEnd}`). HMR / store toggle / period switch no longer wipes manager-typed notes; they only purge after the payroll is finalised to DB.
+- **Number-input scroll prevention**: All `<Input type="number">` payroll cells (hours, rate, adjustment, cash split, bank split) now register `onWheel={(e) => e.currentTarget.blur()}` so scrolling the page over a focused number input no longer accidentally increments/decrements the value.
+
+**Mobile Portal Polish ✅**
+- **Logo placements**: Sushime / Eat'em store logos appear in the portal login picker (per-store cards), HomeTab header (current-store branding), and the PWA splash screen. SVG sources stored under `client/public/logos/`.
+- **PWA base setup (Manifest + Service Worker shell)**:
+  - `client/public/manifest.json` — name, short_name, `start_url: /m/portal`, `display: standalone`, theme/background colour, icon set (192/512 + maskable).
+  - `client/public/sw.js` — minimal service worker registered from `client/index.html`. Currently no-op cache (just registration scaffolding); offline asset caching + background sync is deferred (§6.3.1).
+  - `<meta name="theme-color">`, `apple-mobile-web-app-capable`, `apple-touch-icon` all wired in `client/index.html`.
+- **Notification permission request UI**: SettingsTab in EmployeePortal includes a "Enable Notifications" button that calls `Notification.requestPermission()` and shows the resolved state (Granted / Denied / Default) as a Badge. The actual push pipeline + cron-driven notifications are deferred (§6.3.2).
+
+---
+
 ## 4. API Endpoints
 
 ### Stores
@@ -936,6 +974,21 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 > Single source of truth for all project phases — completed, in-progress, and deferred.
 > Cross-references the detailed feature documentation in §3 (Implemented Modules).
 
+### 6.0 Active Issues & Bug Fixes 🚨 (Immediate Priority)
+
+> Open production bugs and stability issues that take precedence over §6.2 feature work.
+
+- [ ] **Production 401 Unauthorized error** — API requests in the deployed environment intermittently return HTTP 401 even for endpoints that succeed in development.
+  - **Investigation surface**: API auth middleware in `server/routes.ts` (PIN-protected routes + webhook Basic Auth), plus the production environment-variable set in Replit Secrets.
+  - **Likely culprits**: missing or stale `CLOUDMAILIN_USER` / `CLOUDMAILIN_PASS` / `OPENAI_API_KEY` in production, session/cookie middleware behaving differently behind the deploy proxy, or a CORS/credentials mismatch on cross-subdomain requests.
+  - **First step**: pull deployment logs around the 401 timestamps + diff the production secrets list against the dev secrets list.
+
+- [ ] **Statement vs Invoice reconciliation stability** — Suppliers that send Statements of Account occasionally produce duplicate AP records or miss individual invoice extraction.
+  - **Current safeguards** (§3.15): `isStatement` flag on every `ParsedInvoice`, statement-with-1-row → forced REVIEW with `"possibly a grand-total error"` note, multi-row statements deduplicated by `(supplierId, invoiceNumber)`.
+  - **Remaining work**: Tighten the "is this an invoice number we already have?" check (currently exact match on `invoiceNumber`; suppliers occasionally send the same statement twice with whitespace or prefix differences). Add an explicit reconciliation report on the AP page that lists every statement-origin REVIEW item and what it would reconcile against.
+
+---
+
 ### 6.1 Completed Phases ✅
 
 | Phase | Title | Detail Section |
@@ -1034,6 +1087,31 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 #### 6.3.6 Sales Sync Webhook (catering → management)
 - **Status:** Future, dependent on §6.3.4.
 - **Scope:** Catering app POSTs completed order/sales data to this management system's `/api/dashboard/summary` in real-time, eliminating manual sales entry for catering revenue.
+
+#### 6.3.7 Automated Notification Logic (Cron Jobs)
+- **Status:** Logged for later — companion to the deferred PWA Service Worker (§6.3.1).
+- **Scope:** Server-side cron / scheduled jobs that fire automatic notifications without manager intervention:
+  - **Clock-in reminder** — N minutes before a rostered shift start, push to the rostered employee.
+  - **Clock-out reminder** — N minutes after shift end if no clock-out recorded, push to the employee.
+  - **Daily Close Form reminder** — fire to closing-shift employees of Sushi/Sandwich at the store's `closeTime` if no form submitted.
+- **Prereq:** Push subscription pipeline from §6.3.1 + `Notification.requestPermission()` UI (already shipped per §3.21) + a job runner (`node-cron` or similar, registered in `server/index.ts`).
+- **Design rule:** Same opt-in principle as §6.4 — notifications are reminders, never silent state mutations.
+
+#### 6.3.8 Full Storage List Implementation
+- **Status:** ⚠️ Already shipped — see §6.1.6 + §3 (`storageItems`, `activeStorageList`, `storageUnits` tables, `/admin/storage` admin page, `StorageListView` portal component, dynamic units management).
+- **Listed here for traceability** because it appeared on the original future-roadmap discussion. If the request was for *additional* storage features (e.g. low-stock alerts, automatic reorder suggestions, supplier link from stock items), file those as new sub-items.
+
+#### 6.3.9 Custom Domain & SSL Setup
+- **Status:** Logged for later (post-launch).
+- **Scope:** Move the production deployment off the default `*.replit.app` URL onto a custom Australian domain (e.g. `.com.au`). Configure DNS (A/CNAME), point at Replit's deployment, verify automatic SSL provisioning, update PWA `manifest.json` `start_url`, update Cloudmailin webhook URL, update any hard-coded URLs in mailer templates.
+- **Prereq:** Domain purchase + DNS access. Coordinate with §6.0 401 fix so the auth/cookie config is solid before introducing a new origin.
+
+#### 6.3.10 Shopping List Optimisation
+- **Status:** Partially complete — sort-by-`selectionCount` already shipped (§6.1.6). Remaining work below.
+- **Scope:**
+  - **"Frequently Bought Items" surface** — promote the top-N items per store to a dedicated "Quick Add" row at the top of `ShoppingListView`, separate from the category-grouped catalogue. Computed from `selectionCount` over a rolling time window (last 30 days) rather than all-time.
+  - **Mobile swipe-to-complete** — currently items are ticked off via tap. Add native-feeling left-swipe-to-remove gesture (e.g. via Framer Motion drag) so finger-only operation while shopping is faster.
+- **Prereq:** None.
 
 ---
 

@@ -1,0 +1,24 @@
+Please update the 'Plan.md' file to reflect the current project status and include newly identified future tasks. The current 'Plan.md' is outdated compared to the actual progress.
+
+### 1. Update Existing Phases to "Completed"
+Mark the following items as completed (checked [x]) as they have already been implemented:
+- Global Design System & Brand Colors (Sushime/Eat'em specific colors).
+- Dashboard refactoring: 2-week Payroll cycle graph with Stacked Bar logic.
+- Triage Inbox fixes: CSS cleaning, "View Full Email" modal, and advanced sender parsing (Google via/Xero Reply-To logic).
+- AP UI improvements: Accordion default collapsed, selected amount display, and header realignment.
+- Payroll fixes: Memo field persistence and number input scroll prevention.
+- Mobile Portal: Logo placements, PWA (Manifest/Service Worker) base setup, and notification permission request UI.
+
+### 2. Add "Active Issues & Bug Fixes" Section
+Add a new section for immediate priorities that were not in the original plan:
+- [ ] Fix Production 401 Unauthorized error: Investigate API auth middleware and Environment Variables (Secrets) in the production environment.
+- [ ] Stabilize Statement vs Invoice reconciliation: Ensure statement totals don't create duplicate AP records and individual invoices are correctly extracted.
+
+### 3. Add "Future Roadmap (Backlog)" Section
+Add these specifically discussed future tasks to Phase 4 or a new "Post-Launch Enhancement" section:
+- [ ] Automated Notification Logic (Cron Jobs): Implement server-side triggers for clock-in/out reminders and closing form reminders.
+- [ ] Full Storage List Implementation: Build the database and UI for inventory tracking (separate from the Shopping List).
+- [ ] Custom Domain Integration: Setup official domain (e.g., .com.au) and SSL, moving away from the default replit.app domain.
+- [ ] Shopping List Optimization: Implement the "Frequently Bought Items" sorting logic and mobile swipe-to-complete interactions.
+
+Please rewrite the Plan.md comprehensively so it serves as an accurate source of truth for the project.
