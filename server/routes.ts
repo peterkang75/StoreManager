@@ -5225,11 +5225,16 @@ export async function registerRoutes(
   app.post("/api/universal-inbox/:id/route", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { action } = req.body;
+      const { action, matchType: rawMatchType } = req.body as { action: string; matchType?: string };
       const validActions = ["ROUTE_TO_AP", "ROUTE_TO_TODO", "FYI_ARCHIVE", "SPAM_DROP"];
       if (!validActions.includes(action)) {
         return res.status(400).json({ error: "action must be one of: ROUTE_TO_AP, ROUTE_TO_TODO, FYI_ARCHIVE, SPAM_DROP" });
       }
+      // Only SPAM_DROP may use DOMAIN / SUBSTRING aggressive matching
+      const matchType: "EXACT" | "DOMAIN" | "SUBSTRING" =
+        action === "SPAM_DROP" && (rawMatchType === "DOMAIN" || rawMatchType === "SUBSTRING")
+          ? rawMatchType
+          : "EXACT";
 
       const item = await storage.getUniversalInboxItem(id);
       if (!item) return res.status(404).json({ error: "Item not found" });
@@ -5326,26 +5331,43 @@ export async function registerRoutes(
         });
       }
 
-      // 1. Save the routing rule for this sender so future emails are routed automatically
+      // 1. Save the routing rule. For DOMAIN/SUBSTRING (SPAM_DROP only), the
+      //    pattern we store is the domain or substring, not the full address.
+      let rulePattern = trueSenderEmail;
+      if (matchType === "DOMAIN") {
+        const atIdx = trueSenderEmail.lastIndexOf("@");
+        rulePattern = atIdx >= 0 ? trueSenderEmail.slice(atIdx + 1) : trueSenderEmail;
+      } else if (matchType === "SUBSTRING") {
+        // Client sends the desired substring via req.body.pattern; fall back to domain
+        const provided = typeof (req.body as any).pattern === "string" ? (req.body as any).pattern : "";
+        const atIdx = trueSenderEmail.lastIndexOf("@");
+        rulePattern = provided.trim().toLowerCase() || (atIdx >= 0 ? trueSenderEmail.slice(atIdx + 1).split(".")[0] : trueSenderEmail);
+      }
       await storage.upsertEmailRoutingRule({
-        email: trueSenderEmail,
+        email: rulePattern,
         action,
+        matchType,
         supplierName: trueSenderName,
       });
 
       // 2. Process the email based on the chosen action
-      let processResult: any = { action };
+      let processResult: any = { action, matchType, pattern: rulePattern };
 
       // 3. Mark item as processed or dropped immediately (before heavy AI work)
       const newStatus = (action === "SPAM_DROP" || action === "FYI_ARCHIVE") ? "DROPPED" : "PROCESSED";
       await storage.updateUniversalInboxItem(id, { status: newStatus });
 
-      // 3a. For SPAM_DROP: bulk-drop all other NEEDS_ROUTING emails from the same sender
+      // 3a. For SPAM_DROP: bulk-drop all other NEEDS_ROUTING emails that match
+      //     the rule (EXACT = same address; DOMAIN/SUBSTRING = aggressive).
       let bulkDropped = 0;
       if (action === "SPAM_DROP") {
-        bulkDropped = await storage.dropInboxItemsBySender(trueSenderEmail, id);
+        if (matchType === "EXACT") {
+          bulkDropped = await storage.dropInboxItemsBySender(trueSenderEmail, id);
+        } else {
+          bulkDropped = await storage.dropInboxItemsByPattern(rulePattern, matchType, id);
+        }
         if (bulkDropped > 0) {
-          console.log(`[TriageRoute] SPAM_DROP bulk-dropped ${bulkDropped} additional item(s) from ${trueSenderEmail}`);
+          console.log(`[TriageRoute] SPAM_DROP (${matchType}:${rulePattern}) bulk-dropped ${bulkDropped} additional item(s)`);
         }
       }
 

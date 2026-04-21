@@ -130,6 +130,13 @@ interface ConfirmDialog {
   senderEmail: string;
 }
 
+type SpamMatchType = "EXACT" | "DOMAIN";
+
+function extractDomain(addr: string): string {
+  const atIdx = addr.lastIndexOf("@");
+  return atIdx >= 0 ? addr.slice(atIdx + 1) : addr;
+}
+
 const SUGGESTED_ACTION_LABEL: Record<RouteAction, string> = {
   ROUTE_TO_AP: "Payables",
   ROUTE_TO_TODO: "To-Do",
@@ -525,6 +532,7 @@ function InboxItemCard({
 export function AdminTriageInbox() {
   const { toast } = useToast();
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialog | null>(null);
+  const [spamMatch, setSpamMatch] = useState<SpamMatchType>("DOMAIN");
   const [viewItem, setViewItem] = useState<TriageItem | null>(null);
   const [activeTab, setActiveTab] = useState("needs-routing");
 
@@ -533,8 +541,10 @@ export function AdminTriageInbox() {
   });
 
   const routeMutation = useMutation({
-    mutationFn: async ({ id, action }: { id: string; action: RouteAction }) => {
-      const res = await apiRequest("POST", `/api/universal-inbox/${id}/route`, { action });
+    mutationFn: async ({ id, action, matchType }: { id: string; action: RouteAction; matchType?: SpamMatchType }) => {
+      const body: any = { action };
+      if (matchType) body.matchType = matchType;
+      const res = await apiRequest("POST", `/api/universal-inbox/${id}/route`, body);
       return res.json();
     },
     onSuccess: (data: any, { action }) => {
@@ -592,12 +602,14 @@ export function AdminTriageInbox() {
   function handleActionClick(id: string, action: RouteAction) {
     const item = allItems.find(i => i.id === id);
     if (!item) return;
+    setSpamMatch("DOMAIN"); // default to aggressive when opening spam dialog
     setConfirmDialog({ itemId: id, action, senderEmail: resolveTrueSenderEmail(item) });
   }
 
   function handleConfirm() {
     if (!confirmDialog) return;
-    routeMutation.mutate({ id: confirmDialog.itemId, action: confirmDialog.action });
+    const matchType = confirmDialog.action === "SPAM_DROP" ? spamMatch : undefined;
+    routeMutation.mutate({ id: confirmDialog.itemId, action: confirmDialog.action, matchType });
     setConfirmDialog(null);
   }
 
@@ -735,13 +747,57 @@ export function AdminTriageInbox() {
             <AlertDialogHeader>
               <AlertDialogTitle>Confirm Routing Rule</AlertDialogTitle>
               <AlertDialogDescription asChild>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <p>
                     Set routing rule for <strong>{confirmDialog.senderEmail}</strong>:
                   </p>
                   <p className="text-sm">
                     {ACTION_CONFIG[confirmDialog.action].description}
                   </p>
+                  {confirmDialog.action === "SPAM_DROP" && (
+                    <div className="rounded-md border border-border p-3 space-y-2">
+                      <p className="text-xs font-semibold text-foreground">
+                        어떤 범위까지 스팸으로 처리할까요?
+                      </p>
+                      <label className="flex items-start gap-2 cursor-pointer text-sm">
+                        <input
+                          type="radio"
+                          name="spam-match"
+                          value="DOMAIN"
+                          checked={spamMatch === "DOMAIN"}
+                          onChange={() => setSpamMatch("DOMAIN")}
+                          className="mt-0.5"
+                          data-testid="radio-spam-domain"
+                        />
+                        <span>
+                          <span className="font-medium">도메인 전체</span>{" "}
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {extractDomain(confirmDialog.senderEmail)}
+                          </span>
+                          <span className="block text-xs text-muted-foreground mt-0.5">
+                            같은 도메인에서 오는 모든 주소 (발송주소가 매번 바뀌는 광고에 추천)
+                          </span>
+                        </span>
+                      </label>
+                      <label className="flex items-start gap-2 cursor-pointer text-sm">
+                        <input
+                          type="radio"
+                          name="spam-match"
+                          value="EXACT"
+                          checked={spamMatch === "EXACT"}
+                          onChange={() => setSpamMatch("EXACT")}
+                          className="mt-0.5"
+                          data-testid="radio-spam-exact"
+                        />
+                        <span>
+                          <span className="font-medium">이 주소만</span>
+                          <span className="block text-xs text-muted-foreground mt-0.5">
+                            정확히 이 발송주소에서 오는 메일만
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                  )}
                   <p className="text-xs text-muted-foreground">
                     이 이메일도 즉시 선택한 라우팅 방식으로 처리됩니다.
                   </p>

@@ -50,7 +50,7 @@ import {
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import { db } from "./db";
-import { eq, desc, and, gte, lte, or, ilike, isNull, asc, sql, ne } from "drizzle-orm";
+import { eq, desc, and, gte, lte, or, ilike, isNull, asc, sql, ne, inArray } from "drizzle-orm";
 
 export interface IStorage {
   getStores(): Promise<Store[]>;
@@ -163,6 +163,7 @@ export interface IStorage {
   deleteUniversalInboxItem(id: string): Promise<boolean>;
   /** Bulk-drop all NEEDS_ROUTING items from the given sender (excluding the one already handled). Returns count. */
   dropInboxItemsBySender(senderEmail: string, excludeId: string): Promise<number>;
+  dropInboxItemsByPattern(pattern: string, matchType: "DOMAIN" | "SUBSTRING", excludeId?: string): Promise<number>;
 
   getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]>;
   getNotice(id: string): Promise<Notice | undefined>;
@@ -1151,7 +1152,22 @@ export class MemStorage implements IStorage {
   }
 
   async getEmailRoutingRule(email: string): Promise<EmailRoutingRule | undefined> {
-    return this.emailRoutingRulesMap.get(email.toLowerCase());
+    const addr = email.toLowerCase();
+    const exact = this.emailRoutingRulesMap.get(addr);
+    if (exact && (exact.matchType ?? "EXACT") === "EXACT") return exact;
+    for (const rule of this.emailRoutingRulesMap.values()) {
+      const mt = rule.matchType ?? "EXACT";
+      if (mt === "EXACT") continue;
+      const pattern = rule.email;
+      if (mt === "DOMAIN") {
+        const atIdx = addr.lastIndexOf("@");
+        const domain = atIdx >= 0 ? addr.slice(atIdx + 1) : addr;
+        if (domain === pattern || domain.endsWith("." + pattern)) return rule;
+      } else if (mt === "SUBSTRING") {
+        if (addr.includes(pattern)) return rule;
+      }
+    }
+    return exact;
   }
 
   async upsertEmailRoutingRule(data: InsertEmailRoutingRule): Promise<EmailRoutingRule> {
@@ -1160,6 +1176,7 @@ export class MemStorage implements IStorage {
     const rule: EmailRoutingRule = {
       email: normalizedEmail,
       action: data.action,
+      matchType: data.matchType ?? "EXACT",
       supplierName: data.supplierName ?? null,
       createdAt: existing?.createdAt ?? new Date(),
     };
@@ -1251,6 +1268,29 @@ export class MemStorage implements IStorage {
     let count = 0;
     for (const [itemId, item] of this.universalInboxMap) {
       if (itemId !== excludeId && item.senderEmail.toLowerCase() === lower && item.status === "NEEDS_ROUTING") {
+        this.universalInboxMap.set(itemId, { ...item, status: "DROPPED" });
+        count++;
+      }
+    }
+    return count;
+  }
+
+  async dropInboxItemsByPattern(pattern: string, matchType: "DOMAIN" | "SUBSTRING", excludeId?: string): Promise<number> {
+    const pat = pattern.toLowerCase();
+    let count = 0;
+    for (const [itemId, item] of this.universalInboxMap) {
+      if (excludeId && itemId === excludeId) continue;
+      if (item.status !== "NEEDS_ROUTING") continue;
+      const addr = item.senderEmail.toLowerCase();
+      let hit = false;
+      if (matchType === "DOMAIN") {
+        const atIdx = addr.lastIndexOf("@");
+        const domain = atIdx >= 0 ? addr.slice(atIdx + 1) : addr;
+        hit = domain === pat || domain.endsWith("." + pat);
+      } else {
+        hit = addr.includes(pat);
+      }
+      if (hit) {
         this.universalInboxMap.set(itemId, { ...item, status: "DROPPED" });
         count++;
       }
@@ -2279,9 +2319,29 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getEmailRoutingRule(email: string): Promise<EmailRoutingRule | undefined> {
-    const [rule] = await db.select().from(emailRoutingRules)
-      .where(eq(emailRoutingRules.email, email.toLowerCase()));
-    return rule;
+    const addr = email.toLowerCase();
+    // 1. EXACT match — fastest, indexed PK lookup
+    const [exact] = await db.select().from(emailRoutingRules)
+      .where(and(eq(emailRoutingRules.email, addr), eq(emailRoutingRules.matchType, "EXACT")));
+    if (exact) return exact;
+    // 2. DOMAIN / SUBSTRING — scan aggressive rules only (small set)
+    const fuzzy = await db.select().from(emailRoutingRules)
+      .where(or(
+        eq(emailRoutingRules.matchType, "DOMAIN"),
+        eq(emailRoutingRules.matchType, "SUBSTRING"),
+      ));
+    for (const rule of fuzzy) {
+      const pattern = rule.email; // already lowercased on insert
+      if (rule.matchType === "DOMAIN") {
+        // sender's domain part (after @) equals or ends with the pattern
+        const atIdx = addr.lastIndexOf("@");
+        const domain = atIdx >= 0 ? addr.slice(atIdx + 1) : addr;
+        if (domain === pattern || domain.endsWith("." + pattern)) return rule;
+      } else if (rule.matchType === "SUBSTRING") {
+        if (addr.includes(pattern)) return rule;
+      }
+    }
+    return undefined;
   }
 
   async upsertEmailRoutingRule(data: InsertEmailRoutingRule): Promise<EmailRoutingRule> {
@@ -2290,7 +2350,11 @@ export class DatabaseStorage implements IStorage {
       .values(normalizedData)
       .onConflictDoUpdate({
         target: emailRoutingRules.email,
-        set: { action: normalizedData.action, supplierName: normalizedData.supplierName ?? null },
+        set: {
+          action: normalizedData.action,
+          supplierName: normalizedData.supplierName ?? null,
+          matchType: normalizedData.matchType ?? "EXACT",
+        },
       })
       .returning();
     return rule;
@@ -2366,6 +2430,31 @@ export class DatabaseStorage implements IStorage {
         )
       );
     return (result as any).rowCount ?? 0;
+  }
+
+  // Aggressive drop — matches by DOMAIN (sender's domain ends with pattern)
+  // or SUBSTRING (sender contains pattern anywhere). Used for SPAM rules.
+  async dropInboxItemsByPattern(pattern: string, matchType: "DOMAIN" | "SUBSTRING", excludeId?: string): Promise<number> {
+    const pat = pattern.toLowerCase();
+    const rows = await db.select({ id: universalInbox.id, senderEmail: universalInbox.senderEmail })
+      .from(universalInbox)
+      .where(eq(universalInbox.status, "NEEDS_ROUTING"));
+    const toDrop: string[] = [];
+    for (const row of rows) {
+      if (excludeId && row.id === excludeId) continue;
+      const addr = (row.senderEmail ?? "").toLowerCase();
+      if (matchType === "DOMAIN") {
+        const atIdx = addr.lastIndexOf("@");
+        const domain = atIdx >= 0 ? addr.slice(atIdx + 1) : addr;
+        if (domain === pat || domain.endsWith("." + pat)) toDrop.push(row.id);
+      } else {
+        if (addr.includes(pat)) toDrop.push(row.id);
+      }
+    }
+    if (toDrop.length === 0) return 0;
+    await db.update(universalInbox).set({ status: "DROPPED" })
+      .where(inArray(universalInbox.id, toDrop));
+    return toDrop.length;
   }
 
   async getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]> {

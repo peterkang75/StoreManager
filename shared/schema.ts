@@ -512,10 +512,17 @@ export type QuarantinedEmail = typeof quarantinedEmails.$inferSelect;
 // Email routing rules — human-trained deterministic rules engine
 // Actions: ROUTE_TO_AP | ROUTE_TO_TODO | FYI_ARCHIVE | SPAM_DROP
 // Legacy: ALLOW (treated as ROUTE_TO_AP) | IGNORE (treated as SPAM_DROP)
+// matchType:
+//   EXACT (default)  — sender must equal `email` (full address match)
+//   DOMAIN           — sender's address ends in `email` (stored as domain, e.g. "kogan.com")
+//   SUBSTRING        — sender's address contains `email` anywhere (most aggressive)
+// Only SPAM_DROP rules are allowed to use DOMAIN / SUBSTRING; other actions
+// stay on EXACT to avoid accidentally auto-processing unrelated senders.
 export const emailRoutingRules = pgTable("email_routing_rules", {
-  email: text("email").primaryKey(), // normalized lowercase sender email
-  action: text("action").notNull(), // 'ROUTE_TO_AP' | 'ROUTE_TO_TODO' | 'FYI_ARCHIVE' | 'SPAM_DROP'
-  supplierName: text("supplier_name"), // optional: display name from the email header
+  email: text("email").primaryKey(), // normalized lowercase pattern
+  action: text("action").notNull(),
+  matchType: text("match_type").default("EXACT").notNull(),
+  supplierName: text("supplier_name"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
