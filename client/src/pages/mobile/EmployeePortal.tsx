@@ -2661,8 +2661,11 @@ function ChangePinDrawer({ open, onClose, employeeId }: { open: boolean; onClose
       handleClose();
     },
     onError: (err: Error) => {
+      setCurrentPin("");
+      setNewPin("");
+      setConfirmPin("");
+      setStep("current");
       setError(err.message);
-      resetAll();
     },
   });
 
