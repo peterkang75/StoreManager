@@ -857,9 +857,26 @@ function ShoppingListView({ storeId }: { storeId?: string | null }) {
   const activeCategories = Object.keys(grouped).sort();
   const activeItemIds = new Set(activeList.map(e => e.itemId));
 
+  // Freeze the sort order when the drawer opens so tapping items does not
+  // reorder the list (selectionCount on the server updates and would
+  // otherwise push just-tapped items to the top mid-interaction).
+  const sortSnapshotRef = useRef<Map<number, number>>(new Map());
+  const prevSheetOpenRef = useRef(false);
+  if (addSheetOpen && !prevSheetOpenRef.current) {
+    const snap = new Map<number, number>();
+    catalog.forEach(i => snap.set(i.id, i.selectionCount ?? 0));
+    sortSnapshotRef.current = snap;
+  }
+  prevSheetOpenRef.current = addSheetOpen;
+
   const filteredCatalog = catalog
     .filter(i => i.name.toLowerCase().includes(catalogSearch.toLowerCase()))
-    .sort((a, b) => (b.selectionCount ?? 0) - (a.selectionCount ?? 0));
+    .sort((a, b) => {
+      const ac = sortSnapshotRef.current.get(a.id) ?? (a.selectionCount ?? 0);
+      const bc = sortSnapshotRef.current.get(b.id) ?? (b.selectionCount ?? 0);
+      if (bc !== ac) return bc - ac;
+      return a.name.localeCompare(b.name);
+    });
   const catalogGrouped = filteredCatalog.reduce<Record<string, ShoppingItem[]>>((acc, i) => {
     if (!acc[i.category]) acc[i.category] = [];
     acc[i.category].push(i);
@@ -1324,7 +1341,7 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
                     setCheckSheetOpen(true);
                   }}
                   style={{
-                    fontSize: 12, fontWeight: 600, color: "#ef4444", background: "transparent",
+                    fontSize: 12, fontWeight: 600, color: "#460479", background: "transparent",
                     border: "none", cursor: "pointer", padding: "8px 12px", flexShrink: 0,
                     touchAction: "manipulation",
                     WebkitTapHighlightColor: "transparent",
@@ -1378,8 +1395,8 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
                         style={{
                           display: "flex", alignItems: "center", gap: 14, minHeight: 60, width: "100%",
                           padding: "14px 16px", borderRadius: 16,
-                          background: inList ? "rgba(239,68,68,0.08)" : "#ffffff",
-                          border: `1px solid ${inList ? "#ef4444" : "#c1c1c1"}`,
+                          background: inList ? "rgba(70,4,121,0.08)" : "#ffffff",
+                          border: `1px solid ${inList ? "#460479" : "#c1c1c1"}`,
                           cursor: inList ? "default" : "pointer", textAlign: "left",
                           fontFamily: A.font,
                           transition: "background 160ms, border-color 160ms",
@@ -1390,10 +1407,10 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
                         }}
                       >
                         {inList
-                          ? <CheckCheck style={{ width: 22, height: 22, color: "#ef4444", flexShrink: 0 }} />
+                          ? <CheckCheck style={{ width: 22, height: 22, color: "#460479", flexShrink: 0 }} />
                           : <Plus style={{ width: 22, height: 22, color: "#6a6a6a", flexShrink: 0 }} />}
-                        <span style={{ flex: 1, fontWeight: inList ? 600 : 500, fontSize: 17, color: inList ? "#ef4444" : "#222222" }}>{item.name}</span>
-                        <span style={{ fontSize: 13, color: inList ? "#ef4444" : "#6a6a6a" }}>{item.unit}</span>
+                        <span style={{ flex: 1, fontWeight: inList ? 600 : 500, fontSize: 17, color: inList ? "#460479" : "#222222" }}>{item.name}</span>
+                        <span style={{ fontSize: 13, color: inList ? "#460479" : "#6a6a6a" }}>{item.unit}</span>
                       </button>
                     );
                   })}
