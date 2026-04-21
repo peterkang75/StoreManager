@@ -1409,7 +1409,7 @@ function HomeTab({ session }: { session: Session }) {
   ];
 
   return (
-    <div className="flex flex-col gap-5 px-4 py-5" style={{ background: "#f7f7f7", minHeight: "100%" }}>
+    <div className="flex flex-col gap-5 px-4 py-5" style={{ background: "#ffffff", minHeight: "100%", fontFamily: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, Roboto, 'Helvetica Neue', sans-serif" }}>
       {/* Greeting */}
       <div>
         <p style={{ fontSize: 13, color: "#6a6a6a", marginBottom: 2 }}>Good {getGreeting()},</p>
@@ -1435,7 +1435,7 @@ function HomeTab({ session }: { session: Session }) {
       </div>
 
       {/* Sub-tab row — bottom-border style */}
-      <div style={{ display: "flex", borderBottom: "1px solid #e4e4e4", background: "#f7f7f7" }}>
+      <div style={{ display: "flex", borderBottom: "1px solid #c1c1c1", background: "#ffffff" }}>
         {([
           { id: "myDay", label: "My Day", icon: Home },
           { id: "shopping", label: "Shopping", icon: ShoppingCart },
@@ -1456,17 +1456,15 @@ function HomeTab({ session }: { session: Session }) {
                 gap: 6,
                 paddingTop: 10,
                 paddingBottom: 10,
-                fontSize: 13,
-                fontWeight: isActive ? 700 : 500,
+                fontSize: 14,
+                fontWeight: isActive ? 600 : 500,
                 color: isActive ? "#222222" : "#6a6a6a",
-                borderBottom: isActive ? "2px solid #222222" : "2px solid transparent",
                 background: "transparent",
                 border: "none",
-                borderBottomStyle: "solid",
-                borderBottomWidth: 2,
-                borderBottomColor: isActive ? "#222222" : "transparent",
+                borderBottom: isActive ? "2px solid #222222" : "2px solid transparent",
                 cursor: "pointer",
-                transition: "all 0.15s",
+                transition: "color 160ms, border-color 160ms",
+                fontFamily: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, sans-serif",
               }}
             >
               <Icon style={{ width: 14, height: 14 }} />
@@ -1578,7 +1576,7 @@ function HomeTab({ session }: { session: Session }) {
           >
             <div style={{
               width: 40, height: 40, borderRadius: "50%",
-              background: "#f7f7f7",
+              background: "#f2f2f2",
               display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
             }}>
               <FileText style={{ width: 18, height: 18, color: "#222222" }} />
@@ -1972,7 +1970,7 @@ function TimesheetsTab({ session }: { session: Session }) {
   const cycles = [...rawCycles].sort((a, b) => b.cycleStart.localeCompare(a.cycleStart));
 
   return (
-    <div className="flex flex-col gap-4 px-4 pt-5 pb-8" style={{ background: "#f7f7f7", minHeight: "100%" }}>
+    <div className="flex flex-col gap-4 px-4 pt-5 pb-8" style={{ background: "#ffffff", minHeight: "100%", fontFamily: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, Roboto, 'Helvetica Neue', sans-serif" }}>
       <div>
         <h2 style={{ fontSize: 22, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px" }}>My Timesheets</h2>
         <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 2 }}>History by pay cycle</p>
@@ -2879,7 +2877,17 @@ const NAV_ITEMS: { tab: Tab; label: string; Icon: typeof Home }[] = [
 
 function BottomNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
   return (
-    <nav className="shrink-0 z-50 w-full border-t bg-background/95 backdrop-blur-sm" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+    <nav
+      className="shrink-0 z-50 w-full"
+      style={{
+        background: "rgba(255,255,255,0.9)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        borderTop: "1px solid #c1c1c1",
+        paddingBottom: "env(safe-area-inset-bottom)",
+        fontFamily: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, sans-serif",
+      }}
+    >
       <div className="flex items-stretch h-16">
         {NAV_ITEMS.map(({ tab, label, Icon }) => {
           const isActive = active === tab;
@@ -2892,13 +2900,18 @@ function BottomNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => vo
               onClick={() => onChange(tab)}
             >
               <Icon
-                className="h-5 w-5 transition-colors"
-                style={{ color: isActive ? "#222222" : "#aaa" }}
+                className="h-5 w-5"
+                style={{ color: isActive ? "#222222" : "#6a6a6a", transition: "color 160ms" }}
                 strokeWidth={isActive ? 2.5 : 1.8}
               />
               <span
-                className="text-[10px] font-medium tracking-wide transition-colors"
-                style={{ color: isActive ? "#222222" : "#aaa" }}
+                style={{
+                  fontSize: 10,
+                  fontWeight: isActive ? 600 : 500,
+                  letterSpacing: "0.02em",
+                  color: isActive ? "#222222" : "#6a6a6a",
+                  transition: "color 160ms",
+                }}
               >{label}</span>
             </button>
           );
