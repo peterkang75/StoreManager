@@ -3533,6 +3533,63 @@ export async function registerRoutes(
         return res.status(422).json({ error: "AI parser returned no invoice items. The PDF may be unreadable or the layout is not recognised." });
       }
 
+      const isStatement = invoices.length > 1 || invoices.some(i => i.isStatement);
+      const todayStr = new Date().toISOString().split("T")[0];
+
+      // ── STATEMENT branch: expand to multiple PENDING invoices ──
+      if (isStatement) {
+        // Resolve a supplier to attach the expanded rows to
+        let targetSupplierId: string | null = inv.supplierId ?? null;
+        if (!targetSupplierId && typeof supplierExtracted?.supplierName === "string" && supplierExtracted.supplierName.trim()) {
+          const match = await storage.findSupplierByNameAny(supplierExtracted.supplierName) ?? await storage.findSupplierByName(supplierExtracted.supplierName);
+          if (match) targetSupplierId = match.id;
+        }
+        if (!targetSupplierId && typeof raw?.senderEmail === "string" && raw.senderEmail.trim()) {
+          const match = await storage.findSupplierByEmail(raw.senderEmail);
+          if (match) targetSupplierId = match.id;
+        }
+
+        if (!targetSupplierId) {
+          // Can't expand without a supplier. Save parsed data so manager can
+          // inspect + manually assign supplier from the UI. Leave in REVIEW.
+          await storage.updateSupplierInvoice(id, {
+            rawExtractedData: { ...raw, supplier: supplierExtracted, invoices, _aiParsed: true, _parserUsed: parserUsed, _needsSupplierAssignment: true },
+          });
+          console.log(`[reparse-pdf] Invoice ${id}: STATEMENT with ${invoices.length} items — no supplier match, left in REVIEW`);
+          return res.json({ invoiceCount: invoices.length, isStatement: true, needsSupplierAssignment: true, supplier: supplierExtracted, parserUsed });
+        }
+
+        const existing = await storage.getSupplierInvoices({ supplierId: targetSupplierId });
+        const existingNums = new Set(existing.map(e => e.invoiceNumber));
+        let expanded = 0, skipped = 0;
+        for (const item of invoices) {
+          if (!item.invoiceNumber || existingNums.has(item.invoiceNumber)) { skipped++; continue; }
+          try {
+            await storage.createSupplierInvoice({
+              supplierId: targetSupplierId,
+              storeId: null,
+              invoiceNumber: item.invoiceNumber,
+              invoiceDate: item.issueDate || todayStr,
+              dueDate: item.dueDate ?? undefined,
+              amount: item.totalAmount ?? 0,
+              status: "PENDING",
+              notes: "Expanded from statement via re-parse.",
+            } as any);
+            expanded++;
+          } catch { skipped++; }
+        }
+
+        // Mark the original REVIEW row as DELETED — it was just a placeholder
+        // for the statement PDF, now replaced by the expanded rows.
+        await storage.updateSupplierInvoice(id, {
+          status: "DELETED",
+          rawExtractedData: { ...raw, supplier: supplierExtracted, invoices, _aiParsed: true, _parserUsed: parserUsed, _expandedInto: expanded, _skippedDupes: skipped },
+        });
+        console.log(`[reparse-pdf] Invoice ${id}: STATEMENT expanded → ${expanded} new PENDING, ${skipped} dupes skipped (supplier=${targetSupplierId})`);
+        return res.json({ invoiceCount: invoices.length, isStatement: true, expanded, skippedDupes: skipped, supplier: supplierExtracted, parserUsed });
+      }
+
+      // ── SINGLE INVOICE branch: patch this row ──
       const first = invoices[0];
       const patch: any = {
         rawExtractedData: {
@@ -3548,10 +3605,23 @@ export async function registerRoutes(
       if (first.issueDate) patch.invoiceDate = first.issueDate;
       if (first.dueDate) patch.dueDate = first.dueDate;
 
-      const updated = await storage.updateSupplierInvoice(id, patch);
-
-      console.log(`[reparse-pdf] Invoice ${id}: parser=${parserUsed} supplierHint=${supplierHint ?? "-"} items=${invoices.length} amount=${first.totalAmount ?? "-"}`);
-      res.json({ invoiceCount: invoices.length, supplier: supplierExtracted, parserUsed, updated });
+      try {
+        const updated = await storage.updateSupplierInvoice(id, patch);
+        console.log(`[reparse-pdf] Invoice ${id}: parser=${parserUsed} supplierHint=${supplierHint ?? "-"} items=${invoices.length} amount=${first.totalAmount ?? "-"}`);
+        return res.json({ invoiceCount: invoices.length, supplier: supplierExtracted, parserUsed, updated });
+      } catch (dbErr: any) {
+        // Unique violation on (supplier_id, invoice_number) — this invoice
+        // already exists (PENDING or PAID). The REVIEW row is redundant.
+        if (dbErr?.code === "23505" || /duplicate key/i.test(dbErr?.message ?? "")) {
+          await storage.updateSupplierInvoice(id, {
+            status: "DELETED",
+            rawExtractedData: { ...raw, supplier: supplierExtracted, invoices, _aiParsed: true, _parserUsed: parserUsed, _duplicateOfExisting: true },
+          });
+          console.log(`[reparse-pdf] Invoice ${id}: duplicate of existing invoice (${first.invoiceNumber}) — marked DELETED`);
+          return res.json({ invoiceCount: 0, duplicateOfExisting: true, invoiceNumber: first.invoiceNumber, supplier: supplierExtracted, parserUsed });
+        }
+        throw dbErr;
+      }
     } catch (error: any) {
       console.error("Error re-parsing invoice PDF:", error);
       // Expose actual error message (not stack) so the client toast can show

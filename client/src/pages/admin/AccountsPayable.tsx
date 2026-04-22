@@ -1165,11 +1165,19 @@ export function AdminAccountsPayable() {
     },
     onSuccess: async (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices/to-pay"] });
       const body = await res.json().catch(() => ({}));
-      toast({
-        title: "PDF re-parsed",
-        description: `${body?.invoiceCount ?? 0} invoice rows extracted${body?.parserUsed ? ` (${body.parserUsed})` : ""}. Approve again to apply.`,
-      });
+      let description: string;
+      if (body?.duplicateOfExisting) {
+        description = `Already exists: invoice #${body.invoiceNumber}. This row has been removed as a duplicate.`;
+      } else if (body?.needsSupplierAssignment) {
+        description = `Statement with ${body.invoiceCount} line items. Manually assign the supplier first — then re-parse will expand to To Pay.`;
+      } else if (body?.isStatement) {
+        description = `Statement expanded → ${body.expanded} new To Pay invoices, ${body.skippedDupes} duplicates skipped.`;
+      } else {
+        description = `${body?.invoiceCount ?? 0} invoice rows extracted${body?.parserUsed ? ` (${body.parserUsed})` : ""}. Approve to send to To Pay.`;
+      }
+      toast({ title: "PDF re-parsed", description });
     },
     onError: (err: any) => {
       // err.message is like '422: {"error":"AI parser returned no invoice items..."}'
