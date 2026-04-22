@@ -481,6 +481,47 @@ Return ONLY valid JSON with no code fences or explanation:
   "dueDate": "YYYY-MM-DD if there is an explicit or strongly implied deadline, otherwise null"
 }`;
 
+export async function translateSummarizeEmail(
+  subject: string,
+  body: string,
+): Promise<{ summary: string; translation: string }> {
+  // Defensive: if OPENAI_API_KEY is missing, throw a descriptive error the
+  // route handler can surface instead of the SDK crashing with a generic 401.
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY is not configured on the server");
+  }
+  const MAX = 12_000;
+  const trimmed = body.length > MAX ? body.slice(0, MAX) + "\n\n[... truncated ...]" : body;
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content:
+          `You are a bilingual business assistant for an Australian retail business. ` +
+          `Analyze the incoming email and respond with a JSON object in this exact shape:\n` +
+          `{\n  "summary": "3-5 bullet points in Korean (use • prefix for each point) summarizing the key info and action items",\n  "translation": "Full natural Korean translation of the email body"\n}\n` +
+          `Keep the summary concise and business-focused. Preserve proper nouns, numbers, dates, amounts as-is. Respond ONLY with the JSON object.`,
+      },
+      { role: "user", content: `Subject: ${subject ?? "(no subject)"}\n\n${trimmed}` },
+    ],
+    temperature: 0.2,
+    max_tokens: 3000,
+  });
+  const raw = (response.choices[0]?.message?.content ?? "").trim();
+  const cleaned = raw.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
+  let parsed: any = {};
+  try { parsed = JSON.parse(cleaned); }
+  catch {
+    const m = cleaned.match(/\{[\s\S]*\}/);
+    if (m) { try { parsed = JSON.parse(m[0]); } catch {} }
+  }
+  return {
+    summary: parsed.summary ?? "요약을 생성하지 못했습니다.",
+    translation: parsed.translation ?? "번역을 생성하지 못했습니다.",
+  };
+}
+
 export async function summarizeTaskFromEmail(
   subject: string,
   body: string,
