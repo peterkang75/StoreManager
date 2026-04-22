@@ -2815,8 +2815,33 @@ export async function registerRoutes(
         }
       }
 
+      // Capture previous status BEFORE updating so we can detect transitions.
+      const before = await storage.getSupplierInvoice(id);
+      if (!before) return res.status(404).json({ error: "Invoice not found" });
+
       const updated = await storage.updateSupplierInvoice(id, { status });
       if (!updated) return res.status(404).json({ error: "Invoice not found" });
+
+      // Manual PAID transition → write a supplier_payments audit row so the
+      // Paid History always has a who/when/how-much record. Auto-pay paths
+      // have already done this at webhook time, so we only log manual marks.
+      const becamePaid = status === "PAID" && before.status !== "PAID";
+      if (becamePaid && updated.supplierId) {
+        try {
+          const todayStr = new Date().toISOString().split("T")[0];
+          await storage.createSupplierPayment({
+            supplierId: updated.supplierId,
+            invoiceId: updated.id,
+            paymentDate: todayStr,
+            amount: updated.amount ?? 0,
+            method: "MANUAL",
+            notes: "Manually marked paid via AP UI",
+          } as any);
+        } catch (e) {
+          console.error(`[AP] Audit supplier_payments insert failed for ${updated.id}:`, e);
+        }
+      }
+
       res.json(updated);
     } catch (err) {
       console.error("Error updating invoice status:", err);
