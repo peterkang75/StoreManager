@@ -2824,6 +2824,25 @@ export async function registerRoutes(
     }
   });
 
+  // ── Invoice: assign/reassign store ─────────────────────────────────────────
+  // Small dedicated endpoint for clicking a Store chip on an Unassigned
+  // invoice in the To Pay tab. storeId may be null to un-assign.
+  app.patch("/api/invoices/:id/store", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { storeId } = req.body as { storeId: string | null };
+      if (storeId !== null && typeof storeId !== "string") {
+        return res.status(400).json({ error: "storeId must be a string or null" });
+      }
+      const updated = await storage.updateSupplierInvoice(id, { storeId: (storeId ?? null) as any });
+      if (!updated) return res.status(404).json({ error: "Invoice not found" });
+      res.json(updated);
+    } catch (err) {
+      console.error("Error updating invoice store:", err);
+      res.status(500).json({ error: "Failed to update invoice store" });
+    }
+  });
+
   // ── Invoice: AI parse upload ──────────────────────────────────────────────
   const invoiceUpload = multer({
     storage: multer.memoryStorage(),

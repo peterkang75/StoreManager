@@ -914,10 +914,18 @@ export function AdminAccountsPayable() {
 
   const storeFiltered = useMemo(() => {
     if (!storeFilter || storeFilter === "ALL") return allInvoices;
+    if (storeFilter === "UNASSIGNED") return allInvoices.filter(inv => !inv.storeId);
     // Only show invoices assigned to the selected store.
-    // Unassigned (storeId=null) invoices are visible only in "All Stores" view.
+    // Unassigned (storeId=null) invoices are visible only in "All Stores" / "Unassigned".
     return allInvoices.filter(inv => inv.storeId === storeFilter);
   }, [allInvoices, storeFilter]);
+
+  // Count of PENDING/OVERDUE invoices missing a storeId — shown as a badge
+  // on the "Unassigned" filter chip so the manager can spot them quickly.
+  const unassignedCount = useMemo(
+    () => allInvoices.filter(inv => !inv.storeId && (inv.status === "PENDING" || inv.status === "OVERDUE")).length,
+    [allInvoices]
+  );
 
   const toPayInvoices = useMemo(
     () => storeFiltered.filter(inv => inv.status === "PENDING" || inv.status === "OVERDUE"),
@@ -1421,11 +1429,17 @@ export function AdminAccountsPayable() {
         {/* ── Store Filter (To Pay + History only) ──────────────────────── */}
         {showStoreFilter && (
           <div className="flex items-center gap-1 flex-wrap">
-            {[...filteredStores.map(s => ({ id: s.id, label: s.name })), { id: "ALL", label: "All Stores" }].map(opt => {
+            {[
+              ...filteredStores.map(s => ({ id: s.id, label: s.name })),
+              { id: "ALL", label: "All Stores" },
+              { id: "UNASSIGNED", label: "⚠ Unassigned" },
+            ].map(opt => {
               const isActive = storeFilter === opt.id;
+              const isUnassigned = opt.id === "UNASSIGNED";
               const brandColor =
                 opt.label.toLowerCase().includes("sushi") ? "#222222" :
-                opt.label.toLowerCase().includes("sandwich") ? "#ef4444" : null;
+                opt.label.toLowerCase().includes("sandwich") ? "#ef4444" :
+                isUnassigned ? "#ef4444" : null;
               return (
                 <button
                   key={opt.id}
@@ -1433,12 +1447,19 @@ export function AdminAccountsPayable() {
                   className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
                     isActive
                       ? "text-white border-transparent"
-                      : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40"
+                      : isUnassigned && unassignedCount > 0
+                        ? "border-destructive/50 text-destructive hover:border-destructive"
+                        : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40"
                   }`}
                   style={isActive ? { backgroundColor: brandColor ?? "#1a1a1a", borderColor: brandColor ?? "#1a1a1a" } : {}}
                   data-testid={`button-store-filter-${opt.id}`}
                 >
                   {opt.label}
+                  {isUnassigned && unassignedCount > 0 && (
+                    <span className={`ml-1.5 text-xs ${isActive ? "opacity-90" : "opacity-80"}`}>
+                      {unassignedCount}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -1645,8 +1666,28 @@ export function AdminAccountsPayable() {
                                       <td className="py-2.5 px-3 font-mono text-xs text-muted-foreground">
                                         {displayInvNumber(inv.invoiceNumber)}
                                       </td>
-                                      <td className="py-2.5 px-3 text-xs text-muted-foreground whitespace-nowrap">
-                                        {store?.name ?? "—"}
+                                      <td className="py-2.5 px-3 text-xs whitespace-nowrap">
+                                        {store ? (
+                                          <span className="text-muted-foreground">{store.name}</span>
+                                        ) : (
+                                          <select
+                                            className="h-7 text-xs rounded border border-destructive/50 bg-destructive/5 text-destructive px-1.5"
+                                            value=""
+                                            onChange={async (e) => {
+                                              const v = e.target.value;
+                                              if (!v) return;
+                                              await apiRequest("PATCH", `/api/invoices/${inv.id}/store`, { storeId: v });
+                                              queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+                                            }}
+                                            onClick={(e) => e.stopPropagation()}
+                                            data-testid={`select-store-${inv.id}`}
+                                          >
+                                            <option value="">⚠ Assign…</option>
+                                            {filteredStores.map(s => (
+                                              <option key={s.id} value={s.id}>{s.name}</option>
+                                            ))}
+                                          </select>
+                                        )}
                                       </td>
                                       <td className="py-2.5 pr-4 w-20">
                                         <div className="flex items-center gap-0.5 justify-end">
