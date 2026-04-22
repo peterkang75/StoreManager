@@ -3246,15 +3246,12 @@ export async function registerRoutes(
           }
 
           const docType = await classifyDocumentForAP(pdfText);
-          if (docType === "REMITTANCE" || docType === "OTHER") {
-            await storage.updateSupplierInvoice(inv.id, { status: "DELETED", previousStatus: inv.status, notes: `Reclassified as ${docType} — auto-dropped during backfill.` });
-            summary.dropped++;
-            continue;
-          }
 
-          // Supplier-specific parser is MUCH more accurate than the unknown-sender
-          // path when we already know who the supplier is. Fall back to the
-          // generic parser only when the row has no supplier attached.
+          // Parse first, then decide — gives us a safety check against a wrong
+          // classifier. If the parser finds a valid invoice with a positive
+          // total, we trust the invoice data even if the classifier says
+          // REMITTANCE/OTHER (this happened with Pearl Seafoods Xero invoices
+          // that include a tear-off "Payment Advice" slip at the bottom).
           const supplier = inv.supplierId ? supplierMap.get(inv.supplierId) : undefined;
           const subject = raw?.subject ?? "";
           let parsedInvoices: any[] = [];
@@ -3267,6 +3264,15 @@ export async function registerRoutes(
             const generic = await parseInvoiceFromUnknownSender(pdfText);
             parsedInvoices = generic?.invoices ?? [];
             parsedSupplier = generic?.supplier ?? null;
+          }
+
+          const firstParsed = parsedInvoices[0];
+          const parserFoundInvoice = firstParsed && (firstParsed.totalAmount > 0 || !!firstParsed.invoiceNumber);
+
+          if ((docType === "REMITTANCE" || docType === "OTHER") && !parserFoundInvoice) {
+            await storage.updateSupplierInvoice(inv.id, { status: "DELETED", previousStatus: inv.status, notes: `Reclassified as ${docType} — auto-dropped during backfill.` });
+            summary.dropped++;
+            continue;
           }
 
           if (parsedInvoices.length === 0) {

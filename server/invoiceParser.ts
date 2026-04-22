@@ -784,16 +784,30 @@ export async function classifyDocumentForAP(
             "Classify this document into exactly one of these four buckets:\n" +
             "- INVOICE: A single bill requesting payment for goods/services. Has an\n" +
             "  invoice number, line items, amount due, payment terms. The business\n" +
-            "  must pay this. A \"Tax Invoice\" counts as INVOICE.\n" +
+            "  must pay this. A \"Tax Invoice\" counts as INVOICE. Many Xero/MYOB\n" +
+            "  invoices include a tear-off \"PAYMENT ADVICE\" slip at the bottom for\n" +
+            "  the customer to return with payment — these are STILL INVOICES.\n" +
             "- STATEMENT: A \"Statement of Account\" listing MULTIPLE invoices with\n" +
             "  running balance or outstanding total. Not a single bill — a summary\n" +
             "  of the account.\n" +
-            "- REMITTANCE: A \"Remittance Advice\" / \"Payment Advice\" notifying the\n" +
-            "  business that a payment has been made TO THEM, or confirming receipt\n" +
-            "  of a payment. No payment is owed — it's a payment notification.\n" +
+            "- REMITTANCE: A standalone \"Remittance Advice\" sent by a PAYER to a\n" +
+            "  supplier announcing that a payment has been dispatched. Contains\n" +
+            "  phrases like \"We have paid\", \"Payment made on\", \"EFT reference\",\n" +
+            "  \"Funds transferred\" — there are NO line items of goods/services and\n" +
+            "  NO amount-due-to-us field. The document only communicates that WE\n" +
+            "  owe NOTHING because the payer already paid.\n" +
+            "  CRITICAL: A tear-off \"Payment Advice\" slip attached to the BOTTOM\n" +
+            "  of a TAX INVOICE is NOT a remittance — the document as a whole is\n" +
+            "  still an INVOICE. Only classify as REMITTANCE if the ENTIRE document\n" +
+            "  is a standalone payment notification with no invoice header, no line\n" +
+            "  items, and no amount payable.\n" +
             "- OTHER: Anything else — order confirmation, delivery docket, dispatch\n" +
             "  notice, quote, marketing, newsletter, receipt for a paid bill, etc.\n\n" +
             `Document (first 3500 chars):\n${text.slice(0, 3500)}\n\n` +
+            "DECISION RULE: If the document contains an invoice number AND line items\n" +
+            "AND an amount payable, classify as INVOICE (or STATEMENT if multiple\n" +
+            "invoice rows with running balance). Only classify as REMITTANCE when\n" +
+            "those are absent and the document is purely a payment notification.\n\n" +
             "Reply ONLY with INVOICE, STATEMENT, REMITTANCE, or OTHER.",
         },
       ],
