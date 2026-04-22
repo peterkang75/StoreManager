@@ -7147,43 +7147,71 @@ Rules:
     try {
       const { subject, body } = req.body as { subject?: string; body?: string };
       if (!body?.trim()) return res.status(400).json({ error: "body is required" });
+      if (!process.env.OPENAI_API_KEY) {
+        console.error("[ai/email-translate-summarize] OPENAI_API_KEY not set");
+        return res.status(500).json({ error: "OPENAI_API_KEY is not configured on the server." });
+      }
+
+      // Long marketing/spam emails can easily exceed a few thousand tokens.
+      // Trim the body to keep the call reliable and within the output budget.
+      const MAX_INPUT_CHARS = 12_000;
+      const trimmedBody = body.length > MAX_INPUT_CHARS
+        ? body.slice(0, MAX_INPUT_CHARS) + "\n\n[... truncated ...]"
+        : body;
 
       const openaiClient = new (await import("openai")).default({ apiKey: process.env.OPENAI_API_KEY });
 
       const completion = await openaiClient.chat.completions.create({
         model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
         messages: [
           {
             role: "system",
-            content: `You are a bilingual business assistant for an Australian retail business. 
-Your task is to analyze an incoming email and respond ONLY with a JSON object in this exact format:
+            content: `You are a bilingual business assistant for an Australian retail business.
+Analyze the incoming email and respond with a JSON object in this exact shape:
 {
   "summary": "3-5 bullet points in Korean (use • prefix for each point) summarizing the key information and any action items",
   "translation": "Full Korean translation of the email body, formatted naturally"
 }
-Keep the summary concise and business-focused. Preserve proper nouns, numbers, dates, and amounts as-is.
-Do NOT add any text outside the JSON object.`,
+Keep the summary concise and business-focused. Preserve proper nouns, numbers, dates, and amounts as-is. Always respond with Korean for both fields.`,
           },
           {
             role: "user",
-            content: `Subject: ${subject ?? "(no subject)"}\n\n${body}`,
+            content: `Subject: ${subject ?? "(no subject)"}\n\n${trimmedBody}`,
           },
         ],
         temperature: 0.2,
-        max_tokens: 1500,
+        max_tokens: 3000,
       });
 
       const raw = completion.choices[0]?.message?.content?.trim() ?? "{}";
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+      let parsed: { summary?: string; translation?: string } = {};
+      try {
+        parsed = JSON.parse(raw);
+      } catch (parseErr) {
+        // Fallback: pull the first {...} block
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try { parsed = JSON.parse(jsonMatch[0]); } catch {}
+        }
+        if (!parsed.summary && !parsed.translation) {
+          console.error("[ai/email-translate-summarize] JSON parse failed. Raw:", raw.slice(0, 500));
+        }
+      }
 
       res.json({
         summary: parsed.summary ?? "요약을 생성하지 못했습니다.",
         translation: parsed.translation ?? "번역을 생성하지 못했습니다.",
       });
-    } catch (err) {
-      console.error("[ai/email-translate-summarize] error:", err);
-      res.status(500).json({ error: "AI 처리 중 오류가 발생했습니다." });
+    } catch (err: any) {
+      // Surface OpenAI API error details (rate limit, quota, model access…)
+      const status = err?.status ?? err?.response?.status;
+      const msg = err?.message ?? "unknown";
+      console.error(`[ai/email-translate-summarize] error status=${status ?? "-"} msg=${msg}`, err?.response?.data ?? err);
+      res.status(500).json({
+        error: "AI 처리 중 오류가 발생했습니다.",
+        detail: process.env.NODE_ENV === "production" ? undefined : msg,
+      });
     }
   });
 
