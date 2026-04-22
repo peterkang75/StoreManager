@@ -3254,14 +3254,18 @@ export async function registerRoutes(
   });
 
   // POST /api/supplier-invoices/:id/reparse-pdf
-  // Re-runs parseInvoiceFromUnknownSender on the stored pdfBase64 for a REVIEW invoice.
-  // Used when the AI previously missed some invoice rows (e.g. future-dated rows).
+  // Re-runs parseInvoiceFromUnknownSender on the stored pdfBase64.
+  // Works for REVIEW and QUARANTINE status. When the parse succeeds, the
+  // first invoice's amount/number/dates are written back to the row itself
+  // so the manager can immediately approve it to PENDING.
   app.post("/api/supplier-invoices/:id/reparse-pdf", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const inv = await storage.getSupplierInvoice(id);
       if (!inv) return res.status(404).json({ error: "Invoice not found" });
-      if (inv.status !== "REVIEW") return res.status(400).json({ error: "Invoice is not in REVIEW status" });
+      if (inv.status !== "REVIEW" && inv.status !== "QUARANTINE") {
+        return res.status(400).json({ error: "Invoice must be in REVIEW or QUARANTINE status" });
+      }
 
       const raw = inv.rawExtractedData as any;
       const pdfBase64: string | undefined = raw?.pdfBase64;
@@ -3276,18 +3280,25 @@ export async function registerRoutes(
         return res.status(422).json({ error: "Re-parse did not return any invoices" });
       }
 
-      // Merge back: keep existing senderEmail/subject/pdfBase64, update supplier + invoices.
-      // Set _aiParsed: true so the frontend knows to trust the supplier name for grouping.
-      const updated = await storage.updateSupplierInvoice(id, {
+      const first = reparsed.invoices[0];
+      const patch: any = {
         rawExtractedData: {
           ...raw,
           supplier: reparsed.supplier,
           invoices: reparsed.invoices,
           _aiParsed: true,
         },
-      });
+      };
+      // Promote first parsed row's key fields onto the invoice itself so the
+      // manager doesn't have to retype the amount before approving.
+      if (first.totalAmount && first.totalAmount > 0) patch.amount = first.totalAmount;
+      if (first.invoiceNumber) patch.invoiceNumber = first.invoiceNumber;
+      if (first.issueDate) patch.invoiceDate = first.issueDate;
+      if (first.dueDate) patch.dueDate = first.dueDate;
 
-      console.log(`[reparse-pdf] Invoice ${id}: re-extracted ${reparsed.invoices.length} invoice items`);
+      const updated = await storage.updateSupplierInvoice(id, patch);
+
+      console.log(`[reparse-pdf] Invoice ${id}: re-extracted ${reparsed.invoices.length} invoice items (amount=${first.totalAmount ?? "-"})`);
       res.json({ invoiceCount: reparsed.invoices.length, supplier: reparsed.supplier, updated });
     } catch (error) {
       console.error("Error re-parsing invoice PDF:", error);

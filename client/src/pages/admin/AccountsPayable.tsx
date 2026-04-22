@@ -2315,39 +2315,87 @@ export function AdminAccountsPayable() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border/40 bg-muted/30">
-                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Supplier</th>
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Supplier / From</th>
                       <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice #</th>
                       <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice Date</th>
                       <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right whitespace-nowrap">Amount</th>
-                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Note</th>
-                      <th className="w-56 py-2.5 px-4" />
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Subject / PDF</th>
+                      <th className="w-72 py-2.5 px-4" />
                     </tr>
                   </thead>
                   <tbody>
                     {quarantinedInvoices.map(inv => {
                       const enrichedInv = inv as any;
+                      const raw = enrichedInv.rawExtractedData as any;
+                      const senderEmail = raw?.senderEmail ?? null;
+                      const subject = raw?.subject ?? null;
+                      const hasPdf = !!raw?.pdfBase64;
+                      const hasAmount = (inv.amount ?? 0) > 0;
                       return (
                         <tr key={inv.id} className="border-b border-border/10 last:border-0 hover:bg-muted/20 transition-colors" data-testid={`row-quarantine-${inv.id}`}>
-                          <td className="py-2.5 px-4 font-medium">
-                            {enrichedInv.supplier?.name ?? "—"}
+                          <td className="py-2.5 px-4 align-top">
+                            <div className="font-medium truncate max-w-xs">
+                              {enrichedInv.supplier?.name ?? "—"}
+                            </div>
+                            {senderEmail && (
+                              <div className="text-[11px] text-muted-foreground truncate max-w-xs" title={senderEmail}>
+                                {senderEmail}
+                              </div>
+                            )}
                           </td>
-                          <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground">
+                          <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground align-top">
                             {displayInvNumber(inv.invoiceNumber)}
                           </td>
-                          <td className="py-2.5 px-4 text-muted-foreground whitespace-nowrap">
+                          <td className="py-2.5 px-4 text-muted-foreground whitespace-nowrap align-top">
                             {fmt(inv.invoiceDate)}
                           </td>
-                          <td className="py-2.5 px-4 font-semibold tabular-nums text-right whitespace-nowrap">
+                          <td className="py-2.5 px-4 font-semibold tabular-nums text-right whitespace-nowrap align-top">
                             {fmtAUD(inv.amount ?? 0)}
                           </td>
-                          <td className="py-2.5 px-4 text-xs text-muted-foreground max-w-sm truncate" title={inv.notes ?? ""}>
-                            {inv.notes ?? "—"}
+                          <td className="py-2.5 px-4 align-top">
+                            <div className="flex items-start gap-2">
+                              {hasPdf && (
+                                <button
+                                  type="button"
+                                  onClick={() => window.open(`/api/supplier-invoices/${inv.id}/pdf`, "_blank")}
+                                  className="shrink-0 h-6 w-6 rounded flex items-center justify-center text-blue-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/30"
+                                  title="Open PDF"
+                                  data-testid={`button-quarantine-pdf-${inv.id}`}
+                                >
+                                  <FileText className="h-4 w-4" />
+                                </button>
+                              )}
+                              <div className="min-w-0 text-xs text-muted-foreground">
+                                {subject && <div className="truncate max-w-sm" title={subject}>{subject}</div>}
+                                {inv.notes && <div className="text-[11px] opacity-70 truncate max-w-sm" title={inv.notes}>{inv.notes}</div>}
+                              </div>
+                            </div>
                           </td>
-                          <td className="py-2.5 px-4">
-                            <div className="flex items-center gap-2 justify-end">
+                          <td className="py-2.5 px-4 align-top">
+                            <div className="flex items-center gap-2 justify-end flex-wrap">
+                              {hasPdf && !hasAmount && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={async () => {
+                                    try {
+                                      await apiRequest("POST", `/api/supplier-invoices/${inv.id}/reparse-pdf`, {});
+                                      queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
+                                      toast({ title: "Re-parsed from PDF", description: "Review the amount, then Approve." });
+                                    } catch (e: any) {
+                                      toast({ title: "Re-parse failed", description: e?.message ?? "Try opening the PDF to enter manually.", variant: "destructive" });
+                                    }
+                                  }}
+                                  data-testid={`button-reparse-quarantine-${inv.id}`}
+                                  className="gap-1.5"
+                                >
+                                  <RefreshCw className="h-3.5 w-3.5" />
+                                  Re-parse PDF
+                                </Button>
+                              )}
                               <Button
                                 size="sm"
-                                variant="outline"
+                                variant={hasAmount ? "default" : "outline"}
                                 onClick={async () => {
                                   if (!inv.amount || inv.amount <= 0) {
                                     const raw = window.prompt("Enter invoice amount (AUD) to approve:");
