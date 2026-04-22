@@ -68,6 +68,10 @@ export interface UnknownSenderParsedResult {
  * Returns empty string if extraction fails.
  */
 export async function extractPdfText(buffer: Buffer): Promise<string> {
+  // 1) Fast path: pdf-parse (pure-JS). Fails silently on some PDFs,
+  //    which was the actual cause of the whole Nippon/Ganellen
+  //    "re-parse failed" loop — it returned "" even though poppler
+  //    (Python pypdf, pdftotext) reads the same file fine.
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { PDFParse } = require("pdf-parse") as {
@@ -75,11 +79,40 @@ export async function extractPdfText(buffer: Buffer): Promise<string> {
     };
     const parser = new PDFParse({ data: buffer });
     const result = await parser.getText();
-    return result.text ?? "";
+    const text = result.text ?? "";
+    if (text.trim().length > 20) return text;
+    console.warn(`[invoiceParser] pdf-parse returned ${text.length} chars — trying pdftotext fallback`);
   } catch (err) {
-    console.warn("[invoiceParser] pdf-parse failed:", err);
-    return "";
+    console.warn("[invoiceParser] pdf-parse threw — trying pdftotext fallback:", err);
   }
+
+  // 2) Fallback: pdftotext from poppler-utils (installed in Dockerfile).
+  //    Writes the buffer to a temp file, runs `pdftotext -layout tmp -`,
+  //    returns stdout. Much more robust on real-world supplier PDFs.
+  try {
+    const { spawnSync } = await import("child_process");
+    const os = await import("os");
+    const path = await import("path");
+    const fs = await import("fs");
+    const tmpFile = path.join(os.tmpdir(), `pdf-extract-${Date.now()}-${Math.random().toString(36).slice(2)}.pdf`);
+    fs.writeFileSync(tmpFile, buffer);
+    try {
+      const result = spawnSync("pdftotext", ["-layout", tmpFile, "-"], {
+        encoding: "utf-8",
+        maxBuffer: 20 * 1024 * 1024,
+      });
+      if (result.status === 0 && typeof result.stdout === "string" && result.stdout.trim()) {
+        return result.stdout;
+      }
+      console.warn(`[invoiceParser] pdftotext failed status=${result.status} stderr=${(result.stderr ?? "").toString().slice(0, 400)}`);
+    } finally {
+      try { fs.unlinkSync(tmpFile); } catch {}
+    }
+  } catch (err) {
+    console.warn("[invoiceParser] pdftotext spawn failed:", err);
+  }
+
+  return "";
 }
 
 /**
