@@ -847,7 +847,7 @@ function ReassignSupplierDialog({ invoice, onClose, onSuccess }: ReassignSupplie
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-type TabKey = "topay" | "review" | "history" | "emailrules" | "trash";
+type TabKey = "topay" | "review" | "history" | "emailrules" | "quarantine" | "trash";
 
 export function AdminAccountsPayable() {
   const { toast } = useToast();
@@ -884,6 +884,12 @@ export function AdminAccountsPayable() {
 
   const { data: deletedInvoices = [], isLoading: trashLoading } = useQuery<SupplierInvoice[]>({
     queryKey: ["/api/supplier-invoices/deleted"],
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const { data: quarantinedInvoices = [], isLoading: quarantineLoading } = useQuery<SupplierInvoice[]>({
+    queryKey: ["/api/supplier-invoices/quarantined"],
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -1277,6 +1283,12 @@ export function AdminAccountsPayable() {
       label: "Email Rules",
       badge: emailRules.length > 0 ? emailRules.length : undefined,
       badgeColor: "bg-muted text-muted-foreground",
+    },
+    {
+      key: "quarantine",
+      label: "Quarantine",
+      badge: quarantinedInvoices.length > 0 ? quarantinedInvoices.length : undefined,
+      badgeColor: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-400",
     },
     {
       key: "trash",
@@ -2230,6 +2242,103 @@ export function AdminAccountsPayable() {
                         </td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )
+        )}
+
+        {/* ── QUARANTINE ── */}
+        {activeTab === "quarantine" && (
+          quarantineLoading ? (
+            <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading quarantine…</span>
+            </div>
+          ) : quarantinedInvoices.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
+              <AlertCircle className="h-10 w-10 opacity-20" />
+              <p className="text-sm font-medium">No quarantined invoices</p>
+              <p className="text-xs">Placeholder or duplicate rows that couldn't be auto-approved will appear here.</p>
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border/40 bg-muted/30">
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Supplier</th>
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice #</th>
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice Date</th>
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right whitespace-nowrap">Amount</th>
+                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Note</th>
+                      <th className="w-56 py-2.5 px-4" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {quarantinedInvoices.map(inv => {
+                      const enrichedInv = inv as any;
+                      return (
+                        <tr key={inv.id} className="border-b border-border/10 last:border-0 hover:bg-muted/20 transition-colors" data-testid={`row-quarantine-${inv.id}`}>
+                          <td className="py-2.5 px-4 font-medium">
+                            {enrichedInv.supplier?.name ?? "—"}
+                          </td>
+                          <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground">
+                            {displayInvNumber(inv.invoiceNumber)}
+                          </td>
+                          <td className="py-2.5 px-4 text-muted-foreground whitespace-nowrap">
+                            {fmt(inv.invoiceDate)}
+                          </td>
+                          <td className="py-2.5 px-4 font-semibold tabular-nums text-right whitespace-nowrap">
+                            {fmtAUD(inv.amount ?? 0)}
+                          </td>
+                          <td className="py-2.5 px-4 text-xs text-muted-foreground max-w-sm truncate" title={inv.notes ?? ""}>
+                            {inv.notes ?? "—"}
+                          </td>
+                          <td className="py-2.5 px-4">
+                            <div className="flex items-center gap-2 justify-end">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={async () => {
+                                  if (!inv.amount || inv.amount <= 0) {
+                                    const raw = window.prompt("Enter invoice amount (AUD) to approve:");
+                                    const amt = raw ? Number(raw) : NaN;
+                                    if (!raw || isNaN(amt) || amt <= 0) return;
+                                    await apiRequest("PATCH", `/api/supplier-invoices/${inv.id}`, { amount: amt });
+                                  }
+                                  await apiRequest("PATCH", `/api/invoices/${inv.id}/status`, { status: "PENDING" });
+                                  queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+                                  queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
+                                  toast({ title: "Moved to To Pay" });
+                                }}
+                                data-testid={`button-approve-quarantine-${inv.id}`}
+                                className="gap-1.5"
+                              >
+                                <CheckCircle className="h-3.5 w-3.5" />
+                                Approve → To Pay
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={async () => {
+                                  await apiRequest("PATCH", `/api/supplier-invoices/${inv.id}/soft-delete`, {});
+                                  queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
+                                  queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/deleted"] });
+                                  toast({ title: "Moved to Trash" });
+                                }}
+                                data-testid={`button-delete-quarantine-${inv.id}`}
+                                className="gap-1.5 text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                Delete
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </CardContent>

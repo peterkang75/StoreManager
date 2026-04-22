@@ -3161,6 +3161,42 @@ export async function registerRoutes(
     }
   });
 
+  // Limited-field update for quick inline edits (amount, invoiceNumber, dueDate).
+  // Full supplier-invoice updates go through /api/invoices/:id/status etc.
+  app.patch("/api/supplier-invoices/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const allowed: Record<string, any> = {};
+      const body = req.body as any;
+      if (body.amount !== undefined) allowed.amount = Number(body.amount);
+      if (body.invoiceNumber !== undefined) allowed.invoiceNumber = String(body.invoiceNumber);
+      if (body.dueDate !== undefined) allowed.dueDate = body.dueDate;
+      if (body.invoiceDate !== undefined) allowed.invoiceDate = body.invoiceDate;
+      if (Object.keys(allowed).length === 0) {
+        return res.status(400).json({ error: "No updatable fields provided" });
+      }
+      const updated = await storage.updateSupplierInvoice(id, allowed);
+      if (!updated) return res.status(404).json({ error: "Invoice not found" });
+      res.json(updated);
+    } catch (err) {
+      console.error("Error updating supplier invoice:", err);
+      res.status(500).json({ error: "Failed to update invoice" });
+    }
+  });
+
+  app.get("/api/supplier-invoices/quarantined", async (req: Request, res: Response) => {
+    try {
+      const rows = await storage.getSupplierInvoices({ status: "QUARANTINE" });
+      const allSuppliers = await storage.getSuppliers();
+      const supplierMap = new Map(allSuppliers.map(s => [s.id, s]));
+      const enriched = rows.map(inv => ({ ...inv, supplier: supplierMap.get(inv.supplierId ?? "") ?? null }));
+      res.json(enriched);
+    } catch (error) {
+      console.error("Error fetching quarantined invoices:", error);
+      res.status(500).json({ error: "Failed to fetch quarantined invoices" });
+    }
+  });
+
   app.patch("/api/supplier-invoices/:id/soft-delete", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
