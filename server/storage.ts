@@ -2209,8 +2209,11 @@ export class DatabaseStorage implements IStorage {
   async sweepReviewInvoicesByIds(ids: string[], supplierId: string): Promise<number> {
     // Fast ID-based sweep — no raw_extracted_data JSON scan, no TOAST decompression.
     // Approves REVIEW invoices by known ID. Skips duplicates via NOT EXISTS.
-    // IMPORTANT: TRIAGE-prefixed invoice numbers are un-expanded placeholders (amount=0, no real data).
-    //   These are quarantined rather than approved, to avoid creating $0 junk PENDING invoices.
+    //
+    // Junk-filter: an entry with amount=0 AND the auto-generated TRIAGE-/EMAIL-
+    // placeholder invoice number is an un-parsed email with no real data — that
+    // gets quarantined. But if the manager has typed an amount in (> 0) OR
+    // replaced the invoice number with a real one, approve it as PENDING.
     if (!ids || ids.length === 0) return 0;
     const idList = ids.map(id => `'${id.replace(/'/g, "''")}'`).join(",");
     const result = await db.execute(sql`
@@ -2219,7 +2222,11 @@ export class DatabaseStorage implements IStorage {
         FROM supplier_invoices
         WHERE id IN (${sql.raw(idList)})
           AND status = 'REVIEW'
-          AND (invoice_number IS NULL OR invoice_number NOT LIKE 'TRIAGE-%')
+          AND (
+            amount > 0
+            OR invoice_number IS NULL
+            OR (invoice_number NOT LIKE 'TRIAGE-%' AND invoice_number NOT LIKE 'EMAIL-%')
+          )
           AND NOT EXISTS (
             SELECT 1 FROM supplier_invoices ex
             WHERE ex.supplier_id = ${supplierId}
