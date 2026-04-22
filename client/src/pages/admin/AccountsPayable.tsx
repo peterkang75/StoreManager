@@ -847,7 +847,7 @@ function ReassignSupplierDialog({ invoice, onClose, onSuccess }: ReassignSupplie
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-type TabKey = "topay" | "review" | "history" | "emailrules" | "quarantine" | "trash";
+type TabKey = "topay" | "review" | "history" | "rejected" | "emailrules" | "quarantine" | "trash";
 
 export function AdminAccountsPayable() {
   const { toast } = useToast();
@@ -892,6 +892,18 @@ export function AdminAccountsPayable() {
     queryKey: ["/api/supplier-invoices/quarantined"],
     staleTime: 0,
     refetchOnMount: true,
+  });
+
+  const { data: rejectedEmails = [], isLoading: rejectedLoading } = useQuery<any[]>({
+    queryKey: ["/api/rejected-emails", "unreviewed"],
+    queryFn: () => fetch("/api/rejected-emails?reviewed=false").then(r => r.ok ? r.json() : []),
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const { data: allSuppliersForPicker = [] } = useQuery<any[]>({
+    queryKey: ["/api/suppliers"],
+    staleTime: 60_000,
   });
 
   const { data: emailRules = [], isLoading: rulesLoading } = useQuery<EmailRoutingRule[]>({
@@ -1283,6 +1295,12 @@ export function AdminAccountsPayable() {
       label: "Email Rules",
       badge: emailRules.length > 0 ? emailRules.length : undefined,
       badgeColor: "bg-muted text-muted-foreground",
+    },
+    {
+      key: "rejected",
+      label: "Rejected",
+      badge: rejectedEmails.length > 0 ? rejectedEmails.length : undefined,
+      badgeColor: "bg-destructive/10 text-destructive",
     },
     {
       key: "quarantine",
@@ -2293,6 +2311,121 @@ export function AdminAccountsPayable() {
                 </table>
               </CardContent>
             </Card>
+          )
+        )}
+
+        {/* ── REJECTED (whitelist misses) ── */}
+        {activeTab === "rejected" && (
+          rejectedLoading ? (
+            <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading rejected emails…</span>
+            </div>
+          ) : rejectedEmails.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
+              <Mail className="h-10 w-10 opacity-20" />
+              <p className="text-sm font-medium">No rejected emails</p>
+              <p className="text-xs">Emails from senders not on any supplier's contact list appear here.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="rounded-md border border-amber-300/50 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-800 dark:text-amber-200">
+                <p className="font-semibold">What is this?</p>
+                <p className="mt-0.5 opacity-90">
+                  These emails were blocked at the whitelist gate — their sender isn't on any
+                  supplier's contact list. If a row is a legitimate supplier you forgot to add,
+                  click <strong>"Add to supplier…"</strong> and future emails from that sender
+                  will pass automatically. Otherwise <strong>Delete</strong>.
+                </p>
+              </div>
+              <div className="space-y-2">
+                {rejectedEmails.map(rej => (
+                  <Card key={rej.id} data-testid={`row-rejected-${rej.id}`}>
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between gap-4 flex-wrap">
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-sm truncate">
+                              {rej.senderName || rej.senderEmail}
+                            </span>
+                            <span className="text-xs text-muted-foreground truncate" title={rej.senderEmail}>
+                              &lt;{rej.senderEmail}&gt;
+                            </span>
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">
+                              {fmt(String(rej.receivedAt).split("T")[0])}
+                            </span>
+                            {rej.hasAttachment && (
+                              <span className="text-[10px] rounded border border-blue-300/50 bg-blue-50 dark:bg-blue-950/30 px-1.5 py-0.5 text-blue-700 dark:text-blue-300">
+                                has attachment
+                              </span>
+                            )}
+                          </div>
+                          {rej.subject && (
+                            <div className="text-xs text-muted-foreground truncate" title={rej.subject}>
+                              <span className="opacity-70">Subject:</span> {rej.subject}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                          <Button
+                            size="sm"
+                            variant="default"
+                            onClick={async () => {
+                              const choice = window.prompt(
+                                `Add "${rej.senderEmail}" to which supplier?\n\n` +
+                                `Type part of an existing supplier name, or type NEW: followed by the supplier name to create a new one.\n\n` +
+                                `Existing suppliers: ${allSuppliersForPicker.map((s: any) => s.name).join(", ").slice(0, 400)}`
+                              );
+                              if (!choice) return;
+                              let body: any;
+                              if (choice.startsWith("NEW:")) {
+                                body = { newSupplier: { name: choice.slice(4).trim() } };
+                              } else {
+                                const needle = choice.trim().toLowerCase();
+                                const match = allSuppliersForPicker.find((s: any) => s.name.toLowerCase().includes(needle));
+                                if (!match) {
+                                  toast({ title: "No matching supplier", description: `Type NEW:${choice} to create a new supplier instead.`, variant: "destructive" });
+                                  return;
+                                }
+                                body = { existingSupplierId: match.id };
+                              }
+                              try {
+                                const res = await apiRequest("POST", `/api/rejected-emails/${rej.id}/promote`, body);
+                                const data = await res.json();
+                                queryClient.invalidateQueries({ queryKey: ["/api/rejected-emails", "unreviewed"] });
+                                queryClient.invalidateQueries({ queryKey: ["/api/suppliers"] });
+                                toast({ title: "Added to supplier", description: `Future emails from ${rej.senderEmail} will route to ${data.supplier?.name ?? "the supplier"}.` });
+                              } catch (e: any) {
+                                toast({ title: "Failed", description: e?.message ?? "Try again.", variant: "destructive" });
+                              }
+                            }}
+                            data-testid={`button-promote-${rej.id}`}
+                            className="gap-1.5"
+                          >
+                            <UserPlus className="h-3.5 w-3.5" />
+                            Add to supplier…
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={async () => {
+                              await apiRequest("DELETE", `/api/rejected-emails/${rej.id}`);
+                              queryClient.invalidateQueries({ queryKey: ["/api/rejected-emails", "unreviewed"] });
+                              toast({ title: "Deleted" });
+                            }}
+                            data-testid={`button-delete-rejected-${rej.id}`}
+                            className="gap-1.5 text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Delete
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
           )
         )}
 
