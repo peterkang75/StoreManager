@@ -4879,134 +4879,37 @@ export async function registerRoutes(
         return null;
       }
 
-      // ── Safety: if senderEmail is still an internal forwarder after all detection,
-      // we can't determine the true supplier — send straight to Triage ────────────
-      if (isInternalForwarder(senderEmail)) {
-        console.log(`[Webhook] senderEmail is still internal (${senderEmail}) after forward detection — routing to Triage`);
-        await storage.createUniversalInboxItem({
-          senderEmail,
-          senderName: resolvedSenderName || null,
-          subject,
-          body: emailBody.slice(0, 8000),
-          hasAttachment,
-          rawPayload: { ...payload, _suggestedAction: "ROUTE_TO_AP" },
-          status: "NEEDS_ROUTING",
-        });
-        return res.status(200).json({ received: true, action: "saved_to_triage_inbox_internal_sender", sender: senderEmail });
-      }
-
-      // ── Lookup routing rule + check if direct supplier ────────────────────────
-      const [routingRule, emailMatchedSupplier] = await Promise.all([
-        storage.getEmailRoutingRule(senderEmail),
-        storage.findSupplierByEmail(senderEmail),
-      ]);
-      // effectiveSupplier may be overridden after PDF cross-check (see below)
-      let matchedSupplier = emailMatchedSupplier;
-      let action = routingRule?.action ?? null;
-
-      // Backward-compat: map legacy ALLOW/IGNORE → new actions
-      if (action === "ALLOW") action = "ROUTE_TO_AP";
-      if (action === "IGNORE") action = "SPAM_DROP";
-
-      console.log(`[Webhook] Sender=${senderEmail} action=${action ?? "UNKNOWN"} directSupplier=${!!matchedSupplier} subject="${subject}"`);
-
-      // ── SPAM_DROP / FYI_ARCHIVE — acknowledge silently (no human review needed) ──
-      if (action === "SPAM_DROP") {
-        return res.status(200).json({ received: true, action: "spam_dropped", sender: senderEmail });
-      }
-      if (action === "FYI_ARCHIVE") {
-        return res.status(200).json({ received: true, action: "fyi_archived", sender: senderEmail });
-      }
-
-      // ── TRIAGE GATE ────────────────────────────────────────────────────────────
-      // Direct supplier match (email in supplier table) → auto-process AP pipeline.
-      // Otherwise, honour an existing routing rule:
-      //   ROUTE_TO_AP    → try finding supplier by rule.supplierName, fall back to
-      //                    REVIEW-status invoice placeholder (no triage detour).
-      //   ROUTE_TO_TODO  → create the TODO directly, skip triage.
-      //   SPAM_DROP / FYI_ARCHIVE were handled above.
-      // Senders without any rule still fall through to the Triage Inbox.
-      if (!matchedSupplier && action === "ROUTE_TO_AP" && routingRule?.supplierName) {
-        const bySupplierName = await storage.findSupplierByName(routingRule.supplierName);
-        if (bySupplierName) {
-          matchedSupplier = bySupplierName;
-          console.log(`[Webhook] Rule-based supplier resolution: email ${senderEmail} → supplier "${bySupplierName.name}"`);
-        }
-      }
-
-      if (!matchedSupplier && action === "ROUTE_TO_TODO") {
-        console.log(`[Webhook] Rule ROUTE_TO_TODO — bypassing triage, creating TODO directly for ${senderEmail}`);
-        res.status(200).json({ received: true, action: "todo_created_by_rule", sender: senderEmail });
-        setImmediate(async () => {
-          let title = subject || "(no subject)";
-          let description: string | null = emailBody.slice(0, 2000);
-          let dueDate: Date | null = null;
-          let aiFallback = false;
-          try {
-            const taskData = await summarizeTaskFromEmail(subject, emailBody);
-            if (taskData?.title) {
-              title = taskData.title;
-              description = taskData.description || null;
-              dueDate = taskData.dueDate ? new Date(taskData.dueDate) : null;
-            } else {
-              aiFallback = true;
-            }
-          } catch (err) {
-            aiFallback = true;
-            console.error("[Webhook] TODO summarisation failed — using subject fallback:", err);
-          }
-          try {
-            await storage.createTodo({
-              title,
-              description: aiFallback ? `⚠ AI summary unavailable — review manually.\n\n${description ?? ""}`.slice(0, 8000) : description,
-              sourceEmail: senderEmail,
-              senderEmail,
-              originalSubject: subject,
-              originalBody: emailBody.slice(0, 8000),
-              dueDate,
-              status: "TODO",
-            });
-            console.log(`[Webhook] Rule-based TODO created${aiFallback ? " (fallback)" : ""}: "${title}"`);
-          } catch (e) {
-            console.error("[Webhook] Final TODO insert failed:", e);
-          }
-        });
-        return;
-      }
-
-      if (!matchedSupplier && action === "ROUTE_TO_AP") {
-        const todayStr = new Date().toISOString().split("T")[0];
-        const placeholder = await storage.createSupplierInvoice({
-          supplierId: null as any,
-          storeId: null,
-          invoiceNumber: `EMAIL-${Date.now()}`,
-          invoiceDate: todayStr,
-          dueDate: undefined,
-          amount: 0,
-          status: "REVIEW",
-          notes:
-            `Auto-routed by email rule (Payables). Supplier not matched automatically — please confirm.\n` +
-            `From: ${senderEmail}${resolvedSenderName ? ` (${resolvedSenderName})` : ""}\n` +
-            `Subject: ${subject}\n` +
-            `Rule supplierName: ${routingRule?.supplierName ?? "-"}`,
-        });
-        console.log(`[Webhook] Rule ROUTE_TO_AP — created REVIEW invoice placeholder ${placeholder.id} for ${senderEmail}`);
-        return res.status(200).json({ received: true, action: "ap_review_created_by_rule", sender: senderEmail, invoiceId: placeholder.id });
-      }
+      // ══════════════════════════════════════════════════════════════════════════
+      // WHITELIST GATE (strict)
+      // The only way an email reaches the AP pipeline is if its sender is on
+      // a supplier.contactEmails entry. Everything else is logged to the
+      // rejected_emails table so the admin can review who was blocked and
+      // optionally promote the sender onto a supplier record.
+      //
+      // Internal forwarders (accounts@eatem.com.au, etc.) bypass this gate
+      // because the REAL sender has already been extracted upstream via the
+      // "via"/X-Original-Sender/forward-block detection. If they somehow made
+      // it this far without resolving to an external sender, treat them as
+      // unknown and reject.
+      // ══════════════════════════════════════════════════════════════════════════
+      const matchedSupplier = isInternalForwarder(senderEmail)
+        ? undefined
+        : await storage.findSupplierByEmail(senderEmail);
 
       if (!matchedSupplier) {
-        console.log(`[Webhook] Not a direct supplier — routing to Triage Inbox: ${senderEmail} (suggestedAction=${action ?? "none"})`);
-        await storage.createUniversalInboxItem({
+        console.log(`[Webhook] Whitelist reject: sender=${senderEmail} (unknown or still-internal)`);
+        await storage.createRejectedEmail({
           senderEmail,
           senderName: resolvedSenderName || null,
           subject,
           body: emailBody.slice(0, 8000),
           hasAttachment,
-          rawPayload: { ...payload, _suggestedAction: action },
-          status: "NEEDS_ROUTING",
+          rawPayload: { ...payload },
+          reviewed: false,
         });
-        return res.status(200).json({ received: true, action: "saved_to_triage_inbox", sender: senderEmail, suggestedAction: action });
+        return res.status(200).json({ received: true, action: "rejected_unknown_sender", sender: senderEmail });
       }
+      // matchedSupplier is truthy from this point on
 
       // ══════════════════════════════════════════════════════════════════════════
       // DIRECT SUPPLIER — auto-process AP pipeline
