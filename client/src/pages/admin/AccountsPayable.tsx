@@ -2466,9 +2466,10 @@ export function AdminAccountsPayable() {
                             queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
                             queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
                             queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
+                            const reasons = s.reasons ? ` (no PDF: ${s.reasons.noPdf ?? 0}, blank text: ${s.reasons.pdfTextEmpty ?? 0}, AI blank: ${s.reasons.aiReturnedNothing ?? 0}, parsed empty: ${s.reasons.parsedButEmpty ?? 0})` : "";
                             toast({
                               title: "Reclassify complete",
-                              description: `${s.promoted} promoted to To Pay · ${s.statementExpanded} expanded from statements · ${s.dropped} dropped (remittance/other) · ${s.needsManual} still need manual entry · ${s.errors} errors.`,
+                              description: `${s.promoted} → To Pay · ${s.statementExpanded} from statements · ${s.dropped} dropped · ${s.needsManual} manual${reasons} · ${s.errors} errors.`,
                             });
                           } catch (e: any) {
                             toast({ title: "Reclassify failed", description: e?.message ?? "Try again.", variant: "destructive" });

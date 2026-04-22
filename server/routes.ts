@@ -3210,19 +3210,30 @@ export async function registerRoutes(
         storage.getSupplierInvoices({ status: "QUARANTINE" }),
       ]);
       const rows = [...reviews, ...quarantined];
-      const summary = { total: rows.length, promoted: 0, statementExpanded: 0, dropped: 0, needsManual: 0, errors: 0 };
+      const summary = {
+        total: rows.length,
+        promoted: 0,
+        statementExpanded: 0,
+        dropped: 0,
+        needsManual: 0,
+        errors: 0,
+        // Breakdown of why rows landed in "needsManual" — useful for diagnosis
+        reasons: { noPdf: 0, pdfTextEmpty: 0, aiReturnedNothing: 0, parsedButEmpty: 0 } as Record<string, number>,
+      };
       const todayStr = new Date().toISOString().split("T")[0];
+
+      // Cache suppliers once so we don't re-query per row
+      const allSuppliers = await storage.getSuppliers();
+      const supplierMap = new Map(allSuppliers.map(s => [s.id, s]));
 
       for (const inv of rows) {
         try {
           const raw = inv.rawExtractedData as any;
           const pdfBase64: string | undefined = raw?.pdfBase64;
           if (!pdfBase64) {
-            // No PDF → keep as REVIEW so the manager can enter amount manually
-            if (inv.status !== "REVIEW") {
-              await storage.updateSupplierInvoice(inv.id, { status: "REVIEW" });
-            }
+            if (inv.status !== "REVIEW") await storage.updateSupplierInvoice(inv.id, { status: "REVIEW" });
             summary.needsManual++;
+            summary.reasons.noPdf++;
             continue;
           }
           const buf = Buffer.from(pdfBase64, "base64");
@@ -3230,6 +3241,7 @@ export async function registerRoutes(
           if (!pdfText.trim()) {
             if (inv.status !== "REVIEW") await storage.updateSupplierInvoice(inv.id, { status: "REVIEW" });
             summary.needsManual++;
+            summary.reasons.pdfTextEmpty++;
             continue;
           }
 
@@ -3240,11 +3252,36 @@ export async function registerRoutes(
             continue;
           }
 
-          const parsed = await parseInvoiceFromUnknownSender(pdfText);
-          const first = parsed?.invoices?.[0];
+          // Supplier-specific parser is MUCH more accurate than the unknown-sender
+          // path when we already know who the supplier is. Fall back to the
+          // generic parser only when the row has no supplier attached.
+          const supplier = inv.supplierId ? supplierMap.get(inv.supplierId) : undefined;
+          const subject = raw?.subject ?? "";
+          let parsedInvoices: any[] = [];
+          let parsedSupplier: any = null;
+          if (supplier) {
+            const items = await parseInvoiceWithAI(pdfText, supplier.name, subject);
+            parsedInvoices = items ?? [];
+            parsedSupplier = { supplierName: supplier.name };
+          } else {
+            const generic = await parseInvoiceFromUnknownSender(pdfText);
+            parsedInvoices = generic?.invoices ?? [];
+            parsedSupplier = generic?.supplier ?? null;
+          }
+
+          if (parsedInvoices.length === 0) {
+            if (inv.status !== "REVIEW") await storage.updateSupplierInvoice(inv.id, { status: "REVIEW" });
+            console.warn(`[bulk-reclassify] ${inv.id} (${supplier?.name ?? "unknown"}): AI returned no invoices from ${pdfText.length} chars of text`);
+            summary.needsManual++;
+            summary.reasons.aiReturnedNothing++;
+            continue;
+          }
+
+          const first = parsedInvoices[0];
           if (!first || (!first.totalAmount && !first.invoiceNumber)) {
             if (inv.status !== "REVIEW") await storage.updateSupplierInvoice(inv.id, { status: "REVIEW" });
             summary.needsManual++;
+            summary.reasons.parsedButEmpty++;
             continue;
           }
 
@@ -3254,16 +3291,17 @@ export async function registerRoutes(
             invoiceNumber: first.invoiceNumber || inv.invoiceNumber,
             invoiceDate: first.issueDate || inv.invoiceDate,
             dueDate: first.dueDate ?? undefined,
-            rawExtractedData: { ...raw, supplier: parsed?.supplier, invoices: parsed?.invoices, _aiParsed: true, _reclassified: docType },
+            rawExtractedData: { ...raw, supplier: parsedSupplier, invoices: parsedInvoices, _aiParsed: true, _reclassified: docType },
           };
           await storage.updateSupplierInvoice(inv.id, patch);
           summary.promoted++;
-          if (docType === "STATEMENT" && parsed?.invoices && parsed.invoices.length > 1 && inv.supplierId) {
-            // Create remaining line items as new PENDING rows (skip duplicates)
+          console.log(`[bulk-reclassify] ${inv.id} → PENDING (amount=${first.totalAmount}, #=${first.invoiceNumber})`);
+
+          if (docType === "STATEMENT" && parsedInvoices.length > 1 && inv.supplierId) {
             const existing = await storage.getSupplierInvoices({ supplierId: inv.supplierId });
             const existingNums = new Set(existing.map(e => e.invoiceNumber));
-            for (let i = 1; i < parsed.invoices.length; i++) {
-              const item = parsed.invoices[i];
+            for (let i = 1; i < parsedInvoices.length; i++) {
+              const item = parsedInvoices[i];
               if (!item.invoiceNumber || existingNums.has(item.invoiceNumber)) continue;
               try {
                 await storage.createSupplierInvoice({
