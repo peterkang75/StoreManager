@@ -1782,6 +1782,12 @@ export function AdminAccountsPayable() {
                 const isPending = ignoreSenderMutation.isPending;
                 // Use ABN (if known) or first invoice ID as the stable groupKey for React keys and test IDs
                 const groupKey = group.abn || group.invoices[0]?.id || group.supplierName;
+                // Detect "rule matched but supplier missing" placeholders: supplierId is null
+                // AND the invoice_number is one of our auto-generated forms (TRIAGE-/EMAIL-).
+                // These arrive from auto-routing when ROUTE_TO_AP rule exists without a supplier.
+                const isRulePlaceholder = group.invoices.some(inv =>
+                  !inv.supplierId && /^(TRIAGE-|EMAIL-)/.test(inv.invoiceNumber ?? "")
+                );
 
                 return (
                   <Card key={groupKey} className="overflow-hidden" data-testid={`review-card-${groupKey}`}>
@@ -1791,9 +1797,21 @@ export function AdminAccountsPayable() {
                         <div className="flex items-start gap-3 min-w-0">
                           <Mail className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
                           <div className="min-w-0">
-                            <p className="font-semibold text-sm truncate" data-testid={`text-review-supplier-${groupKey}`}>
-                              {group.supplierName}
-                            </p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-semibold text-sm truncate" data-testid={`text-review-supplier-${groupKey}`}>
+                                {group.supplierName}
+                              </p>
+                              {isRulePlaceholder && (
+                                <span
+                                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-destructive/10 text-destructive border border-destructive/30"
+                                  title="A Payables rule routed this email automatically but no supplier was matched. Approve below to create/link the supplier."
+                                  data-testid={`badge-rule-placeholder-${groupKey}`}
+                                >
+                                  <AlertCircle className="h-3 w-3" />
+                                  Supplier needed (rule match)
+                                </span>
+                              )}
+                            </div>
                             {group.abn && (
                               <p className="text-xs text-muted-foreground" data-testid={`text-review-abn-${groupKey}`}>
                                 ABN {group.abn}
