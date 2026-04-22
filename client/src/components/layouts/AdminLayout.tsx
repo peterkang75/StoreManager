@@ -90,10 +90,10 @@ const commsNavItems = [
   { title: "Notices", url: "/admin/notices", icon: Megaphone },
 ];
 
-const executiveNavItems = [
-  { title: "AI Smart Inbox", url: "/admin/executive",   icon: BrainCircuit },
-  { title: "Triage Inbox",   url: "/admin/triage-inbox", icon: Inbox },
-];
+// Hidden in favour of the whitelist-only pipeline (see Rejected tab in
+// Accounts Payable). Routes below remain registered in App.tsx so old
+// bookmarks still work, but menu entries are removed from the sidebar.
+const executiveNavItems: Array<{ title: string; url: string; icon: any }> = [];
 
 const settingsNavItems = [
   { title: "Access Control", url: "/admin/settings/access-control", icon: ShieldCheck },
