@@ -5264,7 +5264,8 @@ export async function registerRoutes(
         const senderEmail = (item.senderEmail ?? "").trim().toLowerCase();
         if (!senderEmail) { summary.skipped++; continue; }
 
-        // 1. Supplier directory match → REVIEW invoice placeholder
+        // 1. Supplier directory match → PENDING invoice straight into To Pay
+        //    (skip REVIEW because we know who the sender is).
         const supplier = await storage.findSupplierByEmail(senderEmail);
         if (supplier) {
           const rawPayload = item.rawPayload as any;
@@ -5286,8 +5287,8 @@ export async function registerRoutes(
             invoiceDate: todayStr,
             dueDate: undefined,
             amount: 0,
-            status: "REVIEW",
-            notes: `Re-applied from Triage Inbox. Parsing in progress…\nFrom: ${item.senderEmail}\nSubject: ${item.subject}`,
+            status: "PENDING",
+            notes: `Re-applied from Triage Inbox → supplier "${supplier.name}". Parsing invoice details…\nFrom: ${item.senderEmail}\nSubject: ${item.subject}`,
             rawExtractedData: { senderEmail: item.senderEmail, subject: item.subject, supplier: { supplierName: supplier.name }, body: item.body?.slice(0, 8000), pdfBase64 },
           } as any);
           await storage.updateUniversalInboxItem(item.id, { status: "PROCESSED" });
@@ -5565,25 +5566,32 @@ export async function registerRoutes(
           triagePdfBase64 = typeof rawContent === "string" ? rawContent : Buffer.isBuffer(rawContent) ? rawContent.toString("base64") : undefined;
         }
 
-        // Create a REVIEW placeholder immediately so the AP Inbox shows the
-        // item right away, before the slow AI parse completes.
+        // If the sender's email is already registered to a supplier, skip REVIEW
+        // and write PENDING straight into To Pay. Background AI then fills in the
+        // invoice number / amount. Only if there's no supplier match do we fall
+        // back to REVIEW so a manager can attach one.
+        const preMatchedSupplier = await storage.findSupplierByEmail(senderEmail);
+        const initialStatus: "PENDING" | "REVIEW" = preMatchedSupplier ? "PENDING" : "REVIEW";
         const reviewInv = await storage.createSupplierInvoice({
-          supplierId: undefined,
+          supplierId: preMatchedSupplier?.id,
           storeId: null,
           invoiceNumber: `TRIAGE-${Date.now()}`,
           invoiceDate: new Date().toISOString().split("T")[0],
           dueDate: undefined,
           amount: 0,
-          status: "REVIEW",
-          notes: `Routed from Triage Inbox. Parsing in progress…\nFrom: ${senderEmail}\nSubject: ${subject}`,
+          status: initialStatus,
+          notes: preMatchedSupplier
+            ? `Routed from Triage Inbox → matched supplier "${preMatchedSupplier.name}". Parsing invoice details…\nFrom: ${senderEmail}\nSubject: ${subject}`
+            : `Routed from Triage Inbox. Parsing in progress…\nFrom: ${senderEmail}\nSubject: ${subject}`,
           // IMPORTANT: Do NOT use item.senderName here — when an internal forwarder
           // (e.g. Peter Kang) routes invoices from multiple suppliers, using their
           // personal name as supplierName groups unrelated suppliers together.
           // Leave supplierName blank; the background AI parser will fill it in.
-          rawExtractedData: { senderEmail, subject, supplier: { supplierName: "" }, body: item.body?.slice(0, 8000), pdfBase64: triagePdfBase64 },
+          rawExtractedData: { senderEmail, subject, supplier: { supplierName: preMatchedSupplier?.name ?? "" }, body: item.body?.slice(0, 8000), pdfBase64: triagePdfBase64 },
         });
         processResult.invoiceId = reviewInv.id;
-        processResult.reviewCreated = true;
+        processResult.reviewCreated = initialStatus === "REVIEW";
+        processResult.initialStatus = initialStatus;
 
         // Respond to the client immediately — AP Review Inbox will show the
         // placeholder instantly. Background job upgrades it if AI can parse.
