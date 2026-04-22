@@ -2310,134 +2310,160 @@ export function AdminAccountsPayable() {
               <p className="text-xs">Placeholder or duplicate rows that couldn't be auto-approved will appear here.</p>
             </div>
           ) : (
-            <Card>
-              <CardContent className="p-0">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border/40 bg-muted/30">
-                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Supplier / From</th>
-                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice #</th>
-                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice Date</th>
-                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right whitespace-nowrap">Amount</th>
-                      <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Subject / PDF</th>
-                      <th className="w-72 py-2.5 px-4" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {quarantinedInvoices.map(inv => {
-                      const enrichedInv = inv as any;
-                      const raw = enrichedInv.rawExtractedData as any;
-                      const senderEmail = raw?.senderEmail ?? null;
-                      const subject = raw?.subject ?? null;
-                      const hasPdf = !!raw?.pdfBase64;
-                      const hasAmount = (inv.amount ?? 0) > 0;
-                      return (
-                        <tr key={inv.id} className="border-b border-border/10 last:border-0 hover:bg-muted/20 transition-colors" data-testid={`row-quarantine-${inv.id}`}>
-                          <td className="py-2.5 px-4 align-top">
-                            <div className="font-medium truncate max-w-xs">
-                              {enrichedInv.supplier?.name ?? "—"}
+            <div className="space-y-3">
+              {/* Guidance */}
+              <div className="rounded-md border border-amber-300/50 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-800 dark:text-amber-200 space-y-1">
+                <p className="font-semibold">How to clear these:</p>
+                <ul className="list-disc list-inside space-y-0.5 opacity-90">
+                  <li><strong>Has PDF with clear amount</strong> → click "Re-parse PDF". If that fails (scanned PDF), open the PDF, then "Approve → To Pay" and enter the amount manually.</li>
+                  <li><strong>No PDF, or not a real invoice</strong> (statement of account, duplicate, confirmation) → "Delete".</li>
+                  <li><strong>Don't know</strong> → open the PDF / email subject first; notes column explains why each row was quarantined.</li>
+                </ul>
+              </div>
+              {/* Card-style list — never gets horizontally clipped */}
+              <div className="space-y-2">
+                {quarantinedInvoices.map(inv => {
+                  const enrichedInv = inv as any;
+                  const raw = enrichedInv.rawExtractedData as any;
+                  const senderEmail = raw?.senderEmail ?? null;
+                  const subject = raw?.subject ?? null;
+                  const hasPdf = !!raw?.pdfBase64;
+                  const hasAmount = (inv.amount ?? 0) > 0;
+                  // Try to extract an invoice number hint from the subject
+                  // ("INV-1234", "Invoice 5678", etc.) when the row's own
+                  // invoice_number is still the TRIAGE-/EMAIL- placeholder.
+                  const invNumGuess = (() => {
+                    if (inv.invoiceNumber && !/^(TRIAGE-|EMAIL-)/.test(inv.invoiceNumber)) return inv.invoiceNumber;
+                    const hay = `${subject ?? ""} ${inv.notes ?? ""}`;
+                    const m = hay.match(/\b(?:INV[- ]?|Invoice[- #]?)(\d{3,10})\b/i);
+                    return m ? `INV-${m[1]}` : null;
+                  })();
+                  const supplierLabel = enrichedInv.supplier?.name ?? (senderEmail ? senderEmail.split("@")[1] ?? senderEmail : "Unknown supplier");
+
+                  return (
+                    <Card key={inv.id} className="overflow-hidden" data-testid={`row-quarantine-${inv.id}`}>
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between gap-4 flex-wrap">
+                          {/* Left: metadata */}
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold text-sm truncate">{supplierLabel}</span>
+                              {invNumGuess && (
+                                <span className="font-mono text-xs text-muted-foreground">#{invNumGuess}</span>
+                              )}
+                              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                {fmt(inv.invoiceDate)}
+                              </span>
+                              <span className={`font-semibold tabular-nums text-sm ${hasAmount ? "text-foreground" : "text-muted-foreground"}`}>
+                                {fmtAUD(inv.amount ?? 0)}
+                              </span>
+                              {!hasAmount && (
+                                <span className="text-[10px] rounded border border-amber-300/50 bg-amber-50 dark:bg-amber-950/30 px-1.5 py-0.5 text-amber-800 dark:text-amber-300">
+                                  AI couldn't read amount
+                                </span>
+                              )}
+                              {!hasPdf && (
+                                <span className="text-[10px] rounded border border-destructive/30 bg-destructive/5 px-1.5 py-0.5 text-destructive">
+                                  No PDF
+                                </span>
+                              )}
                             </div>
-                            {senderEmail && (
-                              <div className="text-[11px] text-muted-foreground truncate max-w-xs" title={senderEmail}>
-                                {senderEmail}
+                            {senderEmail && enrichedInv.supplier?.name && (
+                              <div className="text-[11px] text-muted-foreground truncate" title={senderEmail}>
+                                from {senderEmail}
                               </div>
                             )}
-                          </td>
-                          <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground align-top">
-                            {displayInvNumber(inv.invoiceNumber)}
-                          </td>
-                          <td className="py-2.5 px-4 text-muted-foreground whitespace-nowrap align-top">
-                            {fmt(inv.invoiceDate)}
-                          </td>
-                          <td className="py-2.5 px-4 font-semibold tabular-nums text-right whitespace-nowrap align-top">
-                            {fmtAUD(inv.amount ?? 0)}
-                          </td>
-                          <td className="py-2.5 px-4 align-top">
-                            <div className="flex items-start gap-2">
-                              {hasPdf && (
-                                <button
-                                  type="button"
-                                  onClick={() => window.open(`/api/supplier-invoices/${inv.id}/pdf`, "_blank")}
-                                  className="shrink-0 h-6 w-6 rounded flex items-center justify-center text-blue-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/30"
-                                  title="Open PDF"
-                                  data-testid={`button-quarantine-pdf-${inv.id}`}
-                                >
-                                  <FileText className="h-4 w-4" />
-                                </button>
-                              )}
-                              <div className="min-w-0 text-xs text-muted-foreground">
-                                {subject && <div className="truncate max-w-sm" title={subject}>{subject}</div>}
-                                {inv.notes && <div className="text-[11px] opacity-70 truncate max-w-sm" title={inv.notes}>{inv.notes}</div>}
+                            {subject && (
+                              <div className="text-xs text-muted-foreground truncate" title={subject}>
+                                <span className="opacity-70">Subject:</span> {subject}
                               </div>
-                            </div>
-                          </td>
-                          <td className="py-2.5 px-4 align-top">
-                            <div className="flex items-center gap-2 justify-end flex-wrap">
-                              {hasPdf && !hasAmount && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={async () => {
-                                    try {
-                                      await apiRequest("POST", `/api/supplier-invoices/${inv.id}/reparse-pdf`, {});
-                                      queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
-                                      toast({ title: "Re-parsed from PDF", description: "Review the amount, then Approve." });
-                                    } catch (e: any) {
-                                      toast({ title: "Re-parse failed", description: e?.message ?? "Try opening the PDF to enter manually.", variant: "destructive" });
-                                    }
-                                  }}
-                                  data-testid={`button-reparse-quarantine-${inv.id}`}
-                                  className="gap-1.5"
-                                >
-                                  <RefreshCw className="h-3.5 w-3.5" />
-                                  Re-parse PDF
-                                </Button>
-                              )}
+                            )}
+                            {inv.notes && (
+                              <div className="text-[11px] text-muted-foreground/80 truncate" title={inv.notes}>
+                                {inv.notes}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Right: actions */}
+                          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                            {hasPdf && (
                               <Button
                                 size="sm"
-                                variant={hasAmount ? "default" : "outline"}
-                                onClick={async () => {
-                                  if (!inv.amount || inv.amount <= 0) {
-                                    const raw = window.prompt("Enter invoice amount (AUD) to approve:");
-                                    const amt = raw ? Number(raw) : NaN;
-                                    if (!raw || isNaN(amt) || amt <= 0) return;
-                                    await apiRequest("PATCH", `/api/supplier-invoices/${inv.id}`, { amount: amt });
-                                  }
-                                  await apiRequest("PATCH", `/api/invoices/${inv.id}/status`, { status: "PENDING" });
-                                  queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-                                  queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
-                                  toast({ title: "Moved to To Pay" });
-                                }}
-                                data-testid={`button-approve-quarantine-${inv.id}`}
+                                variant="outline"
+                                onClick={() => window.open(`/api/supplier-invoices/${inv.id}/pdf`, "_blank")}
+                                data-testid={`button-quarantine-pdf-${inv.id}`}
                                 className="gap-1.5"
                               >
-                                <CheckCircle className="h-3.5 w-3.5" />
-                                Approve → To Pay
+                                <FileText className="h-3.5 w-3.5" />
+                                PDF
                               </Button>
+                            )}
+                            {hasPdf && !hasAmount && (
                               <Button
                                 size="sm"
                                 variant="outline"
                                 onClick={async () => {
-                                  await apiRequest("PATCH", `/api/supplier-invoices/${inv.id}/soft-delete`, {});
-                                  queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
-                                  queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/deleted"] });
-                                  toast({ title: "Moved to Trash" });
+                                  try {
+                                    const res = await apiRequest("POST", `/api/supplier-invoices/${inv.id}/reparse-pdf`, {});
+                                    const body = await res.json().catch(() => ({}));
+                                    queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
+                                    toast({ title: "Re-parsed from PDF", description: body?.supplier?.supplierName ? `Supplier: ${body.supplier.supplierName}. Review the amount, then Approve.` : "Review the amount, then Approve." });
+                                  } catch (e: any) {
+                                    toast({ title: "Re-parse failed", description: "If this is a scanned (image) PDF, text extraction isn't possible — open the PDF and enter the amount manually.", variant: "destructive" });
+                                  }
                                 }}
-                                data-testid={`button-delete-quarantine-${inv.id}`}
-                                className="gap-1.5 text-destructive hover:text-destructive"
+                                data-testid={`button-reparse-quarantine-${inv.id}`}
+                                className="gap-1.5"
                               >
-                                <Trash2 className="h-3.5 w-3.5" />
-                                Delete
+                                <RefreshCw className="h-3.5 w-3.5" />
+                                Re-parse
                               </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
+                            )}
+                            <Button
+                              size="sm"
+                              variant={hasAmount ? "default" : "outline"}
+                              onClick={async () => {
+                                if (!inv.amount || inv.amount <= 0) {
+                                  const raw = window.prompt("Enter invoice amount (AUD) — check the PDF first:");
+                                  const amt = raw ? Number(raw) : NaN;
+                                  if (!raw || isNaN(amt) || amt <= 0) return;
+                                  await apiRequest("PATCH", `/api/supplier-invoices/${inv.id}`, { amount: amt });
+                                }
+                                await apiRequest("PATCH", `/api/invoices/${inv.id}/status`, { status: "PENDING" });
+                                queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+                                queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
+                                toast({ title: "Moved to To Pay" });
+                              }}
+                              data-testid={`button-approve-quarantine-${inv.id}`}
+                              className="gap-1.5"
+                            >
+                              <CheckCircle className="h-3.5 w-3.5" />
+                              Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={async () => {
+                                await apiRequest("PATCH", `/api/supplier-invoices/${inv.id}/soft-delete`, {});
+                                queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
+                                queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/deleted"] });
+                                toast({ title: "Moved to Trash" });
+                              }}
+                              data-testid={`button-delete-quarantine-${inv.id}`}
+                              className="gap-1.5 text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              Delete
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
           )
         )}
 
