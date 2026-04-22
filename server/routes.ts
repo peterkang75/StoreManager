@@ -3552,9 +3552,12 @@ export async function registerRoutes(
 
       console.log(`[reparse-pdf] Invoice ${id}: parser=${parserUsed} supplierHint=${supplierHint ?? "-"} items=${invoices.length} amount=${first.totalAmount ?? "-"}`);
       res.json({ invoiceCount: invoices.length, supplier: supplierExtracted, parserUsed, updated });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error re-parsing invoice PDF:", error);
-      res.status(500).json({ error: "Failed to re-parse invoice PDF" });
+      // Expose actual error message (not stack) so the client toast can show
+      // it and the manager can act without needing Railway log access.
+      const msg = error?.message ?? String(error);
+      res.status(500).json({ error: `Re-parse failed: ${msg.slice(0, 300)}` });
     }
   });
 
