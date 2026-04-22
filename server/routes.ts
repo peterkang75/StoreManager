@@ -3631,6 +3631,96 @@ export async function registerRoutes(
     }
   });
 
+  // One-shot recovery: find REVIEW invoices with empty rawExtractedData whose
+  // notes came from the old Triage "Auto-routed by rule" path. Match each to
+  // its originating universal_inbox row (by sender + subject), pull the PDF
+  // attachment out of rawPayload, and backfill rawExtractedData so Re-parse
+  // / bulk-reclassify can complete the flow. Idempotent.
+  app.post("/api/invoices/backfill-from-inbox", async (_req: Request, res: Response) => {
+    const summary = { scanned: 0, matched: 0, noMatch: 0, alreadyHasData: 0, noAttachment: 0, multipleMatches: 0, errors: 0, details: [] as any[] };
+    try {
+      // 1) Load universal_inbox PROCESSED items (+NEEDS_ROUTING too, in case)
+      const processed = await storage.getUniversalInboxItems("PROCESSED");
+      const needs = await storage.getUniversalInboxItems("NEEDS_ROUTING");
+      const all = [...processed, ...needs];
+
+      // Build index: (senderEmail.lower + subject.trim) → items[]
+      type IdxItem = { item: typeof all[number]; ts: number };
+      const idx = new Map<string, IdxItem[]>();
+      for (const item of all) {
+        const key = `${(item.senderEmail || "").toLowerCase().trim()}|${(item.subject || "").trim()}`;
+        const ts = new Date(item.createdAt as any).getTime();
+        const arr = idx.get(key);
+        if (arr) arr.push({ item, ts });
+        else idx.set(key, [{ item, ts }]);
+      }
+
+      // 2) Pull REVIEW invoices
+      const reviewInvs = await storage.getSupplierInvoices({ status: "REVIEW" });
+
+      for (const inv of reviewInvs) {
+        const notes = inv.notes || "";
+        // Match: starts with Auto-routed by Triage rule OR has similar legacy pattern
+        if (!/Auto-routed by Triage rule/i.test(notes)) continue;
+
+        // Parse sender + subject from notes
+        // Pattern: "...\nFrom: <email>\nSubject: <subject>"
+        const fromMatch = notes.match(/From:\s*([^\r\n]+)/i);
+        const subjMatch = notes.match(/Subject:\s*([^\r\n]+)/i);
+        if (!fromMatch || !subjMatch) { summary.noMatch++; continue; }
+
+        summary.scanned++;
+
+        const raw = (inv.rawExtractedData as any) || {};
+        if (raw?.pdfBase64) { summary.alreadyHasData++; continue; }
+
+        const senderEmail = fromMatch[1].trim().toLowerCase();
+        const subject = subjMatch[1].trim();
+        const key = `${senderEmail}|${subject}`;
+        const candidates = idx.get(key);
+        if (!candidates || candidates.length === 0) { summary.noMatch++; continue; }
+
+        // If multiple, pick the one whose createdAt is closest to inv.createdAt
+        let picked = candidates[0];
+        if (candidates.length > 1) {
+          summary.multipleMatches++;
+          const invTs = new Date(inv.createdAt as any).getTime();
+          picked = candidates.reduce((a, b) => Math.abs(a.ts - invTs) < Math.abs(b.ts - invTs) ? a : b);
+        }
+
+        const rawPayload = (picked.item.rawPayload as any) || {};
+        const attachments: any[] = Array.isArray(rawPayload.attachments) ? rawPayload.attachments : [];
+        const pdfAtt = attachments.find(a => (a?.content_type ?? "").toLowerCase() === "application/pdf" && a?.content);
+        if (!pdfAtt) { summary.noAttachment++; continue; }
+
+        try {
+          await storage.updateSupplierInvoice(inv.id, {
+            rawExtractedData: {
+              pdfBase64: pdfAtt.content,
+              senderEmail,
+              subject,
+              body: (rawPayload.plain ?? "").slice(0, 8000),
+              supplier: { supplierName: "" },
+              _backfilledFromInbox: true,
+              _backfilledFrom: picked.item.id,
+            },
+          } as any);
+          summary.matched++;
+          summary.details.push({ invoiceId: inv.id, subject: subject.slice(0, 80), pdfSize: pdfAtt.size ?? 0 });
+        } catch (e: any) {
+          summary.errors++;
+          summary.details.push({ invoiceId: inv.id, error: e?.message ?? String(e) });
+        }
+      }
+
+      console.log(`[backfill-from-inbox] ${JSON.stringify({ ...summary, details: `${summary.details.length} items` })}`);
+      res.json(summary);
+    } catch (err: any) {
+      console.error("backfill-from-inbox error:", err);
+      res.status(500).json({ error: err?.message ?? String(err), summary });
+    }
+  });
+
   app.delete("/api/supplier-invoices/:id", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
