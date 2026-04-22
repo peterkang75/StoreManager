@@ -1788,6 +1788,13 @@ export function AdminAccountsPayable() {
                 const isRulePlaceholder = group.invoices.some(inv =>
                   !inv.supplierId && /^(TRIAGE-|EMAIL-)/.test(inv.invoiceNumber ?? "")
                 );
+                // Detect "AI parse hasn't finished" placeholders: auto-generated invoice
+                // number AND amount is 0/null. Approving these sends them to Quarantine
+                // (correct behaviour — $0 junk guard) but the manager needs to know.
+                const unparsedCount = group.invoices.filter(inv =>
+                  (!inv.amount || inv.amount <= 0) && /^(TRIAGE-|EMAIL-)/.test(inv.invoiceNumber ?? "")
+                ).length;
+                const hasUnparsed = unparsedCount > 0;
 
                 return (
                   <Card key={groupKey} className="overflow-hidden" data-testid={`review-card-${groupKey}`}>
@@ -1809,6 +1816,16 @@ export function AdminAccountsPayable() {
                                 >
                                   <AlertCircle className="h-3 w-3" />
                                   Supplier needed (rule match)
+                                </span>
+                              )}
+                              {hasUnparsed && (
+                                <span
+                                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-700"
+                                  title="AI has not parsed these invoices yet. If you approve now they will be quarantined as $0 placeholders. Use Re-parse PDF or wait, or enter the amount manually first."
+                                  data-testid={`badge-unparsed-${groupKey}`}
+                                >
+                                  <AlertCircle className="h-3 w-3" />
+                                  {unparsedCount} not parsed — approving now will quarantine
                                 </span>
                               )}
                             </div>
@@ -1998,7 +2015,19 @@ export function AdminAccountsPayable() {
                         )}
                         <Button
                           size="sm"
-                          onClick={() => setApproveInvoiceGroup(group.invoices)}
+                          onClick={() => {
+                            if (hasUnparsed) {
+                              const ok = window.confirm(
+                                `${unparsedCount} of these invoices haven't been parsed yet (amount = $0).\n\n` +
+                                `If you approve now, those rows will be moved to Quarantine (the $0 junk guard). ` +
+                                `The real invoices with a parsed amount will still go to To Pay.\n\n` +
+                                `Recommended: use "Re-parse PDF" first, or edit the amount inline, then approve.\n\n` +
+                                `Continue anyway?`
+                              );
+                              if (!ok) return;
+                            }
+                            setApproveInvoiceGroup(group.invoices);
+                          }}
                           data-testid={`button-approve-${groupKey}`}
                           className="gap-1.5"
                         >
