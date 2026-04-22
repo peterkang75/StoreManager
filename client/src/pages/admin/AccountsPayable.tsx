@@ -2311,15 +2311,48 @@ export function AdminAccountsPayable() {
             </div>
           ) : (
             <div className="space-y-3">
-              {/* Guidance */}
-              <div className="rounded-md border border-amber-300/50 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-800 dark:text-amber-200 space-y-1">
-                <p className="font-semibold">How to clear these:</p>
-                <ul className="list-disc list-inside space-y-0.5 opacity-90">
-                  <li><strong>Has PDF with clear amount</strong> → click "Re-parse PDF". If that fails (scanned PDF), open the PDF, then "Approve → To Pay" and enter the amount manually.</li>
-                  <li><strong>No PDF, or not a real invoice</strong> (statement of account, duplicate, confirmation) → "Delete".</li>
-                  <li><strong>Don't know</strong> → open the PDF / email subject first; notes column explains why each row was quarantined.</li>
-                </ul>
-              </div>
+              {(() => {
+                const alreadyHandled = quarantinedInvoices.filter(inv =>
+                  /already exist|ignored by manager|duplicate/i.test(inv.notes ?? "")
+                );
+                return (
+                  <div className="space-y-2">
+                    <div className="rounded-md border border-amber-300/50 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-800 dark:text-amber-200 space-y-1">
+                      <p className="font-semibold">How to clear these:</p>
+                      <ul className="list-disc list-inside space-y-0.5 opacity-90">
+                        <li><strong>Green "Delete — already handled" row</strong> → just Delete. The individual invoices are already in the system; this row is a leftover statement/duplicate.</li>
+                        <li><strong>Has PDF with clear amount</strong> → click "Re-parse". If it fails (scanned PDF, statement, or similar), open the PDF, then "Approve" and enter the amount manually.</li>
+                        <li><strong>No PDF, or not a real invoice</strong> → Delete.</li>
+                      </ul>
+                    </div>
+                    {alreadyHandled.length > 0 && (
+                      <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 flex items-center justify-between gap-3">
+                        <div className="text-xs text-destructive min-w-0">
+                          <strong>{alreadyHandled.length}</strong> row{alreadyHandled.length === 1 ? "" : "s"} already handled upstream (statement/duplicate) — safe to delete in bulk.
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 text-destructive hover:text-destructive shrink-0"
+                          onClick={async () => {
+                            if (!window.confirm(`Delete ${alreadyHandled.length} already-handled quarantine row${alreadyHandled.length === 1 ? "" : "s"}? They move to Trash and can be restored.`)) return;
+                            await Promise.all(alreadyHandled.map(inv =>
+                              apiRequest("PATCH", `/api/supplier-invoices/${inv.id}/soft-delete`, {})
+                            ));
+                            queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
+                            queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/deleted"] });
+                            toast({ title: `${alreadyHandled.length} row${alreadyHandled.length === 1 ? "" : "s"} moved to Trash` });
+                          }}
+                          data-testid="button-bulk-delete-handled"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete all {alreadyHandled.length}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               {/* Card-style list — never gets horizontally clipped */}
               <div className="space-y-2">
                 {quarantinedInvoices.map(inv => {
@@ -2329,6 +2362,9 @@ export function AdminAccountsPayable() {
                   const subject = raw?.subject ?? null;
                   const hasPdf = !!raw?.pdfBase64;
                   const hasAmount = (inv.amount ?? 0) > 0;
+                  // Statement/duplicate/ignored rows: the underlying invoice(s)
+                  // are already in the system — this row is leftover noise.
+                  const alreadyHandled = /already exist|ignored by manager|duplicate/i.test(inv.notes ?? "");
                   // Try to extract an invoice number hint from the subject
                   // ("INV-1234", "Invoice 5678", etc.) when the row's own
                   // invoice_number is still the TRIAGE-/EMAIL- placeholder.
@@ -2341,7 +2377,7 @@ export function AdminAccountsPayable() {
                   const supplierLabel = enrichedInv.supplier?.name ?? (senderEmail ? senderEmail.split("@")[1] ?? senderEmail : "Unknown supplier");
 
                   return (
-                    <Card key={inv.id} className="overflow-hidden" data-testid={`row-quarantine-${inv.id}`}>
+                    <Card key={inv.id} className={`overflow-hidden ${alreadyHandled ? "border-destructive/30 bg-destructive/[0.02]" : ""}`} data-testid={`row-quarantine-${inv.id}`}>
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between gap-4 flex-wrap">
                           {/* Left: metadata */}
@@ -2357,7 +2393,12 @@ export function AdminAccountsPayable() {
                               <span className={`font-semibold tabular-nums text-sm ${hasAmount ? "text-foreground" : "text-muted-foreground"}`}>
                                 {fmtAUD(inv.amount ?? 0)}
                               </span>
-                              {!hasAmount && (
+                              {alreadyHandled && (
+                                <span className="text-[10px] rounded border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-destructive font-semibold">
+                                  Already handled → Delete
+                                </span>
+                              )}
+                              {!alreadyHandled && !hasAmount && (
                                 <span className="text-[10px] rounded border border-amber-300/50 bg-amber-50 dark:bg-amber-950/30 px-1.5 py-0.5 text-amber-800 dark:text-amber-300">
                                   AI couldn't read amount
                                 </span>
@@ -2399,7 +2440,7 @@ export function AdminAccountsPayable() {
                                 PDF
                               </Button>
                             )}
-                            {hasPdf && !hasAmount && (
+                            {hasPdf && !hasAmount && !alreadyHandled && (
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -2410,7 +2451,15 @@ export function AdminAccountsPayable() {
                                     queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
                                     toast({ title: "Re-parsed from PDF", description: body?.supplier?.supplierName ? `Supplier: ${body.supplier.supplierName}. Review the amount, then Approve.` : "Review the amount, then Approve." });
                                   } catch (e: any) {
-                                    toast({ title: "Re-parse failed", description: "If this is a scanned (image) PDF, text extraction isn't possible — open the PDF and enter the amount manually.", variant: "destructive" });
+                                    const errMsg = String(e?.message ?? "");
+                                    const is422 = errMsg.includes("422") || /no invoices/i.test(errMsg);
+                                    toast({
+                                      title: "Re-parse failed",
+                                      description: is422
+                                        ? "This PDF has no individual invoices (probably a statement of account). Delete — the real invoices are already in the system."
+                                        : "Text extraction failed (scanned/image PDF). Open the PDF and enter the amount manually.",
+                                      variant: "destructive",
+                                    });
                                   }
                                 }}
                                 data-testid={`button-reparse-quarantine-${inv.id}`}
@@ -2420,30 +2469,32 @@ export function AdminAccountsPayable() {
                                 Re-parse
                               </Button>
                             )}
+                            {!alreadyHandled && (
+                              <Button
+                                size="sm"
+                                variant={hasAmount ? "default" : "outline"}
+                                onClick={async () => {
+                                  if (!inv.amount || inv.amount <= 0) {
+                                    const raw = window.prompt("Enter invoice amount (AUD) — check the PDF first:");
+                                    const amt = raw ? Number(raw) : NaN;
+                                    if (!raw || isNaN(amt) || amt <= 0) return;
+                                    await apiRequest("PATCH", `/api/supplier-invoices/${inv.id}`, { amount: amt });
+                                  }
+                                  await apiRequest("PATCH", `/api/invoices/${inv.id}/status`, { status: "PENDING" });
+                                  queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+                                  queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
+                                  toast({ title: "Moved to To Pay" });
+                                }}
+                                data-testid={`button-approve-quarantine-${inv.id}`}
+                                className="gap-1.5"
+                              >
+                                <CheckCircle className="h-3.5 w-3.5" />
+                                Approve
+                              </Button>
+                            )}
                             <Button
                               size="sm"
-                              variant={hasAmount ? "default" : "outline"}
-                              onClick={async () => {
-                                if (!inv.amount || inv.amount <= 0) {
-                                  const raw = window.prompt("Enter invoice amount (AUD) — check the PDF first:");
-                                  const amt = raw ? Number(raw) : NaN;
-                                  if (!raw || isNaN(amt) || amt <= 0) return;
-                                  await apiRequest("PATCH", `/api/supplier-invoices/${inv.id}`, { amount: amt });
-                                }
-                                await apiRequest("PATCH", `/api/invoices/${inv.id}/status`, { status: "PENDING" });
-                                queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-                                queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
-                                toast({ title: "Moved to To Pay" });
-                              }}
-                              data-testid={`button-approve-quarantine-${inv.id}`}
-                              className="gap-1.5"
-                            >
-                              <CheckCircle className="h-3.5 w-3.5" />
-                              Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
+                              variant={alreadyHandled ? "default" : "outline"}
                               onClick={async () => {
                                 await apiRequest("PATCH", `/api/supplier-invoices/${inv.id}/soft-delete`, {});
                                 queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
@@ -2451,7 +2502,7 @@ export function AdminAccountsPayable() {
                                 toast({ title: "Moved to Trash" });
                               }}
                               data-testid={`button-delete-quarantine-${inv.id}`}
-                              className="gap-1.5 text-destructive hover:text-destructive"
+                              className={alreadyHandled ? "gap-1.5" : "gap-1.5 text-destructive hover:text-destructive"}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                               Delete
