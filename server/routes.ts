@@ -5119,11 +5119,18 @@ export async function registerRoutes(
       let senderEmail: string;
       let resolvedSenderName: string | null;
 
-      if (rawXOrigSender) {
-        // Priority 1: X-Original-Sender (Google Groups mailing lists)
-        const extracted = extractEmailAndName(rawXOrigSender);
-        senderEmail = extracted.email;
-        resolvedSenderName = extracted.name ?? senderEmail;
+      const xOrigExtracted = rawXOrigSender ? extractEmailAndName(rawXOrigSender) : null;
+      // Only trust X-Original-Sender when it's a real supplier address.
+      // Xero's Google-Groups-forwarded invoices set X-Original-Sender to
+      // messaging-service@post.xero.com (a generic service address), which is
+      // LESS useful than the Reply-To header. Skip in that case so we fall
+      // through to Reply-To resolution.
+      const useXOrigSender = !!xOrigExtracted?.email && !isGenericService(xOrigExtracted.email);
+
+      if (useXOrigSender && xOrigExtracted) {
+        // Priority 1: X-Original-Sender (Google Groups mailing lists — real sender)
+        senderEmail = xOrigExtracted.email;
+        resolvedSenderName = xOrigExtracted.name ?? senderEmail;
         console.log("[Webhook] Sender from X-Original-Sender:", senderEmail);
       } else if (viaMatch) {
         // Priority 2: "via" pattern in From header (Google Groups)
