@@ -3587,8 +3587,10 @@ export async function registerRoutes(
 
         // Mark the original REVIEW row as DELETED — it was just a placeholder
         // for the statement PDF, now replaced by the expanded rows.
+        // Preserve previousStatus so /restore returns the row to its prior tab.
         await storage.updateSupplierInvoice(id, {
           status: "DELETED",
+          previousStatus: inv.status,
           rawExtractedData: { ...raw, supplier: supplierExtracted, invoices, _aiParsed: true, _parserUsed: parserUsed, _expandedInto: expanded, _skippedDupes: skipped },
         });
         console.log(`[reparse-pdf] Invoice ${id}: STATEMENT expanded → ${expanded} new PENDING, ${skipped} dupes skipped (supplier=${targetSupplierId})`);
@@ -3619,8 +3621,10 @@ export async function registerRoutes(
         // Unique violation on (supplier_id, invoice_number) — this invoice
         // already exists (PENDING or PAID). The REVIEW row is redundant.
         if (dbErr?.code === "23505" || /duplicate key/i.test(dbErr?.message ?? "")) {
+          // Preserve previousStatus so /restore returns the row to REVIEW (not PENDING).
           await storage.updateSupplierInvoice(id, {
             status: "DELETED",
+            previousStatus: inv.status,
             rawExtractedData: { ...raw, supplier: supplierExtracted, invoices, _aiParsed: true, _parserUsed: parserUsed, _duplicateOfExisting: true },
           });
           console.log(`[reparse-pdf] Invoice ${id}: duplicate of existing invoice (${first.invoiceNumber}) — marked DELETED`);
