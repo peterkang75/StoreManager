@@ -526,6 +526,26 @@ export const emailRoutingRules = pgTable("email_routing_rules", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Rejected emails — senders not on any supplier's contact_emails whitelist.
+// Whitelist-only pipeline: new emails from unknown senders are logged here so
+// the admin can review who was rejected and, if a real supplier was missed,
+// promote the sender's email onto a supplier record.
+export const rejectedEmails = pgTable("rejected_emails", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  senderEmail: text("sender_email").notNull(),
+  senderName: text("sender_name"),
+  subject: text("subject").notNull(),
+  body: text("body"),
+  hasAttachment: boolean("has_attachment").default(false).notNull(),
+  rawPayload: jsonb("raw_payload"),
+  receivedAt: timestamp("received_at").defaultNow().notNull(),
+  reviewed: boolean("reviewed").default(false).notNull(),
+});
+
+export const insertRejectedEmailSchema = createInsertSchema(rejectedEmails).omit({ id: true, receivedAt: true });
+export type InsertRejectedEmail = z.infer<typeof insertRejectedEmailSchema>;
+export type RejectedEmail = typeof rejectedEmails.$inferSelect;
+
 // Universal Inbox — raw emails from unknown senders awaiting human routing decision
 export const universalInbox = pgTable("universal_inbox", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

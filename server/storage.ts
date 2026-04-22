@@ -36,9 +36,10 @@ import {
   stores, candidates, employees, employeeStoreAssignments, employeeOnboardingTokens, employeeDocuments,
   rosterPeriods, shifts, rosters, rosterPublications, timeLogs, timesheets, payrolls,
   dailyClosings, cashSalesDetails, dailyCloseForms, suppliers, supplierInvoices, supplierPayments,
-  quarantinedEmails, emailRoutingRules, universalInbox,
+  quarantinedEmails, emailRoutingRules, universalInbox, rejectedEmails,
   todos,
   type UniversalInboxItem, type InsertUniversalInbox,
+  type RejectedEmail, type InsertRejectedEmail,
   financialTransactions, shiftTimesheets, notices, intercompanySettlements, adminPermissions,
   shoppingItems, activeShoppingList,
   storageItems, activeStorageList, storageUnits,
@@ -164,6 +165,12 @@ export interface IStorage {
   /** Bulk-drop all NEEDS_ROUTING items from the given sender (excluding the one already handled). Returns count. */
   dropInboxItemsBySender(senderEmail: string, excludeId: string): Promise<number>;
   dropInboxItemsByPattern(pattern: string, matchType: "DOMAIN" | "SUBSTRING", excludeId?: string): Promise<number>;
+
+  getRejectedEmails(filters?: { reviewed?: boolean }): Promise<RejectedEmail[]>;
+  getRejectedEmail(id: string): Promise<RejectedEmail | undefined>;
+  createRejectedEmail(data: InsertRejectedEmail): Promise<RejectedEmail>;
+  markRejectedReviewed(id: string, reviewed: boolean): Promise<RejectedEmail | undefined>;
+  deleteRejectedEmail(id: string): Promise<boolean>;
 
   getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]>;
   getNotice(id: string): Promise<Notice | undefined>;
@@ -1298,6 +1305,42 @@ export class MemStorage implements IStorage {
       }
     }
     return count;
+  }
+
+  private rejectedEmailsMap = new Map<string, RejectedEmail>();
+  async getRejectedEmails(filters?: { reviewed?: boolean }): Promise<RejectedEmail[]> {
+    let list = Array.from(this.rejectedEmailsMap.values());
+    if (filters?.reviewed !== undefined) list = list.filter(r => r.reviewed === filters.reviewed);
+    return list.sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
+  }
+  async getRejectedEmail(id: string): Promise<RejectedEmail | undefined> {
+    return this.rejectedEmailsMap.get(id);
+  }
+  async createRejectedEmail(data: InsertRejectedEmail): Promise<RejectedEmail> {
+    const id = randomUUID();
+    const row: RejectedEmail = {
+      id,
+      senderEmail: data.senderEmail,
+      senderName: data.senderName ?? null,
+      subject: data.subject,
+      body: data.body ?? null,
+      hasAttachment: data.hasAttachment ?? false,
+      rawPayload: data.rawPayload ?? null,
+      receivedAt: new Date(),
+      reviewed: data.reviewed ?? false,
+    };
+    this.rejectedEmailsMap.set(id, row);
+    return row;
+  }
+  async markRejectedReviewed(id: string, reviewed: boolean): Promise<RejectedEmail | undefined> {
+    const row = this.rejectedEmailsMap.get(id);
+    if (!row) return undefined;
+    const updated = { ...row, reviewed };
+    this.rejectedEmailsMap.set(id, updated);
+    return updated;
+  }
+  async deleteRejectedEmail(id: string): Promise<boolean> {
+    return this.rejectedEmailsMap.delete(id);
   }
 
   async getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]> {
@@ -2466,6 +2509,31 @@ export class DatabaseStorage implements IStorage {
     await db.update(universalInbox).set({ status: "DROPPED" })
       .where(inArray(universalInbox.id, toDrop));
     return toDrop.length;
+  }
+
+  async getRejectedEmails(filters?: { reviewed?: boolean }): Promise<RejectedEmail[]> {
+    if (filters?.reviewed !== undefined) {
+      return db.select().from(rejectedEmails)
+        .where(eq(rejectedEmails.reviewed, filters.reviewed))
+        .orderBy(desc(rejectedEmails.receivedAt));
+    }
+    return db.select().from(rejectedEmails).orderBy(desc(rejectedEmails.receivedAt));
+  }
+  async getRejectedEmail(id: string): Promise<RejectedEmail | undefined> {
+    const [row] = await db.select().from(rejectedEmails).where(eq(rejectedEmails.id, id));
+    return row;
+  }
+  async createRejectedEmail(data: InsertRejectedEmail): Promise<RejectedEmail> {
+    const [row] = await db.insert(rejectedEmails).values(data).returning();
+    return row;
+  }
+  async markRejectedReviewed(id: string, reviewed: boolean): Promise<RejectedEmail | undefined> {
+    const [row] = await db.update(rejectedEmails).set({ reviewed }).where(eq(rejectedEmails.id, id)).returning();
+    return row;
+  }
+  async deleteRejectedEmail(id: string): Promise<boolean> {
+    const result = await db.delete(rejectedEmails).where(eq(rejectedEmails.id, id));
+    return ((result as any).rowCount ?? 0) > 0;
   }
 
   async getNotices(filters?: { storeId?: string; activeOnly?: boolean }): Promise<Notice[]> {
