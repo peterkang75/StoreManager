@@ -1163,14 +1163,29 @@ export function AdminAccountsPayable() {
     mutationFn: async (invoiceId: string) => {
       return apiRequest("POST", `/api/supplier-invoices/${invoiceId}/reparse-pdf`);
     },
-    onSuccess: (result: any) => {
+    onSuccess: async (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
+      const body = await res.json().catch(() => ({}));
       toast({
         title: "PDF re-parsed",
-        description: `${result?.invoiceCount ?? 0} invoice rows extracted. Approve again to apply.`,
+        description: `${body?.invoiceCount ?? 0} invoice rows extracted${body?.parserUsed ? ` (${body.parserUsed})` : ""}. Approve again to apply.`,
       });
     },
-    onError: () => toast({ title: "Re-parse failed", description: "Could not re-extract from the stored PDF.", variant: "destructive" }),
+    onError: (err: any) => {
+      // err.message is like '422: {"error":"AI parser returned no invoice items..."}'
+      const msg = String(err?.message ?? "");
+      const m = msg.match(/^\d+:\s*(.+)$/);
+      let detail = m ? m[1] : msg;
+      try {
+        const parsed = JSON.parse(detail);
+        if (parsed?.error) detail = parsed.error;
+      } catch { /* keep raw */ }
+      toast({
+        title: "Re-parse failed",
+        description: detail || "Could not re-extract from the stored PDF.",
+        variant: "destructive",
+      });
+    },
   });
 
   // ── Selection helpers ───────────────────────────────────────────────────────

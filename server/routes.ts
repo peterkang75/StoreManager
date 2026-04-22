@@ -3458,10 +3458,13 @@ export async function registerRoutes(
   });
 
   // POST /api/supplier-invoices/:id/reparse-pdf
-  // Re-runs parseInvoiceFromUnknownSender on the stored pdfBase64.
+  // Re-runs AI extraction on the stored pdfBase64.
   // Works for REVIEW and QUARANTINE status. When the parse succeeds, the
   // first invoice's amount/number/dates are written back to the row itself
   // so the manager can immediately approve it to PENDING.
+  // Picks the parser based on available supplier hint:
+  //   • supplier_id linked OR raw.supplier.supplierName present → parseInvoiceWithAI (stronger prompt, supplier context)
+  //   • otherwise → parseInvoiceFromUnknownSender (generic)
   app.post("/api/supplier-invoices/:id/reparse-pdf", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
@@ -3479,22 +3482,67 @@ export async function registerRoutes(
       const pdfText = await extractPdfText(buf);
       if (!pdfText.trim()) return res.status(400).json({ error: "Could not extract text from stored PDF" });
 
-      const reparsed = await parseInvoiceFromUnknownSender(pdfText);
-      if (!reparsed?.invoices?.length) {
-        return res.status(422).json({ error: "Re-parse did not return any invoices" });
+      const subjectHint: string | undefined = raw?.subject;
+      let supplierHint: string | undefined;
+      if (inv.supplierId) {
+        const sup = await storage.getSupplier(inv.supplierId);
+        if (sup?.name) supplierHint = sup.name;
+      }
+      if (!supplierHint && typeof raw?.supplier?.supplierName === "string" && raw.supplier.supplierName.trim() && raw.supplier.supplierName !== "Unknown Supplier") {
+        supplierHint = raw.supplier.supplierName;
       }
 
-      const first = reparsed.invoices[0];
+      // Try the strong parser first when we have a supplier hint.
+      // Fall back to the unknown-sender parser if the strong parser returns
+      // nothing OR if no supplier hint is available.
+      let invoices: Array<{ invoiceNumber: string; issueDate: string; dueDate?: string | null; totalAmount: number; storeCode?: string; isStatement?: boolean }> = [];
+      let supplierExtracted: any = raw?.supplier ?? undefined;
+      let parserUsed: "withAI" | "unknown" = "unknown";
+
+      if (supplierHint) {
+        const items = await parseInvoiceWithAI(pdfText, supplierHint, subjectHint);
+        if (items && items.length > 0) {
+          invoices = items.map((it: any) => ({
+            invoiceNumber: String(it.invoiceNumber ?? ""),
+            issueDate: String(it.issueDate ?? new Date().toISOString().split("T")[0]),
+            dueDate: it.dueDate ? String(it.dueDate) : null,
+            totalAmount: Number(it.totalAmount ?? 0),
+            storeCode: it.storeCode,
+            isStatement: it.isStatement === true,
+          }));
+          parserUsed = "withAI";
+        }
+      }
+
+      if (invoices.length === 0) {
+        const generic = await parseInvoiceFromUnknownSender(pdfText, subjectHint);
+        if (generic?.invoices?.length) {
+          invoices = generic.invoices.map((it) => ({
+            invoiceNumber: it.invoiceNumber,
+            issueDate: it.issueDate,
+            dueDate: it.dueDate,
+            totalAmount: it.totalAmount,
+            storeCode: it.storeCode,
+            isStatement: generic.isStatement,
+          }));
+          supplierExtracted = generic.supplier;
+        }
+      }
+
+      if (invoices.length === 0) {
+        return res.status(422).json({ error: "AI parser returned no invoice items. The PDF may be unreadable or the layout is not recognised." });
+      }
+
+      const first = invoices[0];
       const patch: any = {
         rawExtractedData: {
           ...raw,
-          supplier: reparsed.supplier,
-          invoices: reparsed.invoices,
+          supplier: supplierExtracted,
+          invoices,
           _aiParsed: true,
+          _parserUsed: parserUsed,
         },
       };
-      // Promote first parsed row's key fields onto the invoice itself so the
-      // manager doesn't have to retype the amount before approving.
       if (first.totalAmount && first.totalAmount > 0) patch.amount = first.totalAmount;
       if (first.invoiceNumber) patch.invoiceNumber = first.invoiceNumber;
       if (first.issueDate) patch.invoiceDate = first.issueDate;
@@ -3502,8 +3550,8 @@ export async function registerRoutes(
 
       const updated = await storage.updateSupplierInvoice(id, patch);
 
-      console.log(`[reparse-pdf] Invoice ${id}: re-extracted ${reparsed.invoices.length} invoice items (amount=${first.totalAmount ?? "-"})`);
-      res.json({ invoiceCount: reparsed.invoices.length, supplier: reparsed.supplier, updated });
+      console.log(`[reparse-pdf] Invoice ${id}: parser=${parserUsed} supplierHint=${supplierHint ?? "-"} items=${invoices.length} amount=${first.totalAmount ?? "-"}`);
+      res.json({ invoiceCount: invoices.length, supplier: supplierExtracted, parserUsed, updated });
     } catch (error) {
       console.error("Error re-parsing invoice PDF:", error);
       res.status(500).json({ error: "Failed to re-parse invoice PDF" });

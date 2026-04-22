@@ -177,7 +177,15 @@ You MUST identify the REAL underlying supplier — the business that actually pr
   • "Supplier:" or "Supplier Details:"
   • "Sold by:" or "Issued by:"
   • Any block containing an ABN (Australian Business Number) that belongs to the vendor, NOT the platform
-Extract the business name and ABN from this "From / Vendor / Supplier" section and use it as extractedSupplierName. Ignore the platform name entirely for supplier identification. The PDF body ALWAYS overrides the email sender and the hint.`;
+Extract the business name and ABN from this "From / Vendor / Supplier" section and use it as extractedSupplierName. Ignore the platform name entirely for supplier identification. The PDF body ALWAYS overrides the email sender and the hint.
+
+WARNING — PAYMENT ADVICE / REMITTANCE SLIP BLOCKS (CRITICAL):
+Many Xero/MYOB/Aspose-generated invoice PDFs include a tear-off "PAYMENT ADVICE" or "Remittance Slip" block that repeats the invoice number, amount, and due date. Depending on the PDF text extractor, this block may appear at the TOP of the extracted text (before the main TAX INVOICE body) or at the BOTTOM. THIS IS NOT A SEPARATE INVOICE AND NOT A STATEMENT ROW — it is the SAME invoice restated for payment.
+
+Rules:
+- If you see a block headed "PAYMENT ADVICE", "Payment Advice", "REMITTANCE SLIP", or "Remittance Advice" AND the SAME invoice number appears again under a "TAX INVOICE" / "INVOICE" block, treat the whole PDF as ONE SINGLE INVOICE (type A), NOT a statement, and return EXACTLY ONE invoices[] item with isStatement: false.
+- Do NOT classify as STATEMENT just because the same invoice number is seen twice.
+- Do NOT return an empty invoices[] array when a valid invoice number + amount + supplier are clearly visible in the text, regardless of layout order.`;
 
   const subjectLine = subjectHint
     ? `Email subject: "${subjectHint}"\nIMPORTANT: If the subject contains words like "Statement", "Statement of Account", "Account Statement", or "Remittance", treat this as STRONG evidence that the document is type (B) STATEMENT.\n\n`
@@ -642,7 +650,18 @@ TOTAL AMOUNT RULES FOR SINGLE INVOICES (isStatement: false):
 - If the invoice shows "Invoice Total" → use that value. It represents ONLY this invoice.
 - If the invoice shows BOTH "Invoice Total" AND "A/C Outstanding" (or "Account Balance" / "Balance Forward" / "A/C Balance") AND a combined "Total" that equals Invoice Total + Outstanding → use ONLY the "Invoice Total". The combined "Total" at the bottom includes prior unpaid debt from the account and must NOT be used as this invoice's amount.
 - If there is no "Invoice Total" label → use "Total AUD Incl. GST", "Total Amount Payable", "Amount Due", "Total Owing".
-- NEVER use a combined "Total" that adds this invoice to prior outstanding debt.`;
+- NEVER use a combined "Total" that adds this invoice to prior outstanding debt.
+
+PAYMENT ADVICE / REMITTANCE SLIP SECTIONS (CRITICAL — READ CAREFULLY):
+Many supplier PDFs (especially property rent invoices from Xero/MYOB/Aspose-generated systems) include a tear-off "PAYMENT ADVICE" or "Payment Advice" or "Remittance Slip" block. Depending on the PDF extractor, this block may appear at the TOP of the extracted text (before the main TAX INVOICE body) or at the BOTTOM. It typically repeats: the supplier "To:" address, the invoice number, the amount due, and the due date.
+
+THIS IS NOT A SEPARATE INVOICE. It is the same invoice restated for the customer to fill out and send back with payment.
+
+Rules:
+- If you see a block headed "PAYMENT ADVICE", "Payment Advice", "REMITTANCE SLIP", or "Remittance Advice" that repeats the SAME invoice number and amount that also appears in a "TAX INVOICE" / "INVOICE" block elsewhere in the text, treat the document as ONE SINGLE INVOICE (isStatement: false) and return EXACTLY ONE invoices[] item.
+- Do NOT double-count the payment-advice block as a second row.
+- Do NOT misclassify as STATEMENT just because the invoice number appears twice — a statement has DIFFERENT invoice numbers on each row, not the same number repeated.
+- NEVER return an empty invoices[] array when a valid invoice number, amount, and supplier are clearly present in the text — even if the layout looks confusing.`;
 
 /**
  * Parse an invoice PDF from an unknown sender.
