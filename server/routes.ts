@@ -3197,6 +3197,102 @@ export async function registerRoutes(
     }
   });
 
+  // One-shot back-fill: reclassify every stuck REVIEW / QUARANTINE invoice
+  // through the new 4-way classifier. Used after the whitelist pipeline goes
+  // live to clean out the backlog.
+  //   INVOICE / STATEMENT  → promote to PENDING (fill amount from PDF parse)
+  //   REMITTANCE / OTHER   → soft-delete
+  //   no PDF / parse fails → stay as REVIEW (needs manual entry)
+  app.post("/api/invoices/bulk-reclassify", async (_req: Request, res: Response) => {
+    try {
+      const [reviews, quarantined] = await Promise.all([
+        storage.getSupplierInvoices({ status: "REVIEW" }),
+        storage.getSupplierInvoices({ status: "QUARANTINE" }),
+      ]);
+      const rows = [...reviews, ...quarantined];
+      const summary = { total: rows.length, promoted: 0, statementExpanded: 0, dropped: 0, needsManual: 0, errors: 0 };
+      const todayStr = new Date().toISOString().split("T")[0];
+
+      for (const inv of rows) {
+        try {
+          const raw = inv.rawExtractedData as any;
+          const pdfBase64: string | undefined = raw?.pdfBase64;
+          if (!pdfBase64) {
+            // No PDF → keep as REVIEW so the manager can enter amount manually
+            if (inv.status !== "REVIEW") {
+              await storage.updateSupplierInvoice(inv.id, { status: "REVIEW" });
+            }
+            summary.needsManual++;
+            continue;
+          }
+          const buf = Buffer.from(pdfBase64, "base64");
+          const pdfText = await extractPdfText(buf);
+          if (!pdfText.trim()) {
+            if (inv.status !== "REVIEW") await storage.updateSupplierInvoice(inv.id, { status: "REVIEW" });
+            summary.needsManual++;
+            continue;
+          }
+
+          const docType = await classifyDocumentForAP(pdfText);
+          if (docType === "REMITTANCE" || docType === "OTHER") {
+            await storage.updateSupplierInvoice(inv.id, { status: "DELETED", previousStatus: inv.status, notes: `Reclassified as ${docType} — auto-dropped during backfill.` });
+            summary.dropped++;
+            continue;
+          }
+
+          const parsed = await parseInvoiceFromUnknownSender(pdfText);
+          const first = parsed?.invoices?.[0];
+          if (!first || (!first.totalAmount && !first.invoiceNumber)) {
+            if (inv.status !== "REVIEW") await storage.updateSupplierInvoice(inv.id, { status: "REVIEW" });
+            summary.needsManual++;
+            continue;
+          }
+
+          const patch: any = {
+            status: "PENDING",
+            amount: first.totalAmount ?? inv.amount,
+            invoiceNumber: first.invoiceNumber || inv.invoiceNumber,
+            invoiceDate: first.issueDate || inv.invoiceDate,
+            dueDate: first.dueDate ?? undefined,
+            rawExtractedData: { ...raw, supplier: parsed?.supplier, invoices: parsed?.invoices, _aiParsed: true, _reclassified: docType },
+          };
+          await storage.updateSupplierInvoice(inv.id, patch);
+          summary.promoted++;
+          if (docType === "STATEMENT" && parsed?.invoices && parsed.invoices.length > 1 && inv.supplierId) {
+            // Create remaining line items as new PENDING rows (skip duplicates)
+            const existing = await storage.getSupplierInvoices({ supplierId: inv.supplierId });
+            const existingNums = new Set(existing.map(e => e.invoiceNumber));
+            for (let i = 1; i < parsed.invoices.length; i++) {
+              const item = parsed.invoices[i];
+              if (!item.invoiceNumber || existingNums.has(item.invoiceNumber)) continue;
+              try {
+                await storage.createSupplierInvoice({
+                  supplierId: inv.supplierId,
+                  storeId: null,
+                  invoiceNumber: item.invoiceNumber,
+                  invoiceDate: item.issueDate || todayStr,
+                  dueDate: item.dueDate ?? undefined,
+                  amount: item.totalAmount ?? 0,
+                  status: "PENDING",
+                  notes: `Expanded from statement during backfill reclassification.`,
+                } as any);
+                summary.statementExpanded++;
+              } catch (e) { /* unique constraint — skip */ }
+            }
+          }
+        } catch (e) {
+          console.error(`[bulk-reclassify] ${inv.id} failed:`, e);
+          summary.errors++;
+        }
+      }
+      console.log(`[bulk-reclassify] ${JSON.stringify(summary)}`);
+      res.json(summary);
+    } catch (err) {
+      console.error("Error bulk-reclassifying invoices:", err);
+      res.status(500).json({ error: "Failed to bulk reclassify" });
+    }
+  });
+
   // ── Rejected emails (whitelist misses) ─────────────────────────────────────
   app.get("/api/rejected-emails", async (req: Request, res: Response) => {
     try {

@@ -2450,6 +2450,36 @@ export function AdminAccountsPayable() {
                 );
                 return (
                   <div className="space-y-2">
+                    <div className="rounded-md border border-blue-300/50 bg-blue-50 dark:bg-blue-950/20 p-3 flex items-center justify-between gap-3">
+                      <div className="text-xs text-blue-800 dark:text-blue-200 min-w-0">
+                        <strong>Backfill</strong> — run the new 4-way classifier (INVOICE / STATEMENT / REMITTANCE / OTHER) on every stuck REVIEW + QUARANTINE row at once. Invoices with parseable PDFs move to To Pay, remittance/other rows are dropped.
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 shrink-0"
+                        onClick={async () => {
+                          if (!window.confirm("Run bulk reclassify on ALL stuck REVIEW + QUARANTINE invoices? This will promote invoices with PDFs to To Pay and soft-delete remittances. You can review the summary after.")) return;
+                          try {
+                            const res = await apiRequest("POST", "/api/invoices/bulk-reclassify", {});
+                            const s = await res.json();
+                            queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+                            queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
+                            queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
+                            toast({
+                              title: "Reclassify complete",
+                              description: `${s.promoted} promoted to To Pay · ${s.statementExpanded} expanded from statements · ${s.dropped} dropped (remittance/other) · ${s.needsManual} still need manual entry · ${s.errors} errors.`,
+                            });
+                          } catch (e: any) {
+                            toast({ title: "Reclassify failed", description: e?.message ?? "Try again.", variant: "destructive" });
+                          }
+                        }}
+                        data-testid="button-bulk-reclassify"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        Reclassify all stuck invoices
+                      </Button>
+                    </div>
                     <div className="rounded-md border border-amber-300/50 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-800 dark:text-amber-200 space-y-1">
                       <p className="font-semibold">How to clear these:</p>
                       <ul className="list-disc list-inside space-y-0.5 opacity-90">
