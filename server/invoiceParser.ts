@@ -710,9 +710,11 @@ export async function parseInvoiceFromUnknownSender(
  * Uses gpt-4o-mini for speed and low cost.
  * Fails SAFE: returns "INVOICE" on any error so we never accidentally discard a real invoice.
  */
+export type APDocType = "INVOICE" | "STATEMENT" | "REMITTANCE" | "OTHER";
+
 export async function classifyDocumentForAP(
   text: string
-): Promise<"INVOICE" | "CONFIRMATION"> {
+): Promise<APDocType> {
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -721,30 +723,39 @@ export async function classifyDocumentForAP(
           role: "system",
           content:
             "You are a strict document classifier for an accounts payable system. " +
-            "Reply with exactly one word: INVOICE or CONFIRMATION. No punctuation, no explanation.",
+            "Reply with exactly one word from {INVOICE, STATEMENT, REMITTANCE, OTHER}. " +
+            "No punctuation, no explanation.",
         },
         {
           role: "user",
           content:
-            "Classify this document:\n" +
-            "- INVOICE: A bill or invoice that requests payment. Has an amount due, " +
-            "invoice number, and/or payment terms. The business must pay this.\n" +
-            "- CONFIRMATION: An order confirmation, delivery receipt, dispatch notice, " +
-            "order acknowledgement, or any document where no payment is currently due.\n\n" +
-            `Document (first 3000 chars):\n${text.slice(0, 3000)}\n\n` +
-            "Reply ONLY with INVOICE or CONFIRMATION.",
+            "Classify this document into exactly one of these four buckets:\n" +
+            "- INVOICE: A single bill requesting payment for goods/services. Has an\n" +
+            "  invoice number, line items, amount due, payment terms. The business\n" +
+            "  must pay this. A \"Tax Invoice\" counts as INVOICE.\n" +
+            "- STATEMENT: A \"Statement of Account\" listing MULTIPLE invoices with\n" +
+            "  running balance or outstanding total. Not a single bill — a summary\n" +
+            "  of the account.\n" +
+            "- REMITTANCE: A \"Remittance Advice\" / \"Payment Advice\" notifying the\n" +
+            "  business that a payment has been made TO THEM, or confirming receipt\n" +
+            "  of a payment. No payment is owed — it's a payment notification.\n" +
+            "- OTHER: Anything else — order confirmation, delivery docket, dispatch\n" +
+            "  notice, quote, marketing, newsletter, receipt for a paid bill, etc.\n\n" +
+            `Document (first 3500 chars):\n${text.slice(0, 3500)}\n\n` +
+            "Reply ONLY with INVOICE, STATEMENT, REMITTANCE, or OTHER.",
         },
       ],
-      max_tokens: 5,
+      max_tokens: 8,
       temperature: 0,
     });
 
-    const result = response.choices[0]?.message?.content?.trim().toUpperCase();
-    if (result === "INVOICE" || result === "CONFIRMATION") {
+    const raw = response.choices[0]?.message?.content?.trim().toUpperCase() ?? "";
+    const result = raw.replace(/[^A-Z]/g, ""); // strip stray punctuation
+    if (result === "INVOICE" || result === "STATEMENT" || result === "REMITTANCE" || result === "OTHER") {
       console.log(`[classifyDocumentForAP] Result: ${result}`);
       return result;
     }
-    console.warn(`[classifyDocumentForAP] Unexpected response "${result}", defaulting to INVOICE`);
+    console.warn(`[classifyDocumentForAP] Unexpected response "${raw}", defaulting to INVOICE`);
     return "INVOICE";
   } catch (err) {
     console.warn("[classifyDocumentForAP] AI call failed, defaulting to INVOICE (fail-safe):", err);

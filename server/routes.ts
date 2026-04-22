@@ -5063,10 +5063,10 @@ export async function registerRoutes(
         const pdfResult = await extractPdfFromAttachment(att);
         const classifyText = pdfResult?.text.trim() ? pdfResult.text : (validInvoiceAttachments.length === 1 ? emailBody : "");
 
-        // ── Step 3: Classify (INVOICE vs CONFIRMATION) ───────────────────────
+        // ── Step 3: Classify (INVOICE / STATEMENT / REMITTANCE / OTHER) ─────
         const docType = await classifyDocumentForAP(classifyText || "no text available");
-        if (docType === "CONFIRMATION") {
-          console.log(`[Webhook] Attachment "${attName}" classified as CONFIRMATION — skipping`);
+        if (docType === "OTHER" || docType === "REMITTANCE") {
+          console.log(`[Webhook] Attachment "${attName}" classified as ${docType} — skipping`);
           confirmationCount++;
           continue;
         }
