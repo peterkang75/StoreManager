@@ -3197,6 +3197,76 @@ export async function registerRoutes(
     }
   });
 
+  // ── Rejected emails (whitelist misses) ─────────────────────────────────────
+  app.get("/api/rejected-emails", async (req: Request, res: Response) => {
+    try {
+      const reviewedParam = req.query.reviewed as string | undefined;
+      const filters = reviewedParam === "true" ? { reviewed: true }
+                    : reviewedParam === "false" ? { reviewed: false }
+                    : undefined;
+      const rows = await storage.getRejectedEmails(filters);
+      res.json(rows);
+    } catch (err) {
+      console.error("Error fetching rejected emails:", err);
+      res.status(500).json({ error: "Failed to fetch rejected emails" });
+    }
+  });
+
+  // Promote a rejected email → add the sender to an existing supplier
+  // (or create a new supplier) so future emails pass the whitelist.
+  app.post("/api/rejected-emails/:id/promote", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const body = req.body as {
+        existingSupplierId?: string;
+        newSupplier?: { name: string; abn?: string; contactName?: string; address?: string; notes?: string };
+      };
+      const rej = await storage.getRejectedEmail(id);
+      if (!rej) return res.status(404).json({ error: "Rejected email not found" });
+
+      const email = rej.senderEmail.trim().toLowerCase();
+      let supplier: any;
+
+      if (body.existingSupplierId) {
+        const existing = await storage.getSupplier(body.existingSupplierId);
+        if (!existing) return res.status(404).json({ error: "Supplier not found" });
+        const merged = Array.from(new Set([...(existing.contactEmails ?? []), email]));
+        supplier = await storage.updateSupplier(existing.id, { contactEmails: merged, active: true });
+      } else if (body.newSupplier?.name) {
+        supplier = await storage.createSupplier({
+          name: body.newSupplier.name,
+          abn: body.newSupplier.abn || null,
+          contactName: body.newSupplier.contactName || null,
+          contactEmails: [email],
+          address: body.newSupplier.address || null,
+          notes: body.newSupplier.notes || null,
+          active: true,
+          isAutoPay: false,
+        } as any);
+      } else {
+        return res.status(400).json({ error: "Provide existingSupplierId or newSupplier.name" });
+      }
+
+      await storage.markRejectedReviewed(id, true);
+      console.log(`[RejectedEmails] Promoted ${email} → supplier "${supplier.name}" (${supplier.id})`);
+      res.json({ supplier, rejectedId: id });
+    } catch (err) {
+      console.error("Error promoting rejected email:", err);
+      res.status(500).json({ error: "Failed to promote rejected email" });
+    }
+  });
+
+  app.delete("/api/rejected-emails/:id", async (req: Request, res: Response) => {
+    try {
+      const ok = await storage.deleteRejectedEmail(req.params.id);
+      if (!ok) return res.status(404).json({ error: "Rejected email not found" });
+      res.json({ success: true });
+    } catch (err) {
+      console.error("Error deleting rejected email:", err);
+      res.status(500).json({ error: "Failed to delete rejected email" });
+    }
+  });
+
   app.patch("/api/supplier-invoices/:id/soft-delete", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
