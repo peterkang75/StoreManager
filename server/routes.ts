@@ -4847,23 +4847,37 @@ export async function registerRoutes(
         console.log(`[Webhook] Rule ROUTE_TO_TODO — bypassing triage, creating TODO directly for ${senderEmail}`);
         res.status(200).json({ received: true, action: "todo_created_by_rule", sender: senderEmail });
         setImmediate(async () => {
+          let title = subject || "(no subject)";
+          let description: string | null = emailBody.slice(0, 2000);
+          let dueDate: Date | null = null;
+          let aiFallback = false;
           try {
             const taskData = await summarizeTaskFromEmail(subject, emailBody);
             if (taskData?.title) {
-              await storage.createTodo({
-                title: taskData.title,
-                description: taskData.description || null,
-                sourceEmail: senderEmail,
-                senderEmail,
-                originalSubject: subject,
-                originalBody: emailBody.slice(0, 8000),
-                dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
-                status: "TODO",
-              });
-              console.log(`[Webhook] Rule-based TODO created: "${taskData.title}"`);
+              title = taskData.title;
+              description = taskData.description || null;
+              dueDate = taskData.dueDate ? new Date(taskData.dueDate) : null;
+            } else {
+              aiFallback = true;
             }
           } catch (err) {
-            console.error("[Webhook] Background TODO creation failed:", err);
+            aiFallback = true;
+            console.error("[Webhook] TODO summarisation failed — using subject fallback:", err);
+          }
+          try {
+            await storage.createTodo({
+              title,
+              description: aiFallback ? `⚠ AI summary unavailable — review manually.\n\n${description ?? ""}`.slice(0, 8000) : description,
+              sourceEmail: senderEmail,
+              senderEmail,
+              originalSubject: subject,
+              originalBody: emailBody.slice(0, 8000),
+              dueDate,
+              status: "TODO",
+            });
+            console.log(`[Webhook] Rule-based TODO created${aiFallback ? " (fallback)" : ""}: "${title}"`);
+          } catch (e) {
+            console.error("[Webhook] Final TODO insert failed:", e);
           }
         });
         return;
@@ -5316,27 +5330,42 @@ export async function registerRoutes(
           continue;
         }
         if (ruleAction === "ROUTE_TO_TODO") {
-          // Fire-and-forget TODO summarisation in background
+          // Fire-and-forget TODO summarisation — always creates a TODO, even
+          // when the AI summary fails (subject becomes the title).
           const subject = item.subject;
           const body = item.body;
           const sender = item.senderEmail;
           setImmediate(async () => {
+            let title = subject || "(no subject)";
+            let description: string | null = body.slice(0, 2000);
+            let dueDate: Date | null = null;
+            let aiFallback = false;
             try {
               const taskData = await summarizeTaskFromEmail(subject, body);
               if (taskData?.title) {
-                await storage.createTodo({
-                  title: taskData.title,
-                  description: taskData.description || null,
-                  sourceEmail: sender,
-                  senderEmail: sender,
-                  originalSubject: subject,
-                  originalBody: body.slice(0, 8000),
-                  dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
-                  status: "TODO",
-                });
+                title = taskData.title;
+                description = taskData.description || null;
+                dueDate = taskData.dueDate ? new Date(taskData.dueDate) : null;
+              } else {
+                aiFallback = true;
               }
             } catch (e) {
-              console.error("[ApplyRules] TODO creation failed:", e);
+              aiFallback = true;
+              console.error("[ApplyRules] TODO summarisation failed — using fallback:", e);
+            }
+            try {
+              await storage.createTodo({
+                title,
+                description: aiFallback ? `⚠ AI summary unavailable — review manually.\n\n${description ?? ""}`.slice(0, 8000) : description,
+                sourceEmail: sender,
+                senderEmail: sender,
+                originalSubject: subject,
+                originalBody: body.slice(0, 8000),
+                dueDate,
+                status: "TODO",
+              });
+            } catch (e) {
+              console.error("[ApplyRules] Final TODO insert failed:", e);
             }
           });
           await storage.updateUniversalInboxItem(item.id, { status: "PROCESSED" });
@@ -5522,32 +5551,45 @@ export async function registerRoutes(
       }
 
       if (action === "ROUTE_TO_TODO") {
-        // TODO: fire summarization in background so response is immediate
+        // Always creates a TODO — if AI summary fails, falls back to subject.
         const subject = item.subject;
         const emailBody = item.body;
-        // Respond now, summarize in background
         res.json({ success: true, ...processResult, status: "processing" });
         setImmediate(async () => {
+          let title = subject || "(no subject)";
+          let description: string | null = emailBody.slice(0, 2000);
+          let dueDate: Date | null = null;
+          let aiFallback = false;
           try {
             const taskData = await summarizeTaskFromEmail(subject, emailBody);
             if (taskData?.title) {
-              await storage.createTodo({
-                title: taskData.title,
-                description: taskData.description || null,
-                sourceEmail: item.senderEmail,
-                senderEmail: item.senderEmail,
-                originalSubject: subject,
-                originalBody: emailBody.slice(0, 8000),
-                dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
-                status: "TODO",
-              });
-              console.log(`[TriageRoute] TODO created in background: "${taskData.title}"`);
+              title = taskData.title;
+              description = taskData.description || null;
+              dueDate = taskData.dueDate ? new Date(taskData.dueDate) : null;
+            } else {
+              aiFallback = true;
             }
           } catch (err) {
-            console.error("[TriageRoute] Background TODO creation failed:", err);
+            aiFallback = true;
+            console.error("[TriageRoute] TODO summarisation failed — using fallback:", err);
+          }
+          try {
+            await storage.createTodo({
+              title,
+              description: aiFallback ? `⚠ AI summary unavailable — review manually.\n\n${description ?? ""}`.slice(0, 8000) : description,
+              sourceEmail: item.senderEmail,
+              senderEmail: item.senderEmail,
+              originalSubject: subject,
+              originalBody: emailBody.slice(0, 8000),
+              dueDate,
+              status: "TODO",
+            });
+            console.log(`[TriageRoute] TODO created${aiFallback ? " (fallback)" : ""}: "${title}"`);
+          } catch (err) {
+            console.error("[TriageRoute] Final TODO insert failed:", err);
           }
         });
-        return; // already sent response
+        return;
       } else if (action === "ROUTE_TO_AP") {
         const rawPayload = item.rawPayload as any;
         const subject = item.subject;
