@@ -5536,9 +5536,12 @@ export async function registerRoutes(
       const newStatus = (action === "SPAM_DROP" || action === "FYI_ARCHIVE") ? "DROPPED" : "PROCESSED";
       await storage.updateUniversalInboxItem(id, { status: newStatus });
 
-      // 3a. For SPAM_DROP: bulk-drop all other NEEDS_ROUTING emails that match
-      //     the rule (EXACT = same address; DOMAIN/SUBSTRING = aggressive).
+      // 3a. Bulk-apply the chosen action to every other queued email from the
+      //     same sender. Without this, the Triage Inbox slowly grows with
+      //     duplicates from the same source — one classification should handle
+      //     them all at once.
       let bulkDropped = 0;
+      let bulkApplied = 0;
       if (action === "SPAM_DROP") {
         if (matchType === "EXACT") {
           bulkDropped = await storage.dropInboxItemsBySender(trueSenderEmail, id);
@@ -5548,7 +5551,86 @@ export async function registerRoutes(
         if (bulkDropped > 0) {
           console.log(`[TriageRoute] SPAM_DROP (${matchType}:${rulePattern}) bulk-dropped ${bulkDropped} additional item(s)`);
         }
+      } else if (action === "FYI_ARCHIVE") {
+        bulkDropped = await storage.dropInboxItemsBySender(trueSenderEmail, id);
+        if (bulkDropped > 0) {
+          console.log(`[TriageRoute] FYI_ARCHIVE bulk-dropped ${bulkDropped} additional item(s) from ${trueSenderEmail}`);
+        }
+      } else if (action === "ROUTE_TO_TODO") {
+        // Convert every other NEEDS_ROUTING item from the same sender into a TODO.
+        const siblings = await storage.getUniversalInboxItems("NEEDS_ROUTING");
+        const samesender = siblings.filter(s => s.id !== id && s.senderEmail.toLowerCase() === trueSenderEmail);
+        for (const sib of samesender) {
+          await storage.updateUniversalInboxItem(sib.id, { status: "PROCESSED" });
+          setImmediate(async () => {
+            let title = sib.subject || "(no subject)";
+            let description: string | null = sib.body.slice(0, 2000);
+            let dueDate: Date | null = null;
+            let aiFallback = false;
+            try {
+              const taskData = await summarizeTaskFromEmail(sib.subject, sib.body);
+              if (taskData?.title) {
+                title = taskData.title;
+                description = taskData.description || null;
+                dueDate = taskData.dueDate ? new Date(taskData.dueDate) : null;
+              } else { aiFallback = true; }
+            } catch { aiFallback = true; }
+            try {
+              await storage.createTodo({
+                title,
+                description: aiFallback ? `⚠ AI summary unavailable — review manually.\n\n${description ?? ""}`.slice(0, 8000) : description,
+                sourceEmail: sib.senderEmail, senderEmail: sib.senderEmail,
+                originalSubject: sib.subject, originalBody: sib.body.slice(0, 8000),
+                dueDate, status: "TODO",
+              });
+            } catch (e) { console.error("[TriageRoute] Bulk TODO insert failed:", e); }
+          });
+          bulkApplied++;
+        }
+        if (bulkApplied > 0) {
+          console.log(`[TriageRoute] ROUTE_TO_TODO bulk-processed ${bulkApplied} additional item(s) from ${trueSenderEmail}`);
+        }
+      } else if (action === "ROUTE_TO_AP") {
+        // Create a matching REVIEW/PENDING placeholder for every other queued
+        // email from the same sender.
+        const siblings = await storage.getUniversalInboxItems("NEEDS_ROUTING");
+        const samesender = siblings.filter(s => s.id !== id && s.senderEmail.toLowerCase() === trueSenderEmail);
+        const sameSupplier = await storage.findSupplierByEmail(trueSenderEmail);
+        const todayStr = new Date().toISOString().split("T")[0];
+        for (const sib of samesender) {
+          const rawPayload = sib.rawPayload as any;
+          const atts: any[] = Array.isArray(rawPayload?.attachments) ? rawPayload.attachments : [];
+          const pdf = atts.find(a => {
+            const n = (a.file_name ?? a.filename ?? a.name ?? "").toLowerCase();
+            const t = (a.content_type ?? a.contentType ?? a.mimeType ?? a.type ?? "").toLowerCase();
+            return n.endsWith(".pdf") || t.includes("pdf");
+          });
+          const pdfBase64 = pdf ? (
+            typeof pdf.content === "string" ? pdf.content :
+            typeof pdf.data === "string" ? pdf.data :
+            typeof pdf.body === "string" ? pdf.body : undefined
+          ) : undefined;
+          await storage.createSupplierInvoice({
+            supplierId: sameSupplier?.id,
+            storeId: null,
+            invoiceNumber: `TRIAGE-${Date.now()}-${bulkApplied}`,
+            invoiceDate: todayStr,
+            dueDate: undefined, amount: 0,
+            status: sameSupplier ? "PENDING" : "REVIEW",
+            notes: sameSupplier
+              ? `Bulk-applied rule from Triage Inbox → supplier "${sameSupplier.name}". Parsing invoice details…\nFrom: ${sib.senderEmail}\nSubject: ${sib.subject}`
+              : `Bulk-applied Payables rule from Triage Inbox. Supplier match failed — please confirm.\nFrom: ${sib.senderEmail}\nSubject: ${sib.subject}`,
+            rawExtractedData: { senderEmail: sib.senderEmail, subject: sib.subject, supplier: { supplierName: sameSupplier?.name ?? "" }, body: sib.body?.slice(0, 8000), pdfBase64 },
+          } as any);
+          await storage.updateUniversalInboxItem(sib.id, { status: "PROCESSED" });
+          bulkApplied++;
+        }
+        if (bulkApplied > 0) {
+          console.log(`[TriageRoute] ROUTE_TO_AP bulk-processed ${bulkApplied} additional item(s) from ${trueSenderEmail}`);
+        }
       }
+      processResult.bulkDropped = bulkDropped;
+      processResult.bulkApplied = bulkApplied;
 
       if (action === "ROUTE_TO_TODO") {
         // Always creates a TODO — if AI summary fails, falls back to subject.

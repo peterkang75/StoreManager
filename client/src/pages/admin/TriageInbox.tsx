@@ -584,23 +584,25 @@ export function AdminTriageInbox() {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       const cfg = ACTION_CONFIG[action];
-      const isAP = action === "ROUTE_TO_AP";
-      const isSpam = action === "SPAM_DROP";
       const bulkDropped: number = data?.bulkDropped ?? 0;
+      const bulkApplied: number = data?.bulkApplied ?? 0;
+      const otherCount = bulkDropped + bulkApplied;
+      const suffix = otherCount > 0
+        ? ` ${otherCount} other email${otherCount === 1 ? "" : "s"} from this sender ${otherCount === 1 ? "was" : "were"} processed too.`
+        : "";
       let description: string;
-      if (isAP) {
-        description = `Sent to Payables. The invoice will appear in the Review Inbox shortly.`;
-      } else if (isSpam && bulkDropped > 0) {
-        description = `Marked as spam. ${bulkDropped} other email${bulkDropped === 1 ? "" : "s"} from this sender were also dropped. Future emails will be blocked automatically.`;
-      } else if (isSpam) {
-        description = `Marked as spam. Future emails from this sender will be blocked automatically.`;
+      if (action === "ROUTE_TO_AP") {
+        description = `Sent to Payables.${suffix} Future emails will be handled automatically.`;
+      } else if (action === "SPAM_DROP") {
+        description = `Marked as spam.${suffix} Future emails from this sender will be blocked automatically.`;
+      } else if (action === "FYI_ARCHIVE") {
+        description = `Archived as FYI.${suffix} Future emails from this sender will be archived automatically.`;
+      } else if (action === "ROUTE_TO_TODO") {
+        description = `Sent to To-Do.${suffix} Future emails will be summarised into TODOs automatically.`;
       } else {
-        description = `Sender routed to "${cfg.label}". Future emails from this sender will be handled automatically.`;
+        description = `Sender routed to "${cfg.label}".${suffix}`;
       }
-      toast({
-        title: "Routing rule saved",
-        description,
-      });
+      toast({ title: "Routing rule saved", description });
     },
     onError: () => {
       toast({
