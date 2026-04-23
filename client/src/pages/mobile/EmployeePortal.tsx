@@ -3644,7 +3644,11 @@ export function EmployeePortal() {
               <button
                 type="button"
                 data-testid="button-admin-dashboard-header"
-                onClick={() => { window.location.href = "/admin"; }}
+                onClick={() => {
+                  // Bridge portal session role → AdminRoleContext (localStorage).
+                  localStorage.setItem("admin_role_v1", roleUpper === "OWNER" ? "ADMIN" : "MANAGER");
+                  window.location.href = "/admin";
+                }}
                 style={{
                   marginLeft: "auto",
                   display: "flex", alignItems: "center", gap: 6,

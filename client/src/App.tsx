@@ -3,10 +3,11 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { AdminRoleProvider } from "@/contexts/AdminRoleContext";
+import { AdminRoleProvider, useAdminRole } from "@/contexts/AdminRoleContext";
 import NotFound from "@/pages/not-found";
 
 import { AdminDashboard } from "@/pages/admin/Dashboard";
+import { ManagerDashboard } from "@/pages/admin/ManagerDashboard";
 import { AdminStores } from "@/pages/admin/Stores";
 import { AdminCandidates } from "@/pages/admin/Candidates";
 import { AdminEmployees } from "@/pages/admin/Employees";
@@ -41,14 +42,19 @@ import { EmployeePortal } from "@/pages/mobile/EmployeePortal";
 import { PortalDashboardSample } from "@/pages/mobile/PortalDashboardSample";
 import { PortalDashboardSampleAirbnb } from "@/pages/mobile/PortalDashboardSampleAirbnb";
 
+function DashboardByRole() {
+  const { currentRole } = useAdminRole();
+  return currentRole === "MANAGER" ? <ManagerDashboard /> : <AdminDashboard />;
+}
+
 function Router() {
   return (
     <Switch>
       <Route path="/">
         <Redirect to="/admin" />
       </Route>
-      
-      <Route path="/admin" component={AdminDashboard} />
+
+      <Route path="/admin" component={DashboardByRole} />
       <Route path="/admin/stores" component={AdminStores} />
       <Route path="/admin/candidates" component={AdminCandidates} />
       <Route path="/admin/employees" component={AdminEmployees} />

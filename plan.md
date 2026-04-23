@@ -65,7 +65,7 @@ Report each item as PASS / FAIL / WARNING with file and line reference.
 | PDF extraction | `pdftotext` CLI (via `spawnSync`) |
 | Email inbound | Cloudmailin webhook → Gmail forwarding |
 | File uploads | Multer (multipart), base64 for webhook |
-| Session (portal) | localStorage key `ep_session_v4` |
+| Session (portal) | localStorage key `ep_session_v5` (auto-migrated from legacy `ep_session_v4` sessionStorage) |
 
 ### Directory structure (key paths)
 
@@ -158,6 +158,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 | `supplierInvoices` | `supplierId`, `storeId`, `invoiceNumber`, `invoiceDate`, `dueDate`, `amount`, `status`, `pdfUrl`, `rawExtractedData`, `sourceNote`, `deletedAt` | Status: PENDING / PAID / OVERDUE / QUARANTINE / REVIEW. Unique on `(supplierId, invoiceNumber)`. `deletedAt` enables soft-delete |
 | `supplierPayments` | `supplierId`, `invoiceId`, `paymentDate`, `amount`, `method` | Payment records per invoice |
 | `quarantinedEmails` | `senderEmail`, `subject`, `hasAttachment`, `rawPayload` | Emails from non-whitelisted senders |
+| `rejectedEmails` | `id`, `senderEmail`, `senderName`, `subject`, `body`, `rawPayload` (jsonb), `receivedAt`, `suggestedSupplierId` (nullable), `reviewed` (bool) | Whitelist-only pipeline log — every webhook email whose sender is not in `suppliers.contactEmails` is parked here for manager review. Promoted to a supplier or deleted from the Rejected tab (§3.22). |
 | `intercompanySettlements` | `id`, `fromStoreId`, `toStoreId`, `employeeId`, `payrollId`, `amount`, `periodStart`, `periodEnd`, `settledAt`, `settledByTransactionId` | Tracks inter-store salary debts; `settledAt` + `settledByTransactionId` record settlement |
 
 ### 2.6 System & Communication Tables
@@ -388,7 +389,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Clock (Legacy)**: `/m/clock` — simple clock-in/out page. Employee selects their store and name, then taps Clock In / Clock Out. Records to `timeLogs` table. Predates the portal; retained as a simple fallback.
 - **Direct Register**: `/m/register` — creates a new employee session directly (skips onboarding). Admin-use only URL.
 - **Interview form**: `/m/interview` — captures candidate interview data on mobile device.
-- Session stored in localStorage as `ep_session_v4` (includes `selfieUrl` for avatar display, `role` field as of dynamic unit update).
+- Session stored in localStorage as `ep_session_v5` (includes `selfieUrl` for avatar display, `role` field as of dynamic unit update). Legacy `ep_session_v4` in `sessionStorage` is migrated on first mount — so existing logged-in employees survive the switch, and closing the browser tab no longer logs them out.
 - **Admin Dashboard shortcut**: If the logged-in employee's role is `"Owner"` or `"Manager"`, a small "Admin Dashboard" button (outline, sm, LayoutDashboard icon) is shown below the employee name in the HomeTab greeting section. Tapping navigates to `/admin`. Role is returned by `POST /api/portal/login-pin` and stored in the session object. Regular `"Employee"` role sees no button.
 - **PIN Security** (implemented):
   - **bcrypt hashing**: PINs are hashed with `bcryptjs` (cost 10) before storage. All login routes support migration — plain-text PINs still work on first login and are auto-upgraded to bcrypt hash on success. New PINs set via admin (`PUT /api/employees/:id`) are always hashed immediately.
@@ -663,6 +664,136 @@ A grouped record of incremental polish work that landed across multiple modules 
 
 ---
 
+### 3.22 AP Whitelist-Only Pipeline + Stuck-Invoice Recovery ✅ COMPLETE (2026-04-22 → 2026-04-23)
+
+**Problem (pre-whitelist)**: The Triage Inbox + universal_inbox + routing-rules stack grew into a 5-layered funnel (TRIAGE → TODO/FYI/Payables/Spam → REVIEW → PENDING → QUARANTINE). Suppliers' invoices still slipped into REVIEW/QUARANTINE because GPT-4o-mini misclassified tear-off Payment Advice slips as REMITTANCE, Xero sender resolution pointed at `post.xero.com` instead of the real supplier, and statements were either parsed as single-row invoices or silently dropped. 74 invoices were stuck in REVIEW+QUARANTINE.
+
+**Resolution design** — narrow the front door, shrink the back door, keep the back-end for rollback. Implementation plan lived at `/Users/peter/.claude/plans/whimsical-singing-pillow.md` (whitelist-only invoice mode).
+
+**DB (new table)** — `rejectedEmails` (§2.5):
+- Every webhook email whose sender is **not** in `suppliers.contactEmails` is parked here instead of being dropped or triaged. Field list in §2.5.
+- Migration `db:push` run 2026-04-22.
+
+**Classifier upgrade** (`server/invoiceParser.ts:classifyDocumentForAP`) — 2-way → 4-way:
+- Old: `{ INVOICE | CONFIRMATION }` with `isStatement` side-channel.
+- New: `{ INVOICE | STATEMENT | REMITTANCE | OTHER }`. Prompt explicitly distinguishes the tear-off Payment Advice slip at the bottom of a Xero invoice from a genuine REMITTANCE (= "we just paid you $X", multiple invoice numbers listed).
+- Used by the webhook gate and by the `bulk-reclassify` recovery endpoint.
+
+**Webhook rewrite** (`server/routes.ts:/api/webhooks/inbound-invoices`):
+1. Basic Auth + dedup (unchanged).
+2. Sender resolution 6-tier hierarchy (§3.13) with one fix — X-Original-Sender is **skipped** when its domain is in `GENERIC_SERVICE_DOMAINS` (Xero/MYOB/QuickBooks/etc.). This prevents `messaging-service@post.xero.com` from winning over a valid Reply-To.
+3. **Whitelist gate**: `findSupplierByEmail(sender)` — case/whitespace tolerant.
+   - **NO** → insert into `rejectedEmails` (full raw payload retained), return 200 `{ action: "rejected_unknown_sender" }`. No universal_inbox, no TODO, no routing-rule consultation.
+   - **YES** → proceed.
+4. **Attachment gate**: no PDF attachment → body-text fallback (see below). Still no supplier + no attachment → drop.
+5. **Classify gate**: `classifyDocumentForAP`. OTHER / REMITTANCE → drop (log only). INVOICE → 1 PENDING row. STATEMENT → many PENDING rows with `(supplierId, invoiceNumber)` dedup.
+6. Amount parse failure remains the single human-in-the-loop path → REVIEW status with `"Needs manual entry"` note.
+
+**Body-text fallback** (commit `b113d89`): suppliers like AGL / Telstra / Total Equipment sometimes send invoice totals inline in the email body with no attachment. When no PDF is present but the sender is whitelisted, the webhook now runs `classifyDocumentForAP` + `parseInvoiceWithAI` against the HTML-stripped body, so a PENDING row is still created.
+
+**PDF extraction hardening** (`server/invoiceParser.ts:extractPdfText`, commit `45ba83f`): if `pdf-parse` returns empty text, fall back to the `pdftotext` CLI (poppler-utils). Fixes suppliers whose PDFs use subset-encoded fonts that pdf-parse can't decode.
+
+**Stuck-invoice recovery endpoints** (one-shots, safe to re-run):
+- `POST /api/invoices/bulk-reclassify` — scans every `supplierInvoices` row where `status IN ('REVIEW','QUARANTINE')` with a stored `rawExtractedData.pdfBase64`, re-extracts PDF text, runs the new 4-way classifier + parser, and promotes matches to PENDING. Parser-first safety net: if `parseInvoiceWithAI` returns a plausible INVOICE result, we trust the parser over the classifier (covers tear-off Payment Advice case). STATEMENT expands in-place. REMITTANCE / OTHER → DELETED (soft). Parse failure → REVIEW with note. Returns `{ promoted, statementExpanded, dropped, needsManual, totalProcessed }`.
+- `POST /api/invoices/backfill-from-inbox` — walks `universalInbox` (legacy Triage backlog), pulls the attached PDF, runs the same pipeline. Recovered 16 orphan REVIEW rows during 2026-04-23 cleanup.
+
+**Store resolution for multi-store suppliers** (`resolveStoreIdForInvoice` + `MULTI_STORE_SUPPLIER_IDS`, commit `b3cfed2`):
+- Some suppliers (Escalate, Total Equipment, Campos Coffee) bill both Sushi and Sandwich. We must NOT guess their storeId from supplier history — the PDF itself is the source of truth.
+- 4-tier priority inside the resolver:
+  1. `storeCode` extracted from PDF ("Bill To" / "SUSHI" / "SANDWICH" / "EATEM" keywords) → hard match.
+  2. Parent invoice's `storeId` (for statement children reusing the header row's context).
+  3. Supplier history majority **only if** the supplier is single-store AND ≥80% of that supplier's existing PAID/PENDING rows map to one store.
+  4. `null` (surfaces in "All Stores" view + an amber banner on store-specific tabs, per §3.14).
+- `MULTI_STORE_SUPPLIER_IDS` is an explicit opt-out set. History-majority rule is skipped for these suppliers — they always route via PDF storeCode or stay unassigned.
+
+**Invoice placeholder in-place promotion** (commit `3bd5de8`): when `reparse-pdf` is run on a placeholder PENDING row (created by the old Triage flow with `amount=0`, `invoiceNumber="PENDING-..."`) and the refreshed parse returns a multi-row STATEMENT, the first parsed item promotes the placeholder in-place (UPDATE) and subsequent items INSERT. Prevents the previous "duplicate row + orphan placeholder" state.
+
+**Rejected Emails UI** (`client/src/pages/admin/AccountsPayable.tsx` Rejected tab, `client/src/pages/admin/Suppliers.tsx` reused for contactEmails edit):
+- New tab in Accounts Payable: Rejected (count badge = `reviewed = false` rows).
+- Each card: sender email/name, subject, received timestamp, body preview, "Add to supplier…" (promote modal → create new supplier or append email to existing `contactEmails`) and "Delete" (permanent remove).
+- After promotion the rejected row is marked `reviewed = true`, and the next email from that sender flows straight through the whitelist.
+
+**Sidebar cleanup** (commit `710d5ea`, `client/src/components/layouts/AdminLayout.tsx`): Smart Inbox + Triage Inbox menu items commented out. Backend + routes preserved for 2-stage rollback.
+
+**Known limitation / explicit trade-off**:
+- REMITTANCE drops are silent. If a supplier sends a genuine remittance we want to record, the raw payload is only visible in server logs. If that becomes a real need, we add a "Classified-as-OTHER" log tab (phase 2).
+- Gmail forwarder size bounce (Newline Beverages case, 2026-04-23) is not fixed by this plan — see §6.3.11 (Gmail API direct integration) for the real remedy.
+
+---
+
+### 3.23 AP Dashboard UX Polish ✅ COMPLETE (2026-04-23)
+
+**Store filter simplification**: Holdings + PYC buttons hidden from the store toggle row (`STORE_ORDER = ["sushi","sandwich"]`). Their invoices still appear under "All Stores" — just no dedicated tab, because they produce almost no AP volume.
+
+**To Pay default state**: All supplier accordions collapsed on every tab/store change. Removed the old auto-open useEffect. Matches the manager's actual review flow (read supplier name + total first, expand only the groups with discrepancies).
+
+**Weekly colour bands** (replaces zebra-stripe of §3.14): within each supplier's expanded table, consecutive rows sharing a Monday-of-due-date get a faint shared background band (`bg-slate-200/80`) and a distinct blue-tint hover (`bg-blue-50`). Bands were intentionally strengthened after the first iteration was too faint to distinguish. `getMondayStr` still uses local-midnight parsing (§5).
+
+**Shift+click range select** (commits `1175f90`, `f97714f`): Gmail/Excel-style range selection inside supplier tables. Shift+click on a second row selects every row between the last clicked and the current (inclusive). If the anchor row was selected, the range is **added**; if the anchor was unselected, the range is **removed** — so Shift+click also deselects a band. Uses a `lastClickedId` ref scoped per supplier group.
+
+**Selected Total copy buttons** (commit `287ce5b`): each supplier's per-group "$X selected (N)" breakdown and the page-header Selected Total card now show a clipboard icon. Tap writes the raw numeric amount (no `$`, no commas) to the clipboard — manager pastes straight into internet-banking payment amount fields without edit.
+
+**Paid History sort direction** (commits `595db0d`, `307c571`): payment-date groups remain newest-first (most recent at the top), but within each payment-date group the individual invoice rows sort **oldest invoice date first**. Matches how the manager reads reconciliation — "which old invoice did this latest payment clear?"
+
+---
+
+### 3.24 Bank Transfer Tracker — Per-Store Totals & Copy Buttons ✅ COMPLETE (2026-04-23)
+
+**Per-store summary cards** (commit `6e68a82`, `client/src/pages/admin/Payrolls.tsx`): top of the Bank Transfer Tracker dialog shows one card per store (Sushi / Sandwich) with: total bank outflow for that store, completed count, remaining count. Replaces the previous flat "N of M transfers done" single line.
+
+**Copy buttons across the tracker** (commits `287ce5b`, `556703f`):
+- Next to each employee's bank deposit amount → copies raw numeric value.
+- Next to each store's card total → copies raw numeric value.
+- Next to each employee's **name** → copies the exact string shown (nickname fallback → `firstName lastName`). Used when the bank's Payee Reference field wants the legal name copy-pasted rather than retyped.
+
+All copy buttons use the shared shadcn `Copy` icon (lucide-react), toast on success.
+
+---
+
+### 3.25 Employee Portal UX Hardening Batch ✅ COMPLETE (2026-04-23)
+
+Three sequential commits (`03a2ea0`, `33019bf`, `7f374e6`) fixed 15 issues surfaced by a kitchen-staff UX audit. All live in `client/src/pages/mobile/EmployeePortal.tsx`.
+
+**Session persistence (v4 → v5)**:
+- `ep_session_v4` (sessionStorage) → `ep_session_v5` (localStorage). Employee no longer logs out when they close the tab or put the phone to sleep.
+- One-time migration on mount: if `ep_session_v4` exists in sessionStorage, copy to `ep_session_v5` in localStorage and delete the legacy key.
+
+**PIN entry safety**:
+- Auto-submit grace window: 80 ms → **350 ms**, with a cancel ref. Gives slow-typing users time to correct a 5th-digit mispress without firing the login call.
+- PIN prompt copy: "Enter the last 4 digits of the mobile number you gave your manager" (previously just "Enter PIN").
+- **Weak-pattern rejection** in `/api/portal/change-pin` + drawer validation: rejects repeated digits (1111), ascending/descending sequences (1234, 4321), and new PINs that differ from the current by fewer than 2 positions. Employee sees an inline explanation rather than a generic "Invalid PIN".
+
+**Timesheet drawer guards**:
+- `inFlightRef` ref on Submit buttons — prevents double-submit while the mutation is pending (was reproducible on slow 4G).
+- Soft confirmation when the employee types different hours than the rostered times: "You're submitting X hours for a shift rostered at Y hours — are you sure?" (Cancel keeps them in the drawer.)
+
+**Home tab prominence & banners**:
+- `TodayShiftCard` store name: 13px / weight 700 → 18px / weight 800 so the first thing the employee sees is the store they're scheduled for today.
+- **Pending-timesheet banner**: if the employee has any shift in the past 7 days without a timesheet submission, a banner appears at the top of the Home tab with a direct jump link.
+
+**Unscheduled shift drawer**:
+- Smart default times: current-time-rounded-to-nearest-15min as start, start + 8h as end. Replaces the previous "blank empty fields".
+- Inline end-before-start error with an AlertTriangle icon and a pink background (previously a silent no-op on submit).
+
+**Notices**:
+- Each notice now has a × button in its top-right that dismisses locally. Dismissed IDs stored in `localStorage` per-employee (`dismissed_notices_${employeeId}`), so the notice stays dismissed across sessions but the admin still sees it as active.
+
+**Profile draft safety**:
+- Draft of unsaved profile edits kept in `localStorage`; restored on mount.
+- `beforeunload` listener warns before reload if draft is dirty.
+- "• Unsaved" indicator next to Save button.
+- Back button ("Home") warns if draft is dirty: "You have unsaved profile changes. Discard and go back?"
+
+**Required-field clarity**:
+- Asterisks (`*`) on TFN, BSB, Account No, Super Fund, Super Member No labels.
+- Submit errors now list the specific missing field names instead of a generic "Please complete all required fields".
+- BSB `maxLength`: 6 → 9 (tolerate user-entered `123-456` or `123 456`). Server strips non-digits before storage.
+
+**First-login PIN drawer**:
+- Added "Skip for now" button that calls `onPinChanged` (the parent receives it as a successful close). Employees who just want to view today's shift can skip the forced PIN change on first login.
+
+---
+
 ## 4. API Endpoints
 
 ### Stores
@@ -829,6 +960,8 @@ A grouped record of incremental polish work that landed across multiple modules 
 | GET | `/api/invoices/review` | List all REVIEW-status invoices |
 | POST | `/api/invoices/review/approve-group` | Create supplier + sweep REVIEW → PENDING |
 | POST | `/api/invoices/parse-upload` | Parse uploaded file (image/PDF) via AI |
+| POST | `/api/invoices/bulk-reclassify` | One-shot: re-run parser + 4-way classifier on every REVIEW/QUARANTINE row with a stored PDF. Promotes INVOICE → PENDING, expands STATEMENT, drops REMITTANCE/OTHER. Returns `{ promoted, statementExpanded, dropped, needsManual, totalProcessed }`. §3.22. |
+| POST | `/api/invoices/backfill-from-inbox` | One-shot: walk legacy `universal_inbox` rows, pull attached PDF, run the new pipeline to recover orphan REVIEW invoices. Idempotent. §3.22. |
 | GET | `/api/supplier-payments` | List payments |
 | POST | `/api/supplier-payments` | Record payment |
 
@@ -840,6 +973,13 @@ A grouped record of incremental polish work that landed across multiple modules 
 | DELETE | `/api/email-routing-rules/:email` | Delete routing rule |
 | GET | `/api/universal-inbox` | List inbox items (filterable by status) |
 | POST | `/api/universal-inbox/:id/route` | Route item (saves rule + re-processes email) |
+
+### Rejected Emails (Whitelist Pipeline — §3.22)
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/rejected-emails` | List rejected emails (filter by `?reviewed=false` for unread tab badge) |
+| POST | `/api/rejected-emails/:id/promote` | Promote: append sender to existing supplier's `contactEmails`, or create new supplier. Marks row `reviewed=true`. |
+| DELETE | `/api/rejected-emails/:id` | Permanently delete a rejected email row |
 
 ### Webhooks & Email Inbound
 | Method | Path | Description |
@@ -996,9 +1136,10 @@ A grouped record of incremental polish work that landed across multiple modules 
   - **수정**: `mergeDraftOverManagerInputs()` 헬퍼 추가. API 출처 필드(hours, rate, fixedAmount, 직원 플래그)는 항상 최신 데이터로 재계산, 매니저 타이핑 필드(adjustment, memo, tax override, gross/cash 수동 분할)만 sessionStorage에서 보존 후 `recalcRow` 재실행. `isNewContext` 경로와 background refetch 경로 둘 다 동일하게 정정.
   - **영향**: 기존 draft 보존 스펙(§2.1.1)은 매니저 입력 필드에 한정되어 유지됨. 탭/매장 전환·HMR 후에도 typed adjustment/memo/tax 계속 보존, 대신 새로 승인된 shift는 즉시 반영.
 
-- [ ] **Statement vs Invoice reconciliation stability** — Suppliers that send Statements of Account occasionally produce duplicate AP records or miss individual invoice extraction.
-  - **Current safeguards** (§3.15): `isStatement` flag on every `ParsedInvoice`, statement-with-1-row → forced REVIEW with `"possibly a grand-total error"` note, multi-row statements deduplicated by `(supplierId, invoiceNumber)`.
-  - **Remaining work**: Tighten the "is this an invoice number we already have?" check (currently exact match on `invoiceNumber`; suppliers occasionally send the same statement twice with whitespace or prefix differences). Add an explicit reconciliation report on the AP page that lists every statement-origin REVIEW item and what it would reconcile against.
+- [x] **Statement vs Invoice reconciliation stability** (2026-04-23 해결 — §3.22)
+  - **조치**: 화이트리스트 전용 파이프라인 도입 + 4-way classifier(INVOICE/STATEMENT/REMITTANCE/OTHER). Statement은 per-row PENDING으로 확장되고 `(supplierId, invoiceNumber)` 중복 스킵, 1-row 결과는 REVIEW 유지. Xero 송신자 해석 버그 수정으로 `post.xero.com` → 실제 공급업체 정상 매칭.
+  - **Stuck-invoice 회복**: `POST /api/invoices/bulk-reclassify` + `POST /api/invoices/backfill-from-inbox` 실행으로 74건 중 대다수 PENDING으로 승격됨.
+  - **남은 작업**: (v2 과제) 공백/접두사 차이가 있는 같은 invoice 번호의 fuzzy-dedup 규칙, statement-원본 REVIEW 아이템을 한 화면에서 재점검하는 reconciliation 리포트.
 
 ---
 
@@ -1012,6 +1153,9 @@ A grouped record of incremental polish work that landed across multiple modules 
 | Phase 4 | Settings Consolidation (Shift Presets, Store Settings, Automation Rules) | §3.17 – §3.20 |
 | Phase 5 | Storage & Shopping Module (storage room inventory, dynamic units, shopping cart) | §3.5.2 below |
 | Phase 6 | Payroll Cycle Hardening (fixed-anchor 14-day grid, sessionStorage period persistence, AP week separator, local-midnight date parsing) | §3.6, §3.14, §5 |
+| Phase 7 | AP Whitelist-Only Pipeline + Stuck-Invoice Recovery (rejected_emails, 4-way classifier, bulk-reclassify, multi-store supplier resolver, body-text fallback, Xero sender fix) | §3.22 |
+| Phase 8 | AP + Payroll UX Polish (week bands, Shift+click range, copy buttons, per-store Bank Transfer Tracker cards) | §3.23, §3.24 |
+| Phase 9 | Employee Portal UX Hardening Batch (session persistence v5, PIN safety, timesheet guards, notices dismiss, profile draft) | §3.25 |
 
 #### 6.1.1 Phase 1 — Accounts Payable Fine-Tuning ✅
 - [x] **AI Parser Update (Statements & Routing):** `invoiceParser.ts` returns `ParsedInvoice[]` arrays (never a lumped total). `storeCode` derived from "Bill To" text: `"SUSHI"` (Olitin/Sushime), `"SANDWICH"` (Eatem). `max_tokens = 1000` for multi-invoice responses.
@@ -1053,6 +1197,47 @@ A grouped record of incremental polish work that landed across multiple modules 
 - [x] **Period sessionStorage persistence** with cycle-grid validation (`PERIOD_SS_KEY`) — survives HMR / reload, rejects misaligned legacy entries.
 - [x] **AP week separator** — `flatMap` row builder + `getMondayStr` injects a `bg-slate-300 dark:bg-slate-600` 3px divider between weeks; replaces the old zebra-stripe approach.
 - [x] **Local-midnight date parsing rule** — `new Date(dateStr + "T00:00:00")` mandated everywhere; documented in §5 Conventions.
+
+#### 6.1.8 Phase 7 — AP Whitelist-Only Pipeline + Stuck-Invoice Recovery ✅ (2026-04-22 → 2026-04-23)
+- [x] **`rejectedEmails` table + CRUD endpoints** — whitelist-only front door (§3.22, §2.5, §4 Rejected Emails group).
+- [x] **4-way classifier** (`classifyDocumentForAP` → INVOICE / STATEMENT / REMITTANCE / OTHER) — fixes Xero Payment Advice slip misclassification.
+- [x] **Webhook rewrite** — Triage gate replaced with whitelist + classify (§3.22). Sidebar Smart Inbox + Triage Inbox hidden.
+- [x] **`POST /api/invoices/bulk-reclassify`** + **`POST /api/invoices/backfill-from-inbox`** — one-shot stuck-invoice recovery. Reclassified ~74 stuck REVIEW/QUARANTINE rows; 16 orphans pulled back from universal_inbox.
+- [x] **Multi-store supplier resolver** (`resolveStoreIdForInvoice` + `MULTI_STORE_SUPPLIER_IDS`) — PDF storeCode wins; history-majority only for single-store suppliers with ≥80% concentration.
+- [x] **PDF extract hardening** — `pdftotext` fallback for pdf-parse failures; HTML-stripped body-text fallback when no attachment is present.
+- [x] **Sender resolution fix** — skip `X-Original-Sender` when its domain is in `GENERIC_SERVICE_DOMAINS` (Xero/MYOB/QuickBooks).
+- [x] **Rejected Emails tab** in Accounts Payable — promote to supplier (new or existing) or delete.
+
+#### 6.1.9 Phase 8 — AP + Payroll UX Polish ✅ (2026-04-23)
+- [x] **To Pay defaults**: Holdings/PYC hidden from store toggle, all supplier accordions collapsed by default.
+- [x] **Week colour bands** inside supplier tables (bg-slate-200/80 band + bg-blue-50 hover).
+- [x] **Shift+click range select** (Gmail/Excel pattern) — add or remove contiguous rows in one gesture.
+- [x] **Paid History sort**: payment-date groups newest-first; invoices within a group oldest-first.
+- [x] **Copy buttons** on Selected Total, per-supplier subtotals, per-employee bank amount, per-store bank total, and employee name.
+- [x] **Bank Transfer Tracker** per-store summary cards at the top of the dialog.
+
+#### 6.1.10 Phase 9 — Employee Portal UX Hardening Batch ✅ (2026-04-23)
+- [x] **Session v5** — `ep_session_v4` sessionStorage → `ep_session_v5` localStorage (auto-migrated); session survives tab close.
+- [x] **PIN safety** — auto-submit grace 80ms → 350ms, weak-pattern rejection (repeated / sequential / <2 digits different), clearer prompt.
+- [x] **Timesheet guards** — `inFlightRef` double-submit prevention + soft confirmation for modified hours.
+- [x] **Home tab prominence** — TodayShiftCard store name 18px/800; pending-timesheet banner.
+- [x] **Smart default times** on Unscheduled shift drawer; inline end-before-start error.
+- [x] **Notices dismissible** (persisted per-employee in localStorage).
+- [x] **Profile draft safety** — localStorage draft + `beforeunload` + "• Unsaved" indicator + back-nav confirmation + required-field asterisks.
+- [x] **First-login PIN drawer**: "Skip for now" button added; BSB maxLength 6 → 9.
+
+#### 6.1.12 Manager Dashboard — Permission-Driven Shortcut Grid ✅ (2026-04-23)
+- [x] New `client/src/pages/admin/ManagerDashboard.tsx` — 2-column mobile-first grid of big-touch-target shortcut cards (icon + label, square aspect) wrapped in `max-w-md mx-auto` so it preserves a phone-sized feel on desktop too.
+- [x] `client/src/App.tsx` — `/admin` route wrapped in `DashboardByRole` switcher: renders `ManagerDashboard` when `currentRole === "MANAGER"`, otherwise the existing `AdminDashboard` (financial KPIs, charts, AI Smart Inbox, etc.).
+- [x] Shortcut list mirrors `AdminLayout` sidebar nav and is filtered via `useAdminRole().hasAccess(url)`, so whatever ADMIN toggles in `/admin/settings/access-control` is what the manager sees — no separate config.
+- [x] Dashboard's own route (`/admin`) is intentionally excluded from the grid (no self-link).
+- [x] No new endpoints; uses existing `/api/permissions` already consumed by `AdminRoleContext`.
+- [x] **Portal → Admin role bridge** — `EmployeePortal.tsx` header Dashboard button now writes the portal session role into `localStorage["admin_role_v1"]` (Owner → ADMIN, Manager → MANAGER) before navigating to `/admin`, so `AdminRoleContext` reflects the logged-in portal role (fixed: manager saw full owner dashboard because admin_role_v1 defaulted to ADMIN).
+
+#### 6.1.11 One-off data cleanup (2026-04-23) ✅
+- [x] Roster Excel import: `Schedule-Export 2026-04-20 to 2026-04-26.xlsx` → 44 shifts imported via fuzzy name match (difflib.SequenceMatcher ratio ≥ 0.75).
+- [x] StoreId backfill for orphan PENDING rows (Pearl Seafoods, YK Investment, Cn Paultry, etc.).
+- [x] Credit memo handling confirmed: Foodlink SC333504 with negative $87.50 persisted correctly.
 
 ---
 
