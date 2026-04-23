@@ -1878,6 +1878,58 @@ export function AdminPayrolls() {
             </DialogTitle>
           </DialogHeader>
 
+          {/* Per-store totals — quick glance at what each store is paying out. */}
+          {bankDeposits && bankDeposits.length > 0 && (() => {
+            const byStore = new Map<string, { total: number; count: number; doneCount: number; doneAmount: number }>();
+            for (const e of bankDeposits) {
+              const s = byStore.get(e.storeName) ?? { total: 0, count: 0, doneCount: 0, doneAmount: 0 };
+              s.total += e.bankDepositAmount;
+              s.count += 1;
+              if (e.isBankTransferDone) {
+                s.doneCount += 1;
+                s.doneAmount += e.bankDepositAmount;
+              }
+              byStore.set(e.storeName, s);
+            }
+            const sorted = Array.from(byStore.entries()).sort(([a], [b]) => a.localeCompare(b));
+            return (
+              <div className="grid gap-2 pb-1" style={{ gridTemplateColumns: `repeat(${sorted.length}, minmax(0,1fr))` }}>
+                {sorted.map(([name, s]) => {
+                  const remaining = s.total - s.doneAmount;
+                  const allDone = s.doneCount === s.count;
+                  return (
+                    <div
+                      key={name}
+                      data-testid={`card-store-total-${name.toLowerCase()}`}
+                      className="rounded-md border bg-muted/30 px-3 py-2.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{name}</div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {s.doneCount}/{s.count} done
+                        </div>
+                      </div>
+                      <div className="font-mono font-semibold text-base mt-1 tabular-nums">
+                        ${s.total.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      {!allDone && s.doneCount > 0 && (
+                        <div className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5 tabular-nums">
+                          Remaining: ${remaining.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                      )}
+                      {allDone && (
+                        <div className="text-[11px] text-green-600 dark:text-green-400 mt-0.5 flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3" />
+                          All transferred
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
           <div className="flex-1 overflow-y-auto">
             {bankDepositsLoading ? (
               <div className="space-y-2 py-4">
