@@ -501,6 +501,12 @@ export function AdminCandidates() {
                 : "후보자 면접을 검토하고 관리합니다"}
             </p>
           </div>
+          <Button asChild data-testid="button-start-interview">
+            <a href="/m/interview" target="_blank" rel="noopener noreferrer">
+              <Users className="w-4 h-4 mr-2" />
+              Start New Interview
+            </a>
+          </Button>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-4">
