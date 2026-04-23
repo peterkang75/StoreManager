@@ -914,7 +914,9 @@ export function AdminAccountsPayable() {
   const { data: stores = [] } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
 
   // ── Store filter ────────────────────────────────────────────────────────────
-  const STORE_ORDER = ["sushi", "sandwich", "holding", "pyc"];
+  // Holdings / PYC intentionally hidden from the filter bar — they hold no
+  // supplier invoices today. Re-add the keyword here if that changes.
+  const STORE_ORDER = ["sushi", "sandwich"];
   const filteredStores = useMemo(() => {
     const matched = STORE_ORDER.flatMap(keyword =>
       stores.filter(s => s.active && s.name.toLowerCase().includes(keyword))
@@ -1210,6 +1212,45 @@ export function AdminAccountsPayable() {
     });
   }
 
+  // ── Shift+click range selection ────────────────────────────────────────────
+  // Standard spreadsheet/Gmail UX: click one checkbox, then Shift+click another
+  // within the same supplier group to select every row between them (inclusive).
+  // Range selection always SETS rows to selected (never deselects) — matches the
+  // "pay everything up through here" workflow.
+  const shiftKeyPressedRef = useRef(false);
+  const lastCheckboxRef = useRef<{ supplierId: string; invoiceId: string } | null>(null);
+
+  function handleRowCheckbox(invId: string, group: SupplierGroup) {
+    const shiftHeld = shiftKeyPressedRef.current;
+    shiftKeyPressedRef.current = false;
+
+    if (shiftHeld && lastCheckboxRef.current?.supplierId === group.supplierId) {
+      const sortedInGroup = [...group.invoices].sort(
+        (a, b) => (a.invoiceDate ?? "").localeCompare(b.invoiceDate ?? "")
+      );
+      const prevId = lastCheckboxRef.current.invoiceId;
+      const idxPrev = sortedInGroup.findIndex(i => i.id === prevId);
+      const idxCurr = sortedInGroup.findIndex(i => i.id === invId);
+      if (idxPrev !== -1 && idxCurr !== -1) {
+        const [from, to] = idxPrev < idxCurr ? [idxPrev, idxCurr] : [idxCurr, idxPrev];
+        const rangeIds = sortedInGroup
+          .slice(from, to + 1)
+          .filter(i => i.supplier?.isAutoPay !== true)
+          .map(i => i.id);
+        setSelected(prev => {
+          const next = new Set(prev);
+          rangeIds.forEach(id => next.add(id));
+          return next;
+        });
+        lastCheckboxRef.current = { supplierId: group.supplierId, invoiceId: invId };
+        return;
+      }
+    }
+
+    toggleOne(invId);
+    lastCheckboxRef.current = { supplierId: group.supplierId, invoiceId: invId };
+  }
+
   function toggleSupplier(group: SupplierGroup) {
     // Auto-Pay suppliers: no invoices can be selected
     if (group.isAutoPay) return;
@@ -1229,13 +1270,9 @@ export function AdminAccountsPayable() {
     setSelected(new Set());
   }
 
-  useEffect(() => {
-    if (supplierGroups.length > 0) {
-      setOpenAccordions(prev =>
-        prev.length === 0 ? supplierGroups.map(g => g.supplierId) : prev
-      );
-    }
-  }, [supplierGroups]);
+  // Supplier accordions start COLLAPSED by default. Manager expands each one
+  // only when they want to work on it — keeps the overview scannable.
+  // (Previously: auto-opened every group on first load.)
 
   // ── Group review invoices by AI-extracted supplier identity ──────────────────
   // GROUPING STRATEGY: Group by the best available unique supplier identifier.
@@ -1645,31 +1682,41 @@ export function AdminAccountsPayable() {
                               </tr>
                             </thead>
                             <tbody>
-                              {group.invoices
-                                .slice()
-                                .sort((a, b) => (a.invoiceDate ?? "").localeCompare(b.invoiceDate ?? ""))
-                                .flatMap((inv, idx, arr) => {
+                              {(() => {
+                                const sortedInvoices = [...group.invoices].sort(
+                                  (a, b) => (a.invoiceDate ?? "").localeCompare(b.invoiceDate ?? "")
+                                );
+                                // Week buckets keyed by Monday-of-week string.
+                                // Only apply alternating color bands when at least
+                                // one week contains multiple invoices (skip
+                                // monthly-cadence suppliers).
+                                const weekIdxById = new Map<string, number>();
+                                const weekCounts = new Map<string, number>();
+                                const weekOrder: string[] = [];
+                                for (const i of sortedInvoices) {
+                                  const k = getMondayStr(i.invoiceDate);
+                                  if (!weekOrder.includes(k)) weekOrder.push(k);
+                                  weekIdxById.set(i.id, weekOrder.indexOf(k));
+                                  weekCounts.set(k, (weekCounts.get(k) ?? 0) + 1);
+                                }
+                                const applyWeekBands = Array.from(weekCounts.values()).some(n => n > 1);
+                                return sortedInvoices.map((inv) => {
                                   const overdue = isOverdue(inv.dueDate, inv.status);
                                   const dueSoon = isDueSoon(inv.dueDate, inv.status);
                                   const isChecked = selected.has(inv.id);
                                   const store = stores.find(s => s.id === inv.storeId);
                                   const isAutoDebitRow = inv.supplier?.isAutoPay === true;
-                                  const isWeekBoundary = idx > 0 && getMondayStr(inv.invoiceDate) !== getMondayStr(arr[idx - 1].invoiceDate);
-
-                                  const rows = [];
-                                  if (isWeekBoundary) {
-                                    rows.push(
-                                      <tr key={`week-sep-${inv.id}`} aria-hidden="true">
-                                        <td colSpan={7} className="p-0 h-[3px] bg-slate-300 dark:bg-slate-600" />
-                                      </tr>
-                                    );
-                                  }
-
-                                  rows.push(
+                                  const weekIdx = weekIdxById.get(inv.id) ?? 0;
+                                  // Subtle warm neutral that pairs with Airbnb's
+                                  // light surface palette — visible but calm.
+                                  const weekBandBg = applyWeekBands && weekIdx % 2 === 1
+                                    ? "bg-slate-100/70 dark:bg-slate-800/40"
+                                    : "";
+                                  return (
                                     <tr
                                       key={inv.id}
-                                      className={`border-b border-border/10 last:border-0 transition-colors ${
-                                        isChecked ? "bg-primary/5" : "hover:bg-muted/20"
+                                      className={`transition-colors ${
+                                        isChecked ? "bg-primary/5" : `${weekBandBg} hover:bg-muted/20`
                                       } ${isAutoDebitRow ? "opacity-60" : ""}`}
                                       data-testid={`row-invoice-${inv.id}`}
                                     >
@@ -1680,7 +1727,8 @@ export function AdminAccountsPayable() {
                                         ) : (
                                           <Checkbox
                                             checked={isChecked}
-                                            onCheckedChange={() => toggleOne(inv.id)}
+                                            onClick={(e) => { shiftKeyPressedRef.current = (e as React.MouseEvent).shiftKey; }}
+                                            onCheckedChange={() => handleRowCheckbox(inv.id, group)}
                                             aria-label={`Select invoice ${inv.invoiceNumber}`}
                                             data-testid={`checkbox-invoice-${inv.id}`}
                                           />
@@ -1790,8 +1838,8 @@ export function AdminAccountsPayable() {
                                       </td>
                                     </tr>
                                   );
-                                  return rows;
-                                })}
+                                });
+                              })()}
                             </tbody>
                           </table>
                         </div>
