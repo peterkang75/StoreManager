@@ -1226,6 +1226,24 @@ Three sequential commits (`03a2ea0`, `33019bf`, `7f374e6`) fixed 15 issues surfa
 - [x] **Profile draft safety** — localStorage draft + `beforeunload` + "• Unsaved" indicator + back-nav confirmation + required-field asterisks.
 - [x] **First-login PIN drawer**: "Skip for now" button added; BSB maxLength 6 → 9.
 
+#### 6.1.13 Interview → Hire → Onboarding Handoff (GuniSMS) ✅ (2026-04-24)
+
+Turns interview capture + hiring + onboarding into one flow so anyone conducting an interview follows the same script and Hire triggers an SMS to the candidate with their onboarding link.
+
+- **Schema (`candidates`)**: new columns `phone`, `birth_year`, `visa_expiry_month`, `has_experience`, `availability_days` (jsonb: `{ mon|tue|…: "NONE"|"MORNING"|"AFTERNOON"|"ALLDAY" }`), `availability_commitment`. Legacy `availability` / `experience` / `desired_rate` / `interview_notes` kept and relabelled in the UI. Run `npm run db:push` on target DB.
+- **Schema (`employees`)**: new `candidate_id` FK → `candidates.id` (nullable). Populated during onboarding submission so Phase C can look up the interview context.
+- **`server/sms.ts`**: GuniSMS adapter. Normalises AU mobiles to E.164 (`normalizeAuPhone`), returns `{ ok:false, error:"not configured" }` when env is missing so callers fall back to manual link sharing. Pending: finalise request body against the actual GuniSMS spec.
+- **`.env.example`**: `GUNISMS_API_URL`, `GUNISMS_API_KEY`, `GUNISMS_SENDER_ID`.
+- **Routes**:
+  - `POST /api/candidates/:id/send-form-sms` — marks HIRE if needed, reuses an active onboarding token (or mints one), calls `sendSms`, returns `{ ok, url, smsId?, error? }`.
+  - `GET /api/employees/:id/interview` — joins `employees.candidate_id` → `candidates`, 404 when no link exists.
+  - `POST /api/onboarding/:token` now copies `candidateId` onto the new `employees` row.
+- **Storage**: `getActiveOnboardingTokenForCandidate` + `getCandidateByEmployeeId` on both MemStorage and DatabaseStorage.
+- **`/m/interview` (full redesign)**: 6 cards (Basic / Personal / Visa / Experience Y-N+details / 7-day × 4-slot Availability grid + commitment / Official-only salary+memo) + a Hire-or-Reject decision footer. Hire mints the token and surfaces a Send Form button → POST send-form-sms → toast "SMS sent to {phone}" or copy-link fallback.
+- **`/admin/candidates` detail sheet**: shows the new fields, including an AvailabilityGrid with a free-text fallback for legacy rows. "Generate Onboarding Link" replaced with "Send Onboarding SMS" (disabled when phone is blank; falls back to the existing OnboardingLinkDialog on failure).
+- **`/m/onboarding/:token`**: phone is now pre-filled from the candidate. Success screen replaced by a Welcome screen with an *Open Staff Portal* CTA + "How to log in" card + getting-started bullets (clock in/out, roster, notices, payslips).
+- **`/admin/employees/:id`**: new read-only **Interview Information** card appended after Superannuation. Renders the interview answers, Interview Salary, and Interviewer Memo, only when `employees.candidateId` links to a candidate row (legacy employees see no card).
+
 #### 6.1.12 Manager Dashboard — Permission-Driven Shortcut Grid ✅ (2026-04-23)
 - [x] New `client/src/pages/admin/ManagerDashboard.tsx` — 2-column mobile-first grid of big-touch-target shortcut cards (icon + label, square aspect) wrapped in `max-w-md mx-auto` so it preserves a phone-sized feel on desktop too.
 - [x] `client/src/App.tsx` — `/admin` route wrapped in `DashboardByRole` switcher: renders `ManagerDashboard` when `currentRole === "MANAGER"`, otherwise the existing `AdminDashboard` (financial KPIs, charts, AI Smart Inbox, etc.).

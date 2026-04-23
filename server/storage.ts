@@ -61,6 +61,7 @@ export interface IStorage {
 
   getCandidates(): Promise<Candidate[]>;
   getCandidate(id: string): Promise<Candidate | undefined>;
+  getCandidateByEmployeeId(employeeId: string): Promise<Candidate | undefined>;
   createCandidate(candidate: InsertCandidate): Promise<Candidate>;
   updateCandidate(id: string, candidate: Partial<InsertCandidate>): Promise<Candidate | undefined>;
 
@@ -376,6 +377,12 @@ export class MemStorage implements IStorage {
 
   async getCandidate(id: string): Promise<Candidate | undefined> {
     return this.candidates.get(id);
+  }
+
+  async getCandidateByEmployeeId(employeeId: string): Promise<Candidate | undefined> {
+    const emp = this.employees.get(employeeId);
+    if (!emp?.candidateId) return undefined;
+    return this.candidates.get(emp.candidateId);
   }
 
   async createCandidate(insertCandidate: InsertCandidate): Promise<Candidate> {
@@ -1835,6 +1842,15 @@ export class DatabaseStorage implements IStorage {
   async getCandidate(id: string): Promise<Candidate | undefined> {
     const [c] = await db.select().from(candidates).where(eq(candidates.id, id));
     return c;
+  }
+
+  async getCandidateByEmployeeId(employeeId: string): Promise<Candidate | undefined> {
+    const [row] = await db.select({ candidate: candidates })
+      .from(employees)
+      .innerJoin(candidates, eq(employees.candidateId, candidates.id))
+      .where(eq(employees.id, employeeId))
+      .limit(1);
+    return row?.candidate;
   }
 
   async createCandidate(data: InsertCandidate): Promise<Candidate> {

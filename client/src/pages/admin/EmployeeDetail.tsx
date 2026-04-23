@@ -21,7 +21,7 @@ import { ArrowLeft, Loader2, Save, User, ExternalLink, Camera, FileImage, Upload
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Employee, Store, InsertEmployee, EmployeeStoreAssignment } from "@shared/schema";
+import type { Employee, Store, InsertEmployee, EmployeeStoreAssignment, Candidate } from "@shared/schema";
 
 function FhcUploadSection({ value, onChange }: { value: string | null; onChange: (url: string | null) => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -123,6 +123,108 @@ function FormSection({ title, children }: { title: string; children: React.React
   );
 }
 
+const INTERVIEW_DAYS: { key: "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun"; label: string }[] = [
+  { key: "mon", label: "Mon" },
+  { key: "tue", label: "Tue" },
+  { key: "wed", label: "Wed" },
+  { key: "thu", label: "Thu" },
+  { key: "fri", label: "Fri" },
+  { key: "sat", label: "Sat" },
+  { key: "sun", label: "Sun" },
+];
+const INTERVIEW_SLOT_LABEL: Record<string, string> = {
+  NONE: "—",
+  MORNING: "AM",
+  AFTERNOON: "PM",
+  ALLDAY: "All day",
+};
+
+function InterviewInfoCard({ interview }: { interview: Candidate }) {
+  const days = interview.availabilityDays as Record<string, string> | null;
+  const interviewDate = interview.createdAt
+    ? new Date(interview.createdAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })
+    : "—";
+
+  return (
+    <Card data-testid="card-interview-info">
+      <CardHeader>
+        <CardTitle className="text-base">Interview Information</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Captured on {interviewDate}. Read-only snapshot of the interview answers.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+          <InterviewField label="Phone" value={interview.phone} />
+          <InterviewField label="Birth Year" value={interview.birthYear?.toString() ?? null} />
+          <InterviewField label="Gender" value={interview.gender} />
+          <InterviewField label="Nationality" value={interview.nationality} />
+          <InterviewField label="Visa Type" value={interview.visaType} />
+          <InterviewField label="Visa Expiry Month" value={interview.visaExpiryMonth} />
+        </div>
+
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">Experience</Label>
+          {interview.hasExperience ? (
+            <p className="text-sm whitespace-pre-wrap">{interview.experience || "Yes (no details provided)"}</p>
+          ) : (
+            <p className="text-sm text-muted-foreground">No prior experience.</p>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs text-muted-foreground">Availability</Label>
+          {days ? (
+            <div className="flex flex-wrap gap-2">
+              {INTERVIEW_DAYS.map((d) => {
+                const slot = (days[d.key] ?? "NONE") as string;
+                if (slot === "NONE") return null;
+                return (
+                  <Badge key={d.key} variant="secondary" className="text-xs">
+                    {d.label}: {INTERVIEW_SLOT_LABEL[slot] ?? slot}
+                  </Badge>
+                );
+              })}
+              {INTERVIEW_DAYS.every((d) => (days[d.key] ?? "NONE") === "NONE") && (
+                <span className="text-sm text-muted-foreground">Not specified.</span>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">{interview.availability ?? "Not specified."}</p>
+          )}
+          {interview.availabilityCommitment && (
+            <p className="text-xs text-muted-foreground">
+              Commitment: {interview.availabilityCommitment}
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-md border border-dashed border-amber-400/60 bg-amber-50/40 dark:bg-amber-950/10 p-3 space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+            Official only
+          </p>
+          <InterviewField label="Interview Salary" value={interview.desiredRate} />
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Interviewer Memo</Label>
+            <p className="text-sm whitespace-pre-wrap">
+              {interview.interviewNotes || <span className="text-muted-foreground">No memo.</span>}
+            </p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function InterviewField({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div className="space-y-0.5">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <p className="text-sm">{value || <span className="text-muted-foreground">—</span>}</p>
+    </div>
+  );
+}
+
 export function AdminEmployeeDetail() {
   const { toast } = useToast();
   const [, params] = useRoute("/admin/employees/:id");
@@ -148,6 +250,20 @@ export function AdminEmployeeDetail() {
 
   const { data: stores } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
+  });
+
+  // Fetches the interview record linked via employees.candidateId. Returns 404
+  // for legacy employees with no candidate link — we hide the card in that case.
+  const { data: interview } = useQuery<Candidate>({
+    queryKey: ["/api/employees", employeeId, "interview"],
+    queryFn: async () => {
+      const res = await fetch(`/api/employees/${employeeId}/interview`);
+      if (res.status === 404) return null as unknown as Candidate;
+      if (!res.ok) throw new Error("Failed to fetch interview");
+      return res.json();
+    },
+    enabled: !!employeeId,
+    retry: false,
   });
 
   const { data: storeAssignments } = useQuery<EmployeeStoreAssignment[]>({
@@ -1073,6 +1189,8 @@ export function AdminEmployeeDetail() {
               </div>
             </CardContent>
           </Card>
+
+          {interview && <InterviewInfoCard interview={interview} />}
         </div>
       </div>
 

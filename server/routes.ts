@@ -703,6 +703,19 @@ export async function registerRoutes(
     }
   });
 
+  // Returns the candidate record linked via employees.candidateId, so the
+  // employee detail page can show the original interview answers.
+  app.get("/api/employees/:id/interview", async (req: Request, res: Response) => {
+    try {
+      const candidate = await storage.getCandidateByEmployeeId(req.params.id);
+      if (!candidate) return res.status(404).json({ error: "No interview on file" });
+      res.json(candidate);
+    } catch (error) {
+      console.error("Error fetching interview:", error);
+      res.status(500).json({ error: "Failed to fetch interview" });
+    }
+  });
+
   app.put("/api/employees/:id", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
