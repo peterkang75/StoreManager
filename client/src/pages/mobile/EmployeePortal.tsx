@@ -167,15 +167,32 @@ function getGreeting() {
 }
 
 // ── Session storage ───────────────────────────────────────────────────────────
+// Use localStorage so accidental tab close / refresh / crash doesn't instantly
+// log the employee out. Previously used sessionStorage which kicked users back
+// to the PIN screen any time the browser reloaded — hostile UX for kitchen
+// staff who may accidentally hit reload or have their tab restored.
+// Migration: clean up any leftover sessionStorage key from the old build.
 
-const SESSION_KEY = "ep_session_v4";
+const SESSION_KEY = "ep_session_v5";
+const LEGACY_SESSION_KEY = "ep_session_v4";
 function loadSession(): Session | null {
-  try { const r = sessionStorage.getItem(SESSION_KEY); return r ? JSON.parse(r) : null; }
-  catch { return null; }
+  try {
+    const r = localStorage.getItem(SESSION_KEY);
+    if (r) return JSON.parse(r);
+    // Fallback: migrate from sessionStorage if upgrading mid-session
+    const legacy = sessionStorage.getItem(LEGACY_SESSION_KEY);
+    if (legacy) {
+      const parsed = JSON.parse(legacy);
+      localStorage.setItem(SESSION_KEY, legacy);
+      sessionStorage.removeItem(LEGACY_SESSION_KEY);
+      return parsed;
+    }
+    return null;
+  } catch { return null; }
 }
 function saveSession(s: Session | null) {
-  if (s) sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
-  else sessionStorage.removeItem(SESSION_KEY);
+  if (s) localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+  else localStorage.removeItem(SESSION_KEY);
 }
 
 // ── Status styles ─────────────────────────────────────────────────────────────
@@ -212,16 +229,41 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
     onError: (err: Error) => { setError(err.message); setPin(""); },
   });
 
+  // Stable ref for the auto-submit timer so Backspace during the grace window
+  // cancels the pending mutation — gives the user a moment to recover from a
+  // mistyped 4th digit before the app actually logs in.
+  const autoSubmitTimerRef = useRef<number | null>(null);
+  const cancelAutoSubmit = () => {
+    if (autoSubmitTimerRef.current !== null) {
+      clearTimeout(autoSubmitTimerRef.current);
+      autoSubmitTimerRef.current = null;
+    }
+  };
   const handleDigit = (d: string) => {
     setError("");
     setPin(prev => {
       if (prev.length >= 4) return prev;
       const next = prev + d;
-      if (next.length === 4) setTimeout(() => loginMutation.mutate(next), 80);
+      if (next.length === 4) {
+        cancelAutoSubmit();
+        // 350ms gives mis-tappers a window to hit Backspace before the
+        // request fires. Still feels snappy on a good connection.
+        autoSubmitTimerRef.current = window.setTimeout(() => {
+          autoSubmitTimerRef.current = null;
+          loginMutation.mutate(next);
+        }, 350);
+      }
       return next;
     });
   };
-  const handleDel = () => { setPin(p => p.slice(0, -1)); setError(""); };
+  const handleDel = () => {
+    // Cancel any pending auto-submit when the user backspaces — they want to
+    // fix a mistake, not log in.
+    cancelAutoSubmit();
+    setPin(p => p.slice(0, -1));
+    setError("");
+  };
+  useEffect(() => () => cancelAutoSubmit(), []);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1, padding: "40px 24px 32px", gap: 0, fontFamily: AL.font, background: "#ffffff" }}>
@@ -258,7 +300,12 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
       {/* PIN prompt */}
       <div style={{ textAlign: "center", marginBottom: 24 }}>
         <p style={{ fontSize: 14, fontWeight: 500, color: "#222222", margin: 0 }}>Enter your 4-digit PIN</p>
-        <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 4 }}>Default: last 4 digits of your phone number</p>
+        <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 4 }}>
+          First time? Use the <b>last 4 digits of the mobile number</b> you gave your manager.
+        </p>
+        <p style={{ fontSize: 11, color: "#929292", marginTop: 4 }}>
+          Tap ⌫ within a moment to cancel if you type a wrong digit.
+        </p>
       </div>
 
       {/* PIN dots */}
@@ -362,6 +409,10 @@ function TimesheetDrawer({
     if (open) { setStartTime(shift.startTime); setEndTime(shift.endTime); setReason(""); }
   }, [open, shift.startTime, shift.endTime]);
 
+  // Ref-based guard prevents a slow second tap from firing while the button is
+  // mid-transition to disabled. State-based `isPending` alone can race on slow
+  // devices — the ref update is synchronous.
+  const inFlightRef = useRef(false);
   const submitMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch("/api/portal/timesheet", {
@@ -381,12 +432,34 @@ function TimesheetDrawer({
       return res.json();
     },
     onSuccess: (data) => {
+      inFlightRef.current = false;
       toast({ title: "Submitted", description: `${item.storeName} timesheet recorded.` });
       onSubmitted(data);
       onClose();
     },
-    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: Error) => {
+      inFlightRef.current = false;
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
   });
+
+  const handleSubmitPress = () => {
+    if (inFlightRef.current || submitMutation.isPending) return;
+    // Soft confirmation for modified hours — if the user is logging hours that
+    // don't match their rostered shift, double-check before sending. Protects
+    // against accidental taps that would otherwise require a manager fix.
+    if (isModified) {
+      const ok = window.confirm(
+        `Submit ${hours.toFixed(1)}h for ${item.storeName}?\n` +
+        `Rostered: ${shift.startTime}–${shift.endTime}\n` +
+        `You entered: ${startTime}–${endTime}\n\n` +
+        `Once submitted you'll need to ask your manager to edit it.`
+      );
+      if (!ok) return;
+    }
+    inFlightRef.current = true;
+    submitMutation.mutate();
+  };
 
   const canSubmit = hours > 0 && (!isModified || reason.trim().length > 0);
 
@@ -452,13 +525,21 @@ function TimesheetDrawer({
 
         <DrawerFooter className="pt-2">
           <Button
-            onClick={() => submitMutation.mutate()}
+            onPointerDown={(e) => { e.preventDefault(); handleSubmitPress(); }}
             disabled={!canSubmit || submitMutation.isPending}
-            style={{ backgroundColor: item.storeColor, borderColor: item.storeColor, color: "white" }}
+            style={{
+              backgroundColor: item.storeColor,
+              borderColor: item.storeColor,
+              color: "white",
+              height: 52,
+              fontSize: 16,
+              fontWeight: 600,
+              opacity: (!canSubmit || submitMutation.isPending) ? 0.6 : 1,
+            }}
             data-testid="button-submit-timesheet"
           >
             {submitMutation.isPending
-              ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Submitting…</>
+              ? <><Loader2 className="h-5 w-5 mr-2 animate-spin" /><span>Submitting…</span></>
               : isModified ? "Submit Modified Hours" : "Confirm Hours"}
           </Button>
           <Button variant="outline" onClick={onClose} disabled={submitMutation.isPending}>Cancel</Button>
@@ -3002,13 +3083,13 @@ function ChangePinDrawer({ open, onClose, employeeId, required = false, onChange
   };
 
   return (
-    <Drawer open={open} onOpenChange={o => { if (!o && !required) handleClose(); }}>
+    <Drawer open={open} onOpenChange={o => { if (!o) handleClose(); }}>
       <DrawerContent className="px-4 max-w-md mx-auto">
         <DrawerHeader className="pb-2">
-          <DrawerTitle>{required ? "Set a New PIN" : "Change PIN"}</DrawerTitle>
+          <DrawerTitle>{required ? "Set a New PIN (Recommended)" : "Change PIN"}</DrawerTitle>
           <p className="text-sm text-muted-foreground">
             {required
-              ? "For your security, please choose a new 4-digit PIN before continuing."
+              ? "For your security, choose a new 4-digit PIN. You can skip for now and do this later from Settings."
               : "Enter your current PIN, then choose a new 4-digit PIN"}
           </p>
         </DrawerHeader>
@@ -3088,11 +3169,15 @@ function ChangePinDrawer({ open, onClose, employeeId, required = false, onChange
           </div>
         </div>
 
-        {!required && (
-          <DrawerFooter className="pb-6">
-            <Button variant="outline" onClick={handleClose} data-testid="button-changepin-cancel">Cancel</Button>
-          </DrawerFooter>
-        )}
+        <DrawerFooter className="pb-6">
+          <Button
+            variant="outline"
+            onClick={handleClose}
+            data-testid={required ? "button-changepin-skip" : "button-changepin-cancel"}
+          >
+            {required ? "Skip for now" : "Cancel"}
+          </Button>
+        </DrawerFooter>
       </DrawerContent>
     </Drawer>
   );
@@ -3294,12 +3379,14 @@ function AppShell({
       {/* Bottom nav — always pinned to bottom because parent height is exact viewport */}
       <BottomNav active={activeTab} onChange={setActiveTab} />
 
-      {/* Forced PIN change on first login (default PIN = phone last 4) */}
+      {/* First-login reminder: user may set a new PIN now or skip to later.
+          Skipping clears the local flag so the modal doesn't keep re-opening
+          this session. They can change the PIN from Settings whenever. */}
       <ChangePinDrawer
         open={!!session.isFirstLogin}
         required
         employeeId={session.id}
-        onClose={() => {}}
+        onClose={onPinChanged}
         onChanged={onPinChanged}
       />
     </div>
