@@ -14,15 +14,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { 
-  CheckCircle2, 
-  Loader2, 
-  AlertCircle, 
+import {
+  CheckCircle2,
+  Loader2,
+  AlertCircle,
   Camera,
   FileText,
   PenTool,
   X,
-  Upload
+  Upload,
+  Smartphone,
+  Clock,
+  Megaphone,
+  DollarSign
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Candidate, Store, InsertEmployee } from "@shared/schema";
@@ -116,19 +120,60 @@ function FileUploadArea({
 
 function SuccessScreen() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
-      <div className="w-20 h-20 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-6">
+    <div className="flex flex-col items-center px-4 py-8 max-w-md mx-auto">
+      <div className="w-20 h-20 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-5">
         <CheckCircle2 className="w-10 h-10 text-green-600 dark:text-green-400" />
       </div>
-      <h2 className="text-2xl font-bold mb-2" data-testid="text-complete-title">
-        Onboarding Complete
+      <h2 className="text-2xl font-bold mb-2 text-center" data-testid="text-complete-title">
+        Welcome aboard!
       </h2>
-      <p className="text-muted-foreground mb-8 max-w-sm">
-        Thank you for completing your onboarding. Your information has been submitted successfully.
+      <p className="text-muted-foreground mb-6 text-center">
+        Your onboarding has been submitted. You're all set.
       </p>
-      <p className="text-sm text-muted-foreground">
-        You may now close this page.
-      </p>
+
+      <Button
+        asChild
+        size="lg"
+        className="w-full h-14 text-base mb-6"
+        data-testid="button-open-portal"
+      >
+        <a href="/m/portal">
+          <Smartphone className="w-5 h-5 mr-2" />
+          Open Staff Portal
+        </a>
+      </Button>
+
+      <Card className="w-full mb-4">
+        <CardContent className="p-4 space-y-2">
+          <h3 className="font-semibold text-sm">How to log in</h3>
+          <p className="text-sm text-muted-foreground">
+            Use your mobile number. You'll be prompted to set a 4-digit PIN the first time.
+            The portal remembers you on this device.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card className="w-full">
+        <CardContent className="p-4 space-y-3">
+          <h3 className="font-semibold text-sm">Getting started</h3>
+          <div className="flex items-start gap-3 text-sm">
+            <Clock className="w-4 h-4 mt-0.5 text-muted-foreground shrink-0" />
+            <span>Clock in and out of your shifts from the Home tab.</span>
+          </div>
+          <div className="flex items-start gap-3 text-sm">
+            <FileText className="w-4 h-4 mt-0.5 text-muted-foreground shrink-0" />
+            <span>Check your upcoming roster under Schedule.</span>
+          </div>
+          <div className="flex items-start gap-3 text-sm">
+            <Megaphone className="w-4 h-4 mt-0.5 text-muted-foreground shrink-0" />
+            <span>Read store notices on the Home tab.</span>
+          </div>
+          <div className="flex items-start gap-3 text-sm">
+            <DollarSign className="w-4 h-4 mt-0.5 text-muted-foreground shrink-0" />
+            <span>View payslips under Payroll once published.</span>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -247,6 +292,7 @@ export function MobileOnboarding() {
     ...formData,
     firstName: formData.firstName ?? candidate.name.split(" ")[0] ?? "",
     lastName: formData.lastName ?? candidate.name.split(" ").slice(1).join(" ") ?? "",
+    phone: formData.phone ?? candidate.phone ?? "",
     dob: formData.dob ?? candidate.dob ?? "",
     gender: formData.gender ?? candidate.gender ?? "",
     visaType: formData.visaType ?? candidate.visaType ?? "",

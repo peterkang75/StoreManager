@@ -353,10 +353,11 @@ function CandidateDetailSheet({
               variant="outline"
               className="w-full"
               onClick={() => onGenerateLink(candidate.id)}
+              disabled={!candidate.phone}
               data-testid="button-generate-link"
             >
               <LinkIcon className="w-4 h-4 mr-2" />
-              Generate Onboarding Link
+              {candidate.phone ? "Send Onboarding SMS" : "Add a phone number to send SMS"}
             </Button>
           )}
         </div>
@@ -445,14 +446,23 @@ export function AdminCandidates() {
 
   const hireMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await apiRequest("POST", `/api/candidates/${id}/hire`);
-      return res.json();
+      // Single-shot Send Form: ensures HIRE + active token + SMS attempt in one call.
+      const res = await apiRequest("POST", `/api/candidates/${id}/send-form-sms`);
+      return res.json() as Promise<{ ok: boolean; url: string; error?: string }>;
     },
-    onSuccess: (data: { onboardingUrl: string }) => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/candidates"] });
-      const fullUrl = `${window.location.origin}${data.onboardingUrl}`;
-      setOnboardingUrl(fullUrl);
-      setLinkDialogOpen(true);
+      setOnboardingUrl(data.url);
+      if (data.ok) {
+        toast({ title: "SMS sent", description: "Onboarding link delivered to the candidate." });
+      } else {
+        setLinkDialogOpen(true);
+        toast({
+          title: "SMS unavailable — use the manual link",
+          description: data.error ?? "Share the link in the dialog.",
+          variant: "destructive",
+        });
+      }
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });

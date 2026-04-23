@@ -378,6 +378,54 @@ export async function registerRoutes(
     }
   });
 
+  // Send the onboarding-form link to the candidate's phone via GuniSMS.
+  // Reuses an active token if one exists; mints a new one otherwise.
+  app.post("/api/candidates/:id/send-form-sms", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const candidate = await storage.getCandidate(id);
+      if (!candidate) return res.status(404).json({ error: "Candidate not found" });
+      if (!candidate.phone) {
+        return res.status(400).json({ error: "Candidate has no phone number on file" });
+      }
+
+      let active = await storage.getActiveOnboardingTokenForCandidate(id);
+      if (!active) {
+        // No live token yet — mint one now (and mark the candidate HIRE for consistency).
+        if (candidate.hireDecision !== "HIRE") {
+          await storage.updateCandidate(id, { hireDecision: "HIRE" });
+        }
+        const tokenStr = generateSecureToken();
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + 14);
+        active = await storage.createOnboardingToken({
+          candidateId: id,
+          token: tokenStr,
+          expiresAt,
+          employeeId: null,
+          usedAt: null,
+        });
+      }
+
+      const origin = `${req.protocol}://${req.get("host")}`;
+      const url = `${origin}/m/onboarding/${active.token}`;
+
+      const { sendSms } = await import("./sms.js");
+      const body = `Hi ${candidate.name}, welcome aboard! Complete your onboarding here: ${url} (expires in 14 days).`;
+      const smsResult = await sendSms(candidate.phone, body);
+
+      res.json({
+        ok: smsResult.ok,
+        url,
+        token: active.token,
+        ...(smsResult.ok ? { smsId: smsResult.id } : { error: smsResult.error }),
+      });
+    } catch (error) {
+      console.error("Error sending onboarding SMS:", error);
+      res.status(500).json({ error: "Failed to send onboarding SMS" });
+    }
+  });
+
   app.get("/api/onboarding/:token", async (req: Request, res: Response) => {
     try {
       const { token } = req.params;
@@ -462,13 +510,14 @@ export async function registerRoutes(
         accountNo: req.body.accountNo || null,
         superCompany: req.body.superCompany || null,
         superMembershipNo: req.body.superMembershipNo || null,
+        candidateId: onboardingToken.candidateId,
         status: "ACTIVE",
       };
 
       const employee = await storage.createEmployee(employeeData);
 
       const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-      
+
       if (files?.selfie?.[0]) {
         await storage.createEmployeeDocument({
           employeeId: employee.id,
@@ -476,7 +525,7 @@ export async function registerRoutes(
           filePath: files.selfie[0].path,
         });
       }
-      
+
       if (files?.passport?.[0]) {
         await storage.createEmployeeDocument({
           employeeId: employee.id,
@@ -484,7 +533,7 @@ export async function registerRoutes(
           filePath: files.passport[0].path,
         });
       }
-      
+
       if (files?.signature?.[0]) {
         await storage.createEmployeeDocument({
           employeeId: employee.id,

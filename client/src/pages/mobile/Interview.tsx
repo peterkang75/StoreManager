@@ -181,16 +181,35 @@ export function MobileInterview() {
     saveMutation.mutate(toInsertCandidate(form));
   }
 
+  const sendSmsMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/candidates/${id}/send-form-sms`);
+      return res.json() as Promise<{ ok: boolean; url: string; error?: string }>;
+    },
+    onSuccess: (data) => {
+      setOnboardingUrl(data.url);
+      if (data.ok) {
+        toast({ title: "SMS sent", description: `Delivered to ${form.phone}.` });
+      } else {
+        // Fallback: SMS failed (provider down or not configured) — copy link.
+        navigator.clipboard.writeText(data.url);
+        setCopied(true);
+        toast({
+          title: "SMS failed — link copied",
+          description: data.error ?? "Share the link manually.",
+          variant: "destructive",
+        });
+        setTimeout(() => setCopied(false), 2500);
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "Send failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   function handleSendForm() {
-    if (!onboardingUrl) return;
-    // Phase B will swap this out for POST /api/candidates/:id/send-form-sms.
-    navigator.clipboard.writeText(onboardingUrl);
-    setCopied(true);
-    toast({
-      title: "Link copied",
-      description: `Share this link with ${form.name}. SMS delivery coming soon.`,
-    });
-    setTimeout(() => setCopied(false), 2500);
+    if (!savedId) return;
+    sendSmsMutation.mutate(savedId);
   }
 
   function handleReset() {
@@ -522,9 +541,15 @@ export function MobileInterview() {
                 size="lg"
                 className="w-full h-12"
                 onClick={handleSendForm}
+                disabled={sendSmsMutation.isPending}
                 data-testid="button-send-form"
               >
-                {copied ? (
+                {sendSmsMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                    Sending…
+                  </>
+                ) : copied ? (
                   <>
                     <Check className="w-5 h-5 mr-2" />
                     Link Copied

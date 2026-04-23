@@ -51,7 +51,7 @@ import {
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import { db } from "./db";
-import { eq, desc, and, gte, lte, or, ilike, isNull, asc, sql, ne, inArray } from "drizzle-orm";
+import { eq, desc, and, gt, gte, lte, or, ilike, isNull, asc, sql, ne, inArray } from "drizzle-orm";
 
 export interface IStorage {
   getStores(): Promise<Store[]>;
@@ -78,6 +78,7 @@ export interface IStorage {
 
   createOnboardingToken(token: InsertOnboardingToken): Promise<OnboardingToken>;
   getOnboardingToken(token: string): Promise<OnboardingToken | undefined>;
+  getActiveOnboardingTokenForCandidate(candidateId: string): Promise<OnboardingToken | undefined>;
   markOnboardingTokenUsed(token: string, employeeId: string): Promise<OnboardingToken | undefined>;
 
   createEmployeeDocument(doc: InsertEmployeeDocument): Promise<EmployeeDocument>;
@@ -574,6 +575,18 @@ export class MemStorage implements IStorage {
 
   async getOnboardingToken(tokenString: string): Promise<OnboardingToken | undefined> {
     return this.onboardingTokens.get(tokenString);
+  }
+
+  async getActiveOnboardingTokenForCandidate(candidateId: string): Promise<OnboardingToken | undefined> {
+    const now = Date.now();
+    let latest: OnboardingToken | undefined;
+    for (const t of Array.from(this.onboardingTokens.values())) {
+      if (t.candidateId !== candidateId) continue;
+      if (t.usedAt) continue;
+      if (new Date(t.expiresAt).getTime() <= now) continue;
+      if (!latest || t.createdAt > latest.createdAt) latest = t;
+    }
+    return latest;
   }
 
   async markOnboardingTokenUsed(tokenString: string, employeeId: string): Promise<OnboardingToken | undefined> {
@@ -1921,6 +1934,20 @@ export class DatabaseStorage implements IStorage {
 
   async getOnboardingToken(token: string): Promise<OnboardingToken | undefined> {
     const [t] = await db.select().from(employeeOnboardingTokens).where(eq(employeeOnboardingTokens.token, token));
+    return t;
+  }
+
+  async getActiveOnboardingTokenForCandidate(candidateId: string): Promise<OnboardingToken | undefined> {
+    const now = new Date();
+    const [t] = await db.select()
+      .from(employeeOnboardingTokens)
+      .where(and(
+        eq(employeeOnboardingTokens.candidateId, candidateId),
+        isNull(employeeOnboardingTokens.usedAt),
+        gt(employeeOnboardingTokens.expiresAt, now),
+      ))
+      .orderBy(desc(employeeOnboardingTokens.createdAt))
+      .limit(1);
     return t;
   }
 
