@@ -59,14 +59,14 @@ export function ManagerDashboard() {
         <div className="mb-4">
           <h2 className="text-xl font-semibold tracking-tight">Quick Access</h2>
           <p className="text-sm text-muted-foreground">
-            권한이 허용된 기능으로 바로 이동합니다.
+            Jump straight to any feature you have access to.
           </p>
         </div>
 
         {visible.length === 0 ? (
           <Card className="p-6 text-center text-sm text-muted-foreground" data-testid="manager-no-access">
             <ShieldCheck className="w-6 h-6 mx-auto mb-2 text-muted-foreground/70" />
-            접근 가능한 기능이 없습니다. 관리자에게 문의하세요.
+            No accessible features. Please contact your administrator.
           </Card>
         ) : (
           <div className="grid grid-cols-2 gap-3" data-testid="grid-manager-shortcuts">

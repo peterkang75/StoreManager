@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "@shared/payrollCycle";
+import { useAdminRole } from "@/contexts/AdminRoleContext";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1252,6 +1253,7 @@ export function AdminTimesheetApprovals() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
+  const { currentRole } = useAdminRole();
 
   // Cycle state — default to AEDT current payroll cycle
   const today = getAEDTToday();
@@ -1348,16 +1350,18 @@ export function AdminTimesheetApprovals() {
               <span className="hidden sm:inline">Auto-Fill from Roster</span>
               <span className="sm:hidden">Auto-Fill</span>
             </Button>
-            <Button
-              variant="outline"
-              className="h-9 gap-2 text-sm"
-              onClick={() => navigate(`/admin/weekly-payroll?weekStart=${cycleStart}`)}
-              data-testid="button-goto-payroll"
-            >
-              <DollarSign className="h-4 w-4 text-primary" />
-              <span className="hidden sm:inline">Weekly Payroll</span>
-              <span className="sm:hidden">Payroll</span>
-            </Button>
+            {currentRole !== "MANAGER" && (
+              <Button
+                variant="outline"
+                className="h-9 gap-2 text-sm"
+                onClick={() => navigate(`/admin/weekly-payroll?weekStart=${cycleStart}`)}
+                data-testid="button-goto-payroll"
+              >
+                <DollarSign className="h-4 w-4 text-primary" />
+                <span className="hidden sm:inline">Weekly Payroll</span>
+                <span className="sm:hidden">Payroll</span>
+              </Button>
+            )}
           </div>
         </div>
 
