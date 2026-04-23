@@ -39,6 +39,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import { Users, Search, Copy, Check, Loader2, LinkIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -54,6 +55,62 @@ const hireDecisionOptions = [
 function getDecisionBadge(decision: string) {
   const option = hireDecisionOptions.find(o => o.value === decision);
   return <Badge variant={option?.variant ?? "secondary"}>{option?.label ?? decision}</Badge>;
+}
+
+const AVAILABILITY_DAYS = [
+  { key: "mon", label: "Mon" },
+  { key: "tue", label: "Tue" },
+  { key: "wed", label: "Wed" },
+  { key: "thu", label: "Thu" },
+  { key: "fri", label: "Fri" },
+  { key: "sat", label: "Sat" },
+  { key: "sun", label: "Sun" },
+] as const;
+const AVAILABILITY_SLOTS = [
+  { value: "NONE", label: "—" },
+  { value: "MORNING", label: "AM" },
+  { value: "AFTERNOON", label: "PM" },
+  { value: "ALLDAY", label: "All" },
+] as const;
+
+function AvailabilityGrid({
+  value,
+  onChange,
+}: {
+  value: Record<string, string>;
+  onChange: (next: Record<string, string>) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      {AVAILABILITY_DAYS.map((d) => {
+        const current = value[d.key] ?? "NONE";
+        return (
+          <div key={d.key} className="flex items-center gap-2">
+            <span className="w-10 text-xs font-medium shrink-0">{d.label}</span>
+            <div className="flex gap-1 flex-1">
+              {AVAILABILITY_SLOTS.map((slot) => {
+                const active = current === slot.value;
+                return (
+                  <button
+                    key={slot.value}
+                    type="button"
+                    onClick={() => onChange({ ...value, [d.key]: slot.value })}
+                    className={`flex-1 h-7 rounded text-[11px] font-medium border transition-colors ${
+                      active
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-muted-foreground border-border hover:bg-muted"
+                    }`}
+                  >
+                    {slot.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function CandidateDetailSheet({
@@ -84,8 +141,8 @@ function CandidateDetailSheet({
     },
   });
 
-  const handleFieldChange = (field: keyof InsertCandidate, value: string) => {
-    setFormData({ ...formData, [field]: value });
+  const handleFieldChange = (field: keyof InsertCandidate, value: unknown) => {
+    setFormData({ ...formData, [field]: value as never });
   };
 
   const handleSave = () => {
@@ -111,15 +168,33 @@ function CandidateDetailSheet({
         <div className="space-y-4 py-6">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="dob">Date of Birth</Label>
+              <Label htmlFor="phone">Mobile</Label>
               <Input
-                id="dob"
-                type="date"
-                value={currentData.dob ?? ""}
-                onChange={(e) => handleFieldChange("dob", e.target.value)}
-                data-testid="input-candidate-dob"
+                id="phone"
+                type="tel"
+                value={currentData.phone ?? ""}
+                onChange={(e) => handleFieldChange("phone", e.target.value)}
+                placeholder="0412 345 678"
+                data-testid="input-candidate-phone"
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="birthYear">Birth Year</Label>
+              <Input
+                id="birthYear"
+                type="number"
+                value={currentData.birthYear ?? ""}
+                onChange={(e) => {
+                  const n = parseInt(e.target.value, 10);
+                  handleFieldChange("birthYear", Number.isFinite(n) ? n : null);
+                }}
+                placeholder="e.g., 1998"
+                data-testid="input-candidate-birth-year"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="gender">Gender</Label>
               <Select
@@ -136,42 +211,103 @@ function CandidateDetailSheet({
                 </SelectContent>
               </Select>
             </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="nationality">Nationality</Label>
-            <Input
-              id="nationality"
-              value={currentData.nationality ?? ""}
-              onChange={(e) => handleFieldChange("nationality", e.target.value)}
-              data-testid="input-candidate-nationality"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="experience">Experience</Label>
-            <Textarea
-              id="experience"
-              value={currentData.experience ?? ""}
-              onChange={(e) => handleFieldChange("experience", e.target.value)}
-              placeholder="Describe relevant experience..."
-              data-testid="input-candidate-experience"
-            />
+            <div className="space-y-2">
+              <Label htmlFor="nationality">Nationality</Label>
+              <Input
+                id="nationality"
+                value={currentData.nationality ?? ""}
+                onChange={(e) => handleFieldChange("nationality", e.target.value)}
+                data-testid="input-candidate-nationality"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="availability">Availability</Label>
-              <Input
-                id="availability"
-                value={currentData.availability ?? ""}
-                onChange={(e) => handleFieldChange("availability", e.target.value)}
-                placeholder="e.g., Full-time, Weekends"
-                data-testid="input-candidate-availability"
-              />
+              <Label htmlFor="visaType">Visa Type</Label>
+              <Select
+                value={currentData.visaType ?? ""}
+                onValueChange={(value) => handleFieldChange("visaType", value)}
+              >
+                <SelectTrigger data-testid="select-candidate-visa-type">
+                  <SelectValue placeholder="Select" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Student">Student</SelectItem>
+                  <SelectItem value="WHV">Working Holiday</SelectItem>
+                  <SelectItem value="PR">PR</SelectItem>
+                  <SelectItem value="CTZ">Citizen</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="desiredRate">Desired Rate</Label>
+              <Label htmlFor="visaExpiryMonth">Visa Expiry Month</Label>
+              <Input
+                id="visaExpiryMonth"
+                type="month"
+                value={currentData.visaExpiryMonth ?? ""}
+                onChange={(e) => handleFieldChange("visaExpiryMonth", e.target.value)}
+                data-testid="input-candidate-visa-expiry-month"
+              />
+            </div>
+          </div>
+
+          <div className="rounded-md border border-border/50 p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm">Has Experience</Label>
+              <Switch
+                checked={currentData.hasExperience ?? false}
+                onCheckedChange={(v) => handleFieldChange("hasExperience", v)}
+                data-testid="switch-candidate-experience"
+              />
+            </div>
+            {(currentData.hasExperience ?? false) && (
+              <Textarea
+                value={currentData.experience ?? ""}
+                onChange={(e) => handleFieldChange("experience", e.target.value)}
+                placeholder="Experience details…"
+                className="min-h-[80px]"
+                data-testid="input-candidate-experience"
+              />
+            )}
+          </div>
+
+          <div className="rounded-md border border-border/50 p-3 space-y-3">
+            <Label className="text-sm">Availability</Label>
+            {currentData.availabilityDays ? (
+              <AvailabilityGrid
+                value={currentData.availabilityDays as Record<string, string>}
+                onChange={(next) => handleFieldChange("availabilityDays", next)}
+              />
+            ) : (
+              <Input
+                value={currentData.availability ?? ""}
+                onChange={(e) => handleFieldChange("availability", e.target.value)}
+                placeholder="Legacy free-text availability"
+                data-testid="input-candidate-availability"
+              />
+            )}
+            <div className="space-y-1">
+              <Label htmlFor="availabilityCommitment" className="text-xs text-muted-foreground">
+                How long can they keep this schedule?
+              </Label>
+              <Input
+                id="availabilityCommitment"
+                value={currentData.availabilityCommitment ?? ""}
+                onChange={(e) => handleFieldChange("availabilityCommitment", e.target.value)}
+                placeholder="e.g., 6 months"
+                data-testid="input-candidate-commitment"
+              />
+            </div>
+          </div>
+
+          <div className="rounded-md border border-dashed border-amber-400/60 bg-amber-50/40 dark:bg-amber-950/10 p-3 space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+              Official only
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="desiredRate">Interview Salary</Label>
               <Input
                 id="desiredRate"
                 value={currentData.desiredRate ?? ""}
@@ -180,41 +316,17 @@ function CandidateDetailSheet({
                 data-testid="input-candidate-rate"
               />
             </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="visaType">Visa Type</Label>
-              <Input
-                id="visaType"
-                value={currentData.visaType ?? ""}
-                onChange={(e) => handleFieldChange("visaType", e.target.value)}
-                placeholder="e.g., Work Visa, PR"
-                data-testid="input-candidate-visa-type"
+              <Label htmlFor="interviewNotes">Interviewer Memo</Label>
+              <Textarea
+                id="interviewNotes"
+                value={currentData.interviewNotes ?? ""}
+                onChange={(e) => handleFieldChange("interviewNotes", e.target.value)}
+                placeholder="Impression, follow-ups…"
+                className="min-h-[100px]"
+                data-testid="input-candidate-notes"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="visaExpiry">Visa Expiry</Label>
-              <Input
-                id="visaExpiry"
-                type="date"
-                value={currentData.visaExpiry ?? ""}
-                onChange={(e) => handleFieldChange("visaExpiry", e.target.value)}
-                data-testid="input-candidate-visa-expiry"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="interviewNotes">Interview Notes</Label>
-            <Textarea
-              id="interviewNotes"
-              value={currentData.interviewNotes ?? ""}
-              onChange={(e) => handleFieldChange("interviewNotes", e.target.value)}
-              placeholder="Notes from the interview..."
-              className="min-h-[100px]"
-              data-testid="input-candidate-notes"
-            />
           </div>
 
           <div className="space-y-2">
