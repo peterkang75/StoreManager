@@ -1744,6 +1744,24 @@ function HomeTab({ session, onEditProfile }: { session: Session; onEditProfile: 
   const qc = useQueryClient();
   const displayName = session.nickname || session.firstName;
 
+  // Dismissed notice IDs, stored per-device in localStorage so a staff
+  // member who has read a notice doesn't keep seeing it every open.
+  const DISMISSED_NOTICES_KEY = `ep_dismissed_notices_${session.id}`;
+  const [dismissedNoticeIds, setDismissedNoticeIds] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(DISMISSED_NOTICES_KEY);
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch { return new Set(); }
+  });
+  const dismissNotice = (id: string) => {
+    setDismissedNoticeIds(prev => {
+      const next = new Set(prev);
+      next.add(id);
+      try { localStorage.setItem(DISMISSED_NOTICES_KEY, JSON.stringify(Array.from(next))); } catch {}
+      return next;
+    });
+  };
+
   const todayQK = ["/api/portal/today", session.id, today];
   const { data: todayData, isLoading: todayLoading } = useQuery<TodayData>({
     queryKey: todayQK,
@@ -1762,16 +1780,21 @@ function HomeTab({ session, onEditProfile }: { session: Session; onEditProfile: 
     staleTime: 60_000,
   });
 
-  // Action-required banner: fire if any financial / super field is empty.
-  const missingFinancial = employeeProfile ? (() => {
+  // Action-required banner: list the exact missing fields so the staff
+  // member knows what's needed. Old copy just said "Financial Details" /
+  // "Superannuation" which left ESL users guessing which specific rows.
+  const missingFinancialFields = employeeProfile ? (() => {
     const isEmpty = (v: any) => v === null || v === undefined || String(v).trim() === "";
-    const financialMissing = isEmpty(employeeProfile.tfn) || isEmpty(employeeProfile.bsb) || isEmpty(employeeProfile.accountNo);
-    const superMissing = isEmpty(employeeProfile.superCompany) || isEmpty(employeeProfile.superMembershipNo);
-    const list: string[] = [];
-    if (financialMissing) list.push("Financial Details");
-    if (superMissing) list.push("Superannuation");
-    return list;
+    const names: string[] = [];
+    if (isEmpty(employeeProfile.tfn)) names.push("TFN");
+    if (isEmpty(employeeProfile.bsb)) names.push("BSB");
+    if (isEmpty(employeeProfile.accountNo)) names.push("Account Number");
+    if (isEmpty(employeeProfile.superCompany)) names.push("Super Fund");
+    if (isEmpty(employeeProfile.superMembershipNo)) names.push("Super Member #");
+    return names;
   })() : [];
+  // Backwards-compat alias for any references further down the file.
+  const missingFinancial = missingFinancialFields;
 
   const { data: portalNotices = [] } = useQuery<Notice[]>({
     queryKey: ["/api/notices", "portal", employeeProfile?.storeId],
@@ -1828,7 +1851,7 @@ function HomeTab({ session, onEditProfile }: { session: Session; onEditProfile: 
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontSize: 15, fontWeight: 700, color: "#ef4444", letterSpacing: "-0.1px" }}>Action Required!</p>
             <p style={{ fontSize: 13, color: "#222222", marginTop: 2, lineHeight: 1.35 }}>
-              Please complete your {missingFinancial.join(" and ")} in your profile.
+              Missing: <b>{missingFinancialFields.join(", ")}</b>. Tap here to add them so you can be paid correctly.
             </p>
           </div>
           <ChevronRight style={{ width: 18, height: 18, color: "#ef4444", flexShrink: 0 }} />
@@ -2020,43 +2043,66 @@ function HomeTab({ session, onEditProfile }: { session: Session; onEditProfile: 
         </div>
       </div>
 
-      {/* Notices */}
-      {portalNotices.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <Megaphone style={{ width: 14, height: 14, color: "#6a6a6a" }} />
-            <h3 style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6a6a6a" }}>
-              Notices
-            </h3>
-          </div>
-          <div className="flex flex-col gap-3">
-            {portalNotices.map(n => (
-              <div
-                key={n.id}
-                data-testid={`card-portal-notice-${n.id}`}
-                style={{
-                  background: "#fff",
-                  borderRadius: 20,
-                  boxShadow: "rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px",
-                  padding: "14px 16px",
-                }}
-              >
-                <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                  <p style={{ fontWeight: 600, fontSize: 14, color: "#222222", lineHeight: 1.3 }}>{n.title}</p>
-                  {!n.targetStoreId && (
-                    <span className="inline-flex items-center gap-1" style={{ fontSize: 12, color: "#6a6a6a" }}>
-                      <Globe style={{ width: 12, height: 12 }} /> All Stores
-                    </span>
-                  )}
+      {/* Notices — dismissible per-device via localStorage. Dismissed IDs are
+          remembered across sessions so read notices don't re-appear forever. */}
+      {(() => {
+        const visibleNotices = portalNotices.filter(n => !dismissedNoticeIds.has(n.id));
+        if (visibleNotices.length === 0) return null;
+        return (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Megaphone style={{ width: 14, height: 14, color: "#6a6a6a" }} />
+              <h3 style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6a6a6a" }}>
+                Notices
+              </h3>
+            </div>
+            <div className="flex flex-col gap-3">
+              {visibleNotices.map(n => (
+                <div
+                  key={n.id}
+                  data-testid={`card-portal-notice-${n.id}`}
+                  style={{
+                    background: "#fff",
+                    borderRadius: 20,
+                    boxShadow: "rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px",
+                    padding: "14px 16px",
+                    position: "relative",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => dismissNotice(n.id)}
+                    data-testid={`button-dismiss-notice-${n.id}`}
+                    aria-label="Mark as read"
+                    style={{
+                      position: "absolute", top: 10, right: 10,
+                      width: 28, height: 28, borderRadius: "50%",
+                      background: "transparent", border: "none",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      cursor: "pointer", color: "#6a6a6a",
+                      touchAction: "manipulation",
+                      WebkitTapHighlightColor: "transparent",
+                    }}
+                  >
+                    <X style={{ width: 16, height: 16 }} />
+                  </button>
+                  <div className="flex flex-wrap items-center gap-2 mb-1.5" style={{ paddingRight: 32 }}>
+                    <p style={{ fontWeight: 600, fontSize: 14, color: "#222222", lineHeight: 1.3 }}>{n.title}</p>
+                    {!n.targetStoreId && (
+                      <span className="inline-flex items-center gap-1" style={{ fontSize: 12, color: "#6a6a6a" }}>
+                        <Globe style={{ width: 12, height: 12 }} /> All Stores
+                      </span>
+                    )}
+                  </div>
+                  <p style={{ fontSize: 13, color: "#6a6a6a", whiteSpace: "pre-line", lineHeight: 1.55 }}>
+                    {n.content}
+                  </p>
                 </div>
-                <p style={{ fontSize: 13, color: "#6a6a6a", whiteSpace: "pre-line", lineHeight: 1.55 }}>
-                  {n.content}
-                </p>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       </>)}
 
       <UnscheduledShiftDrawer
@@ -2548,33 +2594,68 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
     staleTime: 0,
   });
 
+  const DRAFT_KEY = `ep_profile_draft_${session.id}`;
   const [form, setForm] = useState<ProfileFormData>({
     email: "", streetAddress: "", streetAddress2: "", suburb: "", state: "", postCode: "",
     selfieUrl: "", passportUrl: "", fhc: "", tfn: "", bsb: "", accountNo: "",
     superCompany: "", superMembershipNo: "",
   });
   const [bsbError, setBsbError] = useState("");
+  const [hasDraft, setHasDraft] = useState(false);
 
+  // On mount: load saved employee OR locally-saved draft (whichever exists).
+  // Drafts survive accidental navigation (tap Home mid-edit, swipe browser
+  // back, phone dies etc.) so the user doesn't lose 2 minutes of typing.
   useEffect(() => {
-    if (employee) {
-      setForm({
-        email: employee.email ?? "",
-        streetAddress: employee.streetAddress ?? "",
-        streetAddress2: employee.streetAddress2 ?? "",
-        suburb: employee.suburb ?? "",
-        state: employee.state ?? "",
-        postCode: employee.postCode ?? "",
-        selfieUrl: employee.selfieUrl ?? "",
-        passportUrl: employee.passportUrl ?? "",
-        fhc: employee.fhc ?? "",
-        tfn: employee.tfn ?? "",
-        bsb: employee.bsb ?? "",
-        accountNo: employee.accountNo ?? "",
-        superCompany: employee.superCompany ?? "",
-        superMembershipNo: employee.superMembershipNo ?? "",
-      });
-    }
-  }, [employee]);
+    if (!employee) return;
+    const serverValues: ProfileFormData = {
+      email: employee.email ?? "",
+      streetAddress: employee.streetAddress ?? "",
+      streetAddress2: employee.streetAddress2 ?? "",
+      suburb: employee.suburb ?? "",
+      state: employee.state ?? "",
+      postCode: employee.postCode ?? "",
+      selfieUrl: employee.selfieUrl ?? "",
+      passportUrl: employee.passportUrl ?? "",
+      fhc: employee.fhc ?? "",
+      tfn: employee.tfn ?? "",
+      bsb: employee.bsb ?? "",
+      accountNo: employee.accountNo ?? "",
+      superCompany: employee.superCompany ?? "",
+      superMembershipNo: employee.superMembershipNo ?? "",
+    };
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const draft = JSON.parse(raw) as ProfileFormData;
+        // Only restore the draft if it actually differs from server values.
+        const differs = Object.keys(serverValues).some(k =>
+          (serverValues as any)[k] !== (draft as any)[k]
+        );
+        if (differs) {
+          setForm(draft);
+          setHasDraft(true);
+          return;
+        }
+      }
+    } catch {}
+    setForm(serverValues);
+  }, [employee, DRAFT_KEY]);
+
+  // Persist form edits to localStorage on every change so a crash / reload
+  // doesn't wipe the work-in-progress.
+  useEffect(() => {
+    if (!employee) return;
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(form)); } catch {}
+  }, [form, employee, DRAFT_KEY]);
+
+  // Warn on page close / reload if the draft is unsaved.
+  useEffect(() => {
+    if (!hasDraft) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [hasDraft]);
 
   const updateMutation = useMutation({
     mutationFn: (data: Partial<ProfileFormData>) =>
@@ -2587,6 +2668,9 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
         return r.json();
       }),
     onSuccess: () => {
+      // Clear the saved draft now that the server holds the truth.
+      try { localStorage.removeItem(DRAFT_KEY); } catch {}
+      setHasDraft(false);
       queryClient.invalidateQueries({ queryKey: ["/api/employees", session.id] });
       toast({ title: "Profile Updated Successfully", description: "Your details have been saved." });
       onBack();
@@ -2647,7 +2731,10 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
 
   const field = (key: keyof ProfileFormData) => ({
     value: form[key],
-    onChange: (e: React.ChangeEvent<HTMLInputElement>) => setForm(f => ({ ...f, [key]: e.target.value })),
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
+      setForm(f => ({ ...f, [key]: e.target.value }));
+      setHasDraft(true);
+    },
   });
 
   if (isLoading) {
@@ -2665,10 +2752,24 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
     <div className="flex flex-col gap-0">
       {/* Sticky header */}
       <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b flex items-center gap-3 px-4 py-3">
-        <Button size="icon" variant="ghost" onClick={onBack} data-testid="button-edit-profile-back">
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={() => {
+            if (hasDraft) {
+              const ok = window.confirm("You have unsaved changes. Leave without saving?");
+              if (!ok) return;
+            }
+            onBack();
+          }}
+          data-testid="button-edit-profile-back"
+        >
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <h2 className="font-bold text-base flex-1">Edit My Profile</h2>
+        <h2 className="font-bold text-base flex-1">
+          Edit My Profile
+          {hasDraft && <span className="ml-2 text-xs font-medium text-amber-600">• Unsaved</span>}
+        </h2>
         <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending} data-testid="button-save-profile">
           {updateMutation.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Save className="h-4 w-4 mr-1.5" />}
           Save
@@ -2964,24 +3065,36 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
                 <p className="text-xs text-amber-700 dark:text-amber-400">Your financial details are stored securely and only used for payroll purposes.</p>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">TFN (Tax File Number)</Label>
+                <Label className="text-xs text-muted-foreground">
+                  TFN (Tax File Number) <span className="text-destructive font-bold">*</span>
+                </Label>
                 <Input placeholder="e.g. 123 456 789" {...field("tfn")} data-testid="input-tfn" className="h-11 text-base font-mono" inputMode="numeric" />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">BSB (6 digits, no dash)</Label>
+                <Label className="text-xs text-muted-foreground">
+                  BSB (6 digits) <span className="text-destructive font-bold">*</span>
+                </Label>
                 <Input
-                  placeholder="e.g. 062000"
+                  placeholder="e.g. 062000 or 062 000"
                   value={form.bsb}
-                  onChange={e => { setForm(f => ({ ...f, bsb: e.target.value })); setBsbError(""); }}
+                  onChange={e => {
+                    // Accept spaces/dashes but strip them on submit.
+                    // maxLength of 9 tolerates "062 000" / "062-000" while
+                    // the validator still requires 6 digits after stripping.
+                    setForm(f => ({ ...f, bsb: e.target.value }));
+                    setBsbError("");
+                  }}
                   data-testid="input-bsb"
                   className={`h-11 text-base font-mono ${bsbError ? "border-destructive" : ""}`}
                   inputMode="numeric"
-                  maxLength={6}
+                  maxLength={9}
                 />
                 {bsbError && <p className="text-xs text-destructive" data-testid="error-bsb">{bsbError}</p>}
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Account Number</Label>
+                <Label className="text-xs text-muted-foreground">
+                  Account Number <span className="text-destructive font-bold">*</span>
+                </Label>
                 <Input placeholder="e.g. 12345678" {...field("accountNo")} data-testid="input-account-no" className="h-11 text-base font-mono" inputMode="numeric" />
               </div>
             </CardContent>
@@ -2999,11 +3112,15 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
           <Card>
             <CardContent className="pt-4 pb-4 flex flex-col gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Super Fund Name</Label>
+                <Label className="text-xs text-muted-foreground">
+                  Super Fund Name <span className="text-destructive font-bold">*</span>
+                </Label>
                 <Input placeholder="e.g. Australian Super, Hostplus" {...field("superCompany")} data-testid="input-super-company" className="h-11 text-base" />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Member Number</Label>
+                <Label className="text-xs text-muted-foreground">
+                  Member Number <span className="text-destructive font-bold">*</span>
+                </Label>
                 <Input placeholder="Your membership number" {...field("superMembershipNo")} data-testid="input-super-membership-no" className="h-11 text-base font-mono" />
               </div>
             </CardContent>
@@ -3105,18 +3222,34 @@ function ChangePinDrawer({ open, onClose, employeeId, required = false, onChange
           setTimeout(() => {
             const curPin = currentPinRef.current;
             const nwPin = newPinRef.current;
+            // ── Weak-PIN checks ──
+            // Sequential ascending/descending (e.g. 1234, 4321, 0123, 9876)
+            const isSequential = (p: string) => {
+              const diffs = [1, 2, 3].map(i => p.charCodeAt(i) - p.charCodeAt(i - 1));
+              return diffs.every(d => d === 1) || diffs.every(d => d === -1);
+            };
+            // All same digit (1111, 2222 …)
+            const isRepeated = (p: string) => /^(\d)\1{3}$/.test(p);
+            // How many digits differ between new and current
+            const digitsDifferent = (a: string, b: string) =>
+              [0, 1, 2, 3].filter(i => a[i] !== b[i]).length;
+            const reject = (msg: string) => {
+              setError(msg);
+              newPinRef.current = "";
+              setNewPin("");
+              setConfirmPin("");
+              setTimeout(() => setStep("new"), 100);
+            };
             if (next !== nwPin) {
-              setError("PINs do not match. Please try again.");
-              newPinRef.current = "";
-              setNewPin("");
-              setConfirmPin("");
-              setTimeout(() => setStep("new"), 100);
+              reject("PINs do not match. Please try again.");
             } else if (next === curPin) {
-              setError("New PIN must be different from current PIN.");
-              newPinRef.current = "";
-              setNewPin("");
-              setConfirmPin("");
-              setTimeout(() => setStep("new"), 100);
+              reject("New PIN must be different from your current PIN.");
+            } else if (digitsDifferent(next, curPin) < 2) {
+              reject("New PIN must differ from the current PIN by at least 2 digits.");
+            } else if (isRepeated(next)) {
+              reject("PIN too weak — avoid the same digit four times (like 1111).");
+            } else if (isSequential(next)) {
+              reject("PIN too weak — avoid sequential digits (like 1234 or 4321).");
             } else {
               changePinMutation.mutate({ current: curPin, next });
             }
