@@ -1126,6 +1126,33 @@ A grouped record of incremental polish work that landed across multiple modules 
   - **Mobile swipe-to-complete** — currently items are ticked off via tap. Add native-feeling left-swipe-to-remove gesture (e.g. via Framer Motion drag) so finger-only operation while shopping is faster.
 - **Prereq:** None.
 
+#### 6.3.11 Gmail API Direct Integration — Replace Cloudmailin
+- **Status:** Decided, deferred until after current AP cleanup stabilises. Next session will produce the fully detailed implementation plan before writing code.
+- **Motivation:**
+  - Cloudmailin silently drops inbound emails that exceed its size limit. First case observed 2026-04-23: Newline Beverages statement with `EStatement.pdf` was bounced by Gmail's forwarder with "Message too large" — the invoice never reached the webhook, and the app never knew the email had arrived.
+  - Cloudmailin-size-dependent gaps mean manual reconciliation is required, which defeats the purpose of automation.
+  - Pulling from Gmail directly eliminates the intermediate size ceiling and removes one external dependency.
+- **Decision:** Replace Cloudmailin entirely (not run both). Dual ingestion complicates dedup for no reliability gain — Gmail's own 25MB receive limit covers every invoice we've seen in production.
+- **Why this is possible on Railway (vs. the Replit era):** Gmail API works from anywhere, but Railway's always-on environment, durable env vars, stable HTTPS domain (for OAuth callbacks), and existing Postgres make 5-minute polling reliable. Replit free-tier sleep would have caused cold-start misses at every interval.
+- **Phased plan:**
+  - **Phase 1 — OAuth setup** (~2–3h). Google Cloud Console: create/reuse project, enable Gmail API, create OAuth 2.0 Client ID (Web application), register redirect URI `https://<railway-host>/api/gmail/oauth-callback`. Save `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REDIRECT_URI` as Railway env vars. Server adds `GET /api/gmail/auth` (consent redirect) and `GET /api/gmail/oauth-callback` (code → refresh token → DB). One-time user consent with `gmail.readonly` scope.
+  - **Phase 2 — Polling worker** (~4–6h). `node-cron` (or `setInterval`) every 5 minutes. Gmail API `users.messages.list` with `q=to:accounts@eatem.com.au newer_than:10m`. For each new message: `users.messages.get` with `format=full`, decode headers/body/attachments (base64url), dedup by `messageId`. Transform into a Cloudmailin-shaped payload and route through the SAME handler as the current webhook — preferably by refactoring the webhook body into a `processInboundEmail(payload)` helper shared by both paths.
+  - **Phase 3 — Schema** (~1h). Two tables via Drizzle: `gmail_config(id, refresh_token, last_polled_at, last_history_id)` and `gmail_processed_messages(message_id PRIMARY KEY, processed_at)`. Run `db:push`, update §2.x of this plan.
+  - **Phase 4 — Monitoring** (~2h). Settings page widget: last poll time, emails processed today, error count, "Re-authenticate" CTA when refresh token expires. Optional: daily summary email at 09:00 AEST listing new invoices pulled in last 24h.
+  - **Testing & edges** (~3–4h). Token expiry path, malformed attachments, HTML-only emails, forwarded-bounce detection, Gmail API quota handling, restart resumption.
+- **Total effort:** ~1.5–2 focused days.
+- **Cost:** $0. Gmail API free within 1B quota units/day; we expect ≤5M/day. Railway bill unchanged.
+- **Risks:**
+  - Google Workspace admin consent may be required for organisation-owned `accounts@eatem.com.au`.
+  - Scope is strictly `gmail.readonly` — no modification or delete permission requested.
+  - 25MB Gmail receive limit still exists but is 5–10× higher than the Cloudmailin cap observed today.
+- **Cut-over plan:**
+  1. Deploy Gmail API integration alongside Cloudmailin for ≥3 days of dual observation (dedup by messageId).
+  2. Verify Gmail poller captures 100% of the emails Cloudmailin captures + the previously-bounced ones.
+  3. Disable Cloudmailin webhook (keep DNS/MX as-is for a week, just stop forwarding the alias into Cloudmailin).
+  4. Remove Cloudmailin from Railway env + close the Cloudmailin account.
+- **Prereq:** None blocking. Should follow once the current AP manual-cleanup backlog (store assignments, duplicate deletion, statement expansion) has settled and user has had 2–3 days of stable observation.
+
 ---
 
 ### 6.4 Architectural Principles (Maintained)
