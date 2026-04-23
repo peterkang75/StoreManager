@@ -970,8 +970,8 @@ export function AdminAccountsPayable() {
       if (!groups.has(payDate)) groups.set(payDate, []);
       groups.get(payDate)!.push(inv);
     }
-    // Payment-date groups sorted ASCENDING (oldest pay date on top)
-    return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
+    // Payment-date groups sorted DESCENDING (most recent pay date on top)
+    return Array.from(groups.entries()).sort(([a], [b]) => b.localeCompare(a));
   }, [historyInvoices]);
 
   const togglePayDate = (dateKey: string) => {
