@@ -1044,8 +1044,8 @@ export function AdminRosters() {
             )}
           </div>
 
-          {/* Row 2: Store selector (big) + Copy Prev Week */}
-          <div className="flex flex-row flex-wrap items-center gap-2">
+          {/* Row 2: Store selector + Copy Prev Week (single row on mobile) */}
+          <div className="flex flex-row flex-nowrap items-center gap-2">
             {rosterStores.map((s) => {
               const hex = STORE_COLORS[s.name] ?? "";
               const isActive = selectedStore === s.id;
@@ -1054,7 +1054,7 @@ export function AdminRosters() {
                   key={s.id}
                   variant="outline"
                   onClick={() => setSelectedStore(s.id)}
-                  className="h-10 px-6 text-sm font-semibold"
+                  className="h-10 px-5 text-sm font-semibold shrink-0"
                   style={
                     isActive
                       ? { backgroundColor: hex, borderColor: hex, color: "white" }
@@ -1070,10 +1070,10 @@ export function AdminRosters() {
               variant="outline"
               onClick={() => copyWeekMutation.mutate()}
               disabled={!selectedStore || copyWeekMutation.isPending}
-              className="h-10"
+              className="h-10 px-2.5 text-xs shrink-0"
               data-testid="button-copy-week"
             >
-              <Copy className="h-4 w-4 mr-1.5" />
+              <Copy className="h-3.5 w-3.5 mr-1" />
               Copy Prev Week
             </Button>
           </div>
