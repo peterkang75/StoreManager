@@ -5479,8 +5479,75 @@ export async function registerRoutes(
       });
 
       if (validInvoiceAttachments.length === 0) {
+        // ── Body-text fallback ─────────────────────────────────────────────
+        // Some suppliers (AGL, Telstra, Google Workspace, Stripe, etc.) put
+        // the invoice details directly in the email body instead of a PDF.
+        // Try to parse the body text; create a PENDING row only when the
+        // parser returns a positive amount AND at least one of (invoice#,
+        // due date). Falls through to FYI_ARCHIVE on any weaker signal so
+        // marketing/confirmation emails don't create ghost invoices.
+        const bodyTrim = emailBody.trim();
+        if (bodyTrim.length >= 120) {
+          try {
+            const bodyDocType = await classifyDocumentForAP(bodyTrim);
+            if (bodyDocType === "INVOICE" || bodyDocType === "STATEMENT") {
+              console.log(`[Webhook] No attachments — body classified as ${bodyDocType}, attempting body-text parse for "${matchedSupplier.name}" (${bodyTrim.length} chars)`);
+              const parsedFromBody = await parseInvoiceWithAI(bodyTrim, matchedSupplier.name, subject);
+              const first = parsedFromBody?.[0];
+              if (first && first.totalAmount > 0 && (first.invoiceNumber || first.dueDate)) {
+                // Dedup against this supplier's existing invoices
+                const existingRows = await storage.getSupplierInvoices({ supplierId: matchedSupplier.id });
+                const existingInvNums = new Set(existingRows.map(r => r.invoiceNumber));
+                const invNum = first.invoiceNumber || `BODY-${Date.now()}`;
+                if (existingInvNums.has(invNum)) {
+                  console.log(`[Webhook] Body-parse: ${invNum} already exists for ${matchedSupplier.name} — skipping as dupe`);
+                  return res.status(200).json({ received: true, action: "body_parse_duplicate", supplier: matchedSupplier.name, invoiceNumber: invNum });
+                }
+                // Resolve storeId from the parsed body (or supplier history)
+                const storesCache = await storage.getStores();
+                const resolvedStoreId = await resolveStoreIdForInvoice({
+                  parsedStoreCode: first.storeCode,
+                  parentStoreId: null,
+                  supplierId: matchedSupplier.id,
+                  storesCache,
+                });
+                try {
+                  await storage.createSupplierInvoice({
+                    supplierId: matchedSupplier.id,
+                    storeId: resolvedStoreId,
+                    invoiceNumber: invNum,
+                    invoiceDate: first.issueDate || new Date().toISOString().split("T")[0],
+                    dueDate: first.dueDate ?? undefined,
+                    amount: first.totalAmount,
+                    status: "PENDING",
+                    notes: `Auto-imported from email body (no PDF attached).\nFrom: ${senderEmail}\nSubject: ${subject}`,
+                    rawExtractedData: {
+                      senderEmail,
+                      subject,
+                      body: bodyTrim.slice(0, 8000),
+                      supplier: { supplierName: matchedSupplier.name },
+                      invoices: parsedFromBody,
+                      _aiParsed: true,
+                      _bodyOnlySource: true,
+                    },
+                  } as any);
+                  console.log(`[Webhook] Body-parse SUCCESS: ${matchedSupplier.name} #${invNum} $${first.totalAmount} → PENDING (store=${resolvedStoreId ?? "unassigned"})`);
+                  return res.status(200).json({ received: true, action: "parsed_from_body", supplier: matchedSupplier.name, invoiceNumber: invNum, amount: first.totalAmount });
+                } catch (createErr: any) {
+                  console.warn(`[Webhook] Body-parse create failed for ${matchedSupplier.name}:`, createErr?.message ?? createErr);
+                }
+              } else {
+                console.log(`[Webhook] Body-parse returned insufficient data (amount=${first?.totalAmount ?? "-"}, inv#=${first?.invoiceNumber ?? "-"}) — FYI_ARCHIVE`);
+              }
+            } else {
+              console.log(`[Webhook] Body classified as ${bodyDocType} — not a payable document, FYI_ARCHIVE`);
+            }
+          } catch (bodyParseErr: any) {
+            console.warn(`[Webhook] Body-parse pipeline threw:`, bodyParseErr?.message ?? bodyParseErr);
+          }
+        }
         console.log(`[Webhook] Micro-Filter: No valid attachments → FYI_ARCHIVE (${matchedSupplier.name})`);
-        return res.status(200).json({ received: true, action: "fyi_archived_no_attachment", supplier: matchedSupplier.name, reason: "No PDF/image attachments — likely an order confirmation or text update" });
+        return res.status(200).json({ received: true, action: "fyi_archived_no_attachment", supplier: matchedSupplier.name, reason: "No PDF/image attachments and body yielded no parseable invoice" });
       }
 
       console.log(`[Webhook] Processing ${validInvoiceAttachments.length} attachment(s) for "${matchedSupplier.name}"`);
