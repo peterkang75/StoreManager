@@ -970,7 +970,8 @@ export function AdminAccountsPayable() {
       if (!groups.has(payDate)) groups.set(payDate, []);
       groups.get(payDate)!.push(inv);
     }
-    return Array.from(groups.entries()).sort(([a], [b]) => b.localeCompare(a));
+    // Payment-date groups sorted ASCENDING (oldest pay date on top)
+    return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [historyInvoices]);
 
   const togglePayDate = (dateKey: string) => {
@@ -2180,7 +2181,9 @@ export function AdminAccountsPayable() {
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {suppInvoices.map(inv => {
+                                      {[...suppInvoices]
+                                        .sort((a, b) => (a.invoiceDate ?? "").localeCompare(b.invoiceDate ?? ""))
+                                        .map(inv => {
                                         const store = stores.find(s => s.id === inv.storeId);
                                         const isAutoDebit = inv.supplier?.isAutoPay === true;
                                         return (
