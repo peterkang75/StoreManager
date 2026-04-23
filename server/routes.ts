@@ -3532,8 +3532,16 @@ export async function registerRoutes(
       const { id } = req.params;
       const inv = await storage.getSupplierInvoice(id);
       if (!inv) return res.status(404).json({ error: "Invoice not found" });
-      if (inv.status !== "REVIEW" && inv.status !== "QUARANTINE") {
-        return res.status(400).json({ error: "Invoice must be in REVIEW or QUARANTINE status" });
+      // Allow REVIEW, QUARANTINE, and PENDING statement-placeholder rows.
+      // A "statement placeholder" PENDING is a row promoted from a statement
+      // PDF where only the first line's fields were written onto the row
+      // itself, and the remaining N-1 items were never expanded. We detect
+      // these by rawExtractedData.invoices[] having multiple items.
+      const rawMaybe = inv.rawExtractedData as any;
+      const parsedItemsCount = Array.isArray(rawMaybe?.invoices) ? rawMaybe.invoices.length : 0;
+      const isUnexpandedStatementPlaceholder = inv.status === "PENDING" && parsedItemsCount > 1 && !!rawMaybe?.pdfBase64;
+      if (inv.status !== "REVIEW" && inv.status !== "QUARANTINE" && !isUnexpandedStatementPlaceholder) {
+        return res.status(400).json({ error: "Invoice must be in REVIEW, QUARANTINE, or an unexpanded statement PENDING" });
       }
 
       const raw = inv.rawExtractedData as any;
@@ -3621,18 +3629,56 @@ export async function registerRoutes(
           return res.json({ invoiceCount: invoices.length, isStatement: true, needsSupplierAssignment: true, supplier: supplierExtracted, parserUsed });
         }
 
+        // existingNums excludes the current row so we don't dupe-detect
+        // against ourselves (statement placeholder rows carry the first
+        // item's invoice_number).
         const existing = await storage.getSupplierInvoices({ supplierId: targetSupplierId });
-        const existingNums = new Set(existing.map(e => e.invoiceNumber));
+        const existingNums = new Set(existing.filter(e => e.id !== id).map(e => e.invoiceNumber));
         const storesCache = await storage.getStores();
         let expanded = 0, skipped = 0;
+        let currentRowHandled = false;
+
         for (const item of invoices) {
-          if (!item.invoiceNumber || existingNums.has(item.invoiceNumber)) { skipped++; continue; }
+          if (!item.invoiceNumber) { skipped++; continue; }
           const itemStoreId = await resolveStoreIdForInvoice({
             parsedStoreCode: item.storeCode,
             parentStoreId: inv.storeId,
             supplierId: targetSupplierId,
             storesCache,
           });
+
+          // If this parsed item matches the current row's own invoice_number,
+          // promote-in-place instead of creating a new row (avoids unique
+          // collision). If the item is ALSO already in another existing row
+          // for this supplier, mark the current row as DELETED (dupe).
+          if (!currentRowHandled && inv.invoiceNumber === item.invoiceNumber) {
+            currentRowHandled = true;
+            if (existingNums.has(item.invoiceNumber)) {
+              await storage.updateSupplierInvoice(id, {
+                status: "DELETED",
+                previousStatus: inv.status,
+                rawExtractedData: { ...raw, supplier: supplierExtracted, invoices, _aiParsed: true, _parserUsed: parserUsed, _duplicateOfExisting: true },
+              });
+              skipped++;
+            } else {
+              await storage.updateSupplierInvoice(id, {
+                status: "PENDING",
+                supplierId: targetSupplierId,
+                storeId: itemStoreId ?? inv.storeId ?? null,
+                amount: item.totalAmount ?? 0,
+                invoiceDate: item.issueDate || todayStr,
+                dueDate: item.dueDate ?? undefined,
+                notes: "Promoted in place from statement via re-parse.",
+                rawExtractedData: { ...raw, supplier: supplierExtracted, invoices, _aiParsed: true, _parserUsed: parserUsed, _promotedInPlace: true },
+              } as any);
+              existingNums.add(item.invoiceNumber);
+              expanded++;
+            }
+            continue;
+          }
+
+          // Normal expansion for other items
+          if (existingNums.has(item.invoiceNumber)) { skipped++; continue; }
           try {
             await storage.createSupplierInvoice({
               supplierId: targetSupplierId,
@@ -3644,20 +3690,23 @@ export async function registerRoutes(
               status: "PENDING",
               notes: "Expanded from statement via re-parse.",
             } as any);
+            existingNums.add(item.invoiceNumber);
             expanded++;
           } catch { skipped++; }
         }
 
-        // Mark the original REVIEW row as DELETED — it was just a placeholder
-        // for the statement PDF, now replaced by the expanded rows.
-        // Preserve previousStatus so /restore returns the row to its prior tab.
-        await storage.updateSupplierInvoice(id, {
-          status: "DELETED",
-          previousStatus: inv.status,
-          rawExtractedData: { ...raw, supplier: supplierExtracted, invoices, _aiParsed: true, _parserUsed: parserUsed, _expandedInto: expanded, _skippedDupes: skipped },
-        });
-        console.log(`[reparse-pdf] Invoice ${id}: STATEMENT expanded → ${expanded} new PENDING, ${skipped} dupes skipped (supplier=${targetSupplierId})`);
-        return res.json({ invoiceCount: invoices.length, isStatement: true, expanded, skippedDupes: skipped, supplier: supplierExtracted, parserUsed });
+        // If the current row's invoice_number didn't match any parsed item,
+        // it was a pure placeholder (e.g., TRIAGE-xxxxx) — mark as DELETED.
+        if (!currentRowHandled) {
+          await storage.updateSupplierInvoice(id, {
+            status: "DELETED",
+            previousStatus: inv.status,
+            rawExtractedData: { ...raw, supplier: supplierExtracted, invoices, _aiParsed: true, _parserUsed: parserUsed, _expandedInto: expanded, _skippedDupes: skipped },
+          });
+        }
+
+        console.log(`[reparse-pdf] Invoice ${id}: STATEMENT ${currentRowHandled ? "in-place+expand" : "placeholder"} → ${expanded} live, ${skipped} dupes (supplier=${targetSupplierId})`);
+        return res.json({ invoiceCount: invoices.length, isStatement: true, expanded, skippedDupes: skipped, currentRowHandled, supplier: supplierExtracted, parserUsed });
       }
 
       // ── SINGLE INVOICE branch: patch this row ──
