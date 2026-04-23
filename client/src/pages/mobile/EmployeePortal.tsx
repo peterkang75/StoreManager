@@ -578,16 +578,18 @@ function TodayShiftCard({
       >
         {/* Content */}
         <div className="flex-1 p-5">
-          {/* Row 1: store name + status badge */}
+          {/* Row 1: store name + status badge — name sized big enough to read
+              under bright kitchen lights without squinting */}
           <div className="flex items-start justify-between gap-2 mb-4">
             <span style={{
-              display: "inline-flex", alignItems: "center", gap: 8,
-              fontWeight: 700, fontSize: 13,
-              color: item.storeColor ?? "#6a6a6a",
-              letterSpacing: "0.02em",
+              display: "inline-flex", alignItems: "center", gap: 10,
+              fontWeight: 800, fontSize: 18,
+              color: item.storeColor ?? "#222222",
+              letterSpacing: "-0.2px",
+              lineHeight: 1.1,
             }}>
-              <span style={{ width: 8, height: 8, borderRadius: "50%", background: item.storeColor ?? "#6a6a6a" }} />
-              {item.storeName} Store
+              <span style={{ width: 12, height: 12, borderRadius: "50%", background: item.storeColor ?? "#6a6a6a" }} />
+              {item.storeName}
             </span>
             {ts && st && (
               <div className={`flex items-center gap-1 px-2 py-1 shrink-0 ${st.bg}`} style={{ borderRadius: 14 }}>
@@ -654,8 +656,28 @@ function UnscheduledShiftDrawer({
 }) {
   const { toast } = useToast();
   const [storeId, setStoreId] = useState("");
-  const [startTime, setStartTime] = useState("09:00");
-  const [endTime, setEndTime] = useState("17:00");
+  // Smart defaults: start = current time rounded down to nearest 15 min
+  // End = 8 hours later (typical shift length), capped at 23:45 same day.
+  // Much closer to reality than the old hard-coded 09:00–17:00 and saves the
+  // user dozens of taps scrolling through 96 slots.
+  function nowTimeSlot(): string {
+    const d = new Date();
+    const h = d.getHours();
+    const m = Math.floor(d.getMinutes() / 15) * 15;
+    return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
+  }
+  function plusHours(t: string, hours: number): string {
+    const [h, m] = t.split(":").map(Number);
+    let total = h * 60 + m + hours * 60;
+    total = Math.min(total, 23 * 60 + 45); // cap at 23:45
+    const nh = Math.floor(total / 60);
+    const nm = total % 60;
+    return `${String(nh).padStart(2,"0")}:${String(nm).padStart(2,"0")}`;
+  }
+  const defaultStart = nowTimeSlot();
+  const defaultEnd = plusHours(defaultStart, 8);
+  const [startTime, setStartTime] = useState(defaultStart);
+  const [endTime, setEndTime] = useState(defaultEnd);
   const [reason, setReason] = useState("");
 
   const { data: stores = [] } = useQuery<StoreOption[]>({
@@ -671,8 +693,11 @@ function UnscheduledShiftDrawer({
   useEffect(() => {
     if (open) {
       setStoreId(stores.length > 0 ? stores[0].id : "");
-      setStartTime("09:00");
-      setEndTime("17:00");
+      // Re-compute on each open so the default reflects "now" at drawer open
+      // rather than when the component first mounted.
+      const s = nowTimeSlot();
+      setStartTime(s);
+      setEndTime(plusHours(s, 8));
       setReason("");
     }
   }, [open, stores]);
@@ -771,7 +796,17 @@ function UnscheduledShiftDrawer({
             </p>
           )}
           {hours <= 0 && startTime && endTime && (
-            <p style={{ fontSize: 13, color: "#ef4444" }}>End time must be after start time</p>
+            <div style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: "12px 14px", borderRadius: 10,
+              background: "rgba(239,68,68,0.1)",
+              border: "1px solid rgba(239,68,68,0.4)",
+            }}>
+              <AlertCircle style={{ width: 18, height: 18, color: "#ef4444", flexShrink: 0 }} />
+              <p style={{ fontSize: 14, color: "#c13515", margin: 0, fontWeight: 500 }}>
+                End time must be later than start time. Check the two time fields above.
+              </p>
+            </div>
           )}
 
           {/* Reason — required */}
@@ -1766,6 +1801,11 @@ function HomeTab({ session, onEditProfile }: { session: Session; onEditProfile: 
     ...localUnscheduled.filter(u => !serverIds.has(u.timesheet.id)),
   ];
 
+  // Shifts scheduled for today that still have no timesheet submitted.
+  // We display this count prominently so staff don't finish a shift, close the
+  // app, and forget to submit — a common failure mode caught by the UX audit.
+  const pendingTimesheetCount = todayShifts.filter(s => !s.timesheet).length;
+
   return (
     <div className="flex flex-col gap-5 px-4 py-5" style={{ background: "#ffffff", minHeight: "100%", fontFamily: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, Roboto, 'Helvetica Neue', sans-serif" }}>
       {/* Action required banner — missing Financial / Super details */}
@@ -1865,6 +1905,24 @@ function HomeTab({ session, onEditProfile }: { session: Session; onEditProfile: 
             Today · {fmtLongDate(today)}
           </h3>
         </div>
+
+        {/* Pending-timesheet reminder banner */}
+        {pendingTimesheetCount > 0 && (
+          <div
+            data-testid="banner-pending-timesheet"
+            style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: "12px 14px", marginBottom: 12, borderRadius: 12,
+              background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.4)",
+            }}
+          >
+            <AlertCircle style={{ width: 18, height: 18, color: "#ef4444", flexShrink: 0 }} />
+            <p style={{ fontSize: 13, color: "#222222", lineHeight: 1.35, margin: 0 }}>
+              <b>{pendingTimesheetCount} shift{pendingTimesheetCount > 1 ? "s" : ""}</b> still need a timesheet today.
+              Tap <b>Submit Timesheet</b> on the card below before you leave.
+            </p>
+          </div>
+        )}
 
         {todayLoading && (
           <div className="flex justify-center py-8">
