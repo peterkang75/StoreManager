@@ -1,5 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes, autoSubmitExpiredCycleShifts } from "./routes";
+import { runBootstrapMigrations } from "./bootstrap-migrations";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedDatabaseIfEmpty } from "./seed";
@@ -471,6 +472,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  await runBootstrapMigrations();
   await registerRoutes(httpServer, app);
   await seedDatabaseIfEmpty();
   await fixViaEmailSenders();
