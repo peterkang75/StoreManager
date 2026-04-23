@@ -1707,16 +1707,22 @@ export function AdminAccountsPayable() {
                                   const store = stores.find(s => s.id === inv.storeId);
                                   const isAutoDebitRow = inv.supplier?.isAutoPay === true;
                                   const weekIdx = weekIdxById.get(inv.id) ?? 0;
-                                  // Subtle warm neutral that pairs with Airbnb's
-                                  // light surface palette — visible but calm.
+                                  // Deeper neutral so the band is clearly
+                                  // readable without looking like an accent.
                                   const weekBandBg = applyWeekBands && weekIdx % 2 === 1
-                                    ? "bg-slate-100/70 dark:bg-slate-800/40"
+                                    ? "bg-slate-200/80 dark:bg-slate-700/50"
                                     : "";
+                                  // Hover uses a cool blue tint — clearly
+                                  // distinct from the neutral-grey week band
+                                  // so mouse-over state isn't mistaken for
+                                  // the banding.
                                   return (
                                     <tr
                                       key={inv.id}
                                       className={`transition-colors ${
-                                        isChecked ? "bg-primary/5" : `${weekBandBg} hover:bg-muted/20`
+                                        isChecked
+                                          ? "bg-primary/10"
+                                          : `${weekBandBg} hover:bg-blue-50 dark:hover:bg-blue-950/40`
                                       } ${isAutoDebitRow ? "opacity-60" : ""}`}
                                       data-testid={`row-invoice-${inv.id}`}
                                     >
