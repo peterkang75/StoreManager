@@ -38,6 +38,7 @@ import {
   CheckCircle2,
   Circle,
   ArrowRightLeft,
+  Copy,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -1909,8 +1910,27 @@ export function AdminPayrolls() {
                           {s.doneCount}/{s.count} done
                         </div>
                       </div>
-                      <div className="font-mono font-semibold text-base mt-1 tabular-nums">
-                        ${s.total.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="font-mono font-semibold text-base tabular-nums">
+                          ${s.total.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(s.total.toFixed(2));
+                              toast({ title: "Copied", description: `${name} total $${s.total.toFixed(2)} copied` });
+                            } catch {
+                              toast({ title: "Copy failed", variant: "destructive" });
+                            }
+                          }}
+                          data-testid={`button-copy-store-total-${name.toLowerCase()}`}
+                          className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-colors"
+                          title={`Copy ${name} total`}
+                          aria-label={`Copy ${name} total`}
+                        >
+                          <Copy className="h-3 w-3" />
+                        </button>
                       </div>
                       {!allDone && s.doneCount > 0 && (
                         <div className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5 tabular-nums">
@@ -2004,13 +2024,33 @@ export function AdminPayrolls() {
                         ) : null}
                       </div>
 
-                      {/* Amount */}
-                      <span
-                        className={`font-mono text-right font-medium ${dimText}`}
-                        data-testid={`text-bank-amount-${entry.payrollId}`}
-                      >
-                        {`$${entry.bankDepositAmount.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                      </span>
+                      {/* Amount + copy button */}
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              await navigator.clipboard.writeText(entry.bankDepositAmount.toFixed(2));
+                              toast({ title: "Copied", description: `$${entry.bankDepositAmount.toFixed(2)} copied for ${entry.employeeName}` });
+                            } catch {
+                              toast({ title: "Copy failed", variant: "destructive" });
+                            }
+                          }}
+                          data-testid={`button-copy-bank-amount-${entry.payrollId}`}
+                          className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-colors"
+                          title="Copy amount to clipboard"
+                          aria-label="Copy amount"
+                        >
+                          <Copy className="h-3 w-3" />
+                        </button>
+                        <span
+                          className={`font-mono text-right font-medium ${dimText}`}
+                          data-testid={`text-bank-amount-${entry.payrollId}`}
+                        >
+                          {`$${entry.bankDepositAmount.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                        </span>
+                      </div>
 
                       {/* Done checkbox */}
                       <div className="flex flex-col items-center gap-0.5">

@@ -68,6 +68,7 @@ import {
   ChevronsUpDown,
   Check,
   AlertTriangle,
+  Copy,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import AddInvoiceModal from "@/components/AddInvoiceModal";
@@ -1440,7 +1441,27 @@ export function AdminAccountsPayable() {
                         {selectedBySupplier.map(s => (
                           <div key={s.name} className="flex items-center justify-between gap-3 text-xs">
                             <span className="text-muted-foreground truncate">{s.name}</span>
-                            <span className="tabular-nums text-foreground/70 shrink-0">{fmtAUD(s.total)}</span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <span className="tabular-nums text-foreground/70">{fmtAUD(s.total)}</span>
+                              <button
+                                type="button"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  try {
+                                    await navigator.clipboard.writeText(s.total.toFixed(2));
+                                    toast({ title: "Copied", description: `${s.name} $${s.total.toFixed(2)} copied` });
+                                  } catch {
+                                    toast({ title: "Copy failed", variant: "destructive" });
+                                  }
+                                }}
+                                data-testid={`button-copy-supplier-total-${s.name.replace(/\s+/g, "-").toLowerCase()}`}
+                                className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-colors"
+                                title={`Copy ${s.name} total`}
+                                aria-label={`Copy ${s.name} total`}
+                              >
+                                <Copy className="h-3 w-3" />
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
