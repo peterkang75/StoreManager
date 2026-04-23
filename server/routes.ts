@@ -3203,6 +3203,50 @@ export async function registerRoutes(
   //   INVOICE / STATEMENT  → promote to PENDING (fill amount from PDF parse)
   //   REMITTANCE / OTHER   → soft-delete
   //   no PDF / parse fails → stay as REVIEW (needs manual entry)
+  // ── Store-ID resolution for newly-parsed invoice rows ──────────────────────
+  // Priority: PDF-extracted storeCode → parent row's storeId → supplier history
+  // (only for single-store suppliers) → null. Suppliers in
+  // MULTI_STORE_SUPPLIER_IDS serve BOTH Sushi & Sandwich, so we refuse to guess
+  // from history and leave storeId=null when the PDF doesn't say — the manager
+  // assigns it. Today only Escalate Hospitality Supplies falls in this bucket.
+  const MULTI_STORE_SUPPLIER_IDS = new Set<string>([
+    "6b80f712-4079-4836-8613-d78511698645", // Escalate Hospitality Supplies
+  ]);
+
+  async function resolveStoreIdForInvoice(opts: {
+    parsedStoreCode?: string | null;
+    parentStoreId?: string | null;
+    supplierId?: string | null;
+    storesCache?: Array<{ id: string; name: string }>;
+  }): Promise<string | null> {
+    const stores = opts.storesCache ?? (await storage.getStores());
+    // Step 1: PDF-extracted storeCode (most authoritative)
+    const code = (opts.parsedStoreCode ?? "").toString().toUpperCase();
+    if (code && code !== "UNKNOWN") {
+      const match = stores.find(s => (s.name ?? "").toUpperCase() === code);
+      if (match) return match.id;
+    }
+    // Step 2: inherit parent REVIEW row's storeId
+    if (opts.parentStoreId) return opts.parentStoreId;
+    // Step 3: supplier history — only safe for single-store suppliers
+    if (opts.supplierId && !MULTI_STORE_SUPPLIER_IDS.has(opts.supplierId)) {
+      const history = await storage.getSupplierInvoices({ supplierId: opts.supplierId });
+      const counts = new Map<string, number>();
+      for (const h of history) {
+        if (h.storeId && h.status !== "DELETED") {
+          counts.set(h.storeId, (counts.get(h.storeId) ?? 0) + 1);
+        }
+      }
+      // Only trust history if a clear majority (≥80%) points to one store.
+      const total = Array.from(counts.values()).reduce((a, b) => a + b, 0);
+      if (total >= 3) {
+        const [topId, topCount] = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0] ?? [null, 0];
+        if (topId && topCount / total >= 0.8) return topId;
+      }
+    }
+    return null;
+  }
+
   app.post("/api/invoices/bulk-reclassify", async (_req: Request, res: Response) => {
     try {
       const [reviews, quarantined] = await Promise.all([
@@ -3291,6 +3335,12 @@ export async function registerRoutes(
             continue;
           }
 
+          // Resolve storeId from parsed PDF (or fallbacks) before patching
+          const firstStoreId = await resolveStoreIdForInvoice({
+            parsedStoreCode: first.storeCode,
+            parentStoreId: inv.storeId,
+            supplierId: inv.supplierId,
+          });
           const patch: any = {
             status: "PENDING",
             amount: first.totalAmount ?? inv.amount,
@@ -3299,9 +3349,10 @@ export async function registerRoutes(
             dueDate: first.dueDate ?? undefined,
             rawExtractedData: { ...raw, supplier: parsedSupplier, invoices: parsedInvoices, _aiParsed: true, _reclassified: docType },
           };
+          if (firstStoreId) patch.storeId = firstStoreId;
           await storage.updateSupplierInvoice(inv.id, patch);
           summary.promoted++;
-          console.log(`[bulk-reclassify] ${inv.id} → PENDING (amount=${first.totalAmount}, #=${first.invoiceNumber})`);
+          console.log(`[bulk-reclassify] ${inv.id} → PENDING (amount=${first.totalAmount}, #=${first.invoiceNumber}, store=${firstStoreId ?? "unassigned"})`);
 
           if (docType === "STATEMENT" && parsedInvoices.length > 1 && inv.supplierId) {
             const existing = await storage.getSupplierInvoices({ supplierId: inv.supplierId });
@@ -3309,10 +3360,15 @@ export async function registerRoutes(
             for (let i = 1; i < parsedInvoices.length; i++) {
               const item = parsedInvoices[i];
               if (!item.invoiceNumber || existingNums.has(item.invoiceNumber)) continue;
+              const itemStoreId = await resolveStoreIdForInvoice({
+                parsedStoreCode: item.storeCode,
+                parentStoreId: inv.storeId,
+                supplierId: inv.supplierId,
+              });
               try {
                 await storage.createSupplierInvoice({
                   supplierId: inv.supplierId,
-                  storeId: null,
+                  storeId: itemStoreId,
                   invoiceNumber: item.invoiceNumber,
                   invoiceDate: item.issueDate || todayStr,
                   dueDate: item.dueDate ?? undefined,
@@ -3567,13 +3623,20 @@ export async function registerRoutes(
 
         const existing = await storage.getSupplierInvoices({ supplierId: targetSupplierId });
         const existingNums = new Set(existing.map(e => e.invoiceNumber));
+        const storesCache = await storage.getStores();
         let expanded = 0, skipped = 0;
         for (const item of invoices) {
           if (!item.invoiceNumber || existingNums.has(item.invoiceNumber)) { skipped++; continue; }
+          const itemStoreId = await resolveStoreIdForInvoice({
+            parsedStoreCode: item.storeCode,
+            parentStoreId: inv.storeId,
+            supplierId: targetSupplierId,
+            storesCache,
+          });
           try {
             await storage.createSupplierInvoice({
               supplierId: targetSupplierId,
-              storeId: null,
+              storeId: itemStoreId,
               invoiceNumber: item.invoiceNumber,
               invoiceDate: item.issueDate || todayStr,
               dueDate: item.dueDate ?? undefined,
@@ -3599,6 +3662,11 @@ export async function registerRoutes(
 
       // ── SINGLE INVOICE branch: patch this row ──
       const first = invoices[0];
+      const resolvedStoreId = await resolveStoreIdForInvoice({
+        parsedStoreCode: first.storeCode,
+        parentStoreId: inv.storeId,
+        supplierId: inv.supplierId,
+      });
       const patch: any = {
         rawExtractedData: {
           ...raw,
@@ -3612,6 +3680,7 @@ export async function registerRoutes(
       if (first.invoiceNumber) patch.invoiceNumber = first.invoiceNumber;
       if (first.issueDate) patch.invoiceDate = first.issueDate;
       if (first.dueDate) patch.dueDate = first.dueDate;
+      if (resolvedStoreId && !inv.storeId) patch.storeId = resolvedStoreId;
 
       try {
         const updated = await storage.updateSupplierInvoice(id, patch);
