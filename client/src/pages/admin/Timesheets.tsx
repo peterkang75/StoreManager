@@ -20,6 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { getPayrollCycleStart, getPayrollCycleEnd } from "@shared/payrollCycle";
 import type { Payroll } from "@shared/schema";
+import { useAdminRole } from "@/contexts/AdminRoleContext";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -246,6 +247,8 @@ function HistoryModal({
   onClose: () => void;
   onReverted: () => void;
 }) {
+  const { currentRole } = useAdminRole();
+  const isManager = currentRole === "MANAGER";
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const displayName = group.employeeNickname || group.employeeName.split(" ")[0];
@@ -405,7 +408,9 @@ function HistoryModal({
         {/* Read-only label */}
         <div className="px-5 py-1.5 bg-muted/30 border-b border-border/20 shrink-0">
           <p className="text-[10px] text-muted-foreground italic">
-            승인 완료 기록 — 수정하려면 Revert to Pending을 사용하세요
+            {isManager
+              ? "Approved record — use Revert to Pending to edit."
+              : "승인 완료 기록 — 수정하려면 Revert to Pending을 사용하세요"}
           </p>
         </div>
 
@@ -477,6 +482,8 @@ function HistoryModal({
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export function AdminTimesheets() {
+  const { currentRole } = useAdminRole();
+  const isManager = currentRole === "MANAGER";
   const today = getAEDTToday();
   const currentCycleStart = getPayrollCycleStart(today);
   const [cycleStart, setCycleStart] = useState(currentCycleStart);
@@ -546,7 +553,11 @@ export function AdminTimesheets() {
             <History className="h-5 w-5 text-primary" />
             Attendance History
           </h2>
-          <p className="text-muted-foreground text-xs mt-0.5">승인 완료된 근무 기록 — 포트나이트 주기별</p>
+          <p className="text-muted-foreground text-xs mt-0.5">
+            {isManager
+              ? "Approved work records — by fortnight cycle"
+              : "승인 완료된 근무 기록 — 포트나이트 주기별"}
+          </p>
         </div>
 
         {/* ── Cycle Navigator ───────────────────────────────────────────── */}

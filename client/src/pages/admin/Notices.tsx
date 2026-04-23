@@ -25,6 +25,7 @@ import { Switch } from "@/components/ui/switch";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2, Megaphone, Globe, Building2 } from "lucide-react";
+import { useAdminRole } from "@/contexts/AdminRoleContext";
 import type { Notice, Store } from "@shared/schema";
 
 function fmtDate(d: string | Date) {
@@ -49,6 +50,8 @@ const BLANK: NoticeFormState = {
 };
 
 export function AdminNotices() {
+  const { currentRole } = useAdminRole();
+  const isManager = currentRole === "MANAGER";
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen]     = useState(false);
   const [editTarget, setEditTarget]     = useState<Notice | null>(null);
@@ -148,7 +151,11 @@ export function AdminNotices() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-semibold">Notice Board</h2>
-            <p className="text-sm text-muted-foreground">직원 포털에 표시할 공지사항을 관리하세요.</p>
+            <p className="text-sm text-muted-foreground">
+              {isManager
+                ? "Manage notices shown in the Employee Portal."
+                : "직원 포털에 표시할 공지사항을 관리하세요."}
+            </p>
           </div>
           <Button onClick={openCreate} data-testid="button-create-notice">
             <Plus className="w-4 h-4 mr-2" />

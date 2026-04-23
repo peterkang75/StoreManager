@@ -43,6 +43,7 @@ import { Users, Search, Copy, Check, Loader2, LinkIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Candidate, InsertCandidate } from "@shared/schema";
+import { useAdminRole } from "@/contexts/AdminRoleContext";
 
 const hireDecisionOptions = [
   { value: "PENDING", label: "Pending", variant: "secondary" as const },
@@ -316,6 +317,8 @@ function OnboardingLinkDialog({
 }
 
 export function AdminCandidates() {
+  const { currentRole } = useAdminRole();
+  const isManager = currentRole === "MANAGER";
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [decisionFilter, setDecisionFilter] = useState<string>("all");
@@ -371,7 +374,9 @@ export function AdminCandidates() {
           <div>
             <h2 className="text-xl font-semibold">Candidates</h2>
             <p className="text-sm text-muted-foreground">
-              후보자 면접을 검토하고 관리합니다
+              {isManager
+                ? "Review and manage candidate interviews."
+                : "후보자 면접을 검토하고 관리합니다"}
             </p>
           </div>
         </div>
@@ -416,8 +421,12 @@ export function AdminCandidates() {
                 <h3 className="text-lg font-medium mb-2">No candidates found</h3>
                 <p className="text-sm text-muted-foreground">
                   {candidates?.length === 0
-                    ? "모바일에서 면접을 진행하면 후보자가 여기에 표시됩니다."
-                    : "검색어 또는 필터 조건을 조정해 보세요."}
+                    ? isManager
+                      ? "Candidates will appear here once interviews are completed on mobile."
+                      : "모바일에서 면접을 진행하면 후보자가 여기에 표시됩니다."
+                    : isManager
+                      ? "Try adjusting the search term or filter."
+                      : "검색어 또는 필터 조건을 조정해 보세요."}
                 </p>
               </div>
             ) : (

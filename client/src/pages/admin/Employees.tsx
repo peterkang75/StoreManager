@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,72 +20,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { UserCheck, Search, Link2, Check, Upload, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { UserCheck, Search } from "lucide-react";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Employee, Store, EmployeeStoreAssignment } from "@shared/schema";
 import { STORE_COLORS as STORE_BRAND } from "@shared/storeColors";
+import { useAdminRole } from "@/contexts/AdminRoleContext";
 
 export function AdminEmployees() {
+  const { currentRole } = useAdminRole();
+  const isManager = currentRole === "MANAGER";
   const [, setLocation] = useLocation();
-  const [linkCopied, setLinkCopied] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [storeFilter, setStoreFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("ACTIVE");
-  const [importing, setImporting] = useState(false);
-  const [importingPhotos, setImportingPhotos] = useState(false);
-  const importRef = useRef<HTMLInputElement>(null);
-  const importPhotosRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
-
-  const handleImportCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImporting(true);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/employees/import", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Import failed");
-      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/employee-store-assignments"] });
-      toast({
-        title: "Import complete",
-        description: `${data.imported} imported, ${data.skipped} skipped${data.errors?.length ? `, ${data.errors.length} errors` : ""}`,
-      });
-    } catch (err: any) {
-      toast({ title: "Import failed", description: err.message, variant: "destructive" });
-    } finally {
-      setImporting(false);
-      if (importRef.current) importRef.current.value = "";
-    }
-  };
-
-  const handleImportPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImportingPhotos(true);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/employees/import-photos", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Photo import failed");
-      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
-      toast({
-        title: "Photos imported",
-        description: `${data.updated} employees updated${data.errors?.length ? `, ${data.errors.length} unmatched` : ""}`,
-      });
-    } catch (err: any) {
-      toast({ title: "Photo import failed", description: err.message, variant: "destructive" });
-    } finally {
-      setImportingPhotos(false);
-      if (importPhotosRef.current) importPhotosRef.current.value = "";
-    }
-  };
 
   const { data: employees, isLoading: employeesLoading } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
@@ -153,11 +103,6 @@ export function AdminEmployees() {
     setLocation(`/admin/employees/${employee.id}`);
   };
 
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return "—";
-    return new Date(dateString).toLocaleDateString();
-  };
-
   const toggleStatus = useCallback(
     async (e: React.MouseEvent, employee: Employee) => {
       e.stopPropagation();
@@ -170,77 +115,26 @@ export function AdminEmployees() {
       } catch {
         toast({
           title: "Error",
-          description: "상태 변경에 실패했습니다",
+          description: isManager
+            ? "Failed to update status."
+            : "상태 변경에 실패했습니다",
           variant: "destructive",
         });
       }
     },
-    [toast]
+    [toast, isManager]
   );
 
   return (
     <AdminLayout title="Employee Management">
       <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-semibold">Employees</h2>
-            <p className="text-sm text-muted-foreground">
-              직원 정보를 확인하고 관리합니다
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <input
-              ref={importRef}
-              type="file"
-              accept=".csv,.tsv,.txt"
-              className="hidden"
-              onChange={handleImportCsv}
-              data-testid="input-import-csv"
-            />
-            <input
-              ref={importPhotosRef}
-              type="file"
-              accept=".csv,.tsv,.txt"
-              className="hidden"
-              onChange={handleImportPhotos}
-              data-testid="input-import-photos"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              data-testid="button-import-photos"
-              onClick={() => importPhotosRef.current?.click()}
-              disabled={importingPhotos}
-            >
-              {importingPhotos ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Upload className="h-4 w-4 mr-1.5" />}
-              {importingPhotos ? "Importing..." : "Import Photos"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              data-testid="button-import-csv"
-              onClick={() => importRef.current?.click()}
-              disabled={importing}
-            >
-              {importing ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Upload className="h-4 w-4 mr-1.5" />}
-              {importing ? "Importing..." : "Import CSV"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              data-testid="button-copy-register-link"
-              onClick={() => {
-                const url = `${window.location.origin}/m/register`;
-                navigator.clipboard.writeText(url);
-                setLinkCopied(true);
-                toast({ title: "Link Copied", description: "신규 직원 등록 링크가 복사되었습니다" });
-                setTimeout(() => setLinkCopied(false), 2000);
-              }}
-            >
-              {linkCopied ? <Check className="h-4 w-4 mr-1.5" /> : <Link2 className="h-4 w-4 mr-1.5" />}
-              {linkCopied ? "Copied!" : "Copy Registration Link"}
-            </Button>
-          </div>
+        <div>
+          <h2 className="text-xl font-semibold">Employees</h2>
+          <p className="text-sm text-muted-foreground">
+            {isManager
+              ? "View and manage employee details."
+              : "직원 정보를 확인하고 관리합니다"}
+          </p>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-4">
@@ -260,11 +154,13 @@ export function AdminEmployees() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Stores</SelectItem>
-              {stores?.filter(s => s.active).map((store) => (
-                <SelectItem key={store.id} value={store.id}>
-                  {store.name}
-                </SelectItem>
-              ))}
+              {stores
+                ?.filter(s => s.active && (!isManager || /sushi|sandwich/i.test(s.name)))
+                .map((store) => (
+                  <SelectItem key={store.id} value={store.id}>
+                    {store.name}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -293,8 +189,12 @@ export function AdminEmployees() {
                 <h3 className="text-lg font-medium mb-2">No employees found</h3>
                 <p className="text-sm text-muted-foreground">
                   {employees?.length === 0
-                    ? "온보딩을 완료한 직원이 여기에 표시됩니다."
-                    : "검색어 또는 필터 조건을 조정해 보세요."}
+                    ? isManager
+                      ? "Onboarded employees will appear here."
+                      : "온보딩을 완료한 직원이 여기에 표시됩니다."
+                    : isManager
+                      ? "Try adjusting the search term or filter."
+                      : "검색어 또는 필터 조건을 조정해 보세요."}
                 </p>
               </div>
             ) : (
@@ -305,7 +205,6 @@ export function AdminEmployees() {
                     <TableHead>Stores</TableHead>
                     <TableHead>Rate</TableHead>
                     <TableHead className="text-center">Status</TableHead>
-                    <TableHead>Visa Expiry</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -353,9 +252,6 @@ export function AdminEmployees() {
                         >
                           {employee.status === "ACTIVE" ? "Active" : "Inactive"}
                         </Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground" data-testid={`text-visa-${employee.id}`}>
-                        {formatDate(employee.visaExpiry)}
                       </TableCell>
                     </TableRow>
                   ))}

@@ -180,7 +180,11 @@ export function AdminCash() {
                 {!dailyClosings?.length ? (
                   <div className="text-center py-12 text-muted-foreground">
                     <Receipt className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                    <p>일일 마감 기록이 없습니다</p>
+                    <p>
+                      {currentRole === "MANAGER"
+                        ? "No daily closings yet."
+                        : "일일 마감 기록이 없습니다"}
+                    </p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">

@@ -1324,7 +1324,9 @@ export function AdminTimesheetApprovals() {
               <ClipboardCheck className="h-5 w-5 text-primary" />
               Pending Approvals
             </h2>
-            <p className="text-muted-foreground text-xs mt-0.5">타임시트 검토 및 승인</p>
+            <p className="text-muted-foreground text-xs mt-0.5">
+              {currentRole === "MANAGER" ? "Review and approve timesheets." : "타임시트 검토 및 승인"}
+            </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <Button

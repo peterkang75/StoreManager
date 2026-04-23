@@ -28,6 +28,7 @@ import { Plus, Pencil, Store as StoreIcon, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Store, InsertStore } from "@shared/schema";
+import { useAdminRole } from "@/contexts/AdminRoleContext";
 
 function StoreForm({
   store,
@@ -135,6 +136,8 @@ function StoreForm({
 }
 
 export function AdminStores() {
+  const { currentRole } = useAdminRole();
+  const isManager = currentRole === "MANAGER";
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingStore, setEditingStore] = useState<Store | undefined>();
@@ -203,7 +206,7 @@ export function AdminStores() {
           <div>
             <h2 className="text-xl font-semibold">Stores</h2>
             <p className="text-sm text-muted-foreground">
-              매장 위치를 관리합니다
+              {isManager ? "Manage store locations." : "매장 위치를 관리합니다"}
             </p>
           </div>
           <Button onClick={() => handleOpenDialog()} data-testid="button-add-store">
@@ -225,7 +228,9 @@ export function AdminStores() {
                 <StoreIcon className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
                 <h3 className="text-lg font-medium mb-2">No stores yet</h3>
                 <p className="text-sm text-muted-foreground mb-4">
-                  첫 번째 매장을 추가하여 시작하세요.
+                  {isManager
+                    ? "Add your first store to get started."
+                    : "첫 번째 매장을 추가하여 시작하세요."}
                 </p>
                 <Button onClick={() => handleOpenDialog()} data-testid="button-add-first-store">
                   <Plus className="w-4 h-4 mr-2" />

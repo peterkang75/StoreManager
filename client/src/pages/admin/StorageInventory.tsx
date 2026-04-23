@@ -32,6 +32,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2, Package, RefreshCw, ChevronDown, ChevronUp, Settings2 } from "lucide-react";
 import type { Store, StorageItem, StorageUnit } from "@shared/schema";
+import { useAdminRole } from "@/contexts/AdminRoleContext";
 
 const STORAGE_CATEGORIES = [
   "Dry Goods", "Refrigerated", "Frozen", "Produce", "Beverages",
@@ -41,6 +42,8 @@ const STORAGE_CATEGORIES = [
 const ALL_STORES = "__all__";
 
 export default function StorageInventory() {
+  const { currentRole } = useAdminRole();
+  const isManager = currentRole === "MANAGER";
   const { toast } = useToast();
   const [selectedStoreId, setSelectedStoreId] = useState<string>(ALL_STORES);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -182,7 +185,11 @@ export default function StorageInventory() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold">Storage Inventory</h1>
-            <p className="text-sm text-muted-foreground">재고 목록 관리 및 현황 조회</p>
+            <p className="text-sm text-muted-foreground">
+              {isManager
+                ? "Manage inventory and check stock levels."
+                : "재고 목록 관리 및 현황 조회"}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <Select value={selectedStoreId} onValueChange={setSelectedStoreId}>
@@ -219,7 +226,9 @@ export default function StorageInventory() {
               <CardTitle className="text-sm flex items-center gap-2">
                 <Settings2 className="h-4 w-4" />
                 Manage Units
-                <span className="text-xs font-normal text-muted-foreground">단위 관리</span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  {isManager ? "Unit management" : "단위 관리"}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -284,7 +293,9 @@ export default function StorageInventory() {
             <CardContent className="py-16 text-center">
               <Package className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
               <p className="font-medium text-muted-foreground">No storage items yet</p>
-              <p className="text-sm text-muted-foreground mt-1">아이템을 추가하세요.</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                {isManager ? "Add an item to get started." : "아이템을 추가하세요."}
+              </p>
             </CardContent>
           </Card>
         )}
@@ -432,7 +443,11 @@ export default function StorageInventory() {
             <DialogHeader>
               <DialogTitle>Delete Item</DialogTitle>
             </DialogHeader>
-            <p className="text-sm text-muted-foreground">이 아이템을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.</p>
+            <p className="text-sm text-muted-foreground">
+              {isManager
+                ? "Delete this item? This action cannot be undone."
+                : "이 아이템을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다."}
+            </p>
             <DialogFooter>
               <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>Cancel</Button>
               <Button
