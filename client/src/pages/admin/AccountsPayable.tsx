@@ -1214,9 +1214,12 @@ export function AdminAccountsPayable() {
 
   // ── Shift+click range selection ────────────────────────────────────────────
   // Standard spreadsheet/Gmail UX: click one checkbox, then Shift+click another
-  // within the same supplier group to select every row between them (inclusive).
-  // Range selection always SETS rows to selected (never deselects) — matches the
-  // "pay everything up through here" workflow.
+  // within the same supplier group to apply the SAME action to every row
+  // between them (inclusive). The action is decided by the target row's
+  // current state at click time:
+  //   • target currently UNSELECTED → Shift+click ADDS the whole range
+  //   • target currently SELECTED   → Shift+click REMOVES the whole range
+  // This makes range-deselect work symmetrically to range-select.
   const shiftKeyPressedRef = useRef(false);
   const lastCheckboxRef = useRef<{ supplierId: string; invoiceId: string } | null>(null);
 
@@ -1237,9 +1240,13 @@ export function AdminAccountsPayable() {
           .slice(from, to + 1)
           .filter(i => i.supplier?.isAutoPay !== true)
           .map(i => i.id);
+        // If the target row is already selected, treat the range action as
+        // DESELECT. Otherwise treat it as SELECT.
+        const shouldSelect = !selected.has(invId);
         setSelected(prev => {
           const next = new Set(prev);
-          rangeIds.forEach(id => next.add(id));
+          if (shouldSelect) rangeIds.forEach(id => next.add(id));
+          else rangeIds.forEach(id => next.delete(id));
           return next;
         });
         lastCheckboxRef.current = { supplierId: group.supplierId, invoiceId: invId };
