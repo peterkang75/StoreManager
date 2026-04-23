@@ -804,9 +804,6 @@ export function AdminRosters() {
     return weekDs.includes(today) ? today : monday;
   });
 
-  // ── Generate dialog ────────────────────────────────────────────────────────
-  const [generateOpen, setGenerateOpen] = useState(false);
-
   // ── View mode: "grid" | "timeline" ────────────────────────────────────────
   const [viewMode, setViewMode] = useState<"grid" | "timeline">("grid");
   const [timelineDay, setTimelineDay] = useState<string>(() => {
@@ -1010,19 +1007,19 @@ export function AdminRosters() {
       <div className="flex flex-col h-full">
         {/* ── Header bar ───────────────────────────────────────────────── */}
         <div className="border-b px-4 pt-4 pb-3 flex flex-col gap-3">
-          {/* Row 1: Title + Publish button */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-            <div className="flex items-center gap-2.5">
+          {/* Row 1: Title + Publish (colored, right-aligned) */}
+          <div className="flex flex-row items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
               <Calendar className="h-5 w-5 text-muted-foreground shrink-0" />
-              <h1 className="text-xl font-bold whitespace-nowrap">Roster Builder</h1>
+              <h1 className="text-xl font-bold truncate">Roster Builder</h1>
             </div>
             {selectedStore && (
               <Button
-                size="sm"
+                size="default"
                 variant={isPublished ? "outline" : "default"}
                 onClick={() => publishMutation.mutate()}
                 disabled={publishMutation.isPending}
-                className="w-full md:w-auto"
+                className="shrink-0 font-semibold"
                 style={
                   isPublished
                     ? { borderColor: accentHex, color: accentHex }
@@ -1035,109 +1032,81 @@ export function AdminRosters() {
                 {isPublished ? (
                   <>
                     <CheckCircle2 className="h-4 w-4 mr-1.5" />
-                    Published — Click to Unpublish
+                    Published
                   </>
                 ) : (
                   <>
                     <Rocket className="h-4 w-4 mr-1.5" />
-                    Publish Schedule
+                    Publish
                   </>
                 )}
               </Button>
             )}
           </div>
 
-          {/* Row 2: Controls – vertical stack on mobile, horizontal on desktop */}
-          <div className="flex flex-col md:flex-row md:items-center gap-2">
-            {/* Store selector — two branded buttons */}
-            <div className="flex gap-1.5">
-              {rosterStores.map((s) => {
-                const hex = STORE_COLORS[s.name] ?? "";
-                const isActive = selectedStore === s.id;
-                return (
-                  <Button
-                    key={s.id}
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setSelectedStore(s.id)}
-                    style={
-                      isActive
-                        ? { backgroundColor: hex, borderColor: hex, color: "white" }
-                        : { borderColor: hex, color: hex, backgroundColor: "transparent" }
-                    }
-                    data-testid={`button-store-${s.name.toLowerCase()}`}
-                  >
-                    {s.name}
-                  </Button>
-                );
-              })}
-            </div>
+          {/* Row 2: Store selector (big) + Copy Prev Week */}
+          <div className="flex flex-row flex-wrap items-center gap-2">
+            {rosterStores.map((s) => {
+              const hex = STORE_COLORS[s.name] ?? "";
+              const isActive = selectedStore === s.id;
+              return (
+                <Button
+                  key={s.id}
+                  variant="outline"
+                  onClick={() => setSelectedStore(s.id)}
+                  className="h-10 px-6 text-sm font-semibold"
+                  style={
+                    isActive
+                      ? { backgroundColor: hex, borderColor: hex, color: "white" }
+                      : { borderColor: hex, color: hex, backgroundColor: "transparent" }
+                  }
+                  data-testid={`button-store-${s.name.toLowerCase()}`}
+                >
+                  {s.name}
+                </Button>
+              );
+            })}
+            <Button
+              variant="outline"
+              onClick={() => copyWeekMutation.mutate()}
+              disabled={!selectedStore || copyWeekMutation.isPending}
+              className="h-10"
+              data-testid="button-copy-week"
+            >
+              <Copy className="h-4 w-4 mr-1.5" />
+              Copy Prev Week
+            </Button>
+          </div>
 
-            {/* Week navigator — full width on mobile */}
-            <div className="flex items-center border rounded-md w-full md:w-auto">
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => {
-                  const newStart = addDays(weekStart, -7);
-                  setWeekStart(newStart);
-                  setSelectedDay(newStart);
-                }}
-                data-testid="button-prev-week"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <span className="flex-1 text-center text-sm font-medium whitespace-nowrap" data-testid="text-week-range">
-                {fmtDate(weekStart)} – {fmtDate(weekEnd)}
-              </span>
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => {
-                  const newStart = addDays(weekStart, 7);
-                  setWeekStart(newStart);
-                  setSelectedDay(newStart);
-                }}
-                data-testid="button-next-week"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-
-            {/* Today + Copy — side-by-side grid on mobile */}
-            <div className="grid grid-cols-2 gap-2 md:flex md:gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setWeekStart(getMonday(new Date()));
-                  setSelectedDay(toYMD(new Date()));
-                }}
-                data-testid="button-today"
-              >
-                Today
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => copyWeekMutation.mutate()}
-                disabled={!selectedStore || copyWeekMutation.isPending}
-                data-testid="button-copy-week"
-              >
-                <Copy className="h-4 w-4 mr-1.5" />
-                Copy Prev Week
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setGenerateOpen(true)}
-                disabled={!selectedStore}
-                data-testid="button-generate-shifts"
-              >
-                <Wand2 className="h-4 w-4 mr-1.5" />
-                Generate Shifts
-              </Button>
-            </div>
+          {/* Row 3: Week navigator */}
+          <div className="flex items-center border rounded-md w-full">
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => {
+                const newStart = addDays(weekStart, -7);
+                setWeekStart(newStart);
+                setSelectedDay(newStart);
+              }}
+              data-testid="button-prev-week"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="flex-1 text-center text-sm font-medium whitespace-nowrap" data-testid="text-week-range">
+              {fmtDate(weekStart)} – {fmtDate(weekEnd)}
+            </span>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => {
+                const newStart = addDays(weekStart, 7);
+                setWeekStart(newStart);
+                setSelectedDay(newStart);
+              }}
+              data-testid="button-next-week"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
           </div>
         </div>
 
@@ -1473,22 +1442,6 @@ export function AdminRosters() {
         )}
       </div>
 
-      {generateOpen && selectedStore && (
-        <GenerateRosterDialog
-          open={generateOpen}
-          onClose={() => setGenerateOpen(false)}
-          storeId={selectedStore}
-          weekDates={weekDates}
-          employees={activeEmployees.map(e => e.employee)}
-          preset={selectedStorePreset}
-          customButtons={presetButtons}
-          storeOpenTime={selectedStoreObj?.openTime ?? "09:00"}
-          storeCloseTime={selectedStoreObj?.closeTime ?? "22:00"}
-          onGenerated={() => {
-            queryClient.invalidateQueries({ queryKey: ["/api/rosters", selectedStore] });
-          }}
-        />
-      )}
     </AdminLayout>
   );
 }
