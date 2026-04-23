@@ -2,8 +2,6 @@ import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -15,20 +13,53 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Wallet, Receipt, AlertTriangle } from "lucide-react";
+import { Wallet, Receipt, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Store, DailyClosing, CashSalesDetail } from "@shared/schema";
 import { STORE_COLORS as STORE_BRAND } from "@shared/storeColors";
+import { useAdminRole } from "@/contexts/AdminRoleContext";
+
+// ─── Date helpers (local-calendar, no UTC drift) ────────────────────────────
+function toYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+function getMonday(date: Date): string {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return toYMD(d);
+}
+function addDays(dateStr: string, n: number): string {
+  const [y, m, day] = dateStr.split("-").map(Number);
+  const d = new Date(y, m - 1, day);
+  d.setDate(d.getDate() + n);
+  return toYMD(d);
+}
+function fmtWeekLabel(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
+}
 
 export function AdminCash() {
+  const { currentRole } = useAdminRole();
   const [storeFilter, setStoreFilter] = useState<string>("all");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [weekStart, setWeekStart] = useState<string>(() => getMonday(new Date()));
+  const weekEnd = addDays(weekStart, 6);
+  const startDate = weekStart;
+  const endDate = weekEnd;
 
   const { data: stores } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
   });
 
-  const activeStores = useMemo(() => (stores ?? []).filter(s => s.active), [stores]);
+  // Cash & Daily Close is only relevant to Sushi + Sandwich operations.
+  const activeStores = useMemo(
+    () => (stores ?? []).filter(s => s.active && /sushi|sandwich/i.test(s.name)),
+    [stores],
+  );
 
   const buildQuery = () => {
     const params = new URLSearchParams();
@@ -56,6 +87,7 @@ export function AdminCash() {
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
+    enabled: currentRole !== "MANAGER",
   });
 
   const getStoreName = (storeId: string) => {
@@ -102,25 +134,26 @@ export function AdminCash() {
                     );
                   })}
                 </div>
-                <div className="flex items-center gap-2">
-                  <Label className="text-sm whitespace-nowrap">From:</Label>
-                  <Input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="w-40"
-                    data-testid="input-start-date"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Label className="text-sm whitespace-nowrap">To:</Label>
-                  <Input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="w-40"
-                    data-testid="input-end-date"
-                  />
+                <div className="flex items-center border rounded-md">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setWeekStart(addDays(weekStart, -7))}
+                    data-testid="button-prev-week"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <span className="px-2 text-sm font-medium whitespace-nowrap" data-testid="text-week-range">
+                    {fmtWeekLabel(weekStart)} – {fmtWeekLabel(weekEnd)}
+                  </span>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setWeekStart(addDays(weekStart, 7))}
+                    data-testid="button-next-week"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
             </div>
@@ -133,10 +166,12 @@ export function AdminCash() {
               <Receipt className="w-4 h-4 mr-2" />
               Daily Closings
             </TabsTrigger>
-            <TabsTrigger value="cash" data-testid="tab-cash">
-              <Wallet className="w-4 h-4 mr-2" />
-              Cash Details
-            </TabsTrigger>
+            {currentRole !== "MANAGER" && (
+              <TabsTrigger value="cash" data-testid="tab-cash">
+                <Wallet className="w-4 h-4 mr-2" />
+                Cash Details
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="closings">
@@ -209,6 +244,7 @@ export function AdminCash() {
             </Card>
           </TabsContent>
 
+          {currentRole !== "MANAGER" && (
           <TabsContent value="cash">
             <Card>
               <CardContent className="pt-6">
@@ -259,6 +295,7 @@ export function AdminCash() {
               </CardContent>
             </Card>
           </TabsContent>
+          )}
         </Tabs>
       </div>
     </AdminLayout>
