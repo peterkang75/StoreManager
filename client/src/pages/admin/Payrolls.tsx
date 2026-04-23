@@ -2006,12 +2006,32 @@ export function AdminPayrolls() {
 
                       {/* Employee / details column */}
                       <div className="min-w-0">
-                        <span
-                          className={`truncate block ${dimText}`}
-                          data-testid={`text-bank-employee-${entry.payrollId}`}
-                        >
-                          {entry.employeeName}
-                        </span>
+                        <div className="flex items-center gap-1 min-w-0">
+                          <span
+                            className={`truncate ${dimText}`}
+                            data-testid={`text-bank-employee-${entry.payrollId}`}
+                          >
+                            {entry.employeeName}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              try {
+                                await navigator.clipboard.writeText(entry.employeeName);
+                                toast({ title: "Copied", description: `"${entry.employeeName}" copied` });
+                              } catch {
+                                toast({ title: "Copy failed", variant: "destructive" });
+                              }
+                            }}
+                            data-testid={`button-copy-bank-name-${entry.payrollId}`}
+                            className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-colors shrink-0"
+                            title="Copy employee name"
+                            aria-label="Copy employee name"
+                          >
+                            <Copy className="h-3 w-3" />
+                          </button>
+                        </div>
                         {entry.isIntercompany ? (
                           <span className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1 truncate">
                             <ArrowRightLeft className="h-3 w-3 flex-shrink-0" />
