@@ -482,6 +482,11 @@ function isPortalOrPublicPath(p: string, method: string): boolean {
   // Cloudmailin inbound webhook (external POST)
   if (p === "/api/webhooks/inbound-invoices") return true;
 
+  // Phase B transition: admin login page + auth API must bypass Basic Auth
+  // so the new login flow can replace it. Removed in Step 7 once Phase B is live.
+  if (p === "/admin/login") return true;
+  if (p.startsWith("/api/auth/")) return true;
+
   // Mobile portal HTML + API (PIN auth handles these)
   if (p.startsWith("/m/")) return true;
   if (p.startsWith("/api/portal/")) return true;
