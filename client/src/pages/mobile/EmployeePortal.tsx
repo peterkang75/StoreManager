@@ -2153,102 +2153,6 @@ function HomeTab({ session, onEditProfile }: { session: Session; onEditProfile: 
 
 // ── Week Row ──────────────────────────────────────────────────────────────────
 
-function PastShiftTimesheetDrawer({
-  open, employeeId, day, onClose, onSubmitted,
-}: {
-  open: boolean;
-  employeeId: string;
-  day: DayData;
-  onClose: () => void;
-  onSubmitted: () => void;
-}) {
-  const { toast } = useToast();
-  const shift = day.shift!;
-  const [startTime, setStartTime] = useState(shift.startTime);
-  const [endTime, setEndTime] = useState(shift.endTime);
-  const [reason, setReason] = useState("");
-  const isModified = startTime !== shift.startTime || endTime !== shift.endTime;
-  const hours = calcHours(startTime, endTime);
-
-  useEffect(() => {
-    if (open) { setStartTime(shift.startTime); setEndTime(shift.endTime); setReason(""); }
-  }, [open, shift.startTime, shift.endTime]);
-
-  const submitMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch("/api/portal/timesheet", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          storeId: shift.storeId,
-          employeeId,
-          date: day.date,
-          actualStartTime: startTime,
-          actualEndTime: endTime,
-          adjustmentReason: isModified ? reason : null,
-        }),
-      });
-      if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? "Failed"); }
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({ title: "Submitted", description: `Timesheet for ${day.date} recorded.` });
-      onSubmitted();
-      onClose();
-    },
-    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
-  });
-
-  const canSubmit = hours > 0 && (!isModified || reason.trim().length > 0);
-
-  if (!open) return null;
-
-  return (
-    <div className="fixed inset-0 z-[200] flex flex-col justify-end bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-background rounded-t-2xl shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border/40 shrink-0">
-          <div>
-            <h3 className="font-semibold text-base">Submit Timesheet</h3>
-            <p className="text-xs text-muted-foreground">{day.date} · Rostered {shift.startTime} – {shift.endTime}</p>
-          </div>
-          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground p-1">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Start Time</label>
-              <Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="h-11 text-sm" data-testid="input-past-start" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">End Time</label>
-              <Input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="h-11 text-sm" data-testid="input-past-end" />
-            </div>
-          </div>
-          {isModified && (
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Reason for change <span className="text-destructive">*</span></label>
-              <Textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Left early with manager approval" rows={3} className="resize-none text-sm" data-testid="textarea-past-reason" />
-            </div>
-          )}
-          <div className="bg-muted/40 rounded-md px-4 py-3 flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Total hours</span>
-            <span className="font-bold text-lg">{hours.toFixed(1)}h</span>
-          </div>
-        </div>
-        <div className="flex gap-2 px-5 py-4 border-t border-border/40 shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-          <Button variant="outline" className="flex-1" onClick={onClose} disabled={submitMutation.isPending}>Cancel</Button>
-          <Button className="flex-[2]" onClick={() => submitMutation.mutate()} disabled={!canSubmit || submitMutation.isPending} data-testid="button-past-submit">
-            {submitMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <PenLine className="h-4 w-4 mr-2" />}
-            Submit
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function WeekRow({ day, today, employeeId, onSubmitted, openCycleStart }: { day: DayData; today: string; employeeId: string; onSubmitted: () => void; openCycleStart: string }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -2334,15 +2238,28 @@ function WeekRow({ day, today, employeeId, onSubmitted, openCycleStart }: { day:
         </div>
       </div>
 
-      {canLogPast && (
-        <PastShiftTimesheetDrawer
-          open={drawerOpen}
-          employeeId={employeeId}
-          day={day}
-          onClose={() => setDrawerOpen(false)}
-          onSubmitted={onSubmitted}
-        />
-      )}
+      {canLogPast && (() => {
+        // Reuse the polished TimesheetDrawer (the same sheet used on the
+        // dashboard's TodayShiftCard) instead of the older custom modal.
+        // Pick the first shift that doesn't yet have a timesheet for the day;
+        // fall back to the first shift if none match.
+        const targetShift = shifts.find(s => !tsByStore.has(s.storeId)) ?? shifts[0];
+        const item: TodayShiftItem = {
+          shift: targetShift,
+          storeName: targetShift.storeName ?? "",
+          storeColor: targetShift.storeColor ?? "#6a6a6a",
+          timesheet: null,
+        };
+        return (
+          <TimesheetDrawer
+            open={drawerOpen}
+            employeeId={employeeId}
+            item={item}
+            onClose={() => setDrawerOpen(false)}
+            onSubmitted={() => onSubmitted()}
+          />
+        );
+      })()}
     </>
   );
 }
