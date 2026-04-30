@@ -349,6 +349,7 @@ export function AdminCash() {
                           <TableHead>Store</TableHead>
                           <TableHead>Staff</TableHead>
                           <TableHead className="text-right">POS Sales Total</TableHead>
+                          <TableHead className="text-right">Cash Amount</TableHead>
                           <TableHead className="text-right">Cash Out</TableHead>
                           <TableHead className="text-right">Actual Cash</TableHead>
                           <TableHead className="text-right">Uber</TableHead>
@@ -378,6 +379,7 @@ export function AdminCash() {
                               </TableCell>
                               <TableCell className="max-w-[150px] truncate">{closing.staffNames || "-"}</TableCell>
                               <TableCell className="text-right">${closing.salesTotal.toFixed(2)}</TableCell>
+                              <TableCell className="text-right">${closing.cashSales.toFixed(2)}</TableCell>
                               <TableCell className="text-right">${closing.cashOut.toFixed(2)}</TableCell>
                               <TableCell className="text-right">${closing.actualCashCounted.toFixed(2)}</TableCell>
                               <TableCell className="text-right">${closing.ubereatsAmount.toFixed(2)}</TableCell>
