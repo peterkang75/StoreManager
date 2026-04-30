@@ -285,11 +285,17 @@ export function MobileDailyClose() {
     <MobileLayout title="Daily Close">
       <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingBottom: 96, fontFamily: A.font }}>
 
-        {/* Session banner — name only, no sign out */}
-        <div>
-          <p style={{ fontSize: 15, fontWeight: 600, color: "#222222" }}>{displayName}</p>
-          <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 1, textTransform: "capitalize" }}>{(portalSession?.role ?? "").toLowerCase()}</p>
-        </div>
+        {/* Greeting */}
+        {displayName !== "—" && (
+          <div>
+            <p style={{ fontSize: 22, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px", margin: 0 }} data-testid="text-greeting">
+              Hello, {displayName}
+            </p>
+            {portalSession?.role && (
+              <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 2, textTransform: "capitalize" }}>{portalSession.role.toLowerCase()}</p>
+            )}
+          </div>
+        )}
 
         {/* Store & Date */}
         <SectionCard>
@@ -359,11 +365,6 @@ export function MobileDailyClose() {
               />
             </div>
 
-            {/* Submitted By */}
-            <div>
-              <FieldLabel>Submitted By</FieldLabel>
-              <LockedField value={displayName} />
-            </div>
           </div>
         </SectionCard>
 
