@@ -708,17 +708,24 @@ export async function registerRoutes(
   });
 
   // Phase B: never expose password_hash through any /api/employees* response.
-  // (bcrypt is one-way but we shouldn't leak it. PIN is similarly omitted
-  // for non-ADMIN callers. Bank/TFN scoping stays Phase B.1.)
-  function sanitizeEmployee(emp: any, viewerRole: string | undefined) {
+  // (bcrypt is one-way but we shouldn't leak it.) PIN is omitted for non-ADMIN
+  // viewers EXCEPT when the user is fetching their own record — they already
+  // know their PIN and the portal "Edit my profile" page reads its own row.
+  // Bank/TFN scoping stays Phase B.1.
+  function sanitizeEmployee(emp: any, viewerRole: string | undefined, viewerId?: string) {
     if (!emp) return emp;
     const { passwordHash, ...rest } = emp;
-    if ((viewerRole ?? "").toUpperCase() !== "ADMIN") {
-      // Non-ADMIN viewers don't need raw PIN either.
+    const isSelf = viewerId && emp.id === viewerId;
+    const isAdmin = (viewerRole ?? "").toUpperCase() === "ADMIN";
+    if (!isAdmin && !isSelf) {
       const { pin, ...safeRest } = rest;
       return safeRest;
     }
     return rest;
+  }
+  // Wrapper for callers that have a Request handy (most common case).
+  function sanitizeForReq(emp: any, req: Request) {
+    return sanitizeEmployee(emp, req.user?.role, req.user?.id);
   }
 
   app.get("/api/employees", async (req: Request, res: Response) => {
@@ -736,8 +743,7 @@ export async function registerRoutes(
       }
 
       const employees = await storage.getEmployees(filters);
-      const role = req.user?.role;
-      res.json(employees.map((e) => sanitizeEmployee(e, role)));
+      res.json(employees.map((e) => sanitizeForReq(e, req)));
     } catch (error) {
       console.error("Error fetching employees:", error);
       res.status(500).json({ error: "Failed to fetch employees" });
@@ -751,7 +757,7 @@ export async function registerRoutes(
       if (!employee) {
         return res.status(404).json({ error: "Employee not found" });
       }
-      res.json(sanitizeEmployee(employee, req.user?.role));
+      res.json(sanitizeForReq(employee, req));
     } catch (error) {
       console.error("Error fetching employee:", error);
       res.status(500).json({ error: "Failed to fetch employee" });
@@ -795,7 +801,7 @@ export async function registerRoutes(
           }
         }
       }
-      res.json(sanitizeEmployee(employee, req.user?.role));
+      res.json(sanitizeForReq(employee, req));
     } catch (error) {
       console.error("Error updating employee:", error);
       res.status(500).json({ error: "Failed to update employee" });
