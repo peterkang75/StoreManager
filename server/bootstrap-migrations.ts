@@ -18,6 +18,21 @@ const STATEMENTS: string[] = [
   `ALTER TABLE candidates ADD COLUMN IF NOT EXISTS availability_commitment text`,
   `ALTER TABLE candidates ADD COLUMN IF NOT EXISTS visa_expiry_month text`,
   `ALTER TABLE employees ADD COLUMN IF NOT EXISTS candidate_id varchar REFERENCES candidates(id)`,
+
+  // Per-day per-store sales ledger (POSnet imports + future integrations)
+  `CREATE TABLE IF NOT EXISTS daily_sales (
+     id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+     store_id varchar NOT NULL REFERENCES stores(id),
+     date text NOT NULL,
+     cash real NOT NULL DEFAULT 0,
+     credit real NOT NULL DEFAULT 0,
+     eftpos real NOT NULL DEFAULT 0,
+     others real NOT NULL DEFAULT 0,
+     total real NOT NULL DEFAULT 0,
+     source text NOT NULL DEFAULT 'manual',
+     imported_at timestamp NOT NULL DEFAULT now()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS daily_sales_store_date_uniq ON daily_sales (store_id, date)`,
 ];
 
 export async function runBootstrapMigrations(): Promise<void> {

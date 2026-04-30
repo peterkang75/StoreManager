@@ -896,3 +896,26 @@ export const automationRules = pgTable("automation_rules", {
 export const insertAutomationRuleSchema = createInsertSchema(automationRules).omit({ id: true, createdAt: true });
 export type InsertAutomationRule = z.infer<typeof insertAutomationRuleSchema>;
 export type AutomationRule = typeof automationRules.$inferSelect;
+
+// Per-day per-store sales ledger — historical analytics surface, separate
+// from `dailyClosings` (operational cash-close workflow). Imported from
+// POSnet exports or future integrations; ongoing daily entries flow via
+// dailyClosings and may be mirrored here later.
+export const dailySales = pgTable("daily_sales", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  date: text("date").notNull(),
+  cash: real("cash").default(0).notNull(),
+  credit: real("credit").default(0).notNull(),
+  eftpos: real("eftpos").default(0).notNull(),
+  others: real("others").default(0).notNull(),
+  total: real("total").default(0).notNull(),
+  source: text("source").default("manual").notNull(),
+  importedAt: timestamp("imported_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqStoreDate: uniqueIndex("daily_sales_store_date_uniq").on(table.storeId, table.date),
+}));
+
+export const insertDailySalesSchema = createInsertSchema(dailySales).omit({ id: true, importedAt: true });
+export type InsertDailySales = z.infer<typeof insertDailySalesSchema>;
+export type DailySales = typeof dailySales.$inferSelect;
