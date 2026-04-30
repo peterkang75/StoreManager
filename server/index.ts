@@ -478,7 +478,7 @@ app.use((req, res, next) => {
 const ADMIN_AUTH_USER = process.env.ADMIN_AUTH_USER;
 const ADMIN_AUTH_PASS = process.env.ADMIN_AUTH_PASS;
 
-function isPortalOrPublicPath(p: string): boolean {
+function isPortalOrPublicPath(p: string, method: string): boolean {
   // Cloudmailin inbound webhook (external POST)
   if (p === "/api/webhooks/inbound-invoices") return true;
 
@@ -502,15 +502,24 @@ function isPortalOrPublicPath(p: string): boolean {
     p.startsWith("/node_modules/")
   ) return true;
 
-  // Shared API endpoints used by mobile portal (also used by admin).
-  // Trade-off: bypassing these lets a direct curl read this data,
-  // but mobile portal needs them to function. Phase B (admin session
-  // + per-route role guards) will properly gate these.
+  // Shared API endpoints — mobile only WRITES, admin GETs full lists with sensitive data.
+  // Bypass writes (POST/PUT/PATCH/DELETE) for mobile; gate GET behind admin auth.
+  // Without this, admin pages (e.g. Cash & Daily Close) leak data to anyone hitting the URL.
+  const writeOnlyPaths = [
+    "/api/daily-closings",     // financial data on GET (admin Cash page)
+    "/api/daily-close-forms",  // close form drafts on GET
+    "/api/candidates",         // candidate PII on GET (mobile only POSTs interview data)
+  ];
+  for (const wp of writeOnlyPaths) {
+    if (p.startsWith(wp)) {
+      return method !== "GET" && method !== "HEAD";
+    }
+  }
+
+  // Other shared endpoints — mobile both reads and writes; bypass all methods.
+  // GET leak risk remains here (Phase B will fix with per-route role guards).
   if (p.startsWith("/api/stores") && !p.startsWith("/api/store-config")) return true;
   if (p.startsWith("/api/employees")) return true;
-  if (p.startsWith("/api/candidates")) return true;
-  if (p.startsWith("/api/daily-close-forms")) return true;
-  if (p.startsWith("/api/daily-closings")) return true;
   if (p.startsWith("/api/direct-register")) return true;
   if (p.startsWith("/api/notices")) return true;
   if (p.startsWith("/api/onboarding")) return true;
@@ -526,7 +535,7 @@ function isPortalOrPublicPath(p: string): boolean {
 
 app.use((req, res, next) => {
   if (!ADMIN_AUTH_USER || !ADMIN_AUTH_PASS) return next();
-  if (isPortalOrPublicPath(req.path)) return next();
+  if (isPortalOrPublicPath(req.path, req.method)) return next();
 
   const auth = req.headers.authorization || "";
   if (!auth.startsWith("Basic ")) {
