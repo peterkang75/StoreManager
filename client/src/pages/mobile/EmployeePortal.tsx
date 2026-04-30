@@ -3569,7 +3569,9 @@ export function EmployeePortal() {
   const showAdminDashboard =
     !!session && (
       roleUpper === "OWNER" ||
-      (roleUpper === "MANAGER" && headerPermissions.some(p => p.role === "MANAGER" && p.allowed))
+      roleUpper === "ADMIN" ||
+      (roleUpper === "MANAGER" && headerPermissions.some(p => p.role === "MANAGER" && p.allowed)) ||
+      (roleUpper === "STAFF" && headerPermissions.some(p => p.role === "STAFF" && p.allowed))
     );
 
   return (
@@ -3603,8 +3605,10 @@ export function EmployeePortal() {
                 type="button"
                 data-testid="button-admin-dashboard-header"
                 onClick={() => {
-                  // Bridge portal session role → AdminRoleContext (localStorage).
-                  localStorage.setItem("admin_role_v1", roleUpper === "OWNER" ? "ADMIN" : "MANAGER");
+                  // Phase B: AdminRoleContext now sources from AuthContext (db role),
+                  // so we no longer need to bridge via localStorage. If the user has an
+                  // admin_token_v1 already (they're a logged-in admin), they go straight
+                  // to /admin. Otherwise RequireAuth redirects them through /admin/login.
                   window.location.href = "/admin";
                 }}
                 style={{
