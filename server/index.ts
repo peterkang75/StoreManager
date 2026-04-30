@@ -6,6 +6,7 @@ import { createServer } from "http";
 import { seedDatabaseIfEmpty } from "./seed";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
+import { requireAuth, requirePermission } from "./middleware/auth";
 
 // ── HTML → plain text (same logic as in routes.ts) ────────────────────────────
 function htmlToPlainText(html: string): string {
@@ -557,6 +558,34 @@ app.use((req, res, next) => {
 
   res.set("WWW-Authenticate", 'Basic realm="Crew Admin", charset="UTF-8"');
   return res.status(401).send("Invalid credentials");
+});
+
+// ── Phase B: role-based authentication for /api/* (excluding bypassed paths) ──
+// Runs AFTER the temporary Basic Auth gate (which still sits in front for the
+// transition period — removed in Step 7). Applies to every /api/* request that
+// isn't an auth/login route, portal route (already guarded per-route), webhook,
+// or token-gated public endpoint.
+function isAuthBypassedApi(p: string): boolean {
+  // Login routes themselves
+  if (p.startsWith("/api/auth/")) return true;
+  // Portal routes — already guarded by requirePortalAuth per-route
+  if (p.startsWith("/api/portal/")) return true;
+  // External webhook callbacks
+  if (p.startsWith("/api/webhooks/")) return true;
+  // Token-gated public endpoints (token in URL/body)
+  if (p.startsWith("/api/onboarding/")) return true;
+  if (p === "/api/direct-register") return true;
+  return false;
+}
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith("/api/")) return next();
+  if (isAuthBypassedApi(req.path)) return next();
+  // Compose requireAuth → requirePermission. requireAuth ends the request with
+  // 401 on failure (without calling next), so requirePermission only runs on success.
+  requireAuth(req, res, () => {
+    requirePermission()(req, res, next);
+  });
 });
 
 (async () => {

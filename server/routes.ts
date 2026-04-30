@@ -7217,6 +7217,14 @@ Rules:
 
   app.patch("/api/permissions", async (req: Request, res: Response) => {
     try {
+      // Phase B: matrix writes are ADMIN-only (read is open to all authed users
+      // because AdminRoleContext + AccessControl page need it). The global
+      // requirePermission middleware lets all authed users through, so we gate
+      // here in the handler.
+      const userRole = (req.user?.role ?? "").toUpperCase();
+      if (userRole !== "ADMIN") {
+        return res.status(403).json({ error: "FORBIDDEN_ADMIN_ONLY", message: "Only ADMIN can update the permissions matrix" });
+      }
       const { permissions } = req.body;
       if (!Array.isArray(permissions)) return res.status(400).json({ error: "permissions array required" });
       const valid = permissions.every((p: any) =>

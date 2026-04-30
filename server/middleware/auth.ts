@@ -91,10 +91,28 @@ export function requireRole(...allowedRoles: string[]) {
  * Map an /api/* path to the AccessControl matrix routeKey (frontend path style).
  * Returns:
  *   - "ADMIN_ONLY" — only ADMIN role permitted, matrix not consulted
- *   - null — no permission check needed (e.g., /api/upload available to all authed users)
- *   - "/admin/*" — matrix routeKey to look up in user.allowedRoutes
+ *   - "EMPLOYEE_OK" — any authenticated user (including EMPLOYEE-role portal sessions)
+ *   - null — no permission check needed; same as EMPLOYEE_OK
+ *   - "/admin/*" — matrix routeKey looked up in user.allowedRoutes (ADMIN/MANAGER/STAFF only)
  */
-export function apiToRouteKey(apiPath: string): string | "ADMIN_ONLY" | null {
+export function apiToRouteKey(apiPath: string): string | "ADMIN_ONLY" | "EMPLOYEE_OK" | null {
+  // Mobile portal shared endpoints — any authed user (including EMPLOYEE PIN session).
+  // These stay matrix-free because the mobile portal needs them for basic operation
+  // (store dropdown, own roster, own time logs, etc.). Phase B.1 (per-handler role
+  // filtering) will add fine-grained data scoping later.
+  if (apiPath.startsWith("/api/stores") && !apiPath.startsWith("/api/store-config")) return "EMPLOYEE_OK";
+  if (apiPath.startsWith("/api/employees") && !apiPath.startsWith("/api/employee-store-assignments")) return "EMPLOYEE_OK";
+  if (apiPath.startsWith("/api/notices")) return "EMPLOYEE_OK";
+  if (apiPath.startsWith("/api/shifts")) return "EMPLOYEE_OK";
+  if (apiPath.startsWith("/api/time-logs")) return "EMPLOYEE_OK";
+  if (apiPath.startsWith("/api/shopping")) return "EMPLOYEE_OK";
+  if (apiPath.startsWith("/api/storage")) return "EMPLOYEE_OK";
+  if (apiPath.startsWith("/api/upload")) return "EMPLOYEE_OK";
+  if (apiPath.startsWith("/api/candidates")) return "EMPLOYEE_OK"; // mobile interview POST
+  if (apiPath.startsWith("/api/daily-closings") || apiPath.startsWith("/api/daily-close-forms")) return "EMPLOYEE_OK"; // mobile DailyClose POST
+  if (apiPath.startsWith("/api/permissions")) return "EMPLOYEE_OK"; // matrix readable by all authed (write-protected in handler)
+
+
   // ADMIN-only routes (matrix not consulted)
   if (apiPath.startsWith("/api/store-config")) return "ADMIN_ONLY";
   if (apiPath.startsWith("/api/automation-rules")) return "ADMIN_ONLY";
@@ -124,20 +142,20 @@ export function apiToRouteKey(apiPath: string): string | "ADMIN_ONLY" | null {
   if (apiPath.startsWith("/api/dashboard")) return "/admin";
   if (apiPath.startsWith("/api/stores")) return "/admin/stores";
 
-  // Mobile/admin shared (low-sensitivity)
-  if (apiPath.startsWith("/api/storage") || apiPath.startsWith("/api/shopping")) return "/admin/rosters";
-  if (apiPath.startsWith("/api/upload")) return null; // any authed user
-
-  // Permissions matrix CRUD itself — ADMIN only
-  if (apiPath.startsWith("/api/permissions")) return "ADMIN_ONLY";
-
   // Default to ADMIN_ONLY for unknown admin paths (safe default)
   return "ADMIN_ONLY";
 }
 
 /**
  * requirePermission: checks AccessControl matrix for the request path.
- * ADMIN bypasses. MANAGER/STAFF must have the routeKey in user.allowedRoutes.
+ *
+ * Tiers per apiToRouteKey return value:
+ *   - "ADMIN_ONLY" → only ADMIN role passes
+ *   - "EMPLOYEE_OK" / null → any authenticated user (incl. EMPLOYEE)
+ *   - "/admin/*"   → matrix-checked for MANAGER/STAFF (ADMIN auto-passes)
+ *
+ * ADMIN role auto-passes everything.
+ * EMPLOYEE role only passes EMPLOYEE_OK / null endpoints.
  */
 export function requirePermission() {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -145,10 +163,19 @@ export function requirePermission() {
     if (req.user.role === "ADMIN") return next();
 
     const key = apiToRouteKey(req.path);
-    if (key === null) return next(); // no permission check for this path
+
+    // EMPLOYEE_OK / null — any authed user passes.
+    if (key === null || key === "EMPLOYEE_OK") return next();
+
+    // Beyond this point, the path requires MANAGER/STAFF or ADMIN.
+    if (req.user.role === "EMPLOYEE") {
+      return res.status(403).json({ error: "FORBIDDEN_ROLE", message: "This route requires admin/manager/staff" });
+    }
+
     if (key === "ADMIN_ONLY") {
       return res.status(403).json({ error: "FORBIDDEN_ADMIN_ONLY", message: "Admin role required" });
     }
+    // Matrix routeKey
     if (req.user.allowedRoutes.includes(key) || req.user.allowedRoutes.includes("*")) return next();
     return res.status(403).json({ error: "FORBIDDEN_ROUTE", message: "Route not permitted for your role", routeKey: key });
   };
