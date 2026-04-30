@@ -2577,15 +2577,26 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
       const raw = localStorage.getItem(DRAFT_KEY);
       if (raw) {
         const draft = JSON.parse(raw) as ProfileFormData;
-        // Only restore the draft if it actually differs from server values.
-        const differs = Object.keys(serverValues).some(k =>
-          (serverValues as any)[k] !== (draft as any)[k]
-        );
-        if (differs) {
-          setForm(draft);
-          setHasDraft(true);
-          return;
+        // Field-by-field merge: draft wins ONLY where it has typed content
+        // (non-empty string). Empty draft fields fall back to server. This
+        // preserves the user's in-progress edits while still surfacing newer
+        // server-side data (e.g., admin filled in TFN on desktop after the
+        // user opened the form). Previous logic blindly preferred draft and
+        // hid server-newer fields if any single field differed.
+        const merged: ProfileFormData = { ...serverValues };
+        let hasUnsavedEdits = false;
+        for (const k of Object.keys(serverValues) as (keyof ProfileFormData)[]) {
+          const draftVal = (draft as any)[k];
+          if (draftVal !== undefined && draftVal !== null && String(draftVal).trim() !== "") {
+            if (draftVal !== (serverValues as any)[k]) {
+              (merged as any)[k] = draftVal;
+              hasUnsavedEdits = true;
+            }
+          }
         }
+        setForm(merged);
+        setHasDraft(hasUnsavedEdits);
+        return;
       }
     } catch {}
     setForm(serverValues);
