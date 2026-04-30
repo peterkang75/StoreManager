@@ -351,7 +351,7 @@ export function AdminCash() {
                           <TableHead className="text-right">POS Sales Total</TableHead>
                           <TableHead className="text-right">Cash Amount</TableHead>
                           <TableHead className="text-right">Cash Out</TableHead>
-                          <TableHead className="text-right">Actual Cash</TableHead>
+                          <TableHead className="text-right">Expected Cash</TableHead>
                           <TableHead className="text-right">Uber</TableHead>
                           <TableHead className="text-right">DoorDash</TableHead>
                           <TableHead className="text-right">Total Income</TableHead>
@@ -573,7 +573,7 @@ export function AdminCash() {
               {editPreview && (
                 <div className="md:col-span-2 grid grid-cols-2 gap-3 rounded-md border bg-muted/40 p-3">
                   <div>
-                    <p className="text-xs text-muted-foreground">Actual Cash (computed)</p>
+                    <p className="text-xs text-muted-foreground">Expected Cash (computed)</p>
                     <p className="text-base font-semibold">${editPreview.credit.toFixed(2)}</p>
                   </div>
                   <div>

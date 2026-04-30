@@ -448,7 +448,7 @@ export function MobileDailyClose() {
           <div style={{ background: "#f2f2f2", borderRadius: 8, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-                <span style={{ fontSize: 14, fontWeight: 600, color: "#222222" }}>Expected Credit</span>
+                <span style={{ fontSize: 14, fontWeight: 600, color: "#222222" }}>Expected Cash</span>
                 <span style={{ fontSize: 22, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px" }} data-testid="text-expected-credit">${expectedCredit.toFixed(2)}</span>
               </div>
               <p style={{ fontSize: 11, color: "#6a6a6a" }}>Prev Float + Cash Sales − Cash Out − Next Float</p>
@@ -468,7 +468,7 @@ export function MobileDailyClose() {
                   {differenceAmount < -0.005 && <span style={{ fontSize: 11, marginLeft: 4 }}>(Overage)</span>}
                 </span>
               </div>
-              <p style={{ fontSize: 11, color: "#6a6a6a" }}>Expected Credit − Counted Total</p>
+              <p style={{ fontSize: 11, color: "#6a6a6a" }}>Expected Cash − Counted Total</p>
               {differenceAmount > 20.005 ? (
                 <div
                   style={{
