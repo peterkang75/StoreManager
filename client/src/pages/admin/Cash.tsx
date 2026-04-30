@@ -71,6 +71,14 @@ function fmtWeekLabel(dateStr: string): string {
   const d = new Date(dateStr + "T00:00:00");
   return d.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
 }
+function fmtRowDate(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yy = String(d.getFullYear()).slice(2);
+  const dow = d.toLocaleDateString("en-AU", { weekday: "short" });
+  return `${dd}/${mm}/${yy}, ${dow}`;
+}
 
 // Edit form mirrors the editable surface of a DailyClosing. Numeric fields
 // are kept as strings while typing; we coerce on submit. creditAmount and
@@ -340,14 +348,12 @@ export function AdminCash() {
                           <TableHead>Date</TableHead>
                           <TableHead>Store</TableHead>
                           <TableHead>Staff</TableHead>
-                          <TableHead className="text-right">Prev Float</TableHead>
-                          <TableHead className="text-right">Sales Total</TableHead>
-                          <TableHead className="text-right">Cash Sales</TableHead>
+                          <TableHead className="text-right">POS Sales Total</TableHead>
                           <TableHead className="text-right">Cash Out</TableHead>
                           <TableHead className="text-right">Actual Cash</TableHead>
-                          <TableHead className="text-right">Next Float</TableHead>
-                          <TableHead className="text-right">UberEats</TableHead>
+                          <TableHead className="text-right">Uber</TableHead>
                           <TableHead className="text-right">DoorDash</TableHead>
+                          <TableHead className="text-right">Total Income</TableHead>
                           <TableHead className="text-right">Difference</TableHead>
                           <TableHead className="text-right">Credit</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
@@ -356,19 +362,27 @@ export function AdminCash() {
                       <TableBody>
                         {dailyClosings.map(closing => {
                           const isShortage = closing.differenceAmount > 0;
+                          const storeName = getStoreName(closing.storeId);
+                          const storeColor = STORE_BRAND[storeName] ?? "#6a6a6a";
+                          const totalIncome = closing.salesTotal + closing.ubereatsAmount + closing.doordashAmount;
                           return (
                             <TableRow key={closing.id} data-testid={`row-closing-${closing.id}`}>
-                              <TableCell>{closing.date}</TableCell>
-                              <TableCell>{getStoreName(closing.storeId)}</TableCell>
+                              <TableCell className="whitespace-nowrap">{fmtRowDate(closing.date)}</TableCell>
+                              <TableCell>
+                                <span
+                                  className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full text-white"
+                                  style={{ backgroundColor: storeColor }}
+                                >
+                                  {storeName}
+                                </span>
+                              </TableCell>
                               <TableCell className="max-w-[150px] truncate">{closing.staffNames || "-"}</TableCell>
-                              <TableCell className="text-right">${closing.previousFloat.toFixed(2)}</TableCell>
                               <TableCell className="text-right">${closing.salesTotal.toFixed(2)}</TableCell>
-                              <TableCell className="text-right">${closing.cashSales.toFixed(2)}</TableCell>
                               <TableCell className="text-right">${closing.cashOut.toFixed(2)}</TableCell>
                               <TableCell className="text-right">${closing.actualCashCounted.toFixed(2)}</TableCell>
-                              <TableCell className="text-right">${closing.nextFloat.toFixed(2)}</TableCell>
                               <TableCell className="text-right">${closing.ubereatsAmount.toFixed(2)}</TableCell>
                               <TableCell className="text-right">${closing.doordashAmount.toFixed(2)}</TableCell>
+                              <TableCell className="text-right font-medium">${totalIncome.toFixed(2)}</TableCell>
                               <TableCell className="text-right" data-testid={`text-diff-${closing.id}`}>
                                 {isShortage ? (
                                   <span className="inline-flex items-center gap-1 text-red-600 font-bold">
