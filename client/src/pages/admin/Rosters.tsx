@@ -805,13 +805,9 @@ export function AdminRosters() {
   });
 
   // ── View mode: "grid" | "timeline" ────────────────────────────────────────
+  // Both views share `selectedDay` so navigating weeks or switching views
+  // keeps the chosen day in sync.
   const [viewMode, setViewMode] = useState<"grid" | "timeline">("grid");
-  const [timelineDay, setTimelineDay] = useState<string>(() => {
-    const today = toYMD(new Date());
-    const monday = getMonday(new Date());
-    const weekDs = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
-    return weekDs.includes(today) ? today : monday;
-  });
 
   const { data: stores, isLoading: storesLoading } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
   const { data: shiftPresets } = useQuery<ShiftPreset[]>({ queryKey: ["/api/shift-presets"] });
@@ -1196,8 +1192,8 @@ export function AdminRosters() {
             employees={activeEmployees}
             rosterMap={rosterMap}
             weekDates={weekDates}
-            selectedDay={timelineDay}
-            onDayChange={setTimelineDay}
+            selectedDay={selectedDay}
+            onDayChange={setSelectedDay}
             openTime={selectedStoreObj.openTime ?? "06:00"}
             closeTime={selectedStoreObj.closeTime ?? "22:00"}
           />
