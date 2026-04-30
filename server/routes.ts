@@ -4561,6 +4561,24 @@ export async function registerRoutes(
         return res.status(403).json({ error: "ROLE_NOT_ALLOWED", message: "This account cannot use admin login" });
       }
 
+      // Phase B device-binding: if this device already has an active PIN-portal
+      // session, the email being logged in MUST belong to the same employee.
+      // Prevents the "owner logs in on the manager's phone, then leaves the
+      // session behind" problem — only that PIN user can elevate to admin from
+      // their own device. They have to logout the portal first to log in as a
+      // different account.
+      const incomingAuth = req.header("authorization") ?? "";
+      const incomingMatch = incomingAuth.match(/^Bearer\s+(.+)$/i);
+      if (incomingMatch) {
+        const existingSession = await storage.getPortalSession(incomingMatch[1].trim());
+        if (existingSession && existingSession.loginType === "PIN" && existingSession.employeeId !== emp.id) {
+          return res.status(409).json({
+            error: "DEVICE_LOCKED_TO_PIN_USER",
+            message: "이 기기는 다른 사용자가 portal로 로그인되어 있습니다. portal에서 먼저 로그아웃하거나, 그 사용자의 계정으로만 어드민에 들어갈 수 있습니다.",
+          });
+        }
+      }
+
       clearPinAttempts(rateKey);
       const { token, expiresAt } = await storage.createPortalSession(emp.id, 30, "PASSWORD");
       // Stamp last_login_at (best-effort; non-blocking on failure)
