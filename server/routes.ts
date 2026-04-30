@@ -4427,7 +4427,8 @@ export async function registerRoutes(
       clearPinAttempts(`loginpin:${pinStr}`);
       const portalAssignments = await storage.getEmployeeStoreAssignments({ employeeId: emp.id });
       const portalStoreIds = portalAssignments.map((a: any) => a.storeId);
-      const { token } = await storage.createPortalSession(emp.id);
+      // Phase B: PIN sessions are 1 day (was 30). Admin password sessions are 30 days.
+      const { token } = await storage.createPortalSession(emp.id, 1, "PIN");
       res.json({
         id: emp.id,
         nickname: emp.nickname,
@@ -4455,6 +4456,157 @@ export async function registerRoutes(
       res.json({ ok: true });
     } catch {
       res.json({ ok: true }); // logout never fails the client
+    }
+  });
+
+  // ─── Phase B: admin/manager/staff auth (email + password) ──────────────────
+  // Same Bearer token pattern as portal, but loginType='PASSWORD' and 30-day TTL.
+  // Uses the existing rate-limit infrastructure (checkPinFailure / recordPinFailure / clearPinAttempts)
+  // keyed by email to throttle brute-force.
+
+  app.post("/api/auth/login", async (req: Request, res: Response) => {
+    try {
+      const email = (req.body?.email ?? "").toString().trim().toLowerCase();
+      const password = (req.body?.password ?? "").toString();
+      if (!email || !password) {
+        return res.status(400).json({ error: "INVALID_INPUT", message: "Email and password required" });
+      }
+
+      const rateKey = `auth:${email}`;
+      const gate = checkPinFailure(rateKey);
+      if (!gate.allowed) {
+        return res.status(429).json({
+          error: "RATE_LIMITED",
+          message: `Too many attempts. Try again in ${gate.minutesLeft} minute(s).`,
+          minutesLeft: gate.minutesLeft,
+        });
+      }
+
+      const emp = await storage.findEmployeeByEmail(email);
+      if (!emp || !emp.passwordHash) {
+        recordPinFailure(rateKey);
+        return res.status(401).json({ error: "INVALID_CREDENTIALS", message: "Invalid email or password" });
+      }
+
+      const ok = await storage.verifyEmployeePassword(emp.id, password);
+      if (!ok) {
+        recordPinFailure(rateKey);
+        return res.status(401).json({ error: "INVALID_CREDENTIALS", message: "Invalid email or password" });
+      }
+
+      // Role must be one of the admin tiers — EMPLOYEE-role users with a password
+      // (edge case) shouldn't access admin via this route.
+      const role = (emp.role ?? "").toUpperCase();
+      if (!["ADMIN", "MANAGER", "STAFF"].includes(role)) {
+        return res.status(403).json({ error: "ROLE_NOT_ALLOWED", message: "This account cannot use admin login" });
+      }
+
+      clearPinAttempts(rateKey);
+      const { token, expiresAt } = await storage.createPortalSession(emp.id, 30, "PASSWORD");
+      // Stamp last_login_at (best-effort; non-blocking on failure)
+      try {
+        await storage.updateEmployee(emp.id, { lastLoginAt: new Date() } as any);
+      } catch {}
+
+      const allowedStoreIds = await storage.getEmployeeAllowedStoreIds(emp.id, role);
+      const allowedRoutes = await storage.getRoleAllowedRoutes(role);
+
+      res.json({
+        token,
+        expiresAt,
+        user: {
+          id: emp.id,
+          email: emp.email,
+          firstName: emp.firstName,
+          lastName: emp.lastName,
+          role,
+          allowedStoreIds,
+          allowedRoutes,
+        },
+      });
+    } catch (err) {
+      console.error("[/api/auth/login] error:", err);
+      res.status(500).json({ error: "LOGIN_FAILED", message: "Login failed" });
+    }
+  });
+
+  app.post("/api/auth/logout", async (req: Request, res: Response) => {
+    try {
+      const auth = req.header("authorization") ?? "";
+      const m = auth.match(/^Bearer\s+(.+)$/i);
+      if (m) {
+        await storage.deletePortalSession(m[1].trim());
+      }
+      res.json({ ok: true });
+    } catch {
+      res.json({ ok: true });
+    }
+  });
+
+  app.get("/api/auth/me", async (req: Request, res: Response) => {
+    try {
+      const auth = req.header("authorization") ?? "";
+      const m = auth.match(/^Bearer\s+(.+)$/i);
+      if (!m) return res.status(401).json({ error: "AUTH_REQUIRED" });
+      const session = await storage.getPortalSession(m[1].trim());
+      if (!session) return res.status(401).json({ error: "SESSION_EXPIRED" });
+      const emp = await storage.getEmployee(session.employeeId);
+      if (!emp) return res.status(401).json({ error: "USER_NOT_FOUND" });
+      const role = (emp.role ?? "EMPLOYEE").toUpperCase();
+      const [allowedStoreIds, allowedRoutes] = await Promise.all([
+        storage.getEmployeeAllowedStoreIds(emp.id, role),
+        storage.getRoleAllowedRoutes(role),
+      ]);
+      res.json({
+        id: emp.id,
+        email: emp.email,
+        firstName: emp.firstName,
+        lastName: emp.lastName,
+        nickname: emp.nickname,
+        role,
+        loginType: session.loginType,
+        allowedStoreIds,
+        allowedRoutes,
+        expiresAt: session.expiresAt,
+      });
+    } catch (err) {
+      console.error("[/api/auth/me] error:", err);
+      res.status(500).json({ error: "INTERNAL" });
+    }
+  });
+
+  app.post("/api/auth/change-password", async (req: Request, res: Response) => {
+    try {
+      const auth = req.header("authorization") ?? "";
+      const m = auth.match(/^Bearer\s+(.+)$/i);
+      if (!m) return res.status(401).json({ error: "AUTH_REQUIRED" });
+      const session = await storage.getPortalSession(m[1].trim());
+      if (!session) return res.status(401).json({ error: "SESSION_EXPIRED" });
+
+      const currentPassword = (req.body?.currentPassword ?? "").toString();
+      const newPassword = (req.body?.newPassword ?? "").toString();
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ error: "INVALID_INPUT", message: "currentPassword and newPassword required" });
+      }
+      if (newPassword.length < 8) {
+        return res.status(400).json({ error: "WEAK_PASSWORD", message: "New password must be at least 8 characters" });
+      }
+
+      const ok = await storage.verifyEmployeePassword(session.employeeId, currentPassword);
+      if (!ok) {
+        return res.status(401).json({ error: "INVALID_CREDENTIALS", message: "Current password incorrect" });
+      }
+
+      // setEmployeePassword force-logs-out all sessions, including this one.
+      await storage.setEmployeePassword(session.employeeId, newPassword);
+      res.json({ ok: true, message: "Password updated. Please log in again." });
+    } catch (err: any) {
+      const msg = err?.message ?? "Failed to change password";
+      if (msg.includes("at least 8 characters")) {
+        return res.status(400).json({ error: "WEAK_PASSWORD", message: msg });
+      }
+      console.error("[/api/auth/change-password] error:", err);
+      res.status(500).json({ error: "INTERNAL" });
     }
   });
 

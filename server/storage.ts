@@ -51,6 +51,7 @@ import {
   type PortalSession, portalSessions,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
+import bcrypt from "bcryptjs";
 import { db } from "./db";
 import { eq, desc, and, gt, gte, lte, or, ilike, isNull, asc, sql, ne, inArray } from "drizzle-orm";
 
@@ -119,10 +120,24 @@ export interface IStorage {
   updateDailyClosing(id: string, closing: Partial<InsertDailyClosing>): Promise<DailyClosing | undefined>;
   deleteDailyClosing(id: string): Promise<boolean>;
 
-  // Portal Bearer-token sessions (auth gate for /api/portal/* routes)
-  createPortalSession(employeeId: string, ttlDays?: number): Promise<{ token: string; expiresAt: Date }>;
+  // Phase B: Bearer-token sessions for both portal (PIN) and admin (PASSWORD).
+  // Same table; loginType column distinguishes.
+  createPortalSession(employeeId: string, ttlDays?: number, loginType?: "PIN" | "PASSWORD"): Promise<{ token: string; expiresAt: Date }>;
   getPortalSession(token: string): Promise<PortalSession | undefined>;
   deletePortalSession(token: string): Promise<boolean>;
+
+  // Phase B: admin/manager/staff auth helpers (email + password).
+  findEmployeeByEmail(email: string): Promise<Employee | undefined>;
+  setEmployeePassword(employeeId: string, plainPassword: string): Promise<void>;
+  verifyEmployeePassword(employeeId: string, plainPassword: string): Promise<boolean>;
+  // Returns the list of storeIds a user is allowed to see/operate on.
+  // ADMIN role → all active stores; MANAGER/STAFF/EMPLOYEE → employeeStoreAssignments only.
+  getEmployeeAllowedStoreIds(employeeId: string, role: string): Promise<string[]>;
+  // Returns frontend route paths allowed for the given role per adminPermissions matrix.
+  // ADMIN → all routes from ALL_MANAGED_PAGES.
+  getRoleAllowedRoutes(role: string): Promise<string[]>;
+  // Force logout all sessions for an employee (used after password change).
+  deleteAllSessionsForEmployee(employeeId: string): Promise<number>;
 
   getCashSalesDetails(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<CashSalesDetail[]>;
   getCashSalesDetail(id: string): Promise<CashSalesDetail | undefined>;
@@ -908,13 +923,13 @@ export class MemStorage implements IStorage {
     return this.dailyClosings.delete(id);
   }
 
-  // Portal sessions (in-memory variant)
+  // Portal sessions (in-memory variant) — used by both portal PIN and admin PASSWORD logins
   private portalSessions = new Map<string, PortalSession>();
-  async createPortalSession(employeeId: string, ttlDays = 30): Promise<{ token: string; expiresAt: Date }> {
+  async createPortalSession(employeeId: string, ttlDays = 30, loginType: "PIN" | "PASSWORD" = "PIN"): Promise<{ token: string; expiresAt: Date }> {
     const token = randomBytes(32).toString("hex");
     const now = new Date();
     const expiresAt = new Date(now.getTime() + ttlDays * 86_400_000);
-    this.portalSessions.set(token, { token, employeeId, createdAt: now, expiresAt });
+    this.portalSessions.set(token, { token, employeeId, createdAt: now, expiresAt, loginType });
     return { token, expiresAt };
   }
   async getPortalSession(token: string): Promise<PortalSession | undefined> {
@@ -928,6 +943,55 @@ export class MemStorage implements IStorage {
   }
   async deletePortalSession(token: string): Promise<boolean> {
     return this.portalSessions.delete(token);
+  }
+
+  // Phase B: admin auth helpers (in-memory variant)
+  async findEmployeeByEmail(email: string): Promise<Employee | undefined> {
+    const lower = email.trim().toLowerCase();
+    return Array.from(this.employees.values()).find(
+      (e) => (e.email ?? "").toLowerCase() === lower,
+    );
+  }
+  async setEmployeePassword(employeeId: string, plainPassword: string): Promise<void> {
+    if (plainPassword.length < 8) {
+      throw new Error("Password must be at least 8 characters");
+    }
+    const emp = this.employees.get(employeeId);
+    if (!emp) throw new Error("Employee not found");
+    const hash = await bcrypt.hash(plainPassword, 10);
+    this.employees.set(employeeId, { ...emp, passwordHash: hash });
+    // Force logout all sessions for this employee
+    await this.deleteAllSessionsForEmployee(employeeId);
+  }
+  async verifyEmployeePassword(employeeId: string, plainPassword: string): Promise<boolean> {
+    const emp = this.employees.get(employeeId);
+    if (!emp || !emp.passwordHash) return false;
+    return bcrypt.compare(plainPassword, emp.passwordHash);
+  }
+  async getEmployeeAllowedStoreIds(employeeId: string, role: string): Promise<string[]> {
+    if (role === "ADMIN") {
+      return Array.from(this.stores.values()).filter((s) => s.active).map((s) => s.id);
+    }
+    return Array.from(this.employeeStoreAssignments.values())
+      .filter((a) => a.employeeId === employeeId)
+      .map((a) => a.storeId);
+  }
+  async getRoleAllowedRoutes(role: string): Promise<string[]> {
+    // MemStorage doesn't track adminPermissions matrix — return wide-open for tests.
+    if (role === "ADMIN") return ["*"];
+    if (role === "MANAGER") return ["/admin", "/admin/stores", "/admin/candidates", "/admin/employees", "/admin/rosters", "/admin/approvals", "/admin/timesheets", "/admin/payrolls", "/admin/cash", "/admin/notices"];
+    if (role === "STAFF") return ["/admin", "/admin/rosters"];
+    return [];
+  }
+  async deleteAllSessionsForEmployee(employeeId: string): Promise<number> {
+    let count = 0;
+    for (const [token, s] of this.portalSessions.entries()) {
+      if (s.employeeId === employeeId) {
+        this.portalSessions.delete(token);
+        count++;
+      }
+    }
+    return count;
   }
 
   async getCashSalesDetails(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<CashSalesDetail[]> {
@@ -2199,11 +2263,11 @@ export class DatabaseStorage implements IStorage {
     return (result.rowCount ?? 0) > 0;
   }
 
-  async createPortalSession(employeeId: string, ttlDays = 30): Promise<{ token: string; expiresAt: Date }> {
+  async createPortalSession(employeeId: string, ttlDays = 30, loginType: "PIN" | "PASSWORD" = "PIN"): Promise<{ token: string; expiresAt: Date }> {
     const token = randomBytes(32).toString("hex");
     const now = new Date();
     const expiresAt = new Date(now.getTime() + ttlDays * 86_400_000);
-    await db.insert(portalSessions).values({ token, employeeId, createdAt: now, expiresAt });
+    await db.insert(portalSessions).values({ token, employeeId, createdAt: now, expiresAt, loginType });
     return { token, expiresAt };
   }
 
@@ -2221,6 +2285,53 @@ export class DatabaseStorage implements IStorage {
   async deletePortalSession(token: string): Promise<boolean> {
     const result = await db.delete(portalSessions).where(eq(portalSessions.token, token));
     return (result.rowCount ?? 0) > 0;
+  }
+
+  // Phase B: admin/manager/staff auth helpers (database variant)
+  async findEmployeeByEmail(email: string): Promise<Employee | undefined> {
+    const lower = email.trim().toLowerCase();
+    const [row] = await db.select().from(employees).where(sql`LOWER(${employees.email}) = ${lower}`).limit(1);
+    return row;
+  }
+
+  async setEmployeePassword(employeeId: string, plainPassword: string): Promise<void> {
+    if (plainPassword.length < 8) {
+      throw new Error("Password must be at least 8 characters");
+    }
+    const hash = await bcrypt.hash(plainPassword, 10);
+    await db.update(employees).set({ passwordHash: hash }).where(eq(employees.id, employeeId));
+    // Force logout all sessions for this employee (defense against stolen tokens)
+    await this.deleteAllSessionsForEmployee(employeeId);
+  }
+
+  async verifyEmployeePassword(employeeId: string, plainPassword: string): Promise<boolean> {
+    const [emp] = await db.select({ passwordHash: employees.passwordHash }).from(employees).where(eq(employees.id, employeeId)).limit(1);
+    if (!emp || !emp.passwordHash) return false;
+    return bcrypt.compare(plainPassword, emp.passwordHash);
+  }
+
+  async getEmployeeAllowedStoreIds(employeeId: string, role: string): Promise<string[]> {
+    if (role === "ADMIN") {
+      const rows = await db.select({ id: stores.id }).from(stores).where(eq(stores.active, true));
+      return rows.map((r) => r.id);
+    }
+    const rows = await db.select({ storeId: employeeStoreAssignments.storeId })
+      .from(employeeStoreAssignments)
+      .where(eq(employeeStoreAssignments.employeeId, employeeId));
+    return rows.map((r) => r.storeId);
+  }
+
+  async getRoleAllowedRoutes(role: string): Promise<string[]> {
+    if (role === "ADMIN") return ["*"]; // ADMIN bypasses matrix
+    const rows = await db.select({ route: adminPermissions.route })
+      .from(adminPermissions)
+      .where(and(eq(adminPermissions.role, role), eq(adminPermissions.allowed, true)));
+    return rows.map((r) => r.route);
+  }
+
+  async deleteAllSessionsForEmployee(employeeId: string): Promise<number> {
+    const result = await db.delete(portalSessions).where(eq(portalSessions.employeeId, employeeId));
+    return result.rowCount ?? 0;
   }
 
   async getCashSalesDetails(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<CashSalesDetail[]> {
