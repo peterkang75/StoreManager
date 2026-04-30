@@ -1140,7 +1140,8 @@ Three sequential commits (`03a2ea0`, `33019bf`, `7f374e6`) fixed 15 issues surfa
   - **현황 (2026-04-30 부분 해결)**: 모바일 portal 라우트(`/api/portal/today|shift|week|missed-shifts|cycle-timesheets|history|timesheet|unscheduled-timesheet`)는 Bearer 토큰 게이트(§3.x portal_sessions 테이블) 적용됨. 어드민·기타 라우트는 여전히 무인증.
   - **남은 leak 범위**: `/api/employees`, `/api/payrolls`, `/api/daily-closings`, `/api/suppliers`, `/api/invoices`, `/api/timesheets`, `/api/rosters`, `/api/finance/*`, `/api/cash-sales`, etc. 모든 어드민 라우트. URL 알면 누구나 호출 가능.
   - **해결안 (Phase B)**: `express-session` + `connect-pg-simple` wiring (이미 패키지 설치됨, `.env.local`에 `SESSION_SECRET` 존재). 어드민 로그인 흐름 추가 (현재 어드민 페이지는 인증 없이 접근). 라우트별 role 가드 미들웨어 (OWNER/MANAGER 권한 체크). 1–2일 작업 추정.
-  - **임시 완화**: 도메인이 일반에 알려져 있지 않고 사용자가 단일 운영자라 즉시 exploit 가능성은 낮으나, 본인 페이슬립·뱅킹 등 sensitive data leak 가능성 명시적 인지 필요.
+  - **임시 완화 (2026-04-30 적용)**: Railway URL이 직원에게 노출되는 사고 발생 — 어드민 경로에 사이트 전체 HTTP Basic Auth 게이트 추가 (`server/index.ts`, env: `ADMIN_AUTH_USER`/`ADMIN_AUTH_PASS`). Portal(`/m/*`, `/api/portal/*`, `/assets/*`)·Cloudmailin 웹훅은 bypass. 직원은 PIN-only 흐름 유지. 어드민 URL은 비번 popup으로 차단. Phase B 완료 시 제거 또는 defense-in-depth 유지 결정.
+  - **남은 follow-up**: Portal `POST /api/portal/login-pin` rate-limit (4자리 PIN brute-force 위험 — 분당 10회·시간당 50회·5회 실패 시 5분 lockout, ~20줄). 현재 위협 모델에서 제외했지만 발생 시 즉시 추가.
 
 - [x] **Statement vs Invoice reconciliation stability** (2026-04-23 해결 — §3.22)
   - **조치**: 화이트리스트 전용 파이프라인 도입 + 4-way classifier(INVOICE/STATEMENT/REMITTANCE/OTHER). Statement은 per-row PENDING으로 확장되고 `(supplierId, invoiceNumber)` 중복 스킵, 1-row 결과는 REVIEW 유지. Xero 송신자 해석 버그 수정으로 `post.xero.com` → 실제 공급업체 정상 매칭.
