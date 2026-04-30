@@ -4461,7 +4461,7 @@ export async function registerRoutes(
 
   // ─── Phase B: admin/manager/staff auth (email + password) ──────────────────
   // Same Bearer token pattern as portal, but loginType='PASSWORD' and 30-day TTL.
-  // Uses the existing rate-limit infrastructure (checkPinFailure / recordPinFailure / clearPinAttempts)
+  // Uses the existing rate-limit infrastructure (checkPinRateLimit / recordPinFailure / clearPinAttempts)
   // keyed by email to throttle brute-force.
 
   app.post("/api/auth/login", async (req: Request, res: Response) => {
@@ -4473,7 +4473,7 @@ export async function registerRoutes(
       }
 
       const rateKey = `auth:${email}`;
-      const gate = checkPinFailure(rateKey);
+      const gate = checkPinRateLimit(rateKey);
       if (!gate.allowed) {
         return res.status(429).json({
           error: "RATE_LIMITED",
