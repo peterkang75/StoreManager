@@ -213,6 +213,12 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [pressedKey, setPressedKey] = useState<string | null>(null);
+  // Per-device flag: hide first-time PIN hint and the ⌫-cancel tip after the
+  // very first successful login on this browser. Subsequent logins show only
+  // "Enter your 4-digit PIN".
+  const [hasLoggedInBefore] = useState<boolean>(() => {
+    try { return localStorage.getItem("crew_has_logged_in") === "1"; } catch { return false; }
+  });
 
   const loginMutation = useMutation({
     mutationFn: async (p: string) => {
@@ -225,7 +231,10 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
       if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? "Invalid PIN"); }
       return res.json();
     },
-    onSuccess: (data) => onSuccess({ id: data.id, nickname: data.nickname, firstName: data.firstName, selfieUrl: data.selfieUrl ?? null, role: data.role ?? null, storeId: data.storeId ?? null, storeIds: data.storeIds ?? [], isFirstLogin: !!data.isFirstLogin }),
+    onSuccess: (data) => {
+      try { localStorage.setItem("crew_has_logged_in", "1"); } catch {}
+      onSuccess({ id: data.id, nickname: data.nickname, firstName: data.firstName, selfieUrl: data.selfieUrl ?? null, role: data.role ?? null, storeId: data.storeId ?? null, storeIds: data.storeIds ?? [], isFirstLogin: !!data.isFirstLogin });
+    },
     onError: (err: Error) => { setError(err.message); setPin(""); },
   });
 
@@ -270,10 +279,13 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
 
       {/* Brand wordmark — app title */}
       <div style={{ textAlign: "center", marginBottom: 32 }}>
-        <h1 style={{ fontSize: 48, fontWeight: 700, color: "#222222", letterSpacing: "-0.4px", lineHeight: 1, margin: 0 }} data-testid="text-app-title">
+        <h1 style={{ fontSize: 56, fontWeight: 700, color: "#222222", letterSpacing: "-1px", lineHeight: 1, margin: 0 }} data-testid="text-app-title">
           Crew
         </h1>
-        <p style={{ fontSize: 13, fontWeight: 500, color: "#6a6a6a", lineHeight: 1.43, marginTop: 6 }}>Team Portal</p>
+        <div aria-hidden style={{ width: 28, height: 2, background: "#ef4444", borderRadius: 2, margin: "14px auto 0" }} />
+        <p style={{ fontSize: 11, fontWeight: 600, color: "#6a6a6a", letterSpacing: "1.6px", textTransform: "uppercase", margin: "14px 0 0" }}>
+          Team Portal
+        </p>
       </div>
 
       {/* Logos — demoted under wordmark */}
@@ -300,12 +312,16 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
       {/* PIN prompt */}
       <div style={{ textAlign: "center", marginBottom: 24 }}>
         <p style={{ fontSize: 14, fontWeight: 500, color: "#222222", margin: 0 }}>Enter your 4-digit PIN</p>
-        <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 4 }}>
-          First time? Use the <b>last 4 digits of the mobile number</b> you gave your manager.
-        </p>
-        <p style={{ fontSize: 11, color: "#929292", marginTop: 4 }}>
-          Tap ⌫ within a moment to cancel if you type a wrong digit.
-        </p>
+        {!hasLoggedInBefore && (
+          <>
+            <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 4 }}>
+              First time? Use the <b>last 4 digits of the mobile number</b> you gave your manager.
+            </p>
+            <p style={{ fontSize: 11, color: "#929292", marginTop: 4 }}>
+              Tap ⌫ within a moment to cancel if you type a wrong digit.
+            </p>
+          </>
+        )}
       </div>
 
       {/* PIN dots */}
@@ -313,8 +329,8 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
         {[0,1,2,3].map(i => (
           <div key={i} style={{
             width: 14, height: 14, borderRadius: "50%",
-            border: `2px solid ${i < pin.length ? "#222222" : "#c1c1c1"}`,
-            background: i < pin.length ? "#222222" : "transparent",
+            border: `2px solid ${i < pin.length ? "#ef4444" : "#c1c1c1"}`,
+            background: i < pin.length ? "#ef4444" : "transparent",
             transform: i < pin.length ? "scale(1.15)" : "scale(1)",
             transition: "all 150ms",
           }} />
