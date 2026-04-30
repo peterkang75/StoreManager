@@ -21,6 +21,7 @@ import { ArrowLeft, Loader2, Save, User, ExternalLink, Camera, FileImage, Upload
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/contexts/AuthContext";
 import type { Employee, Store, InsertEmployee, EmployeeStoreAssignment, Candidate } from "@shared/schema";
 
 const SECTION_NAV_ITEMS: { id: string; label: string }[] = [
@@ -86,6 +87,121 @@ function MobileSectionNav({ hasInterview }: { hasInterview: boolean }) {
         ))}
       </div>
     </nav>
+  );
+}
+
+// Phase B (옵션 1): ADMIN-only card to set or reset another user's admin login password.
+// Hidden for non-ADMIN viewers and for EMPLOYEE-role targets (EMPLOYEEs use PIN, not email/password).
+function AdminPasswordCard({ employee, employeeId }: { employee: any; employeeId: string }) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [pwd, setPwd] = useState("");
+  const [pwdConfirm, setPwdConfirm] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const viewerIsAdmin = (user?.role ?? "").toUpperCase() === "ADMIN";
+  const targetRole = (employee?.role ?? "EMPLOYEE").toUpperCase();
+  const targetIsAdminTier = ["ADMIN", "MANAGER", "STAFF"].includes(targetRole);
+
+  if (!viewerIsAdmin) return null;
+  if (!targetIsAdminTier) return null;
+
+  const hasEmail = !!(employee?.email && String(employee.email).trim());
+  const hasPasswordSet = !!employee?.passwordHash; // present only if backend exposed it; for PIN-only we get null/undefined
+
+  async function handleSubmit() {
+    if (!hasEmail) {
+      toast({ title: "Email required", description: "Add the employee's email above first — that becomes their login ID.", variant: "destructive" });
+      return;
+    }
+    if (pwd.length < 8) {
+      toast({ title: "Password too short", description: "Minimum 8 characters.", variant: "destructive" });
+      return;
+    }
+    if (pwd !== pwdConfirm) {
+      toast({ title: "Passwords don't match", description: "Re-enter the same password in both fields.", variant: "destructive" });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await apiRequest("POST", `/api/admin/employees/${employeeId}/set-password`, { password: pwd });
+      const data = await res.json();
+      toast({
+        title: "Password set",
+        description: `${data.email}로 로그인 가능합니다. 모든 기존 세션은 자동 로그아웃됐습니다.`,
+      });
+      setPwd("");
+      setPwdConfirm("");
+      // Refresh employee data so UI reflects new state if anything changed
+      queryClient.invalidateQueries({ queryKey: ["/api/employees", employeeId] });
+    } catch (err: any) {
+      toast({
+        title: "Failed",
+        description: err?.message ?? "Could not set password",
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Card className="scroll-mt-20 border-amber-200 dark:border-amber-900/50 bg-amber-50/30 dark:bg-amber-950/10">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Lock className="w-4 h-4" />
+          Admin Login Password
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="text-sm text-muted-foreground space-y-1">
+          <p>이 사용자가 어드민 페이지에 로그인할 비번을 설정합니다.</p>
+          <p>· 로그인 ID: <code className="bg-muted px-1.5 py-0.5 rounded text-xs">{hasEmail ? employee.email : "이메일 먼저 입력 필요"}</code></p>
+          <p>· 비번 변경 즉시 해당 사용자의 모든 활성 세션이 로그아웃됩니다.</p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="admin-pwd">New password</Label>
+            <Input
+              id="admin-pwd"
+              type="password"
+              autoComplete="new-password"
+              value={pwd}
+              onChange={(e) => setPwd(e.target.value)}
+              placeholder="8자 이상"
+              disabled={!hasEmail || submitting}
+              data-testid="input-admin-password"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="admin-pwd-confirm">Confirm</Label>
+            <Input
+              id="admin-pwd-confirm"
+              type="password"
+              autoComplete="new-password"
+              value={pwdConfirm}
+              onChange={(e) => setPwdConfirm(e.target.value)}
+              placeholder="다시 입력"
+              disabled={!hasEmail || submitting}
+              data-testid="input-admin-password-confirm"
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!hasEmail || !pwd || !pwdConfirm || submitting}
+            data-testid="button-set-admin-password"
+          >
+            {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Lock className="w-4 h-4 mr-2" />}
+            {hasPasswordSet ? "Reset password" : "Set password"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1165,9 +1281,10 @@ export function AdminEmployeeDetail() {
                       <SelectValue placeholder="Select role" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="OWNER">Owner</SelectItem>
+                      <SelectItem value="ADMIN">Admin (full access)</SelectItem>
                       <SelectItem value="MANAGER">Manager</SelectItem>
-                      <SelectItem value="EMPLOYEE">Employee</SelectItem>
+                      <SelectItem value="STAFF">Staff (limited admin)</SelectItem>
+                      <SelectItem value="EMPLOYEE">Employee (portal only)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1190,6 +1307,8 @@ export function AdminEmployeeDetail() {
               </div>
             </CardContent>
           </Card>
+
+          <AdminPasswordCard employee={currentData} employeeId={employeeId ?? ""} />
 
           <Card id="section-banking" className="scroll-mt-20">
             <CardHeader>

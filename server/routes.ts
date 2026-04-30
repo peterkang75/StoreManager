@@ -795,10 +795,49 @@ export async function registerRoutes(
           }
         }
       }
-      res.json(employee);
+      res.json(sanitizeEmployee(employee, req.user?.role));
     } catch (error) {
       console.error("Error updating employee:", error);
       res.status(500).json({ error: "Failed to update employee" });
+    }
+  });
+
+  // Phase B Step 9 (옵션 1): ADMIN sets/resets a manager/staff/employee password.
+  // Used when onboarding new managers or resetting forgotten passwords.
+  // Force-logs out all of that employee's active sessions as a side-effect of
+  // setEmployeePassword (defense against stolen tokens or surprise re-issue).
+  app.post("/api/admin/employees/:id/set-password", async (req: Request, res: Response) => {
+    try {
+      if ((req.user?.role ?? "").toUpperCase() !== "ADMIN") {
+        return res.status(403).json({ error: "FORBIDDEN_ADMIN_ONLY", message: "Only ADMIN can set another user's password" });
+      }
+      const { id } = req.params;
+      const password = (req.body?.password ?? "").toString();
+      if (!password) {
+        return res.status(400).json({ error: "INVALID_INPUT", message: "Password required" });
+      }
+      if (password.length < 8) {
+        return res.status(400).json({ error: "WEAK_PASSWORD", message: "Password must be at least 8 characters" });
+      }
+      const target = await storage.getEmployee(id);
+      if (!target) {
+        return res.status(404).json({ error: "NOT_FOUND", message: "Employee not found" });
+      }
+      if (!target.email) {
+        return res.status(400).json({
+          error: "EMAIL_MISSING",
+          message: "Employee has no email on file. Add an email first — that becomes their login ID.",
+        });
+      }
+      await storage.setEmployeePassword(id, password);
+      res.json({ ok: true, email: target.email });
+    } catch (err: any) {
+      const msg = err?.message ?? "Failed to set password";
+      if (msg.includes("at least 8 characters")) {
+        return res.status(400).json({ error: "WEAK_PASSWORD", message: msg });
+      }
+      console.error("[/api/admin/employees/:id/set-password] error:", err);
+      res.status(500).json({ error: "INTERNAL", message: "Failed to set password" });
     }
   });
 
