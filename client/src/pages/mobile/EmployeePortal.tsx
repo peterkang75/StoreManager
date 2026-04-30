@@ -293,35 +293,14 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1, padding: "40px 24px 32px", gap: 0, fontFamily: AL.font, background: "#ffffff" }}>
 
-      {/* Brand wordmark — app title */}
-      <div style={{ textAlign: "center", marginBottom: 32 }}>
+      {/* Brand wordmark — app title (store logos moved to the top header) */}
+      <div style={{ textAlign: "center", marginBottom: 64 }}>
         <h1 style={{ fontSize: 56, fontWeight: 700, color: "#222222", letterSpacing: "-1px", lineHeight: 1, margin: 0 }} data-testid="text-app-title">
           Crew<span style={{ color: "#ef4444", fontSize: 48, lineHeight: 1, marginLeft: 2 }}>.</span>
         </h1>
         <p style={{ fontSize: 11, fontWeight: 600, color: "#6a6a6a", letterSpacing: "1.6px", textTransform: "uppercase", margin: "14px 0 0" }}>
           Team Portal
         </p>
-      </div>
-
-      {/* Logos — demoted under wordmark */}
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12, width: "100%", marginBottom: 32 }}>
-        <div style={{ position: "relative", overflow: "hidden", width: 48, height: 48, flexShrink: 0 }}>
-          <img
-            src={sushimeLogo}
-            alt="Sushime"
-            data-testid="img-logo-sushime"
-            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", transform: "scale(2.8)", transformOrigin: "center" }}
-          />
-        </div>
-        <div style={{ width: 1, height: 28, background: "#c1c1c1", flexShrink: 0 }} />
-        <div style={{ position: "relative", overflow: "hidden", width: 68, height: 38, flexShrink: 0 }}>
-          <img
-            src={eatemLogo}
-            alt="Eat'em"
-            data-testid="img-logo-eatem"
-            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", transform: "scale(1.9)", transformOrigin: "center" }}
-          />
-        </div>
       </div>
 
       {/* PIN prompt */}
@@ -3733,7 +3712,7 @@ export function EmployeePortal() {
         {/* Top bar */}
         <header style={{ flexShrink: 0, zIndex: 50, background: "rgba(255,255,255,0.9)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", borderBottom: "1px solid #c1c1c1", paddingTop: "env(safe-area-inset-top)" }}>
           <div style={{ height: 52, display: "flex", alignItems: "center", gap: 10, padding: "0 16px" }}>
-            {showBack ? (
+            {showBack && (
               <button
                 type="button"
                 onClick={handleBack}
@@ -3749,37 +3728,54 @@ export function EmployeePortal() {
               >
                 <ArrowLeft style={{ width: 18, height: 18, color: "#222222" }} />
               </button>
-            ) : (
-              <img src="/icon-192.png" alt="" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "contain" }} />
             )}
             <span style={{ fontWeight: 600, fontSize: 15, color: "#222222", letterSpacing: "-0.1px", fontFamily: AL.font }}>Staff Portal</span>
-            {showAdminDashboard && (
-              <button
-                type="button"
-                data-testid="button-admin-dashboard-header"
-                onClick={() => {
-                  // Phase B: AdminRoleContext now sources from AuthContext (db role),
-                  // so we no longer need to bridge via localStorage. If the user has an
-                  // admin_token_v1 already (they're a logged-in admin), they go straight
-                  // to /admin. Otherwise RequireAuth redirects them through /admin/login.
-                  window.location.href = "/admin";
-                }}
-                style={{
-                  marginLeft: "auto",
-                  display: "flex", alignItems: "center", gap: 6,
-                  height: 36, padding: "0 14px",
-                  background: "#222222", color: "#ffffff",
-                  border: "none", borderRadius: 8,
-                  fontSize: 13, fontWeight: 600,
-                  cursor: "pointer", fontFamily: AL.font,
-                  touchAction: "manipulation",
-                  WebkitTapHighlightColor: "transparent",
-                }}
-              >
-                <LayoutDashboard style={{ width: 15, height: 15 }} />
-                Dashboard
-              </button>
-            )}
+
+            {/* Right cluster: optional Dashboard button + the two store logos */}
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+              {showAdminDashboard && (
+                <button
+                  type="button"
+                  data-testid="button-admin-dashboard-header"
+                  onClick={() => {
+                    // Phase B: AdminRoleContext sources role from AuthContext now.
+                    // If the user has an admin_token_v1 (logged-in admin), they go
+                    // straight to /admin; otherwise RequireAuth redirects to /admin/login.
+                    window.location.href = "/admin";
+                  }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    height: 32, padding: "0 12px",
+                    background: "#222222", color: "#ffffff",
+                    border: "none", borderRadius: 8,
+                    fontSize: 12, fontWeight: 600,
+                    cursor: "pointer", fontFamily: AL.font,
+                    touchAction: "manipulation",
+                    WebkitTapHighlightColor: "transparent",
+                  }}
+                >
+                  <LayoutDashboard style={{ width: 14, height: 14 }} />
+                  Dashboard
+                </button>
+              )}
+              <div style={{ position: "relative", overflow: "hidden", width: 28, height: 28, flexShrink: 0 }}>
+                <img
+                  src={sushimeLogo}
+                  alt="Sushime"
+                  data-testid="img-header-logo-sushime"
+                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", transform: "scale(2.8)", transformOrigin: "center" }}
+                />
+              </div>
+              <div style={{ width: 1, height: 18, background: "#c1c1c1", flexShrink: 0 }} />
+              <div style={{ position: "relative", overflow: "hidden", width: 44, height: 24, flexShrink: 0 }}>
+                <img
+                  src={eatemLogo}
+                  alt="Eat'em"
+                  data-testid="img-header-logo-eatem"
+                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", transform: "scale(1.9)", transformOrigin: "center" }}
+                />
+              </div>
+            </div>
           </div>
         </header>
 
