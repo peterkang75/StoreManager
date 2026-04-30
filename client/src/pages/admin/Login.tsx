@@ -50,7 +50,7 @@ export function AdminLogin() {
             <span className="text-4xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
               Crew
             </span>
-            <span className="text-[#ef4444] text-5xl font-bold leading-none">.</span>
+            <span className="text-[#ef4444] font-bold leading-none" style={{ fontSize: "2rem" }}>.</span>
           </div>
           <div className="mt-2 text-xs uppercase tracking-widest text-slate-400">
             Admin Portal
