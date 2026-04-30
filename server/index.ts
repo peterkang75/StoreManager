@@ -472,99 +472,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── Admin Basic Auth gate ─────────────────────────────────────────────────────
-// Protects all non-portal/non-webhook paths with HTTP Basic Auth.
-// Set ADMIN_AUTH_USER + ADMIN_AUTH_PASS in production env to enable.
-// In local/dev (env unset) the middleware is a no-op, so dev workflow is unchanged.
-const ADMIN_AUTH_USER = process.env.ADMIN_AUTH_USER;
-const ADMIN_AUTH_PASS = process.env.ADMIN_AUTH_PASS;
-
-function isPortalOrPublicPath(p: string, method: string): boolean {
-  // Cloudmailin inbound webhook (external POST)
-  if (p === "/api/webhooks/inbound-invoices") return true;
-
-  // Phase B transition: admin login page + auth API must bypass Basic Auth
-  // so the new login flow can replace it. Removed in Step 7 once Phase B is live.
-  if (p === "/admin/login") return true;
-  if (p.startsWith("/api/auth/")) return true;
-
-  // Mobile portal HTML + API (PIN auth handles these)
-  if (p.startsWith("/m/")) return true;
-  if (p.startsWith("/api/portal/")) return true;
-
-  // SPA entry + shared static assets (portal needs the bundle)
-  if (p === "/" || p === "/index.html") return true;
-  if (p.startsWith("/assets/")) return true;
-  if (p === "/favicon.ico" || p === "/robots.txt" || p === "/manifest.json") return true;
-  if (p.startsWith("/icons/") || p.startsWith("/images/")) return true;
-  if (p === "/favicon.png" || p === "/icon-192.png" || p === "/icon-512.png") return true;
-
-  // Vite dev assets (development only)
-  if (
-    p.startsWith("/@vite/") ||
-    p.startsWith("/@react-refresh") ||
-    p.startsWith("/@fs/") ||
-    p.startsWith("/src/") ||
-    p.startsWith("/node_modules/")
-  ) return true;
-
-  // Shared API endpoints — mobile only WRITES, admin GETs full lists with sensitive data.
-  // Bypass writes (POST/PUT/PATCH/DELETE) for mobile; gate GET behind admin auth.
-  // Without this, admin pages (e.g. Cash & Daily Close) leak data to anyone hitting the URL.
-  const writeOnlyPaths = [
-    "/api/daily-closings",     // financial data on GET (admin Cash page)
-    "/api/daily-close-forms",  // close form drafts on GET
-    "/api/candidates",         // candidate PII on GET (mobile only POSTs interview data)
-  ];
-  for (const wp of writeOnlyPaths) {
-    if (p.startsWith(wp)) {
-      return method !== "GET" && method !== "HEAD";
-    }
-  }
-
-  // Other shared endpoints — mobile both reads and writes; bypass all methods.
-  // GET leak risk remains here (Phase B will fix with per-route role guards).
-  if (p.startsWith("/api/stores") && !p.startsWith("/api/store-config")) return true;
-  if (p.startsWith("/api/employees")) return true;
-  if (p.startsWith("/api/direct-register")) return true;
-  if (p.startsWith("/api/notices")) return true;
-  if (p.startsWith("/api/onboarding")) return true;
-  if (p.startsWith("/api/permissions")) return true;
-  if (p.startsWith("/api/shifts")) return true;
-  if (p.startsWith("/api/shopping")) return true;
-  if (p.startsWith("/api/storage")) return true;
-  if (p.startsWith("/api/time-logs")) return true;
-  if (p.startsWith("/api/upload")) return true;
-
-  return false;
-}
-
-app.use((req, res, next) => {
-  if (!ADMIN_AUTH_USER || !ADMIN_AUTH_PASS) return next();
-  if (isPortalOrPublicPath(req.path, req.method)) return next();
-
-  const auth = req.headers.authorization || "";
-  if (!auth.startsWith("Basic ")) {
-    res.set("WWW-Authenticate", 'Basic realm="Crew Admin", charset="UTF-8"');
-    return res.status(401).send("Admin authentication required");
-  }
-
-  const decoded = Buffer.from(auth.slice(6), "base64").toString("utf-8");
-  const idx = decoded.indexOf(":");
-  const user = idx >= 0 ? decoded.slice(0, idx) : decoded;
-  const pass = idx >= 0 ? decoded.slice(idx + 1) : "";
-
-  if (user === ADMIN_AUTH_USER && pass === ADMIN_AUTH_PASS) return next();
-
-  res.set("WWW-Authenticate", 'Basic realm="Crew Admin", charset="UTF-8"');
-  return res.status(401).send("Invalid credentials");
-});
-
 // ── Phase B: role-based authentication for /api/* (excluding bypassed paths) ──
-// Runs AFTER the temporary Basic Auth gate (which still sits in front for the
-// transition period — removed in Step 7). Applies to every /api/* request that
-// isn't an auth/login route, portal route (already guarded per-route), webhook,
-// or token-gated public endpoint.
+// Phase B is fully live as of 2026-04-30 — the temporary Basic Auth gate has
+// been removed. This middleware now stands alone in front of all /api/*
+// requests except: auth/login routes, portal routes (Phase 0 per-route guard),
+// external webhooks, and token-gated public endpoints.
+// (Step 7 removed: ADMIN_AUTH_USER, ADMIN_AUTH_PASS, isPortalOrPublicPath, and the Basic Auth handler.)
 function isAuthBypassedApi(p: string): boolean {
   // Login routes themselves
   if (p.startsWith("/api/auth/")) return true;
