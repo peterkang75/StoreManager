@@ -2524,6 +2524,146 @@ interface ProfileFormData {
   superMembershipNo: string;
 }
 
+// Phase B: ADMIN/MANAGER/STAFF self-service password change inside the portal
+// Edit Profile page. EMPLOYEE-role users (PIN only) don't see this — they have
+// no admin password to change. POST /api/auth/change-password verifies the
+// current password and force-logs-out every session for the user, so after a
+// successful change we redirect them to the portal home (PIN re-entry is
+// required for the next session).
+function AdminPasswordSelfService({ session }: { session: Session }) {
+  const { toast } = useToast();
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const role = (session.role ?? "").toUpperCase();
+  const isAdminTier = role === "ADMIN" || role === "MANAGER" || role === "STAFF";
+  if (!isAdminTier) return null;
+
+  async function handleSubmit() {
+    if (!current || !next || !confirm) {
+      toast({ title: "All fields required", variant: "destructive" });
+      return;
+    }
+    if (next.length < 8) {
+      toast({ title: "Password too short", description: "Minimum 8 characters.", variant: "destructive" });
+      return;
+    }
+    if (next !== confirm) {
+      toast({ title: "Passwords don't match", variant: "destructive" });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword: current, newPassword: next }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({
+          title: "Failed",
+          description: data?.message ?? "Could not change password",
+          variant: "destructive",
+        });
+        setSubmitting(false);
+        return;
+      }
+      // Server force-logged-out every session for this employee, including
+      // the current PIN session. Clear local tokens so we don't keep firing
+      // 401s, then send the user back to the portal entry (PIN screen).
+      try {
+        localStorage.removeItem("ep_portal_token_v1");
+        localStorage.removeItem("admin_token_v1");
+      } catch {}
+      toast({
+        title: "Password updated",
+        description: "Sign in again with your new password.",
+      });
+      setCurrent("");
+      setNext("");
+      setConfirm("");
+      setTimeout(() => {
+        window.location.href = "/m/portal";
+      }, 800);
+    } catch (err: any) {
+      toast({
+        title: "Network error",
+        description: err?.message ?? "Try again",
+        variant: "destructive",
+      });
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <section>
+      <div className="flex items-center gap-2 mb-3">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+          <KeyRound className="h-4 w-4 text-primary" />
+        </div>
+        <h3 className="font-semibold text-sm">Admin Login Password</h3>
+      </div>
+      <Card>
+        <CardContent className="pt-4 pb-4 flex flex-col gap-3">
+          <p className="text-xs text-muted-foreground">
+            매니저·어드민 페이지 로그인용 비밀번호. 변경 시 모든 기기에서 로그아웃됩니다.
+          </p>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Current password</Label>
+            <Input
+              type="password"
+              autoComplete="current-password"
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+              className="h-11 text-base"
+              data-testid="input-current-password"
+              disabled={submitting}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">New password (8+)</Label>
+            <Input
+              type="password"
+              autoComplete="new-password"
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+              className="h-11 text-base"
+              data-testid="input-new-password"
+              disabled={submitting}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Confirm new password</Label>
+            <Input
+              type="password"
+              autoComplete="new-password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              className="h-11 text-base"
+              data-testid="input-confirm-password"
+              disabled={submitting}
+            />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleSubmit}
+            disabled={submitting || !current || !next || !confirm}
+            className="h-11"
+            data-testid="button-change-admin-password"
+          >
+            {submitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <KeyRound className="h-4 w-4 mr-2" />}
+            {submitting ? "Updating..." : "Change Password"}
+          </Button>
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
 function EditProfileView({ session, onBack }: { session: Session; onBack: () => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -3086,6 +3226,9 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
             </CardContent>
           </Card>
         </section>
+
+        {/* ── Admin password (manager/staff/admin self-service) ─── */}
+        <AdminPasswordSelfService session={session} />
 
         {/* Save Button (bottom) */}
         <Button size="lg" className="w-full h-14 text-base" onClick={handleSave} disabled={updateMutation.isPending} data-testid="button-save-profile-bottom">
