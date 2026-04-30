@@ -9,7 +9,15 @@ import {
   CheckCircle2,
   Loader2,
   AlertTriangle,
+  Info,
 } from "lucide-react";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Store } from "@shared/schema";
 
@@ -28,6 +36,16 @@ const NOTE_DENOMS = [
 
 type NoteDenomKey = typeof NOTE_DENOMS[number]["key"];
 type NoteCounts = Record<NoteDenomKey, number>;
+
+// User-facing copy shown in the bottom-sheet info popover beside each field.
+const INFO_TEXT: Record<string, { title: string; body: string }> = {
+  previousFloat:    { title: "Previous Float",    body: "Float carried over from yesterday's close." },
+  salesTotal:       { title: "Sales Total",       body: "Today's total sales — cash and EFTPOS combined." },
+  cashSales:        { title: "Cash Sales",        body: "Cash portion of today's sales (excluding EFTPOS)." },
+  cashOutTotal:     { title: "Cash Out Total",    body: "Total cash paid out from the till today." },
+  numberOfReceipts: { title: "No. of Receipts",   body: "Total number of receipts paid in cash." },
+  nextFloat:        { title: "Next Float",        body: "Float carried forward to tomorrow." },
+};
 
 interface PortalSession {
   id: string;
@@ -51,6 +69,15 @@ function emptyNotes(): NoteCounts {
   return { note100Count: 0, note50Count: 0, note20Count: 0, note10Count: 0, note5Count: 0 };
 }
 
+const num = (s: string): number => {
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : 0;
+};
+const numInt = (s: string): number => {
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) ? n : 0;
+};
+
 function SectionCard({ title, children }: { title?: string; children: React.ReactNode }) {
   return (
     <div style={{ background: "#ffffff", borderRadius: 20, padding: "16px 20px", boxShadow: A.shadow }}>
@@ -62,9 +89,26 @@ function SectionCard({ title, children }: { title?: string; children: React.Reac
   );
 }
 
-function FieldLabel({ children }: { children: React.ReactNode }) {
+function FieldLabel({ children, onInfoClick }: { children: React.ReactNode; onInfoClick?: () => void }) {
   return (
-    <p style={{ fontSize: 13, fontWeight: 500, color: "#222222", marginBottom: 6 }}>{children}</p>
+    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+      <p style={{ fontSize: 13, fontWeight: 500, color: "#222222", margin: 0 }}>{children}</p>
+      {onInfoClick && (
+        <button
+          type="button"
+          onClick={onInfoClick}
+          aria-label="More info"
+          data-testid="button-field-info"
+          style={{
+            width: 18, height: 18, borderRadius: 9,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            border: "none", background: "transparent", cursor: "pointer", padding: 0,
+          }}
+        >
+          <Info style={{ width: 14, height: 14, color: "#6a6a6a" }} />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -84,16 +128,19 @@ export function MobileDailyClose() {
   const [storeId, setStoreId] = useState<string>("");
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [submitted, setSubmitted] = useState(false);
+  const [infoField, setInfoField] = useState<string | null>(null);
 
+  // String state — empty string ("") means "not entered"; "0" is a valid entry.
+  // We require explicit "0" for zero values rather than treating empty as zero.
   const [form, setForm] = useState({
-    previousFloat: 0,
-    salesTotal: 0,
-    cashSales: 0,
-    cashOutTotal: 0,
-    numberOfReceipts: 0,
-    nextFloat: 0,
-    ubereatsAmount: 0,
-    doordashAmount: 0,
+    previousFloat: "",
+    salesTotal: "",
+    cashSales: "",
+    cashOutTotal: "",
+    numberOfReceipts: "",
+    nextFloat: "",
+    ubereatsAmount: "",
+    doordashAmount: "",
     notes: "",
   });
 
@@ -124,31 +171,32 @@ export function MobileDailyClose() {
     return Math.round(sum * 100) / 100;
   }, [notes]);
 
-  const expectedCredit = form.previousFloat + form.cashSales - form.cashOutTotal - form.nextFloat;
+  const expectedCredit =
+    num(form.previousFloat) + num(form.cashSales) - num(form.cashOutTotal) - num(form.nextFloat);
   const differenceAmount = expectedCredit - totalCounted;
 
   const updateNote = (key: NoteDenomKey, val: string) => {
     setNotes(prev => ({ ...prev, [key]: parseInt(val) || 0 }));
   };
 
-  const updateForm = (field: string, value: string) => {
-    setForm(prev => ({ ...prev, [field]: parseFloat(value) || 0 }));
+  const updateForm = (field: keyof typeof form, value: string) => {
+    setForm(prev => ({ ...prev, [field]: value }));
   };
 
   const submitMutation = useMutation({
     mutationFn: async () => {
       const closingData = {
         storeId, date,
-        previousFloat: form.previousFloat,
-        salesTotal: form.salesTotal,
-        cashSales: form.cashSales,
-        cashOut: form.cashOutTotal,
-        nextFloat: form.nextFloat,
+        previousFloat: num(form.previousFloat),
+        salesTotal: num(form.salesTotal),
+        cashSales: num(form.cashSales),
+        cashOut: num(form.cashOutTotal),
+        nextFloat: num(form.nextFloat),
         actualCashCounted: totalCounted,
         differenceAmount,
         creditAmount: expectedCredit,
-        ubereatsAmount: form.ubereatsAmount,
-        doordashAmount: form.doordashAmount,
+        ubereatsAmount: num(form.ubereatsAmount),
+        doordashAmount: num(form.doordashAmount),
         notes: form.notes || null,
       };
       const closeFormData = {
@@ -156,7 +204,7 @@ export function MobileDailyClose() {
         submitterName: displayName,
         envelopeAmount: expectedCredit,
         totalCalculated: totalCounted,
-        numberOfReceipts: form.numberOfReceipts,
+        numberOfReceipts: numInt(form.numberOfReceipts),
         notes: form.notes || null,
         ...notes,
         coin2Count: 0, coin1Count: 0, coin050Count: 0, coin020Count: 0, coin010Count: 0, coin005Count: 0,
@@ -178,7 +226,7 @@ export function MobileDailyClose() {
 
   const resetForm = () => {
     setSubmitted(false);
-    setForm({ previousFloat: 0, salesTotal: 0, cashSales: 0, cashOutTotal: 0, numberOfReceipts: 0, nextFloat: 0, ubereatsAmount: 0, doordashAmount: 0, notes: "" });
+    setForm({ previousFloat: "", salesTotal: "", cashSales: "", cashOutTotal: "", numberOfReceipts: "", nextFloat: "", ubereatsAmount: "", doordashAmount: "", notes: "" });
     setNotes(emptyNotes());
     if (assignedStores.length !== 1) setStoreId("");
   };
@@ -217,7 +265,17 @@ export function MobileDailyClose() {
 
   const isSingleStore = assignedStores.length === 1;
   const isMultiStore = assignedStores.length >= 2;
-  const canSubmit = !!storeId && !!date && !submitMutation.isPending;
+
+  // Required: store, date, and the six monetary/count fields. Empty string is
+  // not allowed even for zero — the user must explicitly type "0".
+  const requiredFilled =
+    form.previousFloat !== "" &&
+    form.salesTotal !== "" &&
+    form.cashSales !== "" &&
+    form.cashOutTotal !== "" &&
+    form.numberOfReceipts !== "" &&
+    form.nextFloat !== "";
+  const canSubmit = !!storeId && !!date && requiredFilled && !submitMutation.isPending;
 
   return (
     <MobileLayout title="Daily Close">
@@ -309,41 +367,41 @@ export function MobileDailyClose() {
         <SectionCard title="Sales & Float">
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div>
-              <FieldLabel>Previous Float</FieldLabel>
-              <Input id="previousFloat" type="text" inputMode="decimal" value={form.previousFloat || ""} onChange={(e) => updateForm("previousFloat", e.target.value)} className="h-12 text-base" data-testid="input-previousFloat" />
+              <FieldLabel onInfoClick={() => setInfoField("previousFloat")}>Previous Float</FieldLabel>
+              <Input id="previousFloat" type="text" inputMode="decimal" value={form.previousFloat} onChange={(e) => updateForm("previousFloat", e.target.value)} className="h-12 text-base" data-testid="input-previousFloat" />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
               <div>
-                <FieldLabel>Sales Total</FieldLabel>
-                <Input id="salesTotal" type="text" inputMode="decimal" value={form.salesTotal || ""} onChange={(e) => updateForm("salesTotal", e.target.value)} className="h-12 text-base" data-testid="input-salesTotal" />
+                <FieldLabel onInfoClick={() => setInfoField("salesTotal")}>Sales Total</FieldLabel>
+                <Input id="salesTotal" type="text" inputMode="decimal" value={form.salesTotal} onChange={(e) => updateForm("salesTotal", e.target.value)} className="h-12 text-base" data-testid="input-salesTotal" />
               </div>
               <div>
-                <FieldLabel>Cash Sales</FieldLabel>
-                <Input id="cashSales" type="text" inputMode="decimal" value={form.cashSales || ""} onChange={(e) => updateForm("cashSales", e.target.value)} className="h-12 text-base" data-testid="input-cashSales" />
+                <FieldLabel onInfoClick={() => setInfoField("cashSales")}>Cash Sales</FieldLabel>
+                <Input id="cashSales" type="text" inputMode="decimal" value={form.cashSales} onChange={(e) => updateForm("cashSales", e.target.value)} className="h-12 text-base" data-testid="input-cashSales" />
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
               <div>
-                <FieldLabel>Cash Out Total</FieldLabel>
-                <Input id="cashOutTotal" type="text" inputMode="decimal" value={form.cashOutTotal || ""} onChange={(e) => updateForm("cashOutTotal", e.target.value)} className="h-12 text-base" data-testid="input-cashOutTotal" />
+                <FieldLabel onInfoClick={() => setInfoField("cashOutTotal")}>Cash Out Total</FieldLabel>
+                <Input id="cashOutTotal" type="text" inputMode="decimal" value={form.cashOutTotal} onChange={(e) => updateForm("cashOutTotal", e.target.value)} className="h-12 text-base" data-testid="input-cashOutTotal" />
               </div>
               <div>
-                <FieldLabel>No. of Receipts</FieldLabel>
-                <Input id="numberOfReceipts" type="text" inputMode="numeric" value={form.numberOfReceipts || ""} onChange={(e) => setForm(prev => ({ ...prev, numberOfReceipts: parseInt(e.target.value) || 0 }))} className="h-12 text-base" data-testid="input-numberOfReceipts" />
+                <FieldLabel onInfoClick={() => setInfoField("numberOfReceipts")}>No. of Receipts</FieldLabel>
+                <Input id="numberOfReceipts" type="text" inputMode="numeric" value={form.numberOfReceipts} onChange={(e) => updateForm("numberOfReceipts", e.target.value)} className="h-12 text-base" data-testid="input-numberOfReceipts" />
               </div>
             </div>
             <div>
-              <FieldLabel>Next Float</FieldLabel>
-              <Input id="nextFloat" type="text" inputMode="decimal" value={form.nextFloat || ""} onChange={(e) => updateForm("nextFloat", e.target.value)} className="h-12 text-base" data-testid="input-nextFloat" />
+              <FieldLabel onInfoClick={() => setInfoField("nextFloat")}>Next Float</FieldLabel>
+              <Input id="nextFloat" type="text" inputMode="decimal" value={form.nextFloat} onChange={(e) => updateForm("nextFloat", e.target.value)} className="h-12 text-base" data-testid="input-nextFloat" />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
               <div>
                 <FieldLabel>UberEats</FieldLabel>
-                <Input id="ubereats" type="text" inputMode="decimal" value={form.ubereatsAmount || ""} onChange={(e) => updateForm("ubereatsAmount", e.target.value)} className="h-12 text-base" data-testid="input-ubereats" />
+                <Input id="ubereats" type="text" inputMode="decimal" value={form.ubereatsAmount} onChange={(e) => updateForm("ubereatsAmount", e.target.value)} className="h-12 text-base" data-testid="input-ubereats" />
               </div>
               <div>
                 <FieldLabel>DoorDash</FieldLabel>
-                <Input id="doordash" type="text" inputMode="decimal" value={form.doordashAmount || ""} onChange={(e) => updateForm("doordashAmount", e.target.value)} className="h-12 text-base" data-testid="input-doordash" />
+                <Input id="doordash" type="text" inputMode="decimal" value={form.doordashAmount} onChange={(e) => updateForm("doordashAmount", e.target.value)} className="h-12 text-base" data-testid="input-doordash" />
               </div>
             </div>
           </div>
@@ -388,7 +446,7 @@ export function MobileDailyClose() {
               </div>
               <p style={{ fontSize: 11, color: "#6a6a6a" }}>Prev Float + Cash Sales − Cash Out − Next Float</p>
               <p style={{ fontSize: 11, color: "#6a6a6a", fontFamily: "monospace", marginTop: 2 }}>
-                ${form.previousFloat.toFixed(2)} + ${form.cashSales.toFixed(2)} − ${form.cashOutTotal.toFixed(2)} − ${form.nextFloat.toFixed(2)}
+                ${num(form.previousFloat).toFixed(2)} + ${num(form.cashSales).toFixed(2)} − ${num(form.cashOutTotal).toFixed(2)} − ${num(form.nextFloat).toFixed(2)}
               </p>
             </div>
             <div style={{ borderTop: "1px solid #c1c1c1", paddingTop: 12 }}>
@@ -404,12 +462,33 @@ export function MobileDailyClose() {
                 </span>
               </div>
               <p style={{ fontSize: 11, color: "#6a6a6a" }}>Expected Credit − Counted Total</p>
-              {differenceAmount > 0.005 && (
+              {differenceAmount > 20.005 ? (
+                <div
+                  style={{
+                    marginTop: 10,
+                    padding: "12px 14px",
+                    background: "rgba(239,68,68,0.08)",
+                    border: "1px solid rgba(239,68,68,0.4)",
+                    borderRadius: 8,
+                    display: "flex",
+                    gap: 10,
+                    color: "#c13515",
+                    fontSize: 13,
+                    lineHeight: 1.45,
+                  }}
+                  data-testid="warning-shortage-major"
+                >
+                  <AlertTriangle style={{ width: 18, height: 18, flexShrink: 0, marginTop: 1 }} />
+                  <span>
+                    <b>Report to your manager immediately.</b> This difference is recorded in your close, and you may be asked to verify it during reconciliation.
+                  </span>
+                </div>
+              ) : differenceAmount > 0.005 ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, color: "#ef4444", fontSize: 13 }}>
                   <AlertTriangle style={{ width: 14, height: 14 }} />
                   <span>Cash shortage detected</span>
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
         </SectionCard>
@@ -433,6 +512,18 @@ export function MobileDailyClose() {
           />
         </SectionCard>
       </div>
+
+      {/* Field info bottom sheet */}
+      <Sheet open={infoField !== null} onOpenChange={(open) => !open && setInfoField(null)}>
+        <SheetContent side="bottom" className="rounded-t-3xl">
+          {infoField && INFO_TEXT[infoField] && (
+            <SheetHeader>
+              <SheetTitle>{INFO_TEXT[infoField].title}</SheetTitle>
+              <SheetDescription>{INFO_TEXT[infoField].body}</SheetDescription>
+            </SheetHeader>
+          )}
+        </SheetContent>
+      </Sheet>
 
       {/* Fixed submit bar */}
       <div style={{
