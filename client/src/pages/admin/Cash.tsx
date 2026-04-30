@@ -381,7 +381,7 @@ export function AdminCash() {
                               <TableCell className="text-right">${closing.salesTotal.toFixed(2)}</TableCell>
                               <TableCell className="text-right">${closing.cashSales.toFixed(2)}</TableCell>
                               <TableCell className="text-right">${closing.cashOut.toFixed(2)}</TableCell>
-                              <TableCell className="text-right">${closing.actualCashCounted.toFixed(2)}</TableCell>
+                              <TableCell className="text-right">${closing.creditAmount.toFixed(2)}</TableCell>
                               <TableCell className="text-right">${closing.ubereatsAmount.toFixed(2)}</TableCell>
                               <TableCell className="text-right">${closing.doordashAmount.toFixed(2)}</TableCell>
                               <TableCell className="text-right font-medium">${totalIncome.toFixed(2)}</TableCell>
@@ -399,7 +399,7 @@ export function AdminCash() {
                                   <span className="text-muted-foreground">$0.00</span>
                                 )}
                               </TableCell>
-                              <TableCell className="text-right font-medium">${closing.creditAmount.toFixed(2)}</TableCell>
+                              <TableCell className="text-right font-medium">${closing.actualCashCounted.toFixed(2)}</TableCell>
                               <TableCell className="text-right">
                                 <div className="inline-flex gap-1">
                                   <Button
@@ -541,12 +541,12 @@ export function AdminCash() {
               </div>
               {([
                 ["previousFloat", "Previous Float"],
-                ["salesTotal", "Sales Total"],
-                ["cashSales", "Cash Sales"],
+                ["salesTotal", "POS Sales Total"],
+                ["cashSales", "Cash Amount"],
                 ["cashOut", "Cash Out"],
-                ["actualCashCounted", "Actual Cash"],
+                ["actualCashCounted", "Credit"],
                 ["nextFloat", "Next Float"],
-                ["ubereatsAmount", "UberEats"],
+                ["ubereatsAmount", "Uber"],
                 ["doordashAmount", "DoorDash"],
               ] as const).map(([key, label]) => (
                 <div key={key} className="space-y-1.5">
@@ -573,7 +573,7 @@ export function AdminCash() {
               {editPreview && (
                 <div className="md:col-span-2 grid grid-cols-2 gap-3 rounded-md border bg-muted/40 p-3">
                   <div>
-                    <p className="text-xs text-muted-foreground">Credit (computed)</p>
+                    <p className="text-xs text-muted-foreground">Actual Cash (computed)</p>
                     <p className="text-base font-semibold">${editPreview.credit.toFixed(2)}</p>
                   </div>
                   <div>
