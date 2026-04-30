@@ -8,6 +8,7 @@
 // every environment you care about.
 
 import { pool } from "./db";
+import bcrypt from "bcryptjs";
 
 const STATEMENTS: string[] = [
   // §6.1.13 Interview → Hire → Onboarding handoff
@@ -42,7 +43,76 @@ const STATEMENTS: string[] = [
      expires_at timestamp NOT NULL
    )`,
   `CREATE INDEX IF NOT EXISTS portal_sessions_employee_idx ON portal_sessions (employee_id)`,
+
+  // Phase B: admin/manager/staff login support
+  `ALTER TABLE employees ADD COLUMN IF NOT EXISTS password_hash text`,
+  `ALTER TABLE employees ADD COLUMN IF NOT EXISTS last_login_at timestamp`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_employees_email_lower ON employees (LOWER(email)) WHERE email IS NOT NULL`,
+
+  // Phase B: distinguish PIN vs PASSWORD sessions in same table
+  `ALTER TABLE portal_sessions ADD COLUMN IF NOT EXISTS login_type text`,
+  `UPDATE portal_sessions SET login_type = 'PIN' WHERE login_type IS NULL`,
+  `DO $$ BEGIN
+     IF EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_name = 'portal_sessions' AND column_name = 'login_type' AND is_nullable = 'YES'
+     ) THEN
+       ALTER TABLE portal_sessions ALTER COLUMN login_type SET NOT NULL;
+       ALTER TABLE portal_sessions ALTER COLUMN login_type SET DEFAULT 'PIN';
+     END IF;
+   END $$`,
 ];
+
+// Phase B: seed the OWNER's password from environment variables on first deploy.
+// Env vars OWNER_EMAIL + OWNER_INITIAL_PASS are one-time setup; remove after first
+// successful login. If OWNER_EMAIL doesn't match an existing employee, throw to halt
+// boot — better than letting Auto-mode discover this at the login checkpoint.
+async function seedOwnerPassword(): Promise<void> {
+  const ownerEmail = process.env.OWNER_EMAIL?.trim().toLowerCase();
+  const ownerPass = process.env.OWNER_INITIAL_PASS;
+
+  if (!ownerEmail && !ownerPass) return; // both unset — nothing to do (normal steady-state)
+
+  if (ownerEmail && !ownerPass) {
+    console.warn(`[auth-seed] OWNER_EMAIL set but OWNER_INITIAL_PASS missing — owner not seeded`);
+    return;
+  }
+  if (!ownerEmail && ownerPass) {
+    console.warn(`[auth-seed] OWNER_INITIAL_PASS set but OWNER_EMAIL missing — owner not seeded`);
+    return;
+  }
+
+  // Both set — try to seed
+  const candidate = await pool.query(
+    `SELECT id FROM employees WHERE LOWER(email) = $1 AND password_hash IS NULL LIMIT 1`,
+    [ownerEmail],
+  );
+
+  if (candidate.rows.length > 0) {
+    const hash = await bcrypt.hash(ownerPass!, 10);
+    await pool.query(
+      `UPDATE employees SET password_hash = $1, role = 'ADMIN' WHERE id = $2`,
+      [hash, candidate.rows[0].id],
+    );
+    console.log(`[auth-seed] OWNER 비번 시드 완료: ${ownerEmail} (env에서 OWNER_INITIAL_PASS 제거 권장)`);
+    return;
+  }
+
+  // No matching employee with NULL hash — figure out why
+  const exists = await pool.query(
+    `SELECT id, password_hash IS NOT NULL AS has_pass FROM employees WHERE LOWER(email) = $1 LIMIT 1`,
+    [ownerEmail],
+  );
+
+  if (exists.rows.length === 0) {
+    const msg = `OWNER_EMAIL='${ownerEmail}' not found in employees table. Add employee with that email or fix env var.`;
+    console.error(`[auth-seed] ❌ ${msg}`);
+    throw new Error(`auth-seed: ${msg}`);
+  }
+
+  // Employee exists but already has password — leave alone
+  console.log(`[auth-seed] OWNER 비번 이미 설정됨 (${ownerEmail}) — skip`);
+}
 
 export async function runBootstrapMigrations(): Promise<void> {
   for (const sql of STATEMENTS) {
@@ -54,5 +124,6 @@ export async function runBootstrapMigrations(): Promise<void> {
       console.error(`[bootstrap-migrations] failed: ${sql.slice(0, 80)} — ${msg}`);
     }
   }
+  await seedOwnerPassword();
   console.log("[bootstrap-migrations] done");
 }

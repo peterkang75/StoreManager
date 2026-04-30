@@ -109,6 +109,9 @@ export const employees = pgTable("employees", {
   canSubmitCloseForm: boolean("can_submit_close_form").default(false).notNull(),
   canManageSchedule: boolean("can_manage_schedule").default(false).notNull(),
   canApproveTimesheet: boolean("can_approve_timesheet").default(false).notNull(),
+  // Phase B: admin/manager/staff login (email + password). EMPLOYEE-role users have null hash.
+  passwordHash: text("password_hash"),
+  lastLoginAt: timestamp("last_login_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -920,16 +923,18 @@ export const insertDailySalesSchema = createInsertSchema(dailySales).omit({ id: 
 export type InsertDailySales = z.infer<typeof insertDailySalesSchema>;
 export type DailySales = typeof dailySales.$inferSelect;
 
-// Bearer-token sessions for the mobile portal. One row per login. The token
-// is sent in Authorization: Bearer <token> on every /api/portal/* request
-// that isn't the login or stores list endpoint. Rows are deleted on logout
-// or expire after 30 days. Admin/non-portal routes are NOT gated by this
-// table — that's Phase B (see PLAN.md §6.0 / §6.3).
+// Bearer-token sessions for both the mobile portal (PIN login, 1-day TTL) and
+// the admin login (email/password, 30-day TTL). One row per active login.
+// Token sent in Authorization: Bearer <token> header. login_type='PIN' for
+// portal employees, 'PASSWORD' for admin/manager/staff. Rows are deleted on
+// logout, on password change (force logout), or expire by expiresAt.
+// Table name kept as portal_sessions for backwards compatibility (data migrated in place).
 export const portalSessions = pgTable("portal_sessions", {
   token: text("token").primaryKey(),
   employeeId: varchar("employee_id").references(() => employees.id, { onDelete: "cascade" }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   expiresAt: timestamp("expires_at").notNull(),
+  loginType: text("login_type").default("PIN").notNull(),
 });
 
 export type PortalSession = typeof portalSessions.$inferSelect;
