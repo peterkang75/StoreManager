@@ -1136,12 +1136,23 @@ Three sequential commits (`03a2ea0`, `33019bf`, `7f374e6`) fixed 15 issues surfa
   - **수정**: `mergeDraftOverManagerInputs()` 헬퍼 추가. API 출처 필드(hours, rate, fixedAmount, 직원 플래그)는 항상 최신 데이터로 재계산, 매니저 타이핑 필드(adjustment, memo, tax override, gross/cash 수동 분할)만 sessionStorage에서 보존 후 `recalcRow` 재실행. `isNewContext` 경로와 background refetch 경로 둘 다 동일하게 정정.
   - **영향**: 기존 draft 보존 스펙(§2.1.1)은 매니저 입력 필드에 한정되어 유지됨. 탭/매장 전환·HMR 후에도 typed adjustment/memo/tax 계속 보존, 대신 새로 승인된 shift는 즉시 반영.
 
-- [ ] **Admin/non-portal API routes are not authenticated** 🚨 (2026-04-30 발견)
-  - **현황 (2026-04-30 부분 해결)**: 모바일 portal 라우트(`/api/portal/today|shift|week|missed-shifts|cycle-timesheets|history|timesheet|unscheduled-timesheet`)는 Bearer 토큰 게이트(§3.x portal_sessions 테이블) 적용됨. 어드민·기타 라우트는 여전히 무인증.
-  - **남은 leak 범위**: `/api/employees`, `/api/payrolls`, `/api/daily-closings`, `/api/suppliers`, `/api/invoices`, `/api/timesheets`, `/api/rosters`, `/api/finance/*`, `/api/cash-sales`, etc. 모든 어드민 라우트. URL 알면 누구나 호출 가능.
-  - **해결안 (Phase B)**: `express-session` + `connect-pg-simple` wiring (이미 패키지 설치됨, `.env.local`에 `SESSION_SECRET` 존재). 어드민 로그인 흐름 추가 (현재 어드민 페이지는 인증 없이 접근). 라우트별 role 가드 미들웨어 (OWNER/MANAGER 권한 체크). 1–2일 작업 추정.
-  - **임시 완화 (2026-04-30 적용)**: Railway URL이 직원에게 노출되는 사고 발생 — 어드민 경로에 사이트 전체 HTTP Basic Auth 게이트 추가 (`server/index.ts`, env: `ADMIN_AUTH_USER`/`ADMIN_AUTH_PASS`). Portal(`/m/*`, `/api/portal/*`, `/assets/*`)·Cloudmailin 웹훅은 bypass. 직원은 PIN-only 흐름 유지. 어드민 URL은 비번 popup으로 차단. Phase B 완료 시 제거 또는 defense-in-depth 유지 결정.
-  - **남은 follow-up**: Portal `POST /api/portal/login-pin` rate-limit (4자리 PIN brute-force 위험 — 분당 10회·시간당 50회·5회 실패 시 5분 lockout, ~20줄). 현재 위협 모델에서 제외했지만 발생 시 즉시 추가.
+- [x] **Admin/non-portal API routes are not authenticated** ✅ (2026-04-30 해결 — Phase B)
+  - **Phase 0 (2026-04-30 오전)**: 모바일 portal 라우트만 Bearer 토큰 게이트. 어드민 라우트는 여전히 무인증.
+  - **임시방편 (2026-04-30 오후)**: URL 노출 사고로 사이트 전체 HTTP Basic Auth 게이트 임시 적용. Portal·웹훅 bypass. 어드민 페이지는 비번 popup으로 차단. Step 1-6 동안 유지.
+  - **Phase B 정공법 (2026-04-30 저녁 — 완료)**:
+    - **Schema** (`shared/schema.ts` + `server/bootstrap-migrations.ts`): employees에 `password_hash` + `last_login_at`, portal_sessions에 `login_type` (PIN/PASSWORD). Owner 비번은 env `OWNER_EMAIL` + `OWNER_INITIAL_PASS`로 부트스트랩 시 시드 (idempotent, 이메일 미매칭 시 throw로 부팅 실패).
+    - **Storage** (`server/storage.ts`): `findEmployeeByEmail`, `setEmployeePassword` (8자 정책 + force logout all), `verifyEmployeePassword`, `getEmployeeAllowedStoreIds`, `getRoleAllowedRoutes`, `deleteAllSessionsForEmployee`. PIN 세션 TTL 30→1일, PASSWORD 세션 30일.
+    - **Middleware** (`server/middleware/auth.ts` 신규): `requireAuth` (Bearer 검증 + req.user 부착), `requireRole`, `requirePermission` (apiToRouteKey 매핑으로 ADMIN_ONLY/EMPLOYEE_OK/매트릭스 routeKey/null 4-tier), `validateStoreScope`. ADMIN auto-pass.
+    - **Routes** (`server/routes.ts`): `POST /api/auth/login` (이메일+비번, rate-limit 재사용), `/api/auth/logout`, `/api/auth/me`, `/api/auth/change-password`. 기존 `POST /api/portal/login-pin`이 loginType='PIN'으로 1일 토큰 발급. 글로벌 미들웨어가 `/api/*` 모든 경로에 인증 강제 (auth/portal/webhooks/onboarding/direct-register 제외). PATCH `/api/permissions` 핸들러 안에서 ADMIN-only 추가 가드. `/api/employees` 응답에서 passwordHash·pin 마스킹.
+    - **Frontend** (`client/`): `pages/admin/Login.tsx` (Airbnb 미니멀, 모바일 반응형), `contexts/AuthContext.tsx` (admin_token_v1 LocalStorage), `components/RequireAuth.tsx` (라우트 가드), `lib/queryClient.ts` (모든 /api/* Bearer 자동 주입 + 401 시 적절한 로그인 페이지 redirect), `App.tsx` 모든 admin 라우트를 RequireAuth로 감쌈, AccessControl/ShiftPresets/StoreConfig/Automations는 `allowed=["ADMIN"]`. AdminLayout 사이드바 하단에 사용자 정보 + Sign out. AdminRoleContext가 AuthContext role을 source of truth로 사용 (admin_role_preview_v1은 ADMIN만 매트릭스 미리보기 용도).
+    - **Step 7 (제거)**: 임시방편 Basic Auth 미들웨어 + isPortalOrPublicPath 함수 + ADMIN_AUTH_USER/PASS env 사용 모두 삭제.
+  - **커밋**: d6534c6 (Step 1) → d0440de (Step 2) → 1d452f5 + f6cc011 + ed1b022 (Step 3) → efd82c9 (Step 5) → a62af61 + 7028c79 (Step 4) → 1288677 (Step 7).
+  - **Auto-mode 사용자 후속 작업**: Railway StoreManager Variables 탭에서 `ADMIN_AUTH_USER`, `ADMIN_AUTH_PASS`, `OWNER_INITIAL_PASS` 제거 권장 (보안 위생). `OWNER_EMAIL`은 유지해도 무방 (재시드 시 password_hash 이미 set이라 no-op).
+  - **Phase B.1 (남은 follow-up — 별 작업)**:
+    - 매니저 매장 스코핑: 핸들러 안에서 `req.user.role === "MANAGER"` && storeId 미지정 시 `req.user.allowedStoreIds`로 자동 필터, storeId 지정 시 `validateStoreScope` 적용. 12+ 라우트 (employees, shifts, time-logs, daily-closings, payrolls 등).
+    - 직원 PII 추가 마스킹: `/api/employees`의 tfn/bsb/account_no를 ADMIN-only로 마스킹 (현재는 응답에 포함).
+    - PIN brute-force rate-limit 강화: 분당 10회·시간당 50회·5회 실패 시 5분 lockout (현재 5회 실패 시 15분 lockout만 있음).
+    - 비번 리셋 흐름: ADMIN이 다른 사용자 비번 재설정하는 UI (현재는 storage 헬퍼 직접 호출로만 가능).
 
 - [x] **Statement vs Invoice reconciliation stability** (2026-04-23 해결 — §3.22)
   - **조치**: 화이트리스트 전용 파이프라인 도입 + 4-way classifier(INVOICE/STATEMENT/REMITTANCE/OTHER). Statement은 per-row PENDING으로 확장되고 `(supplierId, invoiceNumber)` 중복 스킵, 1-row 결과는 REVIEW 유지. Xero 송신자 해석 버그 수정으로 `post.xero.com` → 실제 공급업체 정상 매칭.
