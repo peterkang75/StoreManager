@@ -419,12 +419,12 @@ export function MobileDailyClose() {
               <div key={d.key} style={{ textAlign: "center" }}>
                 <p style={{ fontSize: 12, fontWeight: 600, color: "#222222", marginBottom: 6 }}>{d.label}</p>
                 <Input
-                  type="number"
-                  min="0"
-                  step="1"
+                  type="tel"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={notes[d.key] || ""}
-                  onChange={(e) => updateNote(d.key, e.target.value)}
-                  className="h-14 text-center text-lg font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                  onChange={(e) => updateNote(d.key, e.target.value.replace(/\D/g, ""))}
+                  className="h-14 text-center text-lg font-bold"
                   data-testid={`input-${d.key}`}
                 />
                 {notes[d.key] > 0 && (
