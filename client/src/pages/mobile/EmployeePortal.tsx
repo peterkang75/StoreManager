@@ -268,9 +268,17 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1, padding: "40px 24px 32px", gap: 0, fontFamily: AL.font, background: "#ffffff" }}>
 
-      {/* Logos */}
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16, width: "100%", marginBottom: 28 }}>
-        <div style={{ position: "relative", overflow: "hidden", width: 96, height: 96, flexShrink: 0 }}>
+      {/* Brand wordmark — app title */}
+      <div style={{ textAlign: "center", marginBottom: 32 }}>
+        <h1 style={{ fontSize: 48, fontWeight: 700, color: "#222222", letterSpacing: "-0.4px", lineHeight: 1, margin: 0 }} data-testid="text-app-title">
+          Crew
+        </h1>
+        <p style={{ fontSize: 13, fontWeight: 500, color: "#6a6a6a", lineHeight: 1.43, marginTop: 6 }}>Team Portal</p>
+      </div>
+
+      {/* Logos — demoted under wordmark */}
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12, width: "100%", marginBottom: 32 }}>
+        <div style={{ position: "relative", overflow: "hidden", width: 48, height: 48, flexShrink: 0 }}>
           <img
             src={sushimeLogo}
             alt="Sushime"
@@ -278,8 +286,8 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
             style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", transform: "scale(2.8)", transformOrigin: "center" }}
           />
         </div>
-        <div style={{ width: 1, height: 56, background: "#c1c1c1", flexShrink: 0 }} />
-        <div style={{ position: "relative", overflow: "hidden", width: 128, height: 72, flexShrink: 0 }}>
+        <div style={{ width: 1, height: 28, background: "#c1c1c1", flexShrink: 0 }} />
+        <div style={{ position: "relative", overflow: "hidden", width: 68, height: 38, flexShrink: 0 }}>
           <img
             src={eatemLogo}
             alt="Eat'em"
@@ -287,14 +295,6 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
             style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", transform: "scale(1.9)", transformOrigin: "center" }}
           />
         </div>
-      </div>
-
-      {/* Welcome text */}
-      <div style={{ textAlign: "center", marginBottom: 36 }}>
-        <p style={{ fontSize: 22, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px", lineHeight: 1.2, margin: 0 }}>
-          Welcome to the<br />Eat'em &amp; Sushime
-        </p>
-        <p style={{ fontSize: 13, color: "#6a6a6a", marginTop: 6 }}>Team Portal</p>
       </div>
 
       {/* PIN prompt */}
