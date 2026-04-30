@@ -3189,8 +3189,13 @@ export async function registerRoutes(
       const endDate   = req.query.endDate   as string | undefined;
       const storeId   = req.query.storeId   as string | undefined;
 
-      const [closings, allPayrolls, allInvoices] = await Promise.all([
-        storage.getDailyClosings({ storeId, startDate, endDate }),
+      // Sales now read from daily_sales — the unified ledger that contains both
+      // POSnet historical imports and the close-form mirror. Closings are
+      // mirrored on every create/update via storage.mirrorClosingToDailySales,
+      // and the bootstrap migration backfills any pre-existing closings so this
+      // is correct for both legacy and ongoing data.
+      const [salesRows, allPayrolls, allInvoices] = await Promise.all([
+        storage.getDailySales({ storeId, startDate, endDate }),
         storage.getPayrolls({}),
         storage.getSupplierInvoices({ storeId, startDate, endDate }),
       ]);
@@ -3206,7 +3211,7 @@ export async function registerRoutes(
       // Exclude quarantined invoices
       const filteredInvoices = allInvoices.filter(inv => inv.status !== "QUARANTINE");
 
-      const salesTotal  = closings.reduce((s, c) => s + (c.salesTotal  ?? 0), 0);
+      const salesTotal  = salesRows.reduce((s, r) => s + (r.total ?? 0), 0);
       const laborTotal  = filteredPayrolls.reduce((s, p) => s + (p.grossAmount ?? 0), 0);
       const cogsTotal   = filteredInvoices.reduce((s, i) => s + (i.amount ?? 0), 0);
       const grossProfit = salesTotal - laborTotal - cogsTotal;
@@ -3214,12 +3219,12 @@ export async function registerRoutes(
       const pct = (v: number) =>
         salesTotal > 0 ? Math.round((v / salesTotal) * 1000) / 10 : 0;
 
-      // Daily trend: merge daily-closings (sales), invoices (cogs), and payrolls (labor) by date
+      // Daily trend: merge daily_sales (sales), invoices (cogs), and payrolls (labor) by date
       const dateMap = new Map<string, { date: string; sales: number; cogs: number; labor: number }>();
-      for (const c of closings) {
-        const row = dateMap.get(c.date) ?? { date: c.date, sales: 0, cogs: 0, labor: 0 };
-        row.sales += c.salesTotal ?? 0;
-        dateMap.set(c.date, row);
+      for (const r of salesRows) {
+        const row = dateMap.get(r.date) ?? { date: r.date, sales: 0, cogs: 0, labor: 0 };
+        row.sales += r.total ?? 0;
+        dateMap.set(r.date, row);
       }
       for (const inv of filteredInvoices) {
         const row = dateMap.get(inv.invoiceDate) ?? { date: inv.invoiceDate, sales: 0, cogs: 0, labor: 0 };

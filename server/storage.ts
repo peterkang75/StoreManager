@@ -49,6 +49,7 @@ import {
   type StoreRecommendedHours, type InsertStoreRecommendedHours, storeRecommendedHours,
   type AutomationRule, type InsertAutomationRule, automationRules,
   type PortalSession, portalSessions,
+  type DailySales, type InsertDailySales, dailySales,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
@@ -115,6 +116,11 @@ export interface IStorage {
   updatePayroll(id: string, payroll: Partial<InsertPayroll>): Promise<Payroll | undefined>;
 
   getDailyClosings(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<DailyClosing[]>;
+  // Unified per-day-per-store sales ledger. Includes POSnet imports
+  // (source='posnet'), one-off manual rows (source='manual'), and the close-form
+  // mirror (source='daily-close'). Used by Dashboard / Finance / future revenue
+  // analytics.
+  getDailySales(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<DailySales[]>;
   getDailyClosing(id: string): Promise<DailyClosing | undefined>;
   createDailyClosing(closing: InsertDailyClosing): Promise<DailyClosing>;
   updateDailyClosing(id: string, closing: Partial<InsertDailyClosing>): Promise<DailyClosing | undefined>;
@@ -921,6 +927,12 @@ export class MemStorage implements IStorage {
 
   async deleteDailyClosing(id: string): Promise<boolean> {
     return this.dailyClosings.delete(id);
+  }
+
+  async getDailySales(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<DailySales[]> {
+    // MemStorage doesn't persist daily_sales; return empty so tests don't crash.
+    void filters;
+    return [];
   }
 
   // Portal sessions (in-memory variant) — used by both portal PIN and admin PASSWORD logins
@@ -2243,6 +2255,18 @@ export class DatabaseStorage implements IStorage {
     return query;
   }
 
+  async getDailySales(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<DailySales[]> {
+    const conditions = [];
+    if (filters?.storeId) conditions.push(eq(dailySales.storeId, filters.storeId));
+    if (filters?.startDate) conditions.push(gte(dailySales.date, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(dailySales.date, filters.endDate));
+    const query = db.select().from(dailySales).orderBy(desc(dailySales.date));
+    if (conditions.length > 0) {
+      return query.where(and(...conditions));
+    }
+    return query;
+  }
+
   async getDailyClosing(id: string): Promise<DailyClosing | undefined> {
     const [c] = await db.select().from(dailyClosings).where(eq(dailyClosings.id, id));
     return c;
@@ -2250,17 +2274,76 @@ export class DatabaseStorage implements IStorage {
 
   async createDailyClosing(data: InsertDailyClosing): Promise<DailyClosing> {
     const [c] = await db.insert(dailyClosings).values(data).returning();
+    await this.mirrorClosingToDailySales(c);
     return c;
   }
 
   async updateDailyClosing(id: string, data: Partial<InsertDailyClosing>): Promise<DailyClosing | undefined> {
     const [c] = await db.update(dailyClosings).set({ ...data, updatedAt: new Date() }).where(eq(dailyClosings.id, id)).returning();
+    if (c) await this.mirrorClosingToDailySales(c);
     return c;
   }
 
   async deleteDailyClosing(id: string): Promise<boolean> {
+    // Delete the mirrored sales row first (only if it came from this close-form
+    // source — leaves POSnet imports untouched).
+    const [closing] = await db.select().from(dailyClosings).where(eq(dailyClosings.id, id)).limit(1);
     const result = await db.delete(dailyClosings).where(eq(dailyClosings.id, id));
+    if (closing) {
+      await db.delete(dailySales).where(
+        and(
+          eq(dailySales.storeId, closing.storeId),
+          eq(dailySales.date, closing.date),
+          eq(dailySales.source, "daily-close"),
+        ),
+      );
+    }
     return (result.rowCount ?? 0) > 0;
+  }
+
+  // Phase B follow-up: keep daily_sales (the unified per-day-per-store ledger)
+  // in sync with daily_closings whenever a close-form is created or updated.
+  // POSnet imports stay in daily_sales with source='posnet'; close-form mirrors
+  // use source='daily-close' so they can be told apart and updated/removed
+  // without trampling historical imports.
+  private async mirrorClosingToDailySales(c: DailyClosing): Promise<void> {
+    const cash = c.cashSales ?? 0;
+    const credit = c.creditAmount ?? 0;
+    const others = (c.ubereatsAmount ?? 0) + (c.doordashAmount ?? 0);
+    const posTotal = c.salesTotal ?? 0;
+    // POS may include eftpos as remainder after cash/credit are split out by
+    // the manager. If so, reflect it as eftpos; otherwise leave at 0.
+    const eftpos = Math.max(0, posTotal - cash - credit);
+    const total = posTotal + others;
+
+    const existing = await db
+      .select({ id: dailySales.id, source: dailySales.source })
+      .from(dailySales)
+      .where(and(eq(dailySales.storeId, c.storeId), eq(dailySales.date, c.date)))
+      .limit(1);
+
+    if (existing.length === 0) {
+      await db.insert(dailySales).values({
+        storeId: c.storeId,
+        date: c.date,
+        cash,
+        credit,
+        eftpos,
+        others,
+        total,
+        source: "daily-close",
+      });
+      return;
+    }
+
+    // Always update if existing row was a close-form mirror or if there's no
+    // historical POSnet import claiming this slot. POSnet rows (source='posnet')
+    // are preserved unless the user explicitly resubmits a close form (which
+    // overwrites — close-form is the source of truth for that day going forward).
+    await db
+      .update(dailySales)
+      .set({ cash, credit, eftpos, others, total, source: "daily-close" })
+      .where(eq(dailySales.id, existing[0].id));
   }
 
   async createPortalSession(employeeId: string, ttlDays = 30, loginType: "PIN" | "PASSWORD" = "PIN"): Promise<{ token: string; expiresAt: Date }> {

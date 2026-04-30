@@ -630,7 +630,7 @@ export function AdminDashboard() {
               colorClass="bg-[#222222]"
               isLoading={summaryLoading && !noneSelected}
               testId="text-kpi-sales"
-              subtitle="from daily closings"
+              subtitle="POS imports + daily closings"
             />
             <KpiCard
               title="Total Labor"

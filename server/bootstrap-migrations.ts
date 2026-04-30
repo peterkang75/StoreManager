@@ -61,6 +61,28 @@ const STATEMENTS: string[] = [
        ALTER TABLE portal_sessions ALTER COLUMN login_type SET DEFAULT 'PIN';
      END IF;
    END $$`,
+
+  // Backfill daily_sales from any existing daily_closings rows so the unified
+  // ledger contains both POSnet historical imports and previously-submitted
+  // close forms. Idempotent via the (store_id, date) unique index — historical
+  // POSnet rows (source='posnet') are preserved by the WHERE-not-exists guard.
+  `INSERT INTO daily_sales (id, store_id, date, cash, credit, eftpos, others, total, source, imported_at)
+   SELECT
+     gen_random_uuid(),
+     dc.store_id,
+     dc.date,
+     COALESCE(dc.cash_sales, 0)        AS cash,
+     COALESCE(dc.credit_amount, 0)     AS credit,
+     GREATEST(0, COALESCE(dc.sales_total, 0) - COALESCE(dc.cash_sales, 0) - COALESCE(dc.credit_amount, 0)) AS eftpos,
+     COALESCE(dc.ubereats_amount, 0) + COALESCE(dc.doordash_amount, 0) AS others,
+     COALESCE(dc.sales_total, 0) + COALESCE(dc.ubereats_amount, 0) + COALESCE(dc.doordash_amount, 0) AS total,
+     'daily-close' AS source,
+     COALESCE(dc.created_at, now()) AS imported_at
+   FROM daily_closings dc
+   WHERE NOT EXISTS (
+     SELECT 1 FROM daily_sales ds
+     WHERE ds.store_id = dc.store_id AND ds.date = dc.date
+   )`,
 ];
 
 // Phase B: seed the OWNER's password from environment variables on first deploy.
