@@ -558,37 +558,66 @@ export function AdminCandidates() {
                 </p>
               </div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Nationality</TableHead>
-                    <TableHead className="hidden md:table-cell">Availability</TableHead>
-                    <TableHead className="hidden md:table-cell">Desired Rate</TableHead>
-                    <TableHead>Decision</TableHead>
-                    <TableHead>Interview Date</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredCandidates?.map((candidate) => (
-                    <TableRow
-                      key={candidate.id}
-                      className="cursor-pointer"
-                      onClick={() => handleRowClick(candidate)}
-                      data-testid={`row-candidate-${candidate.id}`}
-                    >
-                      <TableCell className="font-medium">{candidate.name}</TableCell>
-                      <TableCell>{candidate.nationality || "—"}</TableCell>
-                      <TableCell className="hidden md:table-cell">{candidate.availability || "—"}</TableCell>
-                      <TableCell className="hidden md:table-cell">{candidate.desiredRate || "—"}</TableCell>
-                      <TableCell>{getDecisionBadge(candidate.hireDecision)}</TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {formatDate(candidate.createdAt)}
-                      </TableCell>
+              <>
+                {/* Mobile: card list */}
+                <div className="md:hidden divide-y">
+                  {filteredCandidates?.map((candidate) => {
+                    const initials = (candidate.name?.trim()?.split(/\s+/).map(p => p[0] ?? "").slice(0, 2).join("") || "?").toUpperCase();
+                    return (
+                      <div
+                        key={candidate.id}
+                        className="flex items-center gap-3 p-3 cursor-pointer hover-elevate active-elevate-2 transition-all"
+                        onClick={() => handleRowClick(candidate)}
+                        data-testid={`row-candidate-${candidate.id}`}
+                      >
+                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted shrink-0 text-sm font-semibold text-muted-foreground">
+                          {initials}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-sm truncate">{candidate.name}</div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            {candidate.nationality || "—"} • {formatDate(candidate.createdAt)}
+                          </div>
+                        </div>
+                        <div className="shrink-0">{getDecisionBadge(candidate.hireDecision)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Desktop: table */}
+                <Table className="hidden md:table">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Nationality</TableHead>
+                      <TableHead>Availability</TableHead>
+                      <TableHead>Desired Rate</TableHead>
+                      <TableHead>Decision</TableHead>
+                      <TableHead>Interview Date</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredCandidates?.map((candidate) => (
+                      <TableRow
+                        key={candidate.id}
+                        className="cursor-pointer"
+                        onClick={() => handleRowClick(candidate)}
+                        data-testid={`row-candidate-desktop-${candidate.id}`}
+                      >
+                        <TableCell className="font-medium">{candidate.name}</TableCell>
+                        <TableCell>{candidate.nationality || "—"}</TableCell>
+                        <TableCell>{candidate.availability || "—"}</TableCell>
+                        <TableCell>{candidate.desiredRate || "—"}</TableCell>
+                        <TableCell>{getDecisionBadge(candidate.hireDecision)}</TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {formatDate(candidate.createdAt)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </>
             )}
           </CardContent>
         </Card>
