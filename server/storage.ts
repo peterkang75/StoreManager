@@ -2290,7 +2290,8 @@ export class DatabaseStorage implements IStorage {
   // Phase B: admin/manager/staff auth helpers (database variant)
   async findEmployeeByEmail(email: string): Promise<Employee | undefined> {
     const lower = email.trim().toLowerCase();
-    const [row] = await db.select().from(employees).where(sql`LOWER(${employees.email}) = ${lower}`).limit(1);
+    // Use ilike for case-insensitive comparison (more portable than LOWER() function inside Drizzle query).
+    const [row] = await db.select().from(employees).where(ilike(employees.email, lower)).limit(1);
     return row;
   }
 

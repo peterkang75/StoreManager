@@ -4524,9 +4524,11 @@ export async function registerRoutes(
           allowedRoutes,
         },
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error("[/api/auth/login] error:", err);
-      res.status(500).json({ error: "LOGIN_FAILED", message: "Login failed" });
+      // Temporary: return error detail to help diagnose Step 3 issues. Will sanitize after Phase B verified.
+      const detail = err?.message ?? String(err);
+      res.status(500).json({ error: "LOGIN_FAILED", message: "Login failed", detail });
     }
   });
 
