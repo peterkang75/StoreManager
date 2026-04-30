@@ -471,6 +471,60 @@ app.use((req, res, next) => {
   next();
 });
 
+// ── Admin Basic Auth gate ─────────────────────────────────────────────────────
+// Protects all non-portal/non-webhook paths with HTTP Basic Auth.
+// Set ADMIN_AUTH_USER + ADMIN_AUTH_PASS in production env to enable.
+// In local/dev (env unset) the middleware is a no-op, so dev workflow is unchanged.
+const ADMIN_AUTH_USER = process.env.ADMIN_AUTH_USER;
+const ADMIN_AUTH_PASS = process.env.ADMIN_AUTH_PASS;
+
+function isPortalOrPublicPath(p: string): boolean {
+  // Cloudmailin inbound webhook (external POST)
+  if (p === "/api/webhooks/inbound-invoices") return true;
+
+  // Mobile portal HTML + API (PIN auth handles these)
+  if (p.startsWith("/m/")) return true;
+  if (p.startsWith("/api/portal/")) return true;
+
+  // SPA entry + shared static assets (portal needs the bundle)
+  if (p === "/" || p === "/index.html") return true;
+  if (p.startsWith("/assets/")) return true;
+  if (p === "/favicon.ico" || p === "/robots.txt") return true;
+  if (p.startsWith("/icons/") || p.startsWith("/images/")) return true;
+
+  // Vite dev assets (development only)
+  if (
+    p.startsWith("/@vite/") ||
+    p.startsWith("/@react-refresh") ||
+    p.startsWith("/@fs/") ||
+    p.startsWith("/src/") ||
+    p.startsWith("/node_modules/")
+  ) return true;
+
+  return false;
+}
+
+app.use((req, res, next) => {
+  if (!ADMIN_AUTH_USER || !ADMIN_AUTH_PASS) return next();
+  if (isPortalOrPublicPath(req.path)) return next();
+
+  const auth = req.headers.authorization || "";
+  if (!auth.startsWith("Basic ")) {
+    res.set("WWW-Authenticate", 'Basic realm="Crew Admin", charset="UTF-8"');
+    return res.status(401).send("Admin authentication required");
+  }
+
+  const decoded = Buffer.from(auth.slice(6), "base64").toString("utf-8");
+  const idx = decoded.indexOf(":");
+  const user = idx >= 0 ? decoded.slice(0, idx) : decoded;
+  const pass = idx >= 0 ? decoded.slice(idx + 1) : "";
+
+  if (user === ADMIN_AUTH_USER && pass === ADMIN_AUTH_PASS) return next();
+
+  res.set("WWW-Authenticate", 'Basic realm="Crew Admin", charset="UTF-8"');
+  return res.status(401).send("Invalid credentials");
+});
+
 (async () => {
   await runBootstrapMigrations();
   await registerRoutes(httpServer, app);
