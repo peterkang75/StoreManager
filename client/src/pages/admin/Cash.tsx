@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,8 +13,37 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Wallet, Receipt, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
-import type { Store, DailyClosing, CashSalesDetail } from "@shared/schema";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Wallet, Receipt, AlertTriangle, ChevronLeft, ChevronRight, Pencil, Trash2, Loader2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import type { Store, DailyClosing, DailyCloseForm } from "@shared/schema";
 import { STORE_COLORS as STORE_BRAND } from "@shared/storeColors";
 import { useAdminRole } from "@/contexts/AdminRoleContext";
 
@@ -43,13 +72,58 @@ function fmtWeekLabel(dateStr: string): string {
   return d.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
 }
 
+// Edit form mirrors the editable surface of a DailyClosing. Numeric fields
+// are kept as strings while typing; we coerce on submit. creditAmount and
+// differenceAmount are recomputed live from the inputs on save.
+type EditFields = {
+  date: string;
+  storeId: string;
+  staffNames: string;
+  previousFloat: string;
+  salesTotal: string;
+  cashSales: string;
+  cashOut: string;
+  actualCashCounted: string;
+  nextFloat: string;
+  ubereatsAmount: string;
+  doordashAmount: string;
+  notes: string;
+};
+
+function closingToEditFields(c: DailyClosing): EditFields {
+  return {
+    date: c.date,
+    storeId: c.storeId,
+    staffNames: c.staffNames ?? "",
+    previousFloat: String(c.previousFloat ?? 0),
+    salesTotal: String(c.salesTotal ?? 0),
+    cashSales: String(c.cashSales ?? 0),
+    cashOut: String(c.cashOut ?? 0),
+    actualCashCounted: String(c.actualCashCounted ?? 0),
+    nextFloat: String(c.nextFloat ?? 0),
+    ubereatsAmount: String(c.ubereatsAmount ?? 0),
+    doordashAmount: String(c.doordashAmount ?? 0),
+    notes: c.notes ?? "",
+  };
+}
+
+const num = (s: string): number => {
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : 0;
+};
+
 export function AdminCash() {
   const { currentRole } = useAdminRole();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [storeFilter, setStoreFilter] = useState<string>("all");
   const [weekStart, setWeekStart] = useState<string>(() => getMonday(new Date()));
   const weekEnd = addDays(weekStart, 6);
   const startDate = weekStart;
   const endDate = weekEnd;
+
+  const [editing, setEditing] = useState<{ id: string; fields: EditFields } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<DailyClosing | null>(null);
 
   const { data: stores } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
@@ -79,11 +153,18 @@ export function AdminCash() {
     },
   });
 
-  const { data: cashSales, isLoading: cashLoading } = useQuery<CashSalesDetail[]>({
-    queryKey: ["/api/cash-sales", storeFilter, startDate, endDate],
+  // Cash Details now reads from daily_close_forms — the same record the
+  // mobile flow already writes (denominations + envelope + counted). No
+  // separate cashSalesDetails write path is needed.
+  const { data: closeForms, isLoading: cashLoading } = useQuery<DailyCloseForm[]>({
+    queryKey: ["/api/daily-close-forms", storeFilter, startDate, endDate],
     queryFn: async () => {
-      const query = buildQuery();
-      const res = await fetch(`/api/cash-sales${query ? `?${query}` : ""}`);
+      const params = new URLSearchParams();
+      if (storeFilter !== "all") params.append("storeId", storeFilter);
+      if (startDate) params.append("startDate", startDate);
+      if (endDate) params.append("endDate", endDate);
+      const q = params.toString();
+      const res = await fetch(`/api/daily-close-forms${q ? `?${q}` : ""}`);
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -93,6 +174,61 @@ export function AdminCash() {
   const getStoreName = (storeId: string) => {
     return stores?.find(s => s.id === storeId)?.name || "-";
   };
+
+  const updateMutation = useMutation({
+    mutationFn: async (vars: { id: string; fields: EditFields }) => {
+      const f = vars.fields;
+      const previousFloat = num(f.previousFloat);
+      const salesTotal = num(f.salesTotal);
+      const cashSales = num(f.cashSales);
+      const cashOut = num(f.cashOut);
+      const nextFloat = num(f.nextFloat);
+      const actualCashCounted = num(f.actualCashCounted);
+      const creditAmount = previousFloat + cashSales - cashOut - nextFloat;
+      const differenceAmount = creditAmount - actualCashCounted;
+      const body = {
+        date: f.date,
+        storeId: f.storeId,
+        staffNames: f.staffNames || null,
+        previousFloat,
+        salesTotal,
+        cashSales,
+        cashOut,
+        nextFloat,
+        actualCashCounted,
+        creditAmount,
+        differenceAmount,
+        ubereatsAmount: num(f.ubereatsAmount),
+        doordashAmount: num(f.doordashAmount),
+        notes: f.notes || null,
+      };
+      await apiRequest("PUT", `/api/daily-closings/${vars.id}`, body);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/daily-closings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/daily-close-forms"] });
+      setEditing(null);
+      toast({ title: "Daily closing updated" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update entry", variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/daily-closings/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/daily-closings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/daily-close-forms"] });
+      setConfirmDelete(null);
+      toast({ title: "Daily closing deleted" });
+    },
+    onError: () => {
+      toast({ title: "Failed to delete entry", variant: "destructive" });
+    },
+  });
 
   const isLoading = closingsLoading || cashLoading;
 
@@ -106,6 +242,16 @@ export function AdminCash() {
       </AdminLayout>
     );
   }
+
+  // Live-computed credit + difference inside the edit dialog so the user
+  // can see the impact of their edits before saving.
+  const editPreview = (() => {
+    if (!editing) return null;
+    const f = editing.fields;
+    const credit = num(f.previousFloat) + num(f.cashSales) - num(f.cashOut) - num(f.nextFloat);
+    const diff = credit - num(f.actualCashCounted);
+    return { credit, diff };
+  })();
 
   return (
     <AdminLayout title="Cash & Daily Close">
@@ -204,6 +350,7 @@ export function AdminCash() {
                           <TableHead className="text-right">DoorDash</TableHead>
                           <TableHead className="text-right">Difference</TableHead>
                           <TableHead className="text-right">Credit</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -237,6 +384,30 @@ export function AdminCash() {
                                 )}
                               </TableCell>
                               <TableCell className="text-right font-medium">${closing.creditAmount.toFixed(2)}</TableCell>
+                              <TableCell className="text-right">
+                                <div className="inline-flex gap-1">
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-8 w-8"
+                                    onClick={() => setEditing({ id: closing.id, fields: closingToEditFields(closing) })}
+                                    data-testid={`button-edit-${closing.id}`}
+                                    aria-label="Edit"
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-8 w-8 text-destructive hover:text-destructive"
+                                    onClick={() => setConfirmDelete(closing)}
+                                    data-testid={`button-delete-${closing.id}`}
+                                    aria-label="Delete"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </TableCell>
                             </TableRow>
                           );
                         })}
@@ -252,7 +423,7 @@ export function AdminCash() {
           <TabsContent value="cash">
             <Card>
               <CardContent className="pt-6">
-                {!cashSales?.length ? (
+                {!closeForms?.length ? (
                   <div className="text-center py-12 text-muted-foreground">
                     <Wallet className="w-12 h-12 mx-auto mb-4 opacity-50" />
                     <p>현금 매출 기록이 없습니다</p>
@@ -264,6 +435,7 @@ export function AdminCash() {
                         <TableRow>
                           <TableHead>Date</TableHead>
                           <TableHead>Store</TableHead>
+                          <TableHead>Submitter</TableHead>
                           <TableHead className="text-right">Envelope</TableHead>
                           <TableHead className="text-right">$100</TableHead>
                           <TableHead className="text-right">$50</TableHead>
@@ -275,23 +447,28 @@ export function AdminCash() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {cashSales.map(cash => (
-                          <TableRow key={cash.id} data-testid={`row-cash-${cash.id}`}>
-                            <TableCell>{cash.date}</TableCell>
-                            <TableCell>{getStoreName(cash.storeId)}</TableCell>
-                            <TableCell className="text-right">${cash.envelopeAmount.toFixed(2)}</TableCell>
-                            <TableCell className="text-right">{cash.note100Count}</TableCell>
-                            <TableCell className="text-right">{cash.note50Count}</TableCell>
-                            <TableCell className="text-right">{cash.note20Count}</TableCell>
-                            <TableCell className="text-right">{cash.note10Count}</TableCell>
-                            <TableCell className="text-right">{cash.note5Count}</TableCell>
-                            <TableCell className="text-right">${cash.countedAmount.toFixed(2)}</TableCell>
-                            <TableCell className={`text-right font-medium ${cash.differenceAmount !== 0 ? (cash.differenceAmount > 0 ? 'text-green-600' : 'text-red-600') : ''}`}>
-                              {cash.differenceAmount !== 0 && (cash.differenceAmount > 0 ? '+' : '')}
-                              ${cash.differenceAmount.toFixed(2)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                        {closeForms.map(f => {
+                          const envelope = f.envelopeAmount ?? 0;
+                          const counted = f.totalCalculated ?? 0;
+                          const diff = counted - envelope;
+                          return (
+                            <TableRow key={f.id} data-testid={`row-cash-${f.id}`}>
+                              <TableCell>{f.date}</TableCell>
+                              <TableCell>{getStoreName(f.storeId)}</TableCell>
+                              <TableCell className="max-w-[150px] truncate">{f.submitterName || "-"}</TableCell>
+                              <TableCell className="text-right">${envelope.toFixed(2)}</TableCell>
+                              <TableCell className="text-right">{f.note100Count}</TableCell>
+                              <TableCell className="text-right">{f.note50Count}</TableCell>
+                              <TableCell className="text-right">{f.note20Count}</TableCell>
+                              <TableCell className="text-right">{f.note10Count}</TableCell>
+                              <TableCell className="text-right">{f.note5Count}</TableCell>
+                              <TableCell className="text-right">${counted.toFixed(2)}</TableCell>
+                              <TableCell className={`text-right font-medium ${diff !== 0 ? (diff > 0 ? 'text-green-600' : 'text-red-600') : ''}`}>
+                                {diff !== 0 && (diff > 0 ? '+' : '')}${diff.toFixed(2)}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </div>
@@ -302,6 +479,138 @@ export function AdminCash() {
           )}
         </Tabs>
       </div>
+
+      {/* Edit dialog */}
+      <Dialog open={editing !== null} onOpenChange={(open) => { if (!open) setEditing(null); }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Daily Closing</DialogTitle>
+          </DialogHeader>
+          {editing && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-date">Date</Label>
+                <Input
+                  id="edit-date"
+                  type="date"
+                  value={editing.fields.date}
+                  onChange={(e) => setEditing(prev => prev && { ...prev, fields: { ...prev.fields, date: e.target.value } })}
+                  data-testid="input-edit-date"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-store">Store</Label>
+                <Select
+                  value={editing.fields.storeId}
+                  onValueChange={(v) => setEditing(prev => prev && { ...prev, fields: { ...prev.fields, storeId: v } })}
+                >
+                  <SelectTrigger id="edit-store" data-testid="select-edit-store">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(stores ?? []).map(s => (
+                      <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5 md:col-span-2">
+                <Label htmlFor="edit-staff">Staff</Label>
+                <Input
+                  id="edit-staff"
+                  value={editing.fields.staffNames}
+                  onChange={(e) => setEditing(prev => prev && { ...prev, fields: { ...prev.fields, staffNames: e.target.value } })}
+                  data-testid="input-edit-staff"
+                />
+              </div>
+              {([
+                ["previousFloat", "Previous Float"],
+                ["salesTotal", "Sales Total"],
+                ["cashSales", "Cash Sales"],
+                ["cashOut", "Cash Out"],
+                ["actualCashCounted", "Actual Cash"],
+                ["nextFloat", "Next Float"],
+                ["ubereatsAmount", "UberEats"],
+                ["doordashAmount", "DoorDash"],
+              ] as const).map(([key, label]) => (
+                <div key={key} className="space-y-1.5">
+                  <Label htmlFor={`edit-${key}`}>{label}</Label>
+                  <Input
+                    id={`edit-${key}`}
+                    type="text"
+                    inputMode="decimal"
+                    value={editing.fields[key]}
+                    onChange={(e) => setEditing(prev => prev && { ...prev, fields: { ...prev.fields, [key]: e.target.value } })}
+                    data-testid={`input-edit-${key}`}
+                  />
+                </div>
+              ))}
+              <div className="space-y-1.5 md:col-span-2">
+                <Label htmlFor="edit-notes">Notes</Label>
+                <Textarea
+                  id="edit-notes"
+                  value={editing.fields.notes}
+                  onChange={(e) => setEditing(prev => prev && { ...prev, fields: { ...prev.fields, notes: e.target.value } })}
+                  data-testid="input-edit-notes"
+                />
+              </div>
+              {editPreview && (
+                <div className="md:col-span-2 grid grid-cols-2 gap-3 rounded-md border bg-muted/40 p-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Credit (computed)</p>
+                    <p className="text-base font-semibold">${editPreview.credit.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Difference (computed)</p>
+                    <p className={`text-base font-semibold ${editPreview.diff > 0.005 ? "text-red-600" : editPreview.diff < -0.005 ? "text-green-600" : ""}`}>
+                      ${editPreview.diff.toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEditing(null)} data-testid="button-edit-cancel">Cancel</Button>
+            <Button
+              onClick={() => editing && updateMutation.mutate(editing)}
+              disabled={!editing || updateMutation.isPending}
+              data-testid="button-edit-save"
+            >
+              {updateMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation */}
+      <AlertDialog open={confirmDelete !== null} onOpenChange={(open) => { if (!open) setConfirmDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this daily closing?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmDelete && (
+                <>
+                  This will permanently remove the {confirmDelete.date} entry for {getStoreName(confirmDelete.storeId)} and the matching cash-detail row. This action cannot be undone.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-delete-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => confirmDelete && deleteMutation.mutate(confirmDelete.id)}
+              disabled={deleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-delete-confirm"
+            >
+              {deleteMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AdminLayout>
   );
 }

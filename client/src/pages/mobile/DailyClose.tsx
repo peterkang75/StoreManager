@@ -192,6 +192,7 @@ export function MobileDailyClose() {
     mutationFn: async () => {
       const closingData = {
         storeId, date,
+        staffNames: displayName,
         previousFloat: num(form.previousFloat),
         salesTotal: num(form.salesTotal),
         cashSales: num(form.cashSales),

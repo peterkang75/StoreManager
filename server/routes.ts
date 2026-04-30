@@ -2538,6 +2538,26 @@ export async function registerRoutes(
     }
   });
 
+  app.delete("/api/daily-closings/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const closing = await storage.getDailyClosing(id);
+      if (!closing) {
+        return res.status(404).json({ error: "Daily closing not found" });
+      }
+      // Cascade: also remove the matching daily-close form for the same
+      // (storeId, date) so the admin Cash Details tab no longer shows the
+      // orphan denomination row.
+      await storage.deleteDailyCloseFormByStoreAndDate(closing.storeId, closing.date);
+      const ok = await storage.deleteDailyClosing(id);
+      if (!ok) return res.status(404).json({ error: "Daily closing not found" });
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Error deleting daily closing:", error);
+      res.status(500).json({ error: "Failed to delete daily closing" });
+    }
+  });
+
   app.put("/api/daily-closings/:id", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;

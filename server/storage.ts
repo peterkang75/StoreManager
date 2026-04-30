@@ -116,6 +116,7 @@ export interface IStorage {
   getDailyClosing(id: string): Promise<DailyClosing | undefined>;
   createDailyClosing(closing: InsertDailyClosing): Promise<DailyClosing>;
   updateDailyClosing(id: string, closing: Partial<InsertDailyClosing>): Promise<DailyClosing | undefined>;
+  deleteDailyClosing(id: string): Promise<boolean>;
 
   getCashSalesDetails(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<CashSalesDetail[]>;
   getCashSalesDetail(id: string): Promise<CashSalesDetail | undefined>;
@@ -895,6 +896,10 @@ export class MemStorage implements IStorage {
     const updated: DailyClosing = { ...closing, ...updates as any, updatedAt: new Date() };
     this.dailyClosings.set(id, updated);
     return updated;
+  }
+
+  async deleteDailyClosing(id: string): Promise<boolean> {
+    return this.dailyClosings.delete(id);
   }
 
   async getCashSalesDetails(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<CashSalesDetail[]> {
@@ -2159,6 +2164,11 @@ export class DatabaseStorage implements IStorage {
   async updateDailyClosing(id: string, data: Partial<InsertDailyClosing>): Promise<DailyClosing | undefined> {
     const [c] = await db.update(dailyClosings).set({ ...data, updatedAt: new Date() }).where(eq(dailyClosings.id, id)).returning();
     return c;
+  }
+
+  async deleteDailyClosing(id: string): Promise<boolean> {
+    const result = await db.delete(dailyClosings).where(eq(dailyClosings.id, id));
+    return (result.rowCount ?? 0) > 0;
   }
 
   async getCashSalesDetails(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<CashSalesDetail[]> {
