@@ -198,65 +198,135 @@ export function AdminEmployees() {
                 </p>
               </div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nickname</TableHead>
-                    <TableHead>Stores</TableHead>
-                    <TableHead>Rate</TableHead>
-                    <TableHead className="text-center">Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredEmployees?.map((employee) => (
-                    <TableRow
-                      key={employee.id}
-                      className="cursor-pointer"
-                      onClick={() => handleRowClick(employee)}
-                      data-testid={`row-employee-${employee.id}`}
-                    >
-                      <TableCell
-                        className="font-medium"
-                        title={`${employee.firstName} ${employee.lastName}`}
-                        data-testid={`text-employee-name-${employee.id}`}
+              <>
+                {/* Mobile: card list */}
+                <div className="md:hidden divide-y">
+                  {filteredEmployees?.map((employee) => {
+                    const storeIds = empStoreMap.get(employee.id) ?? [];
+                    const initials = (
+                      (employee.firstName?.[0] ?? "") + (employee.lastName?.[0] ?? "")
+                    ).toUpperCase() || "?";
+                    return (
+                      <div
+                        key={employee.id}
+                        className="flex items-center gap-3 p-3 cursor-pointer hover-elevate active-elevate-2 transition-all"
+                        onClick={() => handleRowClick(employee)}
+                        data-testid={`row-employee-${employee.id}`}
                       >
-                        {employee.nickname || `${employee.firstName} ${employee.lastName}`}
-                      </TableCell>
-                      <TableCell data-testid={`text-store-${employee.id}`}>
-                        <div className="flex flex-wrap gap-1">
-                          {(empStoreMap.get(employee.id) ?? []).map(sid => {
-                            const name = storeMap.get(sid)?.name ?? "Unknown";
-                            const color = STORE_BRAND[name];
-                            return (
-                              <span
-                                key={sid}
-                                className="text-[10px] font-semibold px-2 py-0.5 rounded-full text-white"
-                                style={{ backgroundColor: color ?? "#6366f1" }}
-                              >
-                                {name}
-                              </span>
-                            );
-                          })}
-                          {(empStoreMap.get(employee.id) ?? []).length === 0 && <span className="text-muted-foreground">—</span>}
+                        {employee.selfieUrl ? (
+                          <img
+                            src={employee.selfieUrl}
+                            alt={employee.firstName}
+                            className="h-12 w-12 rounded-full object-cover shrink-0 border border-border/40"
+                          />
+                        ) : (
+                          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted shrink-0 text-sm font-semibold text-muted-foreground">
+                            {initials}
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div
+                            className="font-semibold text-sm truncate"
+                            data-testid={`text-employee-name-${employee.id}`}
+                          >
+                            {employee.firstName} {employee.lastName}
+                          </div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            {employee.nickname && `"${employee.nickname}" • `}
+                            {employee.rate ? `${employee.rate}/h` : "Rate —"}
+                          </div>
+                          <div className="flex flex-wrap gap-1 mt-1.5" data-testid={`text-store-${employee.id}`}>
+                            {storeIds.length === 0 ? (
+                              <span className="text-[10px] text-muted-foreground">No stores</span>
+                            ) : (
+                              storeIds.map((sid) => {
+                                const name = storeMap.get(sid)?.name ?? "Unknown";
+                                const color = STORE_BRAND[name];
+                                return (
+                                  <span
+                                    key={sid}
+                                    className="text-[10px] font-semibold px-2 py-0.5 rounded-full text-white"
+                                    style={{ backgroundColor: color ?? "#6366f1" }}
+                                  >
+                                    {name}
+                                  </span>
+                                );
+                              })
+                            )}
+                          </div>
                         </div>
-                      </TableCell>
-                      <TableCell data-testid={`text-rate-${employee.id}`}>
-                        {employee.rate || "—"}
-                      </TableCell>
-                      <TableCell className="text-center">
                         <Badge
                           variant={employee.status === "ACTIVE" ? "default" : "secondary"}
-                          className="cursor-pointer select-none text-xs"
+                          className="cursor-pointer select-none text-xs shrink-0"
                           onClick={(e) => toggleStatus(e, employee)}
                           data-testid={`badge-status-${employee.id}`}
                         >
                           {employee.status === "ACTIVE" ? "Active" : "Inactive"}
                         </Badge>
-                      </TableCell>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Desktop: table */}
+                <Table className="hidden md:table">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nickname</TableHead>
+                      <TableHead>Stores</TableHead>
+                      <TableHead>Rate</TableHead>
+                      <TableHead className="text-center">Status</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredEmployees?.map((employee) => (
+                      <TableRow
+                        key={employee.id}
+                        className="cursor-pointer"
+                        onClick={() => handleRowClick(employee)}
+                        data-testid={`row-employee-desktop-${employee.id}`}
+                      >
+                        <TableCell
+                          className="font-medium"
+                          title={`${employee.firstName} ${employee.lastName}`}
+                        >
+                          {employee.nickname || `${employee.firstName} ${employee.lastName}`}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {(empStoreMap.get(employee.id) ?? []).map(sid => {
+                              const name = storeMap.get(sid)?.name ?? "Unknown";
+                              const color = STORE_BRAND[name];
+                              return (
+                                <span
+                                  key={sid}
+                                  className="text-[10px] font-semibold px-2 py-0.5 rounded-full text-white"
+                                  style={{ backgroundColor: color ?? "#6366f1" }}
+                                >
+                                  {name}
+                                </span>
+                              );
+                            })}
+                            {(empStoreMap.get(employee.id) ?? []).length === 0 && <span className="text-muted-foreground">—</span>}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {employee.rate || "—"}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge
+                            variant={employee.status === "ACTIVE" ? "default" : "secondary"}
+                            className="cursor-pointer select-none text-xs"
+                            onClick={(e) => toggleStatus(e, employee)}
+                          >
+                            {employee.status === "ACTIVE" ? "Active" : "Inactive"}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </>
             )}
           </CardContent>
         </Card>
