@@ -392,6 +392,36 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
           );
         })}
       </div>
+
+      {/* Powered-by branding anchored below the keypad */}
+      <div style={{ marginTop: 32, display: "flex", flexDirection: "column", alignItems: "center", gap: 12, width: "100%" }}>
+        <p style={{
+          fontSize: 10, fontWeight: 500, color: "#929292",
+          letterSpacing: "1.4px", textTransform: "uppercase",
+          margin: 0, fontFamily: AL.font,
+        }}>
+          Powered by
+        </p>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16 }}>
+          <div style={{ position: "relative", overflow: "hidden", width: 56, height: 56, flexShrink: 0 }}>
+            <img
+              src={sushimeLogo}
+              alt="Sushime"
+              data-testid="img-logo-sushime"
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", transform: "scale(2.8)", transformOrigin: "center" }}
+            />
+          </div>
+          <div style={{ width: 1, height: 32, background: "#c1c1c1", flexShrink: 0 }} />
+          <div style={{ position: "relative", overflow: "hidden", width: 80, height: 44, flexShrink: 0 }}>
+            <img
+              src={eatemLogo}
+              alt="Eat'em"
+              data-testid="img-logo-eatem"
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", transform: "scale(1.9)", transformOrigin: "center" }}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -3731,51 +3761,32 @@ export function EmployeePortal() {
             )}
             <span style={{ fontWeight: 600, fontSize: 15, color: "#222222", letterSpacing: "-0.1px", fontFamily: AL.font }}>Staff Portal</span>
 
-            {/* Right cluster: optional Dashboard button + the two store logos */}
-            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-              {showAdminDashboard && (
-                <button
-                  type="button"
-                  data-testid="button-admin-dashboard-header"
-                  onClick={() => {
-                    // Phase B: AdminRoleContext sources role from AuthContext now.
-                    // If the user has an admin_token_v1 (logged-in admin), they go
-                    // straight to /admin; otherwise RequireAuth redirects to /admin/login.
-                    window.location.href = "/admin";
-                  }}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    height: 32, padding: "0 12px",
-                    background: "#222222", color: "#ffffff",
-                    border: "none", borderRadius: 8,
-                    fontSize: 12, fontWeight: 600,
-                    cursor: "pointer", fontFamily: AL.font,
-                    touchAction: "manipulation",
-                    WebkitTapHighlightColor: "transparent",
-                  }}
-                >
-                  <LayoutDashboard style={{ width: 14, height: 14 }} />
-                  Dashboard
-                </button>
-              )}
-              <div style={{ position: "relative", overflow: "hidden", width: 28, height: 28, flexShrink: 0 }}>
-                <img
-                  src={sushimeLogo}
-                  alt="Sushime"
-                  data-testid="img-header-logo-sushime"
-                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", transform: "scale(2.8)", transformOrigin: "center" }}
-                />
-              </div>
-              <div style={{ width: 1, height: 18, background: "#c1c1c1", flexShrink: 0 }} />
-              <div style={{ position: "relative", overflow: "hidden", width: 44, height: 24, flexShrink: 0 }}>
-                <img
-                  src={eatemLogo}
-                  alt="Eat'em"
-                  data-testid="img-header-logo-eatem"
-                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", transform: "scale(1.9)", transformOrigin: "center" }}
-                />
-              </div>
-            </div>
+            {showAdminDashboard && (
+              <button
+                type="button"
+                data-testid="button-admin-dashboard-header"
+                onClick={() => {
+                  // Phase B: AdminRoleContext sources role from AuthContext now.
+                  // If the user has an admin_token_v1 (logged-in admin), they go
+                  // straight to /admin; otherwise RequireAuth redirects to /admin/login.
+                  window.location.href = "/admin";
+                }}
+                style={{
+                  marginLeft: "auto",
+                  display: "flex", alignItems: "center", gap: 6,
+                  height: 36, padding: "0 14px",
+                  background: "#222222", color: "#ffffff",
+                  border: "none", borderRadius: 8,
+                  fontSize: 13, fontWeight: 600,
+                  cursor: "pointer", fontFamily: AL.font,
+                  touchAction: "manipulation",
+                  WebkitTapHighlightColor: "transparent",
+                }}
+              >
+                <LayoutDashboard style={{ width: 15, height: 15 }} />
+                Dashboard
+              </button>
+            )}
           </div>
         </header>
 
