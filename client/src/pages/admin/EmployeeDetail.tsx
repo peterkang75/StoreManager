@@ -507,10 +507,10 @@ export function AdminEmployeeDetail() {
   return (
     <AdminLayout title="Employee Details">
       <div className="space-y-6">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-3 md:gap-4 min-w-0">
             <Link href="/admin/employees">
-              <Button variant="ghost" size="icon" data-testid="button-back">
+              <Button variant="ghost" size="icon" data-testid="button-back" className="shrink-0">
                 <ArrowLeft className="w-4 h-4" />
               </Button>
             </Link>
@@ -527,8 +527,8 @@ export function AdminEmployeeDetail() {
                 <User className="w-6 h-6 text-muted-foreground" />
               </div>
             )}
-            <div>
-              <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <h2 className="text-xl font-semibold" data-testid="text-employee-name">
                   {employee.firstName} {employee.lastName}
                 </h2>
@@ -536,7 +536,7 @@ export function AdminEmployeeDetail() {
                   {employee.status}
                 </Badge>
               </div>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground truncate">
                 {employee.nickname && `"${employee.nickname}" • `}
                 {employee.email || "No email"}
               </p>
@@ -546,6 +546,7 @@ export function AdminEmployeeDetail() {
             onClick={handleSave}
             disabled={!hasChanges || isSaving}
             data-testid="button-save"
+            className="w-full md:w-auto"
           >
             {isSaving ? (
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />

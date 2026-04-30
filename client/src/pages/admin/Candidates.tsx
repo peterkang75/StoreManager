@@ -563,8 +563,8 @@ export function AdminCandidates() {
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Nationality</TableHead>
-                    <TableHead>Availability</TableHead>
-                    <TableHead>Desired Rate</TableHead>
+                    <TableHead className="hidden md:table-cell">Availability</TableHead>
+                    <TableHead className="hidden md:table-cell">Desired Rate</TableHead>
                     <TableHead>Decision</TableHead>
                     <TableHead>Interview Date</TableHead>
                   </TableRow>
@@ -579,8 +579,8 @@ export function AdminCandidates() {
                     >
                       <TableCell className="font-medium">{candidate.name}</TableCell>
                       <TableCell>{candidate.nationality || "—"}</TableCell>
-                      <TableCell>{candidate.availability || "—"}</TableCell>
-                      <TableCell>{candidate.desiredRate || "—"}</TableCell>
+                      <TableCell className="hidden md:table-cell">{candidate.availability || "—"}</TableCell>
+                      <TableCell className="hidden md:table-cell">{candidate.desiredRate || "—"}</TableCell>
                       <TableCell>{getDecisionBadge(candidate.hireDecision)}</TableCell>
                       <TableCell className="text-muted-foreground">
                         {formatDate(candidate.createdAt)}
