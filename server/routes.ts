@@ -707,10 +707,24 @@ export async function registerRoutes(
     }
   });
 
+  // Phase B: never expose password_hash through any /api/employees* response.
+  // (bcrypt is one-way but we shouldn't leak it. PIN is similarly omitted
+  // for non-ADMIN callers. Bank/TFN scoping stays Phase B.1.)
+  function sanitizeEmployee(emp: any, viewerRole: string | undefined) {
+    if (!emp) return emp;
+    const { passwordHash, ...rest } = emp;
+    if ((viewerRole ?? "").toUpperCase() !== "ADMIN") {
+      // Non-ADMIN viewers don't need raw PIN either.
+      const { pin, ...safeRest } = rest;
+      return safeRest;
+    }
+    return rest;
+  }
+
   app.get("/api/employees", async (req: Request, res: Response) => {
     try {
       const filters: { storeId?: string; status?: string; keyword?: string } = {};
-      
+
       if (req.query.store_id && typeof req.query.store_id === "string") {
         filters.storeId = req.query.store_id;
       }
@@ -722,7 +736,8 @@ export async function registerRoutes(
       }
 
       const employees = await storage.getEmployees(filters);
-      res.json(employees);
+      const role = req.user?.role;
+      res.json(employees.map((e) => sanitizeEmployee(e, role)));
     } catch (error) {
       console.error("Error fetching employees:", error);
       res.status(500).json({ error: "Failed to fetch employees" });
@@ -736,7 +751,7 @@ export async function registerRoutes(
       if (!employee) {
         return res.status(404).json({ error: "Employee not found" });
       }
-      res.json(employee);
+      res.json(sanitizeEmployee(employee, req.user?.role));
     } catch (error) {
       console.error("Error fetching employee:", error);
       res.status(500).json({ error: "Failed to fetch employee" });
@@ -4526,9 +4541,7 @@ export async function registerRoutes(
       });
     } catch (err: any) {
       console.error("[/api/auth/login] error:", err);
-      // Temporary: return error detail to help diagnose Step 3 issues. Will sanitize after Phase B verified.
-      const detail = err?.message ?? String(err);
-      res.status(500).json({ error: "LOGIN_FAILED", message: "Login failed", detail });
+      res.status(500).json({ error: "LOGIN_FAILED", message: "Login failed" });
     }
   });
 
