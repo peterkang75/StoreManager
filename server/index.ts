@@ -489,8 +489,9 @@ function isPortalOrPublicPath(p: string): boolean {
   // SPA entry + shared static assets (portal needs the bundle)
   if (p === "/" || p === "/index.html") return true;
   if (p.startsWith("/assets/")) return true;
-  if (p === "/favicon.ico" || p === "/robots.txt") return true;
+  if (p === "/favicon.ico" || p === "/robots.txt" || p === "/manifest.json") return true;
   if (p.startsWith("/icons/") || p.startsWith("/images/")) return true;
+  if (p === "/favicon.png" || p === "/icon-192.png" || p === "/icon-512.png") return true;
 
   // Vite dev assets (development only)
   if (
@@ -500,6 +501,25 @@ function isPortalOrPublicPath(p: string): boolean {
     p.startsWith("/src/") ||
     p.startsWith("/node_modules/")
   ) return true;
+
+  // Shared API endpoints used by mobile portal (also used by admin).
+  // Trade-off: bypassing these lets a direct curl read this data,
+  // but mobile portal needs them to function. Phase B (admin session
+  // + per-route role guards) will properly gate these.
+  if (p.startsWith("/api/stores") && !p.startsWith("/api/store-config")) return true;
+  if (p.startsWith("/api/employees")) return true;
+  if (p.startsWith("/api/candidates")) return true;
+  if (p.startsWith("/api/daily-close-forms")) return true;
+  if (p.startsWith("/api/daily-closings")) return true;
+  if (p.startsWith("/api/direct-register")) return true;
+  if (p.startsWith("/api/notices")) return true;
+  if (p.startsWith("/api/onboarding")) return true;
+  if (p.startsWith("/api/permissions")) return true;
+  if (p.startsWith("/api/shifts")) return true;
+  if (p.startsWith("/api/shopping")) return true;
+  if (p.startsWith("/api/storage")) return true;
+  if (p.startsWith("/api/time-logs")) return true;
+  if (p.startsWith("/api/upload")) return true;
 
   return false;
 }
