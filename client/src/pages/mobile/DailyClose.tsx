@@ -237,7 +237,7 @@ export function MobileDailyClose() {
 
   if (storesLoading) {
     return (
-      <MobileLayout title="Daily Close">
+      <MobileLayout title="Daily Close" backUrl="/m/portal">
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {[0, 1].map(i => (
             <div key={i} style={{ height: 80, background: "#f2f2f2", borderRadius: 20 }} className="animate-pulse" />
@@ -249,7 +249,7 @@ export function MobileDailyClose() {
 
   if (submitted) {
     return (
-      <MobileLayout title="Daily Close">
+      <MobileLayout title="Daily Close" backUrl="/m/portal">
         <div style={{ background: "#ffffff", borderRadius: 20, padding: 32, textAlign: "center", boxShadow: A.shadow }}>
           <CheckCircle2 style={{ width: 64, height: 64, color: "#222222", margin: "0 auto 16px" }} />
           <h2 style={{ fontSize: 24, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px", marginBottom: 8 }} data-testid="text-success-title">Submitted!</h2>
@@ -282,7 +282,7 @@ export function MobileDailyClose() {
   const canSubmit = !!storeId && !!date && requiredFilled && !submitMutation.isPending;
 
   return (
-    <MobileLayout title="Daily Close">
+    <MobileLayout title="Daily Close" backUrl="/m/portal">
       <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingBottom: 96, fontFamily: A.font }}>
 
         {/* Greeting */}
