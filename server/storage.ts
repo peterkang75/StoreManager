@@ -48,6 +48,7 @@ import {
   type PublicHoliday, type InsertPublicHoliday, publicHolidays,
   type StoreRecommendedHours, type InsertStoreRecommendedHours, storeRecommendedHours,
   type AutomationRule, type InsertAutomationRule, automationRules,
+  type PortalSession, portalSessions,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import { db } from "./db";
@@ -117,6 +118,11 @@ export interface IStorage {
   createDailyClosing(closing: InsertDailyClosing): Promise<DailyClosing>;
   updateDailyClosing(id: string, closing: Partial<InsertDailyClosing>): Promise<DailyClosing | undefined>;
   deleteDailyClosing(id: string): Promise<boolean>;
+
+  // Portal Bearer-token sessions (auth gate for /api/portal/* routes)
+  createPortalSession(employeeId: string, ttlDays?: number): Promise<{ token: string; expiresAt: Date }>;
+  getPortalSession(token: string): Promise<PortalSession | undefined>;
+  deletePortalSession(token: string): Promise<boolean>;
 
   getCashSalesDetails(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<CashSalesDetail[]>;
   getCashSalesDetail(id: string): Promise<CashSalesDetail | undefined>;
@@ -900,6 +906,28 @@ export class MemStorage implements IStorage {
 
   async deleteDailyClosing(id: string): Promise<boolean> {
     return this.dailyClosings.delete(id);
+  }
+
+  // Portal sessions (in-memory variant)
+  private portalSessions = new Map<string, PortalSession>();
+  async createPortalSession(employeeId: string, ttlDays = 30): Promise<{ token: string; expiresAt: Date }> {
+    const token = randomBytes(32).toString("hex");
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + ttlDays * 86_400_000);
+    this.portalSessions.set(token, { token, employeeId, createdAt: now, expiresAt });
+    return { token, expiresAt };
+  }
+  async getPortalSession(token: string): Promise<PortalSession | undefined> {
+    const s = this.portalSessions.get(token);
+    if (!s) return undefined;
+    if (s.expiresAt.getTime() < Date.now()) {
+      this.portalSessions.delete(token);
+      return undefined;
+    }
+    return s;
+  }
+  async deletePortalSession(token: string): Promise<boolean> {
+    return this.portalSessions.delete(token);
   }
 
   async getCashSalesDetails(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<CashSalesDetail[]> {
@@ -2168,6 +2196,30 @@ export class DatabaseStorage implements IStorage {
 
   async deleteDailyClosing(id: string): Promise<boolean> {
     const result = await db.delete(dailyClosings).where(eq(dailyClosings.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async createPortalSession(employeeId: string, ttlDays = 30): Promise<{ token: string; expiresAt: Date }> {
+    const token = randomBytes(32).toString("hex");
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + ttlDays * 86_400_000);
+    await db.insert(portalSessions).values({ token, employeeId, createdAt: now, expiresAt });
+    return { token, expiresAt };
+  }
+
+  async getPortalSession(token: string): Promise<PortalSession | undefined> {
+    const [s] = await db.select().from(portalSessions).where(eq(portalSessions.token, token)).limit(1);
+    if (!s) return undefined;
+    if (new Date(s.expiresAt).getTime() < Date.now()) {
+      // Clean up expired token opportunistically
+      await db.delete(portalSessions).where(eq(portalSessions.token, token));
+      return undefined;
+    }
+    return s;
+  }
+
+  async deletePortalSession(token: string): Promise<boolean> {
+    const result = await db.delete(portalSessions).where(eq(portalSessions.token, token));
     return (result.rowCount ?? 0) > 0;
   }
 

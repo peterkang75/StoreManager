@@ -33,6 +33,15 @@ const STATEMENTS: string[] = [
      imported_at timestamp NOT NULL DEFAULT now()
    )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS daily_sales_store_date_uniq ON daily_sales (store_id, date)`,
+
+  // Portal Bearer-token sessions — auth gate for /api/portal/* routes
+  `CREATE TABLE IF NOT EXISTS portal_sessions (
+     token text PRIMARY KEY,
+     employee_id varchar NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+     created_at timestamp NOT NULL DEFAULT now(),
+     expires_at timestamp NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS portal_sessions_employee_idx ON portal_sessions (employee_id)`,
 ];
 
 export async function runBootstrapMigrations(): Promise<void> {

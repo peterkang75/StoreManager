@@ -1,5 +1,5 @@
 import express from "express";
-import type { Express, Request, Response } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage, generateSecureToken } from "./storage";
 import { db } from "./db";
@@ -127,6 +127,46 @@ export async function registerRoutes(
     res.setHeader("Cache-Control", "public, max-age=31536000");
     next();
   }, express.static(uploadDir));
+
+  // ─── Portal auth middleware ──────────────────────────────────────────
+  // Bearer-token gate for /api/portal/* data routes. The token is created
+  // on POST /api/portal/login-pin and stored in the portal_sessions table.
+  // Self-only access for now: any employeeId in the request must match the
+  // authenticated user. Manager/owner override comes in Phase 1 (team-week
+  // endpoint).
+  async function requirePortalAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+    const auth = req.header("authorization") ?? "";
+    const m = auth.match(/^Bearer\s+(.+)$/i);
+    if (!m) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const session = await storage.getPortalSession(m[1].trim());
+    if (!session) {
+      res.status(401).json({ error: "Session expired or invalid — please log in again" });
+      return;
+    }
+    const emp = await storage.getEmployee(session.employeeId);
+    if (!emp) {
+      res.status(401).json({ error: "Account not found" });
+      return;
+    }
+    (req as any).portalUser = {
+      id: emp.id,
+      role: (emp.role ?? "").toUpperCase() || null,
+      nickname: emp.nickname,
+    };
+    // Reject if request specifies a different employeeId than the caller's.
+    const queriedId =
+      (req.query.employeeId as string | undefined) ??
+      (req.query.employee_id as string | undefined) ??
+      (req.body && (req.body.employeeId || req.body.employee_id));
+    if (queriedId && queriedId !== emp.id) {
+      res.status(403).json({ error: "Cannot access another employee's data" });
+      return;
+    }
+    next();
+  }
 
   app.post("/api/upload", upload.single("file"), async (req: Request, res: Response) => {
     try {
@@ -4387,6 +4427,7 @@ export async function registerRoutes(
       clearPinAttempts(`loginpin:${pinStr}`);
       const portalAssignments = await storage.getEmployeeStoreAssignments({ employeeId: emp.id });
       const portalStoreIds = portalAssignments.map((a: any) => a.storeId);
+      const { token } = await storage.createPortalSession(emp.id);
       res.json({
         id: emp.id,
         nickname: emp.nickname,
@@ -4396,9 +4437,24 @@ export async function registerRoutes(
         selfieUrl: emp.selfieUrl ?? null,
         role: emp.role ?? null,
         isFirstLogin,
+        token,
       });
     } catch (err) {
       res.status(500).json({ error: "Login failed" });
+    }
+  });
+
+  // POST /api/portal/logout — invalidate the caller's bearer token
+  app.post("/api/portal/logout", async (req: Request, res: Response) => {
+    try {
+      const auth = req.header("authorization") ?? "";
+      const m = auth.match(/^Bearer\s+(.+)$/i);
+      if (m) {
+        await storage.deletePortalSession(m[1].trim());
+      }
+      res.json({ ok: true });
+    } catch {
+      res.json({ ok: true }); // logout never fails the client
     }
   });
 
@@ -4440,7 +4496,7 @@ export async function registerRoutes(
 
   // GET /api/portal/today?employeeId=X&date=YYYY-MM-DD
   // Returns all stores' shifts for this employee today (multi-store support)
-  app.get("/api/portal/today", async (req: Request, res: Response) => {
+  app.get("/api/portal/today", requirePortalAuth, async (req: Request, res: Response) => {
     try {
       const { employeeId, date } = req.query;
       if (!employeeId || !date) return res.status(400).json({ error: "employeeId and date required" });
@@ -4486,7 +4542,7 @@ export async function registerRoutes(
   });
 
   // GET /api/portal/shift?employeeId=X&storeId=Y&date=YYYY-MM-DD (single day, kept for compat)
-  app.get("/api/portal/shift", async (req: Request, res: Response) => {
+  app.get("/api/portal/shift", requirePortalAuth, async (req: Request, res: Response) => {
     try {
       const { employeeId, storeId, date } = req.query;
       if (!employeeId || !storeId || !date) return res.status(400).json({ error: "employeeId, storeId, date required" });
@@ -4504,7 +4560,7 @@ export async function registerRoutes(
   // GET /api/portal/week?employeeId=X&weekStart=YYYY-MM-DD[&storeId=Y]
   // Returns all 7 days of shift + timesheet data for the week.
   // storeId is optional — if omitted, fetches shifts across all stores.
-  app.get("/api/portal/week", async (req: Request, res: Response) => {
+  app.get("/api/portal/week", requirePortalAuth, async (req: Request, res: Response) => {
     try {
       const { employeeId, storeId, weekStart } = req.query;
       if (!employeeId || !weekStart) return res.status(400).json({ error: "employeeId and weekStart required" });
@@ -4583,7 +4639,7 @@ export async function registerRoutes(
 
   // GET /api/portal/missed-shifts?employeeId=X&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
   // Returns past published roster entries in the date range that have no timesheet.
-  app.get("/api/portal/missed-shifts", async (req: Request, res: Response) => {
+  app.get("/api/portal/missed-shifts", requirePortalAuth, async (req: Request, res: Response) => {
     try {
       const { employeeId, startDate: startDateRaw, endDate: endDateRaw } = req.query;
       if (!employeeId) return res.status(400).json({ error: "employeeId required" });
@@ -4644,7 +4700,7 @@ export async function registerRoutes(
   // GET /api/portal/cycle-timesheets?employeeId=X&cycleStart=YYYY-MM-DD&cycleEnd=YYYY-MM-DD
   // Returns submitted shift timesheets for the given cycle period.
   // Also returns payrollProcessed: true if a payroll record covers this cycle.
-  app.get("/api/portal/cycle-timesheets", async (req: Request, res: Response) => {
+  app.get("/api/portal/cycle-timesheets", requirePortalAuth, async (req: Request, res: Response) => {
     try {
       const { employeeId, cycleStart, cycleEnd } = req.query;
       if (!employeeId || !cycleStart || !cycleEnd) {
@@ -4676,7 +4732,7 @@ export async function registerRoutes(
 
   // GET /api/portal/history?employeeId=X
   // Returns all payroll cycles (from ANCHOR to current cycle end) with timesheet + payroll status.
-  app.get("/api/portal/history", async (req: Request, res: Response) => {
+  app.get("/api/portal/history", requirePortalAuth, async (req: Request, res: Response) => {
     try {
       const { employeeId } = req.query;
       if (!employeeId) return res.status(400).json({ error: "employeeId required" });
@@ -4778,7 +4834,7 @@ export async function registerRoutes(
   });
 
   // GET /api/portal/timesheet?employeeId=X&date=YYYY-MM-DD
-  app.get("/api/portal/timesheet", async (req: Request, res: Response) => {
+  app.get("/api/portal/timesheet", requirePortalAuth, async (req: Request, res: Response) => {
     try {
       const { employeeId, date } = req.query;
       if (!employeeId || !date) return res.status(400).json({ error: "employeeId and date required" });
@@ -4790,7 +4846,7 @@ export async function registerRoutes(
   });
 
   // POST /api/portal/timesheet — submit timesheet
-  app.post("/api/portal/timesheet", async (req: Request, res: Response) => {
+  app.post("/api/portal/timesheet", requirePortalAuth, async (req: Request, res: Response) => {
     try {
       const { storeId, employeeId, date, actualStartTime, actualEndTime, adjustmentReason } = req.body;
       if (!storeId || !employeeId || !date || !actualStartTime || !actualEndTime) {
@@ -4814,7 +4870,7 @@ export async function registerRoutes(
   });
 
   // POST /api/portal/unscheduled-timesheet — log hours when no roster shift exists
-  app.post("/api/portal/unscheduled-timesheet", async (req: Request, res: Response) => {
+  app.post("/api/portal/unscheduled-timesheet", requirePortalAuth, async (req: Request, res: Response) => {
     try {
       const { storeId, employeeId, date, actualStartTime, actualEndTime, adjustmentReason } = req.body;
       if (!storeId || !employeeId || !date || !actualStartTime || !actualEndTime || !adjustmentReason?.trim()) {

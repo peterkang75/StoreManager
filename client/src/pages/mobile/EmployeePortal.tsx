@@ -175,17 +175,30 @@ function getGreeting() {
 
 const SESSION_KEY = "ep_session_v5";
 const LEGACY_SESSION_KEY = "ep_session_v4";
+const PORTAL_TOKEN_KEY = "ep_portal_token_v1";
 function loadSession(): Session | null {
   try {
+    // From the moment portal auth shipped, a session is only valid if the
+    // bearer token is also present. Sessions saved before the auth change
+    // have no token and would just produce 401s on every API call — clear
+    // them so the user lands on the PIN screen instead.
+    const hasToken = !!localStorage.getItem(PORTAL_TOKEN_KEY);
     const r = localStorage.getItem(SESSION_KEY);
-    if (r) return JSON.parse(r);
+    if (r) {
+      if (!hasToken) {
+        localStorage.removeItem(SESSION_KEY);
+        return null;
+      }
+      return JSON.parse(r);
+    }
     // Fallback: migrate from sessionStorage if upgrading mid-session
     const legacy = sessionStorage.getItem(LEGACY_SESSION_KEY);
     if (legacy) {
-      const parsed = JSON.parse(legacy);
-      localStorage.setItem(SESSION_KEY, legacy);
       sessionStorage.removeItem(LEGACY_SESSION_KEY);
-      return parsed;
+      // Legacy sessions have no token either — drop them.
+      if (!hasToken) return null;
+      localStorage.setItem(SESSION_KEY, legacy);
+      return JSON.parse(legacy);
     }
     return null;
   } catch { return null; }
@@ -233,6 +246,9 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
     },
     onSuccess: (data) => {
       try { localStorage.setItem("crew_has_logged_in", "1"); } catch {}
+      // Store the bearer token so subsequent /api/portal/* calls authenticate.
+      // queryClient's fetch wrapper picks this up automatically.
+      try { if (data.token) localStorage.setItem("ep_portal_token_v1", data.token); } catch {}
       onSuccess({ id: data.id, nickname: data.nickname, firstName: data.firstName, selfieUrl: data.selfieUrl ?? null, role: data.role ?? null, storeId: data.storeId ?? null, storeIds: data.storeIds ?? [], isFirstLogin: !!data.isFirstLogin });
     },
     onError: (err: Error) => { setError(err.message); setPin(""); },
@@ -3609,7 +3625,16 @@ export function EmployeePortal() {
   const [activeTab, setActiveTab] = useState<Tab>("home");
   const [subView, setSubView] = useState<"edit-profile" | null>(null);
 
-  const handleLogout = () => setSession(null);
+  const handleLogout = () => {
+    // Best-effort: invalidate the bearer token server-side, then clear local
+    // copy. We do this before setSession(null) so the fetch still picks up
+    // the token from localStorage.
+    try {
+      fetch("/api/portal/logout", { method: "POST" }).catch(() => {});
+    } catch {}
+    try { localStorage.removeItem("ep_portal_token_v1"); } catch {}
+    setSession(null);
+  };
   const handleLogin  = (s: Session) => { saveSession(s); setSession(s); };
   const handlePinChanged = () => setSession(s => s ? { ...s, isFirstLogin: false } : s);
   const showBack = !!session && (subView !== null || activeTab !== "home");

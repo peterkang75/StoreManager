@@ -919,3 +919,17 @@ export const dailySales = pgTable("daily_sales", {
 export const insertDailySalesSchema = createInsertSchema(dailySales).omit({ id: true, importedAt: true });
 export type InsertDailySales = z.infer<typeof insertDailySalesSchema>;
 export type DailySales = typeof dailySales.$inferSelect;
+
+// Bearer-token sessions for the mobile portal. One row per login. The token
+// is sent in Authorization: Bearer <token> on every /api/portal/* request
+// that isn't the login or stores list endpoint. Rows are deleted on logout
+// or expire after 30 days. Admin/non-portal routes are NOT gated by this
+// table — that's Phase B (see PLAN.md §6.0 / §6.3).
+export const portalSessions = pgTable("portal_sessions", {
+  token: text("token").primaryKey(),
+  employeeId: varchar("employee_id").references(() => employees.id, { onDelete: "cascade" }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+});
+
+export type PortalSession = typeof portalSessions.$inferSelect;

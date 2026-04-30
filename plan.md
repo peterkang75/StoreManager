@@ -1136,6 +1136,12 @@ Three sequential commits (`03a2ea0`, `33019bf`, `7f374e6`) fixed 15 issues surfa
   - **수정**: `mergeDraftOverManagerInputs()` 헬퍼 추가. API 출처 필드(hours, rate, fixedAmount, 직원 플래그)는 항상 최신 데이터로 재계산, 매니저 타이핑 필드(adjustment, memo, tax override, gross/cash 수동 분할)만 sessionStorage에서 보존 후 `recalcRow` 재실행. `isNewContext` 경로와 background refetch 경로 둘 다 동일하게 정정.
   - **영향**: 기존 draft 보존 스펙(§2.1.1)은 매니저 입력 필드에 한정되어 유지됨. 탭/매장 전환·HMR 후에도 typed adjustment/memo/tax 계속 보존, 대신 새로 승인된 shift는 즉시 반영.
 
+- [ ] **Admin/non-portal API routes are not authenticated** 🚨 (2026-04-30 발견)
+  - **현황 (2026-04-30 부분 해결)**: 모바일 portal 라우트(`/api/portal/today|shift|week|missed-shifts|cycle-timesheets|history|timesheet|unscheduled-timesheet`)는 Bearer 토큰 게이트(§3.x portal_sessions 테이블) 적용됨. 어드민·기타 라우트는 여전히 무인증.
+  - **남은 leak 범위**: `/api/employees`, `/api/payrolls`, `/api/daily-closings`, `/api/suppliers`, `/api/invoices`, `/api/timesheets`, `/api/rosters`, `/api/finance/*`, `/api/cash-sales`, etc. 모든 어드민 라우트. URL 알면 누구나 호출 가능.
+  - **해결안 (Phase B)**: `express-session` + `connect-pg-simple` wiring (이미 패키지 설치됨, `.env.local`에 `SESSION_SECRET` 존재). 어드민 로그인 흐름 추가 (현재 어드민 페이지는 인증 없이 접근). 라우트별 role 가드 미들웨어 (OWNER/MANAGER 권한 체크). 1–2일 작업 추정.
+  - **임시 완화**: 도메인이 일반에 알려져 있지 않고 사용자가 단일 운영자라 즉시 exploit 가능성은 낮으나, 본인 페이슬립·뱅킹 등 sensitive data leak 가능성 명시적 인지 필요.
+
 - [x] **Statement vs Invoice reconciliation stability** (2026-04-23 해결 — §3.22)
   - **조치**: 화이트리스트 전용 파이프라인 도입 + 4-way classifier(INVOICE/STATEMENT/REMITTANCE/OTHER). Statement은 per-row PENDING으로 확장되고 `(supplierId, invoiceNumber)` 중복 스킵, 1-row 결과는 REVIEW 유지. Xero 송신자 해석 버그 수정으로 `post.xero.com` → 실제 공급업체 정상 매칭.
   - **Stuck-invoice 회복**: `POST /api/invoices/bulk-reclassify` + `POST /api/invoices/backfill-from-inbox` 실행으로 74건 중 대다수 PENDING으로 승격됨.
@@ -1275,6 +1281,31 @@ Turns interview capture + hiring + onboarding into one flow so anyone conducting
 ### 6.3 Deferred / Future Backlog 📋
 
 > Items intentionally postponed. Each entry includes the reason it was deferred and any prerequisite work.
+
+#### 6.3.0 Mobile Portal: Manager Personal-vs-Team View 📱
+- **Status:** Phase 0 (Bearer 토큰 portal 가드) 2026-04-30 완료. Phase 1+ 대기.
+- **Origin:** OWNER/MANAGER가 모바일 포털에서 본인 데이터(시프트·타임시트)도 갖고 있으면서 동시에 팀을 봐야 하는데 현재 포털은 항상 `session.id`로 하드 스코프.
+- **Phase 1 — Schedule 탭 Team 모드** (다음 작업 후보):
+  - `usePortalScope` 훅 + `<ScopeToggle>` 세그먼트 컴포넌트 (My / Team)
+  - 신규 엔드포인트 `GET /api/portal/team-week` (storeIds는 세션에서 derive — 쿼리 파라미터 X, 신뢰 경계)
+  - Schedule 탭에 토글 추가, default: OWNER → Team / MANAGER → My
+  - 본인 row 강조: `#f9f9f9` 배경 + 라벨 "You" (Rausch Red 사용 X — design.md §7 단일 액센트 룰 준수)
+  - 다중 매장 매니저 (`storeIds=[A,B]`): union + dismissable filter chip row
+  - 권한 가드: 미들웨어가 매니저 role + storeIds 검증, 매니저 storeIds 밖 직원 employeeId 거부
+- **Phase 2 — Timesheets Team + Home 결합 위젯**:
+  - Timesheets 탭 토글 (default My) — OWNER만 임금/페이 표시, MANAGER hours만
+  - Home 탭은 토글 X, "Team on shift now" 카드 추가
+  - 신규 엔드포인트: `/api/portal/team-history`, `/api/portal/team-today`
+- **Phase 3 — MobileClock Team 모드**:
+  - 별 플랜으로 분리 (공유 기기 위협 모델 — 가게 카운터 iPad 등). 어깨너머 보기 위험 별 검토
+- **MobileRoster standalone 정리**: Schedule Team이 거의 대체. 제거 vs 어드민 전용 재배치 결정.
+- **Plan 파일**: `/Users/peter/.claude/plans/peppy-splashing-thompson.md` (Phase 0 완료 상태로 보존)
+
+#### 6.3.0a Admin/Non-Portal API Authentication (Phase B) 🚨
+- **Status:** Critical security gap — see §6.0. Phase 0 fixed only `/api/portal/*`.
+- **Scope:** Wire `express-session` + `connect-pg-simple` (already installed; `SESSION_SECRET` env var exists). Add admin login flow (현재 어드민 페이지는 PIN 인증 없이 직접 접근 가능). Apply role-based gate middleware to all `/api/*` (non-portal) routes: `/api/employees`, `/api/payrolls`, `/api/daily-closings`, `/api/suppliers`, `/api/invoices`, `/api/timesheets`, `/api/rosters`, `/api/finance/*`, `/api/cash-sales`, etc.
+- **Effort:** 1–2 days. Risk: every existing admin page must continue to work after gate lands — careful enumeration of routes vs missed routes.
+- **Why deferred from Phase 0:** Sized to half-day quick fix originally, ballooned to multi-day once the missing session infra was discovered. User opted for narrow Phase 0 (portal only) with this followup.
 
 #### 6.3.1 PWA Service Worker (offline + push)
 - **Status:** Deferred from Phase 2.

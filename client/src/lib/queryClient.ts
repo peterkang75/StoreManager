@@ -1,5 +1,37 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+// Portal Bearer-token key — set by EmployeePortal.tsx on login.
+export const PORTAL_TOKEN_KEY = "ep_portal_token_v1";
+
+// Wrap window.fetch so every /api/portal/* request automatically includes the
+// portal Bearer token (read from localStorage). Non-portal calls are
+// untouched. This avoids editing dozens of fetch sites scattered around the
+// mobile pages.
+if (typeof window !== "undefined" && !(window as any).__crewPortalFetchPatched) {
+  const orig = window.fetch.bind(window);
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    let url = "";
+    if (typeof input === "string") url = input;
+    else if (input instanceof URL) url = input.href;
+    else if ((input as Request).url) url = (input as Request).url;
+    if (url && (url.startsWith("/api/portal/") || url.includes("/api/portal/"))) {
+      try {
+        const token = localStorage.getItem(PORTAL_TOKEN_KEY);
+        if (token) {
+          init = init || {};
+          const headers = new Headers(init.headers || {});
+          if (!headers.has("Authorization") && !headers.has("authorization")) {
+            headers.set("Authorization", `Bearer ${token}`);
+          }
+          init.headers = headers;
+        }
+      } catch {}
+    }
+    return orig(input, init);
+  };
+  (window as any).__crewPortalFetchPatched = true;
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
