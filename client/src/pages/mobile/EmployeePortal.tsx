@@ -591,6 +591,22 @@ function TimesheetDrawer({
 
 // ── Today Shift Card ──────────────────────────────────────────────────────────
 
+// Convert a hex store-color into an Inset Glow Frame shadow stack.
+// The card keeps its existing two ambient shadow layers; only the innermost
+// 1px ring is tinted with the store color. Darker hues (Sushi black) use a
+// slightly higher alpha than vibrant ones (Sandwich red) for matched
+// perceived weight against a white card surface.
+function shiftCardShadow(storeColor: string): string {
+  const hex = storeColor.replace("#", "");
+  const r = parseInt(hex.slice(0, 2), 16) || 106;
+  const g = parseInt(hex.slice(2, 4), 16) || 106;
+  const b = parseInt(hex.slice(4, 6), 16) || 106;
+  const luminance = (r + g + b) / 3;
+  // Black-ish stores: 12% alpha. Vibrant stores: 22% (red looks softer at low alpha).
+  const ringAlpha = luminance < 80 ? 0.12 : 0.22;
+  return `rgba(${r},${g},${b},${ringAlpha}) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px`;
+}
+
 function TodayShiftCard({
   item, employeeId, onTimesheetChange,
 }: {
@@ -611,9 +627,8 @@ function TodayShiftCard({
         style={{
           background: "#fff",
           borderRadius: 20,
-          boxShadow: "rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px",
+          boxShadow: shiftCardShadow(item.storeColor ?? "#6a6a6a"),
           overflow: "hidden",
-          borderLeft: `4px solid ${item.storeColor ?? "#6a6a6a"}`,
         }}
       >
         {/* Content */}
