@@ -23,6 +23,72 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Employee, Store, InsertEmployee, EmployeeStoreAssignment, Candidate } from "@shared/schema";
 
+const SECTION_NAV_ITEMS: { id: string; label: string }[] = [
+  { id: "section-personal", label: "Personal" },
+  { id: "section-visa", label: "Visa" },
+  { id: "section-photos", label: "Photos" },
+  { id: "section-employment", label: "Employment" },
+  { id: "section-portal", label: "Portal" },
+  { id: "section-banking", label: "Banking" },
+  { id: "section-super", label: "Super" },
+];
+
+function MobileSectionNav({ hasInterview }: { hasInterview: boolean }) {
+  const items = hasInterview
+    ? [...SECTION_NAV_ITEMS, { id: "section-interview", label: "Interview" }]
+    : SECTION_NAV_ITEMS;
+
+  const [active, setActive] = useState<string>(items[0]?.id ?? "");
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+        if (visible[0]) setActive(visible[0].target.id);
+      },
+      { rootMargin: "-20% 0px -65% 0px", threshold: [0, 0.25, 0.5, 0.75, 1] }
+    );
+    items.forEach((s) => {
+      const el = document.getElementById(s.id);
+      if (el) observer.observe(el);
+    });
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasInterview]);
+
+  const handleClick = (id: string) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      setActive(id);
+    }
+  };
+
+  return (
+    <nav className="md:hidden sticky top-0 z-30 -mt-2 bg-background/95 backdrop-blur-sm border-b">
+      <div className="flex gap-2 overflow-x-auto py-2 px-0.5">
+        {items.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => handleClick(s.id)}
+            data-testid={`nav-${s.id}`}
+            className={`text-xs font-medium whitespace-nowrap px-3 py-1.5 rounded-full transition-colors shrink-0 ${
+              active === s.id
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground"
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
 function FhcUploadSection({ value, onChange }: { value: string | null; onChange: (url: string | null) => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -506,7 +572,7 @@ export function AdminEmployeeDetail() {
 
   return (
     <AdminLayout title="Employee Details">
-      <div className="space-y-6">
+      <div className="space-y-6 pb-24 md:pb-0">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3 md:gap-4 min-w-0">
             <Link href="/admin/employees">
@@ -546,7 +612,7 @@ export function AdminEmployeeDetail() {
             onClick={handleSave}
             disabled={!hasChanges || isSaving}
             data-testid="button-save"
-            className="w-full md:w-auto"
+            className="hidden md:inline-flex"
           >
             {isSaving ? (
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -557,8 +623,12 @@ export function AdminEmployeeDetail() {
           </Button>
         </div>
 
+        {/* Mobile: section quick-jump nav */}
+        <MobileSectionNav hasInterview={!!interview} />
+
+
         <div className="grid gap-6">
-          <Card>
+          <Card id="section-personal" className="scroll-mt-20">
             <CardHeader>
               <CardTitle className="text-base">Personal Information</CardTitle>
             </CardHeader>
@@ -641,7 +711,7 @@ export function AdminEmployeeDetail() {
             const visaStatus = getVisaStatus(currentData.visaExpiry);
             const daysLeft = currentData.visaExpiry ? (() => { const d = parseVisaDate(currentData.visaExpiry); return d ? Math.ceil((d.getTime() - Date.now()) / 86400000) : null; })() : null;
             return (
-              <Card>
+              <Card id="section-visa" className="scroll-mt-20">
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
                     <ShieldCheck className="h-4 w-4" />
@@ -866,7 +936,7 @@ export function AdminEmployeeDetail() {
           })()}
 
           {/* Photos & Documents */}
-          <Card>
+          <Card id="section-photos" className="scroll-mt-20">
             <CardHeader>
               <CardTitle className="text-base">Photos & Documents</CardTitle>
             </CardHeader>
@@ -945,7 +1015,7 @@ export function AdminEmployeeDetail() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card id="section-employment" className="scroll-mt-20">
             <CardHeader>
               <CardTitle className="text-base">Employment Details</CardTitle>
             </CardHeader>
@@ -1079,7 +1149,7 @@ export function AdminEmployeeDetail() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card id="section-portal" className="scroll-mt-20">
             <CardHeader>
               <CardTitle className="text-base">Portal Access</CardTitle>
             </CardHeader>
@@ -1121,7 +1191,7 @@ export function AdminEmployeeDetail() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card id="section-banking" className="scroll-mt-20">
             <CardHeader>
               <CardTitle className="text-base">Banking Information</CardTitle>
             </CardHeader>
@@ -1161,7 +1231,7 @@ export function AdminEmployeeDetail() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card id="section-super" className="scroll-mt-20">
             <CardHeader>
               <CardTitle className="text-base">Superannuation</CardTitle>
             </CardHeader>
@@ -1191,9 +1261,35 @@ export function AdminEmployeeDetail() {
             </CardContent>
           </Card>
 
-          {interview && <InterviewInfoCard interview={interview} />}
+          {interview && (
+            <div id="section-interview" className="scroll-mt-20">
+              <InterviewInfoCard interview={interview} />
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Mobile: sticky bottom Save bar */}
+      {hasChanges && (
+        <div
+          className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-background border-t shadow-[0_-4px_12px_rgba(0,0,0,0.08)] px-4 py-3"
+          style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.75rem)" }}
+        >
+          <Button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="w-full"
+            data-testid="button-save-mobile"
+          >
+            {isSaving ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Save className="w-4 h-4 mr-2" />
+            )}
+            Save Changes
+          </Button>
+        </div>
+      )}
 
       {/* VEVO Modal */}
       {showVevoModal && (
