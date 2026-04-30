@@ -15,14 +15,16 @@ interface MobileLayoutProps {
 
 function loadPortalRole(): string | null {
   try {
-    const portal = sessionStorage.getItem("ep_session_v4");
-    if (portal) {
-      const s = JSON.parse(portal);
-      if (s?.role) return String(s.role).toUpperCase();
-    }
-    const legacy = localStorage.getItem("mobile_session");
-    if (legacy) {
-      const s = JSON.parse(legacy);
+    // Current key (set by EmployeePortal); fall back through legacy keys for
+    // any unmigrated sessions still on older clients.
+    const candidates = [
+      localStorage.getItem("ep_session_v5"),
+      sessionStorage.getItem("ep_session_v4"),
+      localStorage.getItem("mobile_session"),
+    ];
+    for (const raw of candidates) {
+      if (!raw) continue;
+      const s = JSON.parse(raw);
       if (s?.role) return String(s.role).toUpperCase();
     }
   } catch {}

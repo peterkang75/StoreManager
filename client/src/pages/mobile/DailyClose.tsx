@@ -58,7 +58,11 @@ interface PortalSession {
 
 function loadPortalSession(): PortalSession | null {
   try {
-    const raw = sessionStorage.getItem("ep_session_v4");
+    // Current key (set by EmployeePortal); falls back to the v4 legacy key for
+    // sessions that haven't been migrated yet.
+    const raw =
+      localStorage.getItem("ep_session_v5") ??
+      sessionStorage.getItem("ep_session_v4");
     if (!raw) return null;
     const s = JSON.parse(raw);
     return { id: s.id, nickname: s.nickname ?? null, firstName: s.firstName ?? "", storeId: s.storeId ?? null, storeIds: s.storeIds ?? [], role: s.role ?? null };
@@ -387,7 +391,7 @@ export function MobileDailyClose() {
               </div>
               <div>
                 <FieldLabel onInfoClick={() => setInfoField("numberOfReceipts")}>No. of Receipts</FieldLabel>
-                <Input id="numberOfReceipts" type="text" inputMode="numeric" value={form.numberOfReceipts} onChange={(e) => updateForm("numberOfReceipts", e.target.value)} className="h-12 text-base" data-testid="input-numberOfReceipts" />
+                <Input id="numberOfReceipts" type="tel" inputMode="numeric" pattern="[0-9]*" value={form.numberOfReceipts} onChange={(e) => updateForm("numberOfReceipts", e.target.value.replace(/\D/g, ""))} className="h-12 text-base" data-testid="input-numberOfReceipts" />
               </div>
             </div>
             <div>
