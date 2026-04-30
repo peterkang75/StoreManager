@@ -26,6 +26,7 @@ import {
   Settings,
   Building2,
   Repeat,
+  LogOut,
 } from "lucide-react";
 import {
   Sidebar,
@@ -57,6 +58,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAdminRole, type AdminRole } from "@/contexts/AdminRoleContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 // ─── Nav item definitions ────────────────────────────────────────────────────
 
@@ -253,9 +255,40 @@ function AdminSidebar() {
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
+          <UserFooter />
         </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
+  );
+}
+
+function UserFooter() {
+  const { user, logout } = useAuth();
+  const [, navigate] = useLocation();
+  if (!user) return null;
+  const name = user.firstName ?? user.email ?? "Account";
+  return (
+    <>
+      <SidebarMenuItem>
+        <div className="px-2 py-1 text-xs text-sidebar-foreground/60 truncate" title={user.email ?? ""}>
+          <div className="font-medium text-sidebar-foreground">{name}</div>
+          <div className="truncate">{user.email}</div>
+        </div>
+      </SidebarMenuItem>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          onClick={async () => {
+            await logout();
+            navigate("/admin/login", { replace: true });
+          }}
+          tooltip="Sign out"
+          data-testid="button-logout"
+        >
+          <LogOut className="w-4 h-4" />
+          <span>Sign out</span>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    </>
   );
 }
 

@@ -4,8 +4,11 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AdminRoleProvider, useAdminRole } from "@/contexts/AdminRoleContext";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { RequireAuth } from "@/components/RequireAuth";
 import NotFound from "@/pages/not-found";
 
+import { AdminLogin } from "@/pages/admin/Login";
 import { AdminDashboard } from "@/pages/admin/Dashboard";
 import { ManagerDashboard } from "@/pages/admin/ManagerDashboard";
 import { AdminStores } from "@/pages/admin/Stores";
@@ -47,6 +50,12 @@ function DashboardByRole() {
   return currentRole === "MANAGER" ? <ManagerDashboard /> : <AdminDashboard />;
 }
 
+// Wrap an admin page with RequireAuth (default: any logged-in admin tier).
+// Pass `allowed` to restrict to specific roles (e.g., AccessControl is ADMIN-only).
+function Admin({ children, allowed }: { children: React.ReactNode; allowed?: string[] }) {
+  return <RequireAuth allowed={allowed}>{children}</RequireAuth>;
+}
+
 function Router() {
   return (
     <Switch>
@@ -54,31 +63,34 @@ function Router() {
         <Redirect to="/admin" />
       </Route>
 
-      <Route path="/admin" component={DashboardByRole} />
-      <Route path="/admin/stores" component={AdminStores} />
-      <Route path="/admin/candidates" component={AdminCandidates} />
-      <Route path="/admin/employees" component={AdminEmployees} />
-      <Route path="/admin/employees/:id" component={AdminEmployeeDetail} />
-      <Route path="/admin/rosters" component={AdminRosters} />
-      <Route path="/admin/timesheets" component={AdminTimesheets} />
-      <Route path="/admin/approvals" component={AdminTimesheetApprovals} />
-      <Route path="/admin/weekly-payroll" component={AdminWeeklyPayroll} />
-      <Route path="/admin/payrolls" component={AdminPayrolls} />
-      <Route path="/admin/payslips" component={AdminPaySlips} />
-      <Route path="/admin/cash" component={AdminCash} />
-      <Route path="/admin/suppliers" component={AdminSuppliers} />
-      <Route path="/admin/suppliers/invoices" component={AdminSupplierInvoices} />
-      <Route path="/admin/accounts-payable" component={AdminAccountsPayable} />
-      <Route path="/admin/finance" component={AdminFinance} />
-      <Route path="/admin/notices" component={AdminNotices} />
-      <Route path="/admin/executive" component={AdminExecutiveDashboard} />
-      <Route path="/admin/triage-inbox" component={AdminTriageInbox} />
-      <Route path="/admin/settings/access-control" component={AdminAccessControl} />
-      <Route path="/admin/settings/shift-presets" component={AdminShiftPresets} />
-      <Route path="/admin/settings/store-config" component={AdminStoreConfig} />
-      <Route path="/admin/automations" component={AdminAutomations} />
-      <Route path="/admin/storage" component={StorageInventory} />
-      
+      {/* Phase B: admin login page (no auth required to view) */}
+      <Route path="/admin/login" component={AdminLogin} />
+
+      <Route path="/admin"><Admin><DashboardByRole /></Admin></Route>
+      <Route path="/admin/stores"><Admin><AdminStores /></Admin></Route>
+      <Route path="/admin/candidates"><Admin><AdminCandidates /></Admin></Route>
+      <Route path="/admin/employees"><Admin><AdminEmployees /></Admin></Route>
+      <Route path="/admin/employees/:id"><Admin><AdminEmployeeDetail /></Admin></Route>
+      <Route path="/admin/rosters"><Admin><AdminRosters /></Admin></Route>
+      <Route path="/admin/timesheets"><Admin><AdminTimesheets /></Admin></Route>
+      <Route path="/admin/approvals"><Admin><AdminTimesheetApprovals /></Admin></Route>
+      <Route path="/admin/weekly-payroll"><Admin><AdminWeeklyPayroll /></Admin></Route>
+      <Route path="/admin/payrolls"><Admin><AdminPayrolls /></Admin></Route>
+      <Route path="/admin/payslips"><Admin><AdminPaySlips /></Admin></Route>
+      <Route path="/admin/cash"><Admin><AdminCash /></Admin></Route>
+      <Route path="/admin/suppliers"><Admin><AdminSuppliers /></Admin></Route>
+      <Route path="/admin/suppliers/invoices"><Admin><AdminSupplierInvoices /></Admin></Route>
+      <Route path="/admin/accounts-payable"><Admin><AdminAccountsPayable /></Admin></Route>
+      <Route path="/admin/finance"><Admin><AdminFinance /></Admin></Route>
+      <Route path="/admin/notices"><Admin><AdminNotices /></Admin></Route>
+      <Route path="/admin/executive"><Admin><AdminExecutiveDashboard /></Admin></Route>
+      <Route path="/admin/triage-inbox"><Admin><AdminTriageInbox /></Admin></Route>
+      <Route path="/admin/settings/access-control"><Admin allowed={["ADMIN"]}><AdminAccessControl /></Admin></Route>
+      <Route path="/admin/settings/shift-presets"><Admin allowed={["ADMIN"]}><AdminShiftPresets /></Admin></Route>
+      <Route path="/admin/settings/store-config"><Admin allowed={["ADMIN"]}><AdminStoreConfig /></Admin></Route>
+      <Route path="/admin/automations"><Admin allowed={["ADMIN"]}><AdminAutomations /></Admin></Route>
+      <Route path="/admin/storage"><Admin><StorageInventory /></Admin></Route>
+
       <Route path="/m/interview" component={MobileInterview} />
       <Route path="/m/onboarding/:token" component={MobileOnboarding} />
       <Route path="/m/roster" component={MobileRoster} />
@@ -98,10 +110,12 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <AdminRoleProvider>
-          <Toaster />
-          <Router />
-        </AdminRoleProvider>
+        <AuthProvider>
+          <AdminRoleProvider>
+            <Toaster />
+            <Router />
+          </AdminRoleProvider>
+        </AuthProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );
