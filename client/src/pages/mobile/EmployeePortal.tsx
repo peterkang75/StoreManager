@@ -3728,8 +3728,17 @@ export function EmployeePortal() {
     } catch {}
     try { localStorage.removeItem("ep_portal_token_v1"); } catch {}
     setSession(null);
+    // Reset navigation state so the next user lands on Home, not whichever tab
+    // the previous session left behind.
+    setActiveTab("home");
+    setSubView(null);
   };
-  const handleLogin  = (s: Session) => { saveSession(s); setSession(s); };
+  const handleLogin  = (s: Session) => {
+    saveSession(s);
+    setSession(s);
+    setActiveTab("home");
+    setSubView(null);
+  };
   const handlePinChanged = () => setSession(s => s ? { ...s, isFirstLogin: false } : s);
   const showBack = !!session && (subView !== null || activeTab !== "home");
   const handleBack = () => {
