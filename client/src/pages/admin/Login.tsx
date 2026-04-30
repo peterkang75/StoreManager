@@ -46,11 +46,11 @@ export function AdminLogin() {
       <div className="w-full max-w-md">
         {/* Crew wordmark */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-baseline gap-1">
+          <div className="inline-flex items-baseline">
             <span className="text-4xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
               Crew
             </span>
-            <span className="text-[#ef4444] text-3xl">.</span>
+            <span className="text-[#ef4444] text-5xl font-bold leading-none">.</span>
           </div>
           <div className="mt-2 text-xs uppercase tracking-widest text-slate-400">
             Admin Portal

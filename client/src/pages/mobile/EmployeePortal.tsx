@@ -296,9 +296,8 @@ function PinLogin({ onSuccess }: { onSuccess: (s: Session) => void }) {
       {/* Brand wordmark — app title */}
       <div style={{ textAlign: "center", marginBottom: 32 }}>
         <h1 style={{ fontSize: 56, fontWeight: 700, color: "#222222", letterSpacing: "-1px", lineHeight: 1, margin: 0 }} data-testid="text-app-title">
-          Crew
+          Crew<span style={{ color: "#ef4444", fontSize: 72, lineHeight: 1, marginLeft: 2 }}>.</span>
         </h1>
-        <div aria-hidden style={{ width: 28, height: 2, background: "#ef4444", borderRadius: 2, margin: "14px auto 0" }} />
         <p style={{ fontSize: 11, fontWeight: 600, color: "#6a6a6a", letterSpacing: "1.6px", textTransform: "uppercase", margin: "14px 0 0" }}>
           Team Portal
         </p>
