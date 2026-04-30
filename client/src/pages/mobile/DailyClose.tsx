@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/sheet";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Store } from "@shared/schema";
+import { storeColorFor } from "@shared/storeColors";
 
 const A = {
   font: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, 'Helvetica Neue', sans-serif",
@@ -317,7 +318,7 @@ export function MobileDailyClose() {
                         onClick={() => setStoreId(store.id)}
                         style={{
                           flex: 1, height: 44, borderRadius: 8, border: "none", cursor: "pointer",
-                          background: active ? "#222222" : "#f2f2f2",
+                          background: active ? storeColorFor(store.name) : "#f2f2f2",
                           color: active ? "#ffffff" : "#6a6a6a",
                           fontSize: 15, fontWeight: active ? 600 : 500,
                           transition: "background 160ms, color 160ms",
