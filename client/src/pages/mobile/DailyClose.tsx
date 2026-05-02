@@ -272,14 +272,19 @@ export function MobileDailyClose() {
   const isSingleStore = assignedStores.length === 1;
   const isMultiStore = assignedStores.length >= 2;
 
-  // Required: store, date, and the six monetary/count fields. Empty string is
+  // Required: store, date, and the core monetary/count fields. Empty string is
   // not allowed even for zero — the user must explicitly type "0".
+  // No. of Receipts is conditionally required: only when Cash Out Total > 0
+  // (zero cash-out means there are no receipts to count, so requiring the field
+  // would force the user to type "0" for no reason).
+  const cashOutNum = num(form.cashOutTotal);
+  const receiptsRequired = cashOutNum > 0;
   const requiredFilled =
     form.previousFloat !== "" &&
     form.salesTotal !== "" &&
     form.cashSales !== "" &&
     form.cashOutTotal !== "" &&
-    form.numberOfReceipts !== "" &&
+    (!receiptsRequired || form.numberOfReceipts !== "") &&
     form.nextFloat !== "";
   const canSubmit = !!storeId && !!date && requiredFilled && !submitMutation.isPending;
 
