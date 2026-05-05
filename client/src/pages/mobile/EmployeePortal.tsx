@@ -2292,7 +2292,6 @@ function WeekRow({ day, today, employeeId, onSubmitted, openCycleStart }: { day:
 function ScheduleTab({ session }: { session: Session }) {
   const today = getTodayStr();
   const [weekStart, setWeekStart] = useState(() => getMondayStr(today));
-  const isCurrentWeek = weekStart === getMondayStr(today);
   const openCycleStart = getPayrollCycleStart(today); // start of current open payroll cycle
   const qc = useQueryClient();
 
@@ -2347,8 +2346,7 @@ function ScheduleTab({ session }: { session: Session }) {
           type="button"
           data-testid="button-next-week"
           onClick={() => setWeekStart(s => addDays(s, 7))}
-          disabled={isCurrentWeek}
-          style={{ width: 36, height: 36, borderRadius: "50%", background: "#f2f2f2", border: "none", cursor: isCurrentWeek ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: isCurrentWeek ? 0.3 : 1 }}
+          style={{ width: 36, height: 36, borderRadius: "50%", background: "#f2f2f2", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
         >
           <ChevronRight style={{ width: 16, height: 16, color: "#222222" }} />
         </button>
