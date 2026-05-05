@@ -2952,6 +2952,22 @@ export async function registerRoutes(
   });
 
   // ── §7 Wave 1: Cash Expenses ────────────────────────────────────────────────
+  // Lightweight supplier picker for the mobile Daily Close cash-expense entry —
+  // returns only the fields the picker needs, avoiding a leak of bsb/account_number
+  // through the admin-gated /api/suppliers list. Mounted ahead of /:id routes.
+  app.get("/api/cash-expenses/suppliers", async (_req: Request, res: Response) => {
+    try {
+      const all = await storage.getSuppliers();
+      const minimal = all
+        .filter(s => s.active !== false)
+        .map(s => ({ id: s.id, name: s.name, defaultGstRate: s.defaultGstRate ?? 0 }));
+      res.json(minimal);
+    } catch (error) {
+      console.error("Error listing supplier picker:", error);
+      res.status(500).json({ error: "Failed to load suppliers" });
+    }
+  });
+
   // GET summary placed before /:id-style routes so /summary doesn't get matched as an id.
   app.get("/api/cash-expenses/summary", async (req: Request, res: Response) => {
     try {

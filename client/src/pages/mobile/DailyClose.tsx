@@ -10,6 +10,10 @@ import {
   Loader2,
   AlertTriangle,
   Info,
+  Plus,
+  Trash2,
+  ChevronsUpDown,
+  Check,
 } from "lucide-react";
 import {
   Sheet,
@@ -18,9 +22,36 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Store } from "@shared/schema";
 import { storeColorFor } from "@shared/storeColors";
+
+// §7 Wave 1: cash expense picker — minimal supplier fields exposed via
+// /api/cash-expenses/suppliers (employee-safe, no bsb/account leak).
+type CashExpenseSupplier = { id: string; name: string; defaultGstRate: number };
+const OTHER_UNKNOWN_NAME = "Other / Unknown";
+
+type CashExpenseDraftRow = {
+  supplierId: string;
+  supplierName: string;
+  defaultGstRate: number;
+  amount: number;
+  memo: string;
+  gstEstimate: number;
+};
 
 const A = {
   font: "'Airbnb Cereal VF', Circular, -apple-system, system-ui, 'Helvetica Neue', sans-serif",
@@ -151,8 +182,21 @@ export function MobileDailyClose() {
 
   const [notes, setNotes] = useState<NoteCounts>(emptyNotes);
 
+  // §7 Wave 1: cash expense rows accumulated locally; submitted alongside the
+  // close form. The list is sticky across re-renders but cleared on successful
+  // submission via resetForm().
+  const [cashExpenses, setCashExpenses] = useState<CashExpenseDraftRow[]>([]);
+  const [draftSupplierId, setDraftSupplierId] = useState<string>("");
+  const [draftAmount, setDraftAmount] = useState<string>("");
+  const [draftMemo, setDraftMemo] = useState<string>("");
+  const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
+
   const { data: stores, isLoading: storesLoading } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
+  });
+
+  const { data: supplierPicker } = useQuery<CashExpenseSupplier[]>({
+    queryKey: ["/api/cash-expenses/suppliers"],
   });
 
   // Determine assigned stores from portal session
@@ -188,6 +232,68 @@ export function MobileDailyClose() {
     setForm(prev => ({ ...prev, [field]: value }));
   };
 
+  // §7 Wave 1: supplier picker has "Other / Unknown" pinned to the top so the
+  // sentinel option is unmissable. The rest are alphabetised.
+  const sortedSuppliers = useMemo<CashExpenseSupplier[]>(() => {
+    const list = supplierPicker ?? [];
+    const other = list.find(s => s.name === OTHER_UNKNOWN_NAME);
+    const rest = list
+      .filter(s => s.name !== OTHER_UNKNOWN_NAME)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return other ? [other, ...rest] : rest;
+  }, [supplierPicker]);
+
+  const draftSupplier = useMemo<CashExpenseSupplier | null>(() => {
+    if (!draftSupplierId) return null;
+    return sortedSuppliers.find(s => s.id === draftSupplierId) ?? null;
+  }, [draftSupplierId, sortedSuppliers]);
+
+  const draftIsOther = draftSupplier?.name === OTHER_UNKNOWN_NAME;
+
+  const draftAmountNum = num(draftAmount);
+  const draftGstEstimate = useMemo(() => {
+    if (!draftSupplier || draftAmountNum <= 0) return 0;
+    const rate = draftSupplier.defaultGstRate ?? 0;
+    return rate > 0 ? Math.round((draftAmountNum * rate / 100 / 11) * 100) / 100 : 0;
+  }, [draftAmountNum, draftSupplier]);
+
+  const memoTrimmed = draftMemo.trim();
+  const canAddCashExpense =
+    !!draftSupplier &&
+    draftAmountNum > 0 &&
+    (!draftIsOther || memoTrimmed.length >= 3);
+
+  const cashExpenseTotal = useMemo(
+    () => Math.round(cashExpenses.reduce((s, r) => s + r.amount, 0) * 100) / 100,
+    [cashExpenses],
+  );
+  const cashExpenseGstTotal = useMemo(
+    () => Math.round(cashExpenses.reduce((s, r) => s + r.gstEstimate, 0) * 100) / 100,
+    [cashExpenses],
+  );
+
+  const addCashExpense = () => {
+    if (!canAddCashExpense || !draftSupplier) return;
+    setCashExpenses(prev => [
+      ...prev,
+      {
+        supplierId: draftSupplier.id,
+        supplierName: draftSupplier.name,
+        defaultGstRate: draftSupplier.defaultGstRate ?? 0,
+        amount: draftAmountNum,
+        memo: memoTrimmed,
+        gstEstimate: draftGstEstimate,
+      },
+    ]);
+    setDraftSupplierId("");
+    setDraftAmount("");
+    setDraftMemo("");
+  };
+
+  const removeCashExpense = (index: number) => {
+    setCashExpenses(prev => prev.filter((_, i) => i !== index));
+  };
+
   const submitMutation = useMutation({
     mutationFn: async () => {
       const closingData = {
@@ -217,13 +323,43 @@ export function MobileDailyClose() {
       };
       await apiRequest("POST", "/api/daily-closings", closingData);
       await apiRequest("POST", "/api/daily-close-forms", closeFormData);
-      return true;
+
+      // §7 Wave 1: persist any cash expenses the employee logged. Posted after
+      // the close form succeeds so a failed close doesn't leave orphan ledger
+      // rows. Each row is independent — partial failures surface in toasts but
+      // don't roll back the close itself.
+      const cashFailures: string[] = [];
+      for (const row of cashExpenses) {
+        try {
+          await apiRequest("POST", "/api/cash-expenses", {
+            storeId,
+            supplierId: row.supplierId,
+            amount: row.amount,
+            expenseDate: date,
+            memo: row.memo || null,
+            enteredBy: portalSession?.id ?? null,
+          });
+        } catch (err) {
+          cashFailures.push(`${row.supplierName} $${row.amount.toFixed(2)}`);
+        }
+      }
+      return { cashFailures };
     },
-    onSuccess: () => {
+    onSuccess: ({ cashFailures }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/daily-closings"] });
       queryClient.invalidateQueries({ queryKey: ["/api/daily-close-forms"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cash-expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cash-expenses/summary"] });
       setSubmitted(true);
-      toast({ title: "Daily close submitted successfully!" });
+      if (cashFailures.length > 0) {
+        toast({
+          title: "Daily close submitted with cash-expense errors",
+          description: `Failed to save: ${cashFailures.join(", ")}. Re-enter these from the admin screen.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Daily close submitted successfully!" });
+      }
     },
     onError: () => {
       toast({ title: "Failed to submit daily close", variant: "destructive" });
@@ -234,6 +370,10 @@ export function MobileDailyClose() {
     setSubmitted(false);
     setForm({ previousFloat: "", salesTotal: "", cashSales: "", cashOutTotal: "", numberOfReceipts: "", nextFloat: "", ubereatsAmount: "", doordashAmount: "", notes: "" });
     setNotes(emptyNotes());
+    setCashExpenses([]);
+    setDraftSupplierId("");
+    setDraftAmount("");
+    setDraftMemo("");
     if (assignedStores.length !== 1) setStoreId("");
   };
 
@@ -502,6 +642,209 @@ export function MobileDailyClose() {
                 </div>
               ) : null}
             </div>
+          </div>
+        </SectionCard>
+
+        {/* Cash Expenses — §7 Wave 1 */}
+        <SectionCard title="Cash Expenses">
+          <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: -8, marginBottom: 14, lineHeight: 1.5 }}>
+            Items you bought today using cash from the till. The owner reviews these for GST.
+          </p>
+
+          {/* Existing rows */}
+          {cashExpenses.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+              {cashExpenses.map((row, i) => {
+                const isOther = row.supplierName === OTHER_UNKNOWN_NAME;
+                return (
+                  <div
+                    key={i}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 10,
+                      padding: "10px 12px",
+                      background: isOther ? "rgba(245,158,11,0.08)" : "#f7f7f7",
+                      border: isOther ? "1px solid rgba(245,158,11,0.4)" : "1px solid transparent",
+                      borderRadius: 10,
+                    }}
+                    data-testid={`cash-expense-row-${i}`}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: "#222222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {row.supplierName}
+                        </span>
+                        <span style={{ fontSize: 15, fontWeight: 700, color: "#222222", fontVariantNumeric: "tabular-nums" }}>
+                          ${row.amount.toFixed(2)}
+                        </span>
+                      </div>
+                      {row.memo && (
+                        <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: 2, lineHeight: 1.4 }}>
+                          {row.memo}
+                        </p>
+                      )}
+                      <p style={{ fontSize: 11, color: "#6a6a6a", marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
+                        GST estimate: ${row.gstEstimate.toFixed(2)} ({row.defaultGstRate}%)
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeCashExpense(i)}
+                      aria-label="Remove"
+                      data-testid={`button-remove-cash-expense-${i}`}
+                      style={{ flexShrink: 0, width: 32, height: 32, borderRadius: 8, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                    >
+                      <Trash2 style={{ width: 16, height: 16, color: "#6a6a6a" }} />
+                    </button>
+                  </div>
+                );
+              })}
+              <div style={{ marginTop: 4, padding: "8px 12px", background: "#f2f2f2", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <span style={{ fontSize: 13, color: "#6a6a6a" }}>{cashExpenses.length} item{cashExpenses.length === 1 ? "" : "s"} • GST ~${cashExpenseGstTotal.toFixed(2)}</span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: "#222222", fontVariantNumeric: "tabular-nums" }}>${cashExpenseTotal.toFixed(2)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Draft entry */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <FieldLabel>Supplier</FieldLabel>
+              <Popover open={supplierPickerOpen} onOpenChange={setSupplierPickerOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    role="combobox"
+                    aria-expanded={supplierPickerOpen}
+                    data-testid="button-cash-expense-supplier"
+                    style={{
+                      width: "100%",
+                      height: 44,
+                      padding: "0 12px",
+                      borderRadius: 8,
+                      border: "1px solid #c1c1c1",
+                      background: "#ffffff",
+                      color: draftSupplier ? "#222222" : "#9a9a9a",
+                      fontSize: 15,
+                      fontFamily: A.font,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
+                  >
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {draftSupplier ? draftSupplier.name : "Choose a supplier…"}
+                    </span>
+                    <ChevronsUpDown style={{ width: 14, height: 14, color: "#6a6a6a", flexShrink: 0 }} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="p-0" style={{ width: "var(--radix-popover-trigger-width)" }}>
+                  <Command>
+                    <CommandInput placeholder="Search suppliers…" data-testid="input-cash-expense-supplier-search" />
+                    <CommandList>
+                      <CommandEmpty>No supplier found. Use "Other / Unknown" if it's not listed.</CommandEmpty>
+                      <CommandGroup>
+                        {sortedSuppliers.map(s => {
+                          const isOther = s.name === OTHER_UNKNOWN_NAME;
+                          return (
+                            <CommandItem
+                              key={s.id}
+                              value={s.name}
+                              onSelect={() => {
+                                setDraftSupplierId(s.id);
+                                setSupplierPickerOpen(false);
+                              }}
+                              data-testid={`option-cash-expense-supplier-${s.id}`}
+                            >
+                              <Check
+                                className={`mr-2 h-4 w-4 ${draftSupplierId === s.id ? "opacity-100" : "opacity-0"}`}
+                              />
+                              <span style={{ fontWeight: isOther ? 600 : 400 }}>{s.name}</span>
+                              {isOther && (
+                                <span style={{ marginLeft: "auto", fontSize: 11, color: "#b45309" }}>requires note</span>
+                              )}
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <FieldLabel>Amount (AUD)</FieldLabel>
+                <Input
+                  id="cashExpenseAmount"
+                  type="text"
+                  inputMode="decimal"
+                  value={draftAmount}
+                  onChange={(e) => setDraftAmount(e.target.value)}
+                  placeholder="0.00"
+                  className="h-11 text-base"
+                  data-testid="input-cash-expense-amount"
+                />
+              </div>
+              <div>
+                <FieldLabel>GST estimate</FieldLabel>
+                <div style={{ height: 44, display: "flex", alignItems: "center", padding: "0 12px", borderRadius: 8, background: "#f2f2f2", color: "#6a6a6a", fontSize: 14, fontVariantNumeric: "tabular-nums" }}>
+                  {draftSupplier && draftAmountNum > 0
+                    ? `$${draftGstEstimate.toFixed(2)} (${draftSupplier.defaultGstRate}%)`
+                    : "—"}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <FieldLabel>
+                {draftIsOther ? "Memo (required for Other)" : "Memo (optional)"}
+              </FieldLabel>
+              <Input
+                id="cashExpenseMemo"
+                type="text"
+                value={draftMemo}
+                onChange={(e) => setDraftMemo(e.target.value)}
+                placeholder={draftIsOther ? "Where & what did you buy?" : "Short note (optional)"}
+                className="h-11 text-base"
+                data-testid="input-cash-expense-memo"
+              />
+              {draftIsOther && memoTrimmed.length > 0 && memoTrimmed.length < 3 && (
+                <p style={{ fontSize: 11, color: "#b45309", marginTop: 4 }}>
+                  At least 3 characters required.
+                </p>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={addCashExpense}
+              disabled={!canAddCashExpense}
+              data-testid="button-add-cash-expense"
+              style={{
+                height: 44,
+                borderRadius: 8,
+                border: "none",
+                background: canAddCashExpense ? "#222222" : "#f2f2f2",
+                color: canAddCashExpense ? "#ffffff" : "#9a9a9a",
+                fontSize: 14,
+                fontWeight: 500,
+                cursor: canAddCashExpense ? "pointer" : "default",
+                fontFamily: A.font,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                transition: "background 160ms, color 160ms",
+              }}
+            >
+              <Plus style={{ width: 16, height: 16 }} />
+              Add cash expense
+            </button>
           </div>
         </SectionCard>
 
