@@ -90,7 +90,11 @@ function CashCounter() {
           <div className="flex items-end gap-3 flex-wrap">
             {CASH_DENOMINATIONS.map((d) => (
               <div key={d} className="space-y-1">
-                <Label className="text-xs text-muted-foreground">${d}</Label>
+                <Label className="text-xs text-muted-foreground">
+                  ${d}{(counts[d] || 0) > 0 && (
+                    <span className="text-foreground font-medium"> / ${((counts[d] || 0) * d).toLocaleString()}</span>
+                  )}
+                </Label>
                 <Input
                   type="number"
                   min="0"
