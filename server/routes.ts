@@ -8,9 +8,9 @@ import { supplierInvoices } from "@shared/schema";
 import { PAYROLL_CYCLE_ANCHOR, getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "../shared/payrollCycle";
 import { storeColorFor } from "../shared/storeColors";
 import { extractPdfText, parseInvoiceWithAI, parseUploadedFile, parseInvoiceFromUnknownSender, triageEmail, summarizeTaskFromEmail, translateSummarizeEmail, classifyDocumentForAP } from "./invoiceParser";
-import { 
-  insertStoreSchema, 
-  insertCandidateSchema, 
+import {
+  insertStoreSchema,
+  insertCandidateSchema,
   insertEmployeeSchema,
   insertRosterPeriodSchema,
   insertShiftSchema,
@@ -21,11 +21,19 @@ import {
   insertCashSalesDetailSchema,
   insertDailyCloseFormSchema,
   insertSupplierSchema,
+  insertCashExpenseSchema,
+  type InsertCashExpense,
   insertSupplierInvoiceSchema,
   insertSupplierPaymentSchema,
   insertFinancialTransactionSchema,
   insertAutomationRuleSchema,
 } from "@shared/schema";
+
+// §7 Wave 1: clamp supplier-defined GST rate (defensive — server-side trust boundary).
+function clampGstRate(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -2940,6 +2948,185 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting supplier:", error);
       res.status(500).json({ error: "Failed to delete supplier" });
+    }
+  });
+
+  // ── §7 Wave 1: Cash Expenses ────────────────────────────────────────────────
+  // GET summary placed before /:id-style routes so /summary doesn't get matched as an id.
+  app.get("/api/cash-expenses/summary", async (req: Request, res: Response) => {
+    try {
+      const filters: { storeId?: string; storeIds?: string[]; from?: string; to?: string } = {};
+      if (typeof req.query.storeId === "string" && req.query.storeId.length > 0) {
+        filters.storeId = req.query.storeId;
+      }
+      if (typeof req.query.from === "string") filters.from = req.query.from;
+      if (typeof req.query.to === "string") filters.to = req.query.to;
+      // Non-admin: scope to allowed stores when no specific storeId is asked for.
+      if (req.user && req.user.role !== "ADMIN" && !filters.storeId) {
+        filters.storeIds = req.user.allowedStoreIds ?? [];
+      }
+      const summary = await storage.getCashExpenseSummary(filters);
+      res.json(summary);
+    } catch (error) {
+      console.error("Error computing cash expense summary:", error);
+      res.status(500).json({ error: "Failed to load cash expense summary" });
+    }
+  });
+
+  app.get("/api/cash-expenses", async (req: Request, res: Response) => {
+    try {
+      const filters: { storeId?: string; storeIds?: string[]; from?: string; to?: string; reviewStatus?: string } = {};
+      if (typeof req.query.storeId === "string" && req.query.storeId.length > 0) {
+        filters.storeId = req.query.storeId;
+      }
+      if (typeof req.query.from === "string") filters.from = req.query.from;
+      if (typeof req.query.to === "string") filters.to = req.query.to;
+      if (typeof req.query.reviewStatus === "string") filters.reviewStatus = req.query.reviewStatus;
+      if (req.user && req.user.role !== "ADMIN" && !filters.storeId) {
+        filters.storeIds = req.user.allowedStoreIds ?? [];
+      }
+      const rows = await storage.listCashExpenses(filters);
+      res.json(rows);
+    } catch (error) {
+      console.error("Error listing cash expenses:", error);
+      res.status(500).json({ error: "Failed to list cash expenses" });
+    }
+  });
+
+  app.post("/api/cash-expenses", async (req: Request, res: Response) => {
+    try {
+      // Snapshot GST from supplier rate at entry time (D10).
+      // Caller provides storeId + supplierId + amount + expenseDate + memo (+ enteredBy).
+      const body = req.body ?? {};
+
+      // Resolve supplierId: either explicit or "Other / Unknown" sentinel.
+      let supplierId: string | undefined = typeof body.supplierId === "string" ? body.supplierId : undefined;
+      if (!supplierId || body.supplierId === "OTHER") {
+        supplierId = await storage.getOtherUnknownSupplierId();
+        if (!supplierId) {
+          return res.status(500).json({ error: "Sentinel 'Other / Unknown' supplier missing — bootstrap migration may not have run" });
+        }
+      }
+
+      const supplier = await storage.getSupplier(supplierId);
+      if (!supplier) {
+        return res.status(400).json({ error: "Supplier not found" });
+      }
+
+      const amount = Number(body.amount);
+      if (!Number.isFinite(amount) || amount < 0) {
+        return res.status(400).json({ error: "amount must be a non-negative number" });
+      }
+
+      const isOtherSentinel = supplier.name === "Other / Unknown";
+      // Memo required for "Other" vendor (D14) so owner can triage later.
+      const memo = typeof body.memo === "string" ? body.memo.trim() : "";
+      if (isOtherSentinel && memo.length < 3) {
+        return res.status(400).json({ error: "memo required (3+ chars) for Other/Unknown vendor entries" });
+      }
+
+      const gstRateSnapshot = clampGstRate(supplier.defaultGstRate ?? 0);
+      const gstAmount = gstRateSnapshot > 0
+        ? Math.round((amount * gstRateSnapshot / 100 / 11) * 100) / 100
+        : 0;
+
+      const enteredBy = typeof body.enteredBy === "string" ? body.enteredBy : (req.user?.id ?? null);
+
+      const parsed = insertCashExpenseSchema.safeParse({
+        storeId: body.storeId,
+        supplierId,
+        amount,
+        gstAmount,
+        gstRateSnapshot,
+        expenseDate: body.expenseDate,
+        memo: memo.length > 0 ? memo : null,
+        enteredBy,
+        reviewStatus: isOtherSentinel ? "PENDING" : (body.reviewStatus ?? "PENDING"),
+      });
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.message });
+      }
+
+      const created = await storage.createCashExpense(parsed.data);
+      res.status(201).json(created);
+    } catch (error) {
+      console.error("Error creating cash expense:", error);
+      res.status(500).json({ error: "Failed to create cash expense" });
+    }
+  });
+
+  app.patch("/api/cash-expenses/:id", async (req: Request, res: Response) => {
+    try {
+      if (req.user && req.user.role === "EMPLOYEE") {
+        return res.status(403).json({ error: "FORBIDDEN_ROLE", message: "Editing cash expenses requires admin/manager" });
+      }
+      const { id } = req.params;
+      const existing = await storage.getCashExpense(id);
+      if (!existing) return res.status(404).json({ error: "Cash expense not found" });
+
+      const patch: Partial<InsertCashExpense> = {};
+      const body = req.body ?? {};
+
+      if (body.supplierId !== undefined) {
+        const newSupplier = await storage.getSupplier(body.supplierId);
+        if (!newSupplier) return res.status(400).json({ error: "Supplier not found" });
+        patch.supplierId = body.supplierId;
+        // Re-snapshot GST when supplier changes (owner override during review).
+        const newRate = clampGstRate(newSupplier.defaultGstRate ?? 0);
+        patch.gstRateSnapshot = newRate;
+        const baseAmount = body.amount !== undefined ? Number(body.amount) : existing.amount;
+        patch.gstAmount = newRate > 0
+          ? Math.round((baseAmount * newRate / 100 / 11) * 100) / 100
+          : 0;
+      }
+      if (body.amount !== undefined) {
+        const amount = Number(body.amount);
+        if (!Number.isFinite(amount) || amount < 0) {
+          return res.status(400).json({ error: "amount must be a non-negative number" });
+        }
+        patch.amount = amount;
+        // If supplier didn't change, re-derive gstAmount from existing snapshot.
+        if (patch.gstRateSnapshot === undefined) {
+          const rate = existing.gstRateSnapshot;
+          patch.gstAmount = rate > 0 ? Math.round((amount * rate / 100 / 11) * 100) / 100 : 0;
+        }
+      }
+      if (body.gstRateSnapshot !== undefined) {
+        const rate = clampGstRate(Number(body.gstRateSnapshot));
+        patch.gstRateSnapshot = rate;
+        const baseAmount = patch.amount ?? existing.amount;
+        patch.gstAmount = rate > 0 ? Math.round((baseAmount * rate / 100 / 11) * 100) / 100 : 0;
+      }
+      if (body.expenseDate !== undefined) patch.expenseDate = body.expenseDate;
+      if (body.memo !== undefined) patch.memo = body.memo;
+      if (body.reviewStatus !== undefined) {
+        if (body.reviewStatus !== "PENDING" && body.reviewStatus !== "APPROVED") {
+          return res.status(400).json({ error: "reviewStatus must be PENDING or APPROVED" });
+        }
+        patch.reviewStatus = body.reviewStatus;
+      }
+      if (body.storeId !== undefined) patch.storeId = body.storeId;
+
+      const updated = await storage.updateCashExpense(id, patch);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating cash expense:", error);
+      res.status(500).json({ error: "Failed to update cash expense" });
+    }
+  });
+
+  app.delete("/api/cash-expenses/:id", async (req: Request, res: Response) => {
+    try {
+      if (req.user && req.user.role === "EMPLOYEE") {
+        return res.status(403).json({ error: "FORBIDDEN_ROLE", message: "Deleting cash expenses requires admin/manager" });
+      }
+      const { id } = req.params;
+      const ok = await storage.deleteCashExpense(id);
+      if (!ok) return res.status(404).json({ error: "Cash expense not found" });
+      res.json({ deleted: true });
+    } catch (error) {
+      console.error("Error deleting cash expense:", error);
+      res.status(500).json({ error: "Failed to delete cash expense" });
     }
   });
 

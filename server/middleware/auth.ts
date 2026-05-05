@@ -110,6 +110,7 @@ export function apiToRouteKey(apiPath: string): string | "ADMIN_ONLY" | "EMPLOYE
   if (apiPath.startsWith("/api/upload")) return "EMPLOYEE_OK";
   if (apiPath.startsWith("/api/candidates")) return "EMPLOYEE_OK"; // mobile interview POST
   if (apiPath.startsWith("/api/daily-closings") || apiPath.startsWith("/api/daily-close-forms")) return "EMPLOYEE_OK"; // mobile DailyClose POST
+  if (apiPath.startsWith("/api/cash-expenses")) return "EMPLOYEE_OK"; // §7 Wave 1: employees POST own entries; PATCH/DELETE/summary role-checked in handlers
   if (apiPath.startsWith("/api/permissions")) return "EMPLOYEE_OK"; // matrix readable by all authed (write-protected in handler)
 
 

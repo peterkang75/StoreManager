@@ -16,6 +16,7 @@ import {
   type Supplier, type InsertSupplier,
   type SupplierInvoice, type InsertSupplierInvoice,
   type SupplierPayment, type InsertSupplierPayment,
+  type CashExpense, type InsertCashExpense, cashExpenses,
   type QuarantinedEmail, type InsertQuarantinedEmail,
   type EmailRoutingRule, type InsertEmailRoutingRule,
   type Todo, type InsertTodo,
@@ -167,6 +168,21 @@ export interface IStorage {
   deleteSupplierPaymentsByInvoiceId(invoiceId: string): Promise<void>;
 
   deleteSupplier(id: string): Promise<boolean>;
+
+  // §7 Wave 1: Cash expense ledger
+  createCashExpense(input: InsertCashExpense): Promise<CashExpense>;
+  getCashExpense(id: string): Promise<CashExpense | undefined>;
+  listCashExpenses(filters?: { storeId?: string; storeIds?: string[]; from?: string; to?: string; reviewStatus?: string }): Promise<CashExpense[]>;
+  updateCashExpense(id: string, patch: Partial<InsertCashExpense>): Promise<CashExpense | undefined>;
+  deleteCashExpense(id: string): Promise<boolean>;
+  getCashExpenseSummary(filters: { storeId?: string; storeIds?: string[]; from?: string; to?: string }): Promise<{
+    total: number;
+    gstTotal: number;
+    pendingCount: number;
+    bySupplier: Array<{ supplierId: string; supplierName: string; total: number; gst: number; count: number }>;
+  }>;
+  getOtherUnknownSupplierId(): Promise<string | undefined>;
+
   findSupplierByEmail(email: string): Promise<Supplier | undefined>;
   findSupplierByName(name: string): Promise<Supplier | undefined>;
   findSupplierByNameAny(name: string): Promise<Supplier | undefined>;
@@ -321,6 +337,7 @@ export class MemStorage implements IStorage {
   private suppliers: Map<string, Supplier>;
   private supplierInvoices: Map<string, SupplierInvoice>;
   private supplierPayments: Map<string, SupplierPayment>;
+  private cashExpensesMap: Map<string, CashExpense> = new Map();
   private quarantinedEmails: Map<string, QuarantinedEmail>;
   private emailRoutingRulesMap: Map<string, EmailRoutingRule>;
   private todosMap: Map<string, Todo>;
@@ -1185,6 +1202,85 @@ export class MemStorage implements IStorage {
     if (!supplier) return false;
     this.suppliers.set(id, { ...supplier, active: false });
     return true;
+  }
+
+  // §7 Wave 1: Cash expense ledger — MemStorage stubs
+  async createCashExpense(input: InsertCashExpense): Promise<CashExpense> {
+    const id = randomUUID();
+    const now = new Date();
+    const row: CashExpense = {
+      id,
+      storeId: input.storeId,
+      supplierId: input.supplierId,
+      amount: input.amount ?? 0,
+      gstAmount: input.gstAmount ?? 0,
+      gstRateSnapshot: input.gstRateSnapshot ?? 0,
+      expenseDate: input.expenseDate,
+      memo: input.memo ?? null,
+      enteredBy: input.enteredBy ?? null,
+      reviewStatus: input.reviewStatus ?? "PENDING",
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.cashExpensesMap.set(id, row);
+    return row;
+  }
+
+  async getCashExpense(id: string): Promise<CashExpense | undefined> {
+    return this.cashExpensesMap.get(id);
+  }
+
+  async listCashExpenses(filters?: { storeId?: string; storeIds?: string[]; from?: string; to?: string; reviewStatus?: string }): Promise<CashExpense[]> {
+    let rows = Array.from(this.cashExpensesMap.values());
+    if (filters?.storeId) rows = rows.filter(r => r.storeId === filters.storeId);
+    if (filters?.storeIds?.length) rows = rows.filter(r => filters.storeIds!.includes(r.storeId));
+    if (filters?.from) rows = rows.filter(r => r.expenseDate >= filters.from!);
+    if (filters?.to) rows = rows.filter(r => r.expenseDate <= filters.to!);
+    if (filters?.reviewStatus) rows = rows.filter(r => r.reviewStatus === filters.reviewStatus);
+    return rows.sort((a, b) => b.expenseDate.localeCompare(a.expenseDate));
+  }
+
+  async updateCashExpense(id: string, patch: Partial<InsertCashExpense>): Promise<CashExpense | undefined> {
+    const row = this.cashExpensesMap.get(id);
+    if (!row) return undefined;
+    const updated: CashExpense = { ...row, ...patch, updatedAt: new Date() } as CashExpense;
+    this.cashExpensesMap.set(id, updated);
+    return updated;
+  }
+
+  async deleteCashExpense(id: string): Promise<boolean> {
+    return this.cashExpensesMap.delete(id);
+  }
+
+  async getCashExpenseSummary(filters: { storeId?: string; storeIds?: string[]; from?: string; to?: string }) {
+    const rows = await this.listCashExpenses(filters);
+    const supplierMap = this.suppliers;
+    const groups = new Map<string, { supplierId: string; supplierName: string; total: number; gst: number; count: number }>();
+    let total = 0;
+    let gstTotal = 0;
+    let pendingCount = 0;
+    for (const r of rows) {
+      total += r.amount;
+      gstTotal += r.gstAmount;
+      if (r.reviewStatus === "PENDING") pendingCount += 1;
+      const sup = supplierMap.get(r.supplierId);
+      const key = r.supplierId;
+      const existing = groups.get(key) ?? {
+        supplierId: r.supplierId,
+        supplierName: sup?.name ?? "(deleted supplier)",
+        total: 0, gst: 0, count: 0,
+      };
+      existing.total += r.amount;
+      existing.gst += r.gstAmount;
+      existing.count += 1;
+      groups.set(key, existing);
+    }
+    const bySupplier = Array.from(groups.values()).sort((a, b) => b.total - a.total);
+    return { total, gstTotal, pendingCount, bySupplier };
+  }
+
+  async getOtherUnknownSupplierId(): Promise<string | undefined> {
+    return Array.from(this.suppliers.values()).find(s => s.name === "Other / Unknown")?.id;
   }
 
   async findSupplierByEmail(email: string): Promise<Supplier | undefined> {
@@ -2540,6 +2636,82 @@ export class DatabaseStorage implements IStorage {
       .set({ active: false })
       .where(eq(suppliers.id, id));
     return (result.rowCount ?? 0) > 0;
+  }
+
+  // §7 Wave 1: Cash expense ledger — DatabaseStorage
+  async createCashExpense(input: InsertCashExpense): Promise<CashExpense> {
+    const [row] = await db.insert(cashExpenses).values(input).returning();
+    return row;
+  }
+
+  async getCashExpense(id: string): Promise<CashExpense | undefined> {
+    const [row] = await db.select().from(cashExpenses).where(eq(cashExpenses.id, id));
+    return row;
+  }
+
+  async listCashExpenses(filters?: { storeId?: string; storeIds?: string[]; from?: string; to?: string; reviewStatus?: string }): Promise<CashExpense[]> {
+    const conditions = [];
+    if (filters?.storeId) conditions.push(eq(cashExpenses.storeId, filters.storeId));
+    if (filters?.storeIds?.length) conditions.push(inArray(cashExpenses.storeId, filters.storeIds));
+    if (filters?.from) conditions.push(gte(cashExpenses.expenseDate, filters.from));
+    if (filters?.to) conditions.push(lte(cashExpenses.expenseDate, filters.to));
+    if (filters?.reviewStatus) conditions.push(eq(cashExpenses.reviewStatus, filters.reviewStatus));
+    const query = db.select().from(cashExpenses).orderBy(desc(cashExpenses.expenseDate));
+    if (conditions.length > 0) {
+      return query.where(and(...conditions));
+    }
+    return query;
+  }
+
+  async updateCashExpense(id: string, patch: Partial<InsertCashExpense>): Promise<CashExpense | undefined> {
+    const [row] = await db.update(cashExpenses)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(cashExpenses.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteCashExpense(id: string): Promise<boolean> {
+    const result = await db.delete(cashExpenses).where(eq(cashExpenses.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async getCashExpenseSummary(filters: { storeId?: string; storeIds?: string[]; from?: string; to?: string }) {
+    const rows = await this.listCashExpenses(filters);
+    const supplierIds = Array.from(new Set(rows.map(r => r.supplierId)));
+    const supplierRows = supplierIds.length
+      ? await db.select().from(suppliers).where(inArray(suppliers.id, supplierIds))
+      : [];
+    const supplierNameById = new Map(supplierRows.map(s => [s.id, s.name]));
+
+    const groups = new Map<string, { supplierId: string; supplierName: string; total: number; gst: number; count: number }>();
+    let total = 0;
+    let gstTotal = 0;
+    let pendingCount = 0;
+    for (const r of rows) {
+      total += r.amount;
+      gstTotal += r.gstAmount;
+      if (r.reviewStatus === "PENDING") pendingCount += 1;
+      const existing = groups.get(r.supplierId) ?? {
+        supplierId: r.supplierId,
+        supplierName: supplierNameById.get(r.supplierId) ?? "(unknown)",
+        total: 0, gst: 0, count: 0,
+      };
+      existing.total += r.amount;
+      existing.gst += r.gstAmount;
+      existing.count += 1;
+      groups.set(r.supplierId, existing);
+    }
+    const bySupplier = Array.from(groups.values()).sort((a, b) => b.total - a.total);
+    return { total, gstTotal, pendingCount, bySupplier };
+  }
+
+  async getOtherUnknownSupplierId(): Promise<string | undefined> {
+    const [s] = await db.select({ id: suppliers.id })
+      .from(suppliers)
+      .where(eq(suppliers.name, "Other / Unknown"))
+      .limit(1);
+    return s?.id;
   }
 
   async findSupplierByEmail(email: string): Promise<Supplier | undefined> {
