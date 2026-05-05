@@ -1070,12 +1070,18 @@ export class MemStorage implements IStorage {
     const supplier: Supplier = {
       id,
       name: insertSupplier.name,
+      abn: insertSupplier.abn ?? null,
       contactName: insertSupplier.contactName ?? null,
+      contactEmails: insertSupplier.contactEmails ?? null,
       email: insertSupplier.email ?? null,
       phone: insertSupplier.phone ?? null,
       address: insertSupplier.address ?? null,
+      bsb: insertSupplier.bsb ?? null,
+      accountNumber: insertSupplier.accountNumber ?? null,
       notes: insertSupplier.notes ?? null,
       active: insertSupplier.active ?? true,
+      isAutoPay: insertSupplier.isAutoPay ?? false,
+      defaultGstRate: insertSupplier.defaultGstRate ?? 0,
       createdAt: now,
       updatedAt: now,
     };

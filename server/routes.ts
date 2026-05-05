@@ -2910,6 +2910,14 @@ export async function registerRoutes(
   app.put("/api/suppliers/:id", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
+      // §7.5: validate defaultGstRate range when provided (other fields are tolerated as-is for now).
+      if (req.body && req.body.defaultGstRate !== undefined) {
+        const rate = Number(req.body.defaultGstRate);
+        if (!Number.isInteger(rate) || rate < 0 || rate > 100) {
+          return res.status(400).json({ error: "defaultGstRate must be an integer between 0 and 100" });
+        }
+        req.body.defaultGstRate = rate;
+      }
       const supplier = await storage.updateSupplier(id, req.body);
       if (!supplier) {
         return res.status(404).json({ error: "Supplier not found" });

@@ -441,11 +441,16 @@ export const suppliers = pgTable("suppliers", {
   notes: text("notes"),
   active: boolean("active").default(true).notNull(),
   isAutoPay: boolean("is_auto_pay").default(false).notNull(),
+  // §7 Wave 1: default GST rate (0~100). Snapshot copied to cash_expenses + AP at entry time.
+  // 0=GST-free (fresh produce, chicken shop), 50=mixed (Woolworths/Coles), 100=fully GST-applicable (drinks, Daiso).
+  defaultGstRate: integer("default_gst_rate").default(0).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const insertSupplierSchema = createInsertSchema(suppliers).omit({
+export const insertSupplierSchema = createInsertSchema(suppliers, {
+  defaultGstRate: z.number().int().min(0).max(100),
+}).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -502,6 +507,38 @@ export const insertSupplierPaymentSchema = createInsertSchema(supplierPayments).
 
 export type InsertSupplierPayment = z.infer<typeof insertSupplierPaymentSchema>;
 export type SupplierPayment = typeof supplierPayments.$inferSelect;
+
+// §7 Wave 1: Cash expense ledger. Employees enter what they bought with petty cash;
+// owner reviews and approves. GST snapshot is frozen at entry — supplier rate edits don't rewrite history (D10).
+// supplier_id is always set; the D14 "Other / Unknown" flow points at a sentinel supplier seeded in bootstrap-migrations,
+// so JOIN suppliers stays trivial in the §7.6 P&L bySupplier aggregation.
+export const cashExpenses = pgTable("cash_expenses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  supplierId: varchar("supplier_id").references(() => suppliers.id).notNull(),
+  amount: real("amount").default(0).notNull(),
+  gstAmount: real("gst_amount").default(0).notNull(),
+  gstRateSnapshot: integer("gst_rate_snapshot").default(0).notNull(),
+  expenseDate: text("expense_date").notNull(),
+  memo: text("memo"),
+  enteredBy: varchar("entered_by").references(() => employees.id),
+  reviewStatus: text("review_status").default("PENDING").notNull(), // PENDING | APPROVED
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCashExpenseSchema = createInsertSchema(cashExpenses, {
+  amount: z.number().nonnegative(),
+  gstAmount: z.number().nonnegative(),
+  gstRateSnapshot: z.number().int().min(0).max(100),
+}).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertCashExpense = z.infer<typeof insertCashExpenseSchema>;
+export type CashExpense = typeof cashExpenses.$inferSelect;
 
 // Emails from unknown senders with attachments — quarantined for manager review
 export const quarantinedEmails = pgTable("quarantined_emails", {

@@ -62,6 +62,29 @@ const STATEMENTS: string[] = [
      END IF;
    END $$`,
 
+  // §7.5 Wave 1: supplier GST default + cash_expenses table
+  `ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS default_gst_rate integer NOT NULL DEFAULT 0`,
+  // Global "Other / Unknown" sentinel supplier — D14 fallback target so cash_expenses.supplier_id can stay NOT NULL.
+  // Owners reassign these rows to a real supplier (or register a new one) during weekly review.
+  `INSERT INTO suppliers (name, default_gst_rate, active, is_auto_pay)
+   SELECT 'Other / Unknown', 0, true, false
+   WHERE NOT EXISTS (SELECT 1 FROM suppliers WHERE name = 'Other / Unknown')`,
+  `CREATE TABLE IF NOT EXISTS cash_expenses (
+     id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+     store_id varchar NOT NULL REFERENCES stores(id),
+     supplier_id varchar NOT NULL REFERENCES suppliers(id),
+     amount real NOT NULL DEFAULT 0,
+     gst_amount real NOT NULL DEFAULT 0,
+     gst_rate_snapshot integer NOT NULL DEFAULT 0,
+     expense_date text NOT NULL,
+     memo text,
+     entered_by varchar REFERENCES employees(id),
+     review_status text NOT NULL DEFAULT 'PENDING',
+     created_at timestamp NOT NULL DEFAULT now(),
+     updated_at timestamp NOT NULL DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_cash_expenses_store_date ON cash_expenses(store_id, expense_date DESC)`,
+
   // Backfill daily_sales from any existing daily_closings rows so the unified
   // ledger contains both POSnet historical imports and previously-submitted
   // close forms. Idempotent via the (store_id, date) unique index — historical

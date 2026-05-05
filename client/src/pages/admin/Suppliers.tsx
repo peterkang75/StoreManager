@@ -51,6 +51,7 @@ type FormState = {
   notes: string;
   active: boolean;
   isAutoPay: boolean;
+  defaultGstRate: number; // 0~100
 };
 
 const BLANK_FORM: FormState = {
@@ -64,7 +65,13 @@ const BLANK_FORM: FormState = {
   notes: "",
   active: true,
   isAutoPay: false,
+  defaultGstRate: 0,
 };
+
+function clampGst(value: number): number {
+  if (Number.isNaN(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
 
 function parseEmails(raw: string): string[] {
   return raw
@@ -185,6 +192,43 @@ function SupplierForm({
         />
       </div>
 
+      <div className="space-y-2 rounded-md border border-border px-3 py-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <Label htmlFor="sup-gst" className="font-medium">
+            GST applicable rate
+          </Label>
+          <div className="flex items-center gap-2">
+            <Input
+              id="sup-gst"
+              type="number"
+              min={0}
+              max={100}
+              step={5}
+              value={form.defaultGstRate}
+              onChange={e => setForm({ ...form, defaultGstRate: clampGst(Number(e.target.value)) })}
+              className="w-20 text-right"
+              data-testid="input-supplier-gst-rate"
+            />
+            <span className="text-sm text-muted-foreground">%</span>
+          </div>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={5}
+          value={form.defaultGstRate}
+          onChange={e => setForm({ ...form, defaultGstRate: clampGst(Number(e.target.value)) })}
+          className="w-full"
+          data-testid="slider-supplier-gst-rate"
+          aria-label="Default GST rate"
+        />
+        <p className="text-xs text-muted-foreground">
+          0 = GST-free (fresh produce, chicken). 50 = mixed receipts (Woolworths/Coles).
+          100 = fully GST-applicable (drinks, Daiso, utensils).
+        </p>
+      </div>
+
       <div className="flex items-center justify-between pt-1 rounded-md border border-border px-3 py-2.5">
         <div className="flex items-center gap-2">
           <Zap className="w-4 h-4 text-amber-500" />
@@ -258,6 +302,7 @@ export function AdminSuppliers() {
       notes: f.notes.trim() || null,
       active: f.active,
       isAutoPay: f.isAutoPay,
+      defaultGstRate: clampGst(f.defaultGstRate),
     };
   }
 
@@ -323,6 +368,7 @@ export function AdminSuppliers() {
       notes: supplier.notes || "",
       active: supplier.active,
       isAutoPay: supplier.isAutoPay ?? false,
+      defaultGstRate: clampGst(supplier.defaultGstRate ?? 0),
     });
   };
 
@@ -398,6 +444,7 @@ export function AdminSuppliers() {
                     <TableHead>ABN</TableHead>
                     <TableHead>Whitelisted Emails</TableHead>
                     <TableHead>Banking Details</TableHead>
+                    <TableHead className="text-right">GST</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -451,6 +498,10 @@ export function AdminSuppliers() {
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
+                      </TableCell>
+
+                      <TableCell className="text-right text-sm font-medium tabular-nums" data-testid={`cell-gst-${supplier.id}`}>
+                        {supplier.defaultGstRate ?? 0}%
                       </TableCell>
 
                       <TableCell>
