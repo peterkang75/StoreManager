@@ -72,6 +72,7 @@ import {
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import AddInvoiceModal from "@/components/AddInvoiceModal";
+import { CashExpenseReview } from "@/components/CashExpenseReview";
 import { useToast } from "@/hooks/use-toast";
 import type { SupplierInvoice, Supplier, Store, EmailRoutingRule } from "@shared/schema";
 
@@ -848,7 +849,7 @@ function ReassignSupplierDialog({ invoice, onClose, onSuccess }: ReassignSupplie
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-type TabKey = "topay" | "review" | "history" | "rejected" | "emailrules" | "quarantine" | "trash";
+type TabKey = "topay" | "review" | "history" | "cashexpense" | "rejected" | "emailrules" | "quarantine" | "trash";
 
 export function AdminAccountsPayable() {
   const { toast } = useToast();
@@ -1360,6 +1361,11 @@ export function AdminAccountsPayable() {
       badgeColor: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400",
     },
     {
+      key: "cashexpense",
+      label: "Cash Expenses",
+      badgeColor: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-400",
+    },
+    {
       key: "emailrules",
       label: "Email Rules",
       badge: emailRules.length > 0 ? emailRules.length : undefined,
@@ -1385,7 +1391,7 @@ export function AdminAccountsPayable() {
     },
   ];
 
-  const showStoreFilter = activeTab === "topay" || activeTab === "history";
+  const showStoreFilter = activeTab === "topay" || activeTab === "history" || activeTab === "cashexpense";
   const showSummaryCards = activeTab === "topay";
 
   return (
@@ -2332,6 +2338,11 @@ export function AdminAccountsPayable() {
               })}
             </div>
           )
+        )}
+
+        {/* ── CASH EXPENSES (§7 Wave 1 Day 4) ── */}
+        {activeTab === "cashexpense" && (
+          <CashExpenseReview storeFilter={storeFilter} />
         )}
 
         {/* ── EMAIL RULES ── */}
