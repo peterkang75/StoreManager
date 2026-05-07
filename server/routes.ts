@@ -3734,9 +3734,45 @@ export async function registerRoutes(
             continue;
           }
 
+          // Helper: even when AI parse can't produce a final amount/invoice#,
+          // try to attach the right supplier to the row so the owner sees it
+          // grouped under the actual seller in Review Inbox instead of an
+          // "Unknown Supplier" / buyer-mislabel bucket. Returns the linked
+          // supplier id (or null) so the caller's reason counters stay accurate.
+          const resolveSupplierFromHints = async (): Promise<string | null> => {
+            if (inv.supplierId) return inv.supplierId;
+            const emailHints = [
+              parsedSupplier?.supplierEmail,
+              raw?.supplier?.supplierEmail,
+              raw?.senderEmail,
+            ].filter((e): e is string => typeof e === "string" && e.trim().length > 0);
+            const nameHints = [
+              parsedSupplier?.supplierName,
+              raw?.supplier?.supplierName,
+            ].filter((n): n is string => typeof n === "string" && n.trim().length > 0 && n !== "Unknown Supplier");
+            for (const e of emailHints) {
+              const m = await storage.findSupplierByEmail(e);
+              if (m) { console.log(`[bulk-reclassify] ${inv.id}: link-only by email "${e}" → ${m.name}`); return m.id; }
+            }
+            for (const n of nameHints) {
+              const m = await storage.findSupplierByName(n);
+              if (m) { console.log(`[bulk-reclassify] ${inv.id}: link-only by name "${n}" → ${m.name}`); return m.id; }
+            }
+            return null;
+          };
+
           if (parsedInvoices.length === 0) {
-            if (inv.status !== "REVIEW") await storage.updateSupplierInvoice(inv.id, { status: "REVIEW" });
-            console.warn(`[bulk-reclassify] ${inv.id} (${supplier?.name ?? "unknown"}): AI returned no invoices from ${pdfText.length} chars of text`);
+            // AI couldn't pull invoices — at least link the supplier if we can,
+            // so the row groups under the right vendor next time the owner
+            // opens Review Inbox.
+            const linkOnly = await resolveSupplierFromHints();
+            const linkPatch: any = { status: "REVIEW" };
+            if (linkOnly && linkOnly !== inv.supplierId) {
+              linkPatch.supplierId = linkOnly;
+              summary.linkedByEmail++;
+            }
+            await storage.updateSupplierInvoice(inv.id, linkPatch);
+            console.warn(`[bulk-reclassify] ${inv.id} (${supplier?.name ?? "unknown"}): AI returned no invoices from ${pdfText.length} chars of text${linkOnly ? ` — linked supplier ${linkOnly}` : ""}`);
             summary.needsManual++;
             summary.reasons.aiReturnedNothing++;
             continue;
@@ -3744,32 +3780,55 @@ export async function registerRoutes(
 
           const first = parsedInvoices[0];
           if (!first || (!first.totalAmount && !first.invoiceNumber)) {
-            if (inv.status !== "REVIEW") await storage.updateSupplierInvoice(inv.id, { status: "REVIEW" });
+            const linkOnly = await resolveSupplierFromHints();
+            const linkPatch: any = { status: "REVIEW" };
+            if (linkOnly && linkOnly !== inv.supplierId) {
+              linkPatch.supplierId = linkOnly;
+              summary.linkedByEmail++;
+            }
+            await storage.updateSupplierInvoice(inv.id, linkPatch);
             summary.needsManual++;
             summary.reasons.parsedButEmpty++;
             continue;
           }
 
           // Resolve supplier for rows that came in with supplier_id = null
-          // (the cross-check-failure case). Try name first, then the AI-
-          // extracted seller email — the latter rescues rows where the AI
-          // grabbed the buyer's name but kept the seller's email.
+          // (the cross-check-failure case). Try EMAIL hints first because
+          // they're the seller's authoritative address; the supplierName
+          // field is more often the buyer (the user's own entity) thanks
+          // to AI buyer/seller mix-ups. Hints come from both the fresh
+          // parse AND the previously-stored rawExtractedData so we don't
+          // depend on every re-parse hitting the same answer.
           let resolvedSupplierId: string | null = inv.supplierId ?? null;
-          if (!resolvedSupplierId && parsedSupplier) {
-            if (parsedSupplier.supplierName) {
-              const nameMatch = await storage.findSupplierByName(parsedSupplier.supplierName);
-              if (nameMatch) {
-                resolvedSupplierId = nameMatch.id;
-                summary.linkedByName++;
-                console.log(`[bulk-reclassify] ${inv.id}: linked by name "${parsedSupplier.supplierName}" → ${nameMatch.name}`);
+          if (!resolvedSupplierId) {
+            const emailHints = [
+              parsedSupplier?.supplierEmail,
+              raw?.supplier?.supplierEmail,
+              raw?.senderEmail,
+            ].filter((e): e is string => typeof e === "string" && e.trim().length > 0);
+            const nameHints = [
+              parsedSupplier?.supplierName,
+              raw?.supplier?.supplierName,
+            ].filter((n): n is string => typeof n === "string" && n.trim().length > 0 && n !== "Unknown Supplier");
+
+            for (const e of emailHints) {
+              const match = await storage.findSupplierByEmail(e);
+              if (match) {
+                resolvedSupplierId = match.id;
+                summary.linkedByEmail++;
+                console.log(`[bulk-reclassify] ${inv.id}: linked by email "${e}" → ${match.name}`);
+                break;
               }
             }
-            if (!resolvedSupplierId && parsedSupplier.supplierEmail) {
-              const emailMatch = await storage.findSupplierByEmail(parsedSupplier.supplierEmail);
-              if (emailMatch) {
-                resolvedSupplierId = emailMatch.id;
-                summary.linkedByEmail++;
-                console.log(`[bulk-reclassify] ${inv.id}: linked by email "${parsedSupplier.supplierEmail}" → ${emailMatch.name} (PDF supplierName="${parsedSupplier.supplierName ?? "n/a"}" had no DB match)`);
+            if (!resolvedSupplierId) {
+              for (const n of nameHints) {
+                const match = await storage.findSupplierByName(n);
+                if (match) {
+                  resolvedSupplierId = match.id;
+                  summary.linkedByName++;
+                  console.log(`[bulk-reclassify] ${inv.id}: linked by name "${n}" → ${match.name}`);
+                  break;
+                }
               }
             }
           }
