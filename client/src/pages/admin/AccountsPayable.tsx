@@ -1531,7 +1531,7 @@ export function AdminAccountsPayable() {
             {tabs.map(tab => (
               <button
                 key={tab.key}
-                onClick={() => { setActiveTab(tab.key); clearSelection(); }}
+                onClick={() => setActiveTab(tab.key)}
                 className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
                   activeTab === tab.key
                     ? "bg-card text-foreground shadow-sm"
