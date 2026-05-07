@@ -1255,10 +1255,13 @@ export function AdminTimesheetApprovals() {
   const [, navigate] = useLocation();
   const { currentRole } = useAdminRole();
 
-  // Cycle state — default to AEDT current payroll cycle
+  // Cycle state — default to the previous (just-closed) cycle, since approval
+  // work is almost always for the cycle that already ended. "This Cycle" button
+  // jumps the user back to today's cycle when needed.
   const today = getAEDTToday();
   const currentCycleStart = getPayrollCycleStart(today);
-  const [cycleStart, setCycleStart] = useState(currentCycleStart);
+  const previousCycleStart = shiftDate(currentCycleStart, -14);
+  const [cycleStart, setCycleStart] = useState(previousCycleStart);
   const cycleEnd = getPayrollCycleEnd(cycleStart);
   const isCurrentCycle = cycleStart === currentCycleStart;
 

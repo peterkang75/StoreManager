@@ -164,6 +164,17 @@ function getLastFortnight(): { start: string; end: string } {
   return getCurrentPayCycle();
 }
 
+// Previous (just-closed) pay cycle — used as the default period because payroll
+// work is almost always done against the cycle that just ended, not the current one.
+function getPreviousPayCycle(): { start: string; end: string } {
+  const cur = getCurrentPayCycle();
+  const start = new Date(cur.start + "T00:00:00");
+  start.setDate(start.getDate() - 14);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 13);
+  return { start: fmtYMD(start), end: fmtYMD(end) };
+}
+
 function calculatePaygTax(fortnightlyGross: number): number {
   if (fortnightlyGross < 722) return 0;
   const x = fortnightlyGross + 0.99;
@@ -287,7 +298,7 @@ const PERIOD_SS_KEY = "payroll_selected_period";
 
 export function AdminPayrolls() {
   const { toast } = useToast();
-  const fortnight = getLastFortnight();
+  const fortnight = getPreviousPayCycle();
 
   // Restore previously selected period from sessionStorage so HMR / navigation
   // doesn't silently reset it back to the default cycle.
@@ -325,6 +336,9 @@ export function AdminPayrolls() {
   const [globalNote, setGlobalNote] = useState("");
   const [noteLoaded, setNoteLoaded] = useState(false);
   const [bankTrackerOpen, setBankTrackerOpen] = useState(false);
+  // Click-to-filter on the per-store total cards inside the tracker modal.
+  // null = show all stores; otherwise restrict the list to the named store.
+  const [trackerStoreFilter, setTrackerStoreFilter] = useState<string | null>(null);
   // Captures currentCtxKey at the moment save is triggered — prevents stale-closure issues in onSuccess
   const savingCtxKeyRef = useRef<string>("");
 
@@ -1871,7 +1885,13 @@ export function AdminPayrolls() {
         )}
       </div>
 
-      <Dialog open={bankTrackerOpen} onOpenChange={setBankTrackerOpen}>
+      <Dialog
+        open={bankTrackerOpen}
+        onOpenChange={(open) => {
+          setBankTrackerOpen(open);
+          if (!open) setTrackerStoreFilter(null);
+        }}
+      >
         <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1902,11 +1922,29 @@ export function AdminPayrolls() {
                 {sorted.map(([name, s]) => {
                   const remaining = s.total - s.doneAmount;
                   const allDone = s.doneCount === s.count;
+                  const isSelected = trackerStoreFilter === name;
                   return (
                     <div
                       key={name}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() =>
+                        setTrackerStoreFilter((prev) => (prev === name ? null : name))
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setTrackerStoreFilter((prev) => (prev === name ? null : name));
+                        }
+                      }}
+                      aria-pressed={isSelected}
                       data-testid={`card-store-total-${name.toLowerCase()}`}
-                      className="rounded-md border bg-muted/30 px-3 py-2.5"
+                      className={`rounded-md border px-3 py-2.5 cursor-pointer transition-colors hover:bg-muted/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                        isSelected
+                          ? "bg-primary/10 border-primary ring-1 ring-primary"
+                          : "bg-muted/30"
+                      }`}
+                      title={isSelected ? `Click to clear filter` : `Click to show only ${name}`}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{name}</div>
@@ -1920,7 +1958,8 @@ export function AdminPayrolls() {
                         </span>
                         <button
                           type="button"
-                          onClick={async () => {
+                          onClick={async (e) => {
+                            e.stopPropagation();
                             try {
                               await navigator.clipboard.writeText(s.total.toFixed(2));
                               toast({ title: "Copied", description: `${name} total $${s.total.toFixed(2)} copied` });
@@ -1974,7 +2013,10 @@ export function AdminPayrolls() {
                   <span className="text-right">Bank Deposit</span>
                   <span className="text-center">Done</span>
                 </div>
-                {bankDeposits.map((entry) => {
+                {(trackerStoreFilter
+                  ? bankDeposits.filter((e) => e.storeName === trackerStoreFilter)
+                  : bankDeposits
+                ).map((entry) => {
                   const isPending =
                     bankTransferMutation.isPending ||
                     settlementTransferMutation.isPending;
