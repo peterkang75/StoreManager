@@ -74,8 +74,6 @@ const INFO_TEXT: Record<string, { title: string; body: string }> = {
   previousFloat:    { title: "Previous Float",    body: "Float carried over from yesterday's close." },
   salesTotal:       { title: "Sales Total",       body: "Today's total sales — cash and EFTPOS combined." },
   cashSales:        { title: "Cash Sales",        body: "Cash portion of today's sales (excluding EFTPOS)." },
-  cashOutTotal:     { title: "Cash Out Total",    body: "Total cash paid out from the till today." },
-  numberOfReceipts: { title: "No. of Receipts",   body: "Total number of receipts paid in cash." },
   nextFloat:        { title: "Next Float",        body: "Float carried forward to tomorrow." },
 };
 
@@ -107,10 +105,6 @@ function emptyNotes(): NoteCounts {
 
 const num = (s: string): number => {
   const n = parseFloat(s);
-  return Number.isFinite(n) ? n : 0;
-};
-const numInt = (s: string): number => {
-  const n = parseInt(s, 10);
   return Number.isFinite(n) ? n : 0;
 };
 
@@ -172,8 +166,6 @@ export function MobileDailyClose() {
     previousFloat: "",
     salesTotal: "",
     cashSales: "",
-    cashOutTotal: "",
-    numberOfReceipts: "",
     nextFloat: "",
     ubereatsAmount: "",
     doordashAmount: "",
@@ -220,8 +212,20 @@ export function MobileDailyClose() {
     return Math.round(sum * 100) / 100;
   }, [notes]);
 
+  // §7 Wave 1 Day 6: Cash Expenses are now the only "cash out" path —
+  // sum them here so reconciliation and the closingData payload share the
+  // same number, and the legacy free-text Cash Out Total field is gone.
+  const cashExpenseTotal = useMemo(
+    () => Math.round(cashExpenses.reduce((s, r) => s + r.amount, 0) * 100) / 100,
+    [cashExpenses],
+  );
+  const cashExpenseGstTotal = useMemo(
+    () => Math.round(cashExpenses.reduce((s, r) => s + r.gstEstimate, 0) * 100) / 100,
+    [cashExpenses],
+  );
+
   const expectedCredit =
-    num(form.previousFloat) + num(form.cashSales) - num(form.cashOutTotal) - num(form.nextFloat);
+    num(form.previousFloat) + num(form.cashSales) - cashExpenseTotal - num(form.nextFloat);
   const differenceAmount = expectedCredit - totalCounted;
 
   const updateNote = (key: NoteDenomKey, val: string) => {
@@ -263,15 +267,6 @@ export function MobileDailyClose() {
     draftAmountNum > 0 &&
     (!draftIsOther || memoTrimmed.length >= 3);
 
-  const cashExpenseTotal = useMemo(
-    () => Math.round(cashExpenses.reduce((s, r) => s + r.amount, 0) * 100) / 100,
-    [cashExpenses],
-  );
-  const cashExpenseGstTotal = useMemo(
-    () => Math.round(cashExpenses.reduce((s, r) => s + r.gstEstimate, 0) * 100) / 100,
-    [cashExpenses],
-  );
-
   const addCashExpense = () => {
     if (!canAddCashExpense || !draftSupplier) return;
     setCashExpenses(prev => [
@@ -302,7 +297,10 @@ export function MobileDailyClose() {
         previousFloat: num(form.previousFloat),
         salesTotal: num(form.salesTotal),
         cashSales: num(form.cashSales),
-        cashOut: num(form.cashOutTotal),
+        // §7 Wave 1 Day 6: cashOut is now derived from the Cash Expenses list,
+        // so the admin Cash & Close page surfaces the supplier-level total
+        // without keeping a redundant free-text input on the mobile form.
+        cashOut: cashExpenseTotal,
         nextFloat: num(form.nextFloat),
         actualCashCounted: totalCounted,
         differenceAmount,
@@ -316,7 +314,7 @@ export function MobileDailyClose() {
         submitterName: displayName,
         envelopeAmount: expectedCredit,
         totalCalculated: totalCounted,
-        numberOfReceipts: numInt(form.numberOfReceipts),
+        // numberOfReceipts dropped from the mobile form; column defaults to 0.
         notes: form.notes || null,
         ...notes,
         coin2Count: 0, coin1Count: 0, coin050Count: 0, coin020Count: 0, coin010Count: 0, coin005Count: 0,
@@ -368,7 +366,7 @@ export function MobileDailyClose() {
 
   const resetForm = () => {
     setSubmitted(false);
-    setForm({ previousFloat: "", salesTotal: "", cashSales: "", cashOutTotal: "", numberOfReceipts: "", nextFloat: "", ubereatsAmount: "", doordashAmount: "", notes: "" });
+    setForm({ previousFloat: "", salesTotal: "", cashSales: "", nextFloat: "", ubereatsAmount: "", doordashAmount: "", notes: "" });
     setNotes(emptyNotes());
     setCashExpenses([]);
     setDraftSupplierId("");
@@ -412,19 +410,14 @@ export function MobileDailyClose() {
   const isSingleStore = assignedStores.length === 1;
   const isMultiStore = assignedStores.length >= 2;
 
-  // Required: store, date, and the core monetary/count fields. Empty string is
-  // not allowed even for zero — the user must explicitly type "0".
-  // No. of Receipts is conditionally required: only when Cash Out Total > 0
-  // (zero cash-out means there are no receipts to count, so requiring the field
-  // would force the user to type "0" for no reason).
-  const cashOutNum = num(form.cashOutTotal);
-  const receiptsRequired = cashOutNum > 0;
+  // Required: store, date, and the core monetary fields. Empty string is not
+  // allowed even for zero — the user must explicitly type "0". Cash-out and
+  // receipts are no longer required fields; cash payments now flow through
+  // the Cash Expenses section (§7 Wave 1 Day 6).
   const requiredFilled =
     form.previousFloat !== "" &&
     form.salesTotal !== "" &&
     form.cashSales !== "" &&
-    form.cashOutTotal !== "" &&
-    (!receiptsRequired || form.numberOfReceipts !== "") &&
     form.nextFloat !== "";
   const canSubmit = !!storeId && !!date && requiredFilled && !submitMutation.isPending;
 
@@ -532,16 +525,6 @@ export function MobileDailyClose() {
                 <Input id="cashSales" type="text" inputMode="decimal" value={form.cashSales} onChange={(e) => updateForm("cashSales", e.target.value)} className="h-12 text-base" data-testid="input-cashSales" />
               </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <div>
-                <FieldLabel onInfoClick={() => setInfoField("cashOutTotal")}>Cash Out Total</FieldLabel>
-                <Input id="cashOutTotal" type="text" inputMode="decimal" value={form.cashOutTotal} onChange={(e) => updateForm("cashOutTotal", e.target.value)} className="h-12 text-base" data-testid="input-cashOutTotal" />
-              </div>
-              <div>
-                <FieldLabel onInfoClick={() => setInfoField("numberOfReceipts")}>No. of Receipts</FieldLabel>
-                <Input id="numberOfReceipts" type="tel" inputMode="numeric" pattern="[0-9]*" value={form.numberOfReceipts} onChange={(e) => updateForm("numberOfReceipts", e.target.value.replace(/\D/g, ""))} className="h-12 text-base" data-testid="input-numberOfReceipts" />
-              </div>
-            </div>
             <div>
               <FieldLabel onInfoClick={() => setInfoField("nextFloat")}>Next Float</FieldLabel>
               <Input id="nextFloat" type="text" inputMode="decimal" value={form.nextFloat} onChange={(e) => updateForm("nextFloat", e.target.value)} className="h-12 text-base" data-testid="input-nextFloat" />
@@ -555,92 +538,6 @@ export function MobileDailyClose() {
                 <FieldLabel>DoorDash</FieldLabel>
                 <Input id="doordash" type="text" inputMode="decimal" value={form.doordashAmount} onChange={(e) => updateForm("doordashAmount", e.target.value)} className="h-12 text-base" data-testid="input-doordash" />
               </div>
-            </div>
-          </div>
-        </SectionCard>
-
-        {/* Note Count */}
-        <SectionCard title="Note Count — Credit Amount">
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
-            {NOTE_DENOMS.map(d => (
-              <div key={d.key} style={{ textAlign: "center" }}>
-                <p style={{ fontSize: 12, fontWeight: 600, color: "#222222", marginBottom: 6 }}>{d.label}</p>
-                <Input
-                  type="tel"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={notes[d.key] || ""}
-                  onChange={(e) => updateNote(d.key, e.target.value.replace(/\D/g, ""))}
-                  className="h-14 text-center text-lg font-bold"
-                  data-testid={`input-${d.key}`}
-                />
-                {notes[d.key] > 0 && (
-                  <p style={{ fontSize: 10, color: "#6a6a6a", marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
-                    ${(notes[d.key] * d.value).toFixed(0)}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-          <div style={{ marginTop: 16, padding: "12px 16px", background: "#f2f2f2", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: 14, color: "#6a6a6a" }}>Counted Total</span>
-            <span style={{ fontSize: 22, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px" }} data-testid="text-counted-total">${totalCounted.toFixed(2)}</span>
-          </div>
-        </SectionCard>
-
-        {/* Reconciliation */}
-        <SectionCard title="Reconciliation">
-          <div style={{ background: "#f2f2f2", borderRadius: 8, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-            <div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-                <span style={{ fontSize: 14, fontWeight: 600, color: "#222222" }}>Expected Cash</span>
-                <span style={{ fontSize: 22, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px" }} data-testid="text-expected-credit">${expectedCredit.toFixed(2)}</span>
-              </div>
-              <p style={{ fontSize: 11, color: "#6a6a6a" }}>Prev Float + Cash Sales − Cash Out − Next Float</p>
-              <p style={{ fontSize: 11, color: "#6a6a6a", fontFamily: "monospace", marginTop: 2 }}>
-                ${num(form.previousFloat).toFixed(2)} + ${num(form.cashSales).toFixed(2)} − ${num(form.cashOutTotal).toFixed(2)} − ${num(form.nextFloat).toFixed(2)}
-              </p>
-            </div>
-            <div style={{ borderTop: "1px solid #c1c1c1", paddingTop: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-                <span style={{ fontSize: 14, fontWeight: 600, color: "#222222" }}>Difference</span>
-                <span
-                  style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.44px", color: differenceAmount > 0.005 ? "#ef4444" : differenceAmount < -0.005 ? "#222222" : "#6a6a6a" }}
-                  data-testid="text-difference"
-                >
-                  {differenceAmount > 0.005 ? `-$${differenceAmount.toFixed(2)}` : differenceAmount < -0.005 ? `+$${Math.abs(differenceAmount).toFixed(2)}` : `$${differenceAmount.toFixed(2)}`}
-                  {differenceAmount > 0.005 && <span style={{ fontSize: 11, marginLeft: 4 }}>(Shortage)</span>}
-                  {differenceAmount < -0.005 && <span style={{ fontSize: 11, marginLeft: 4 }}>(Overage)</span>}
-                </span>
-              </div>
-              <p style={{ fontSize: 11, color: "#6a6a6a" }}>Expected Cash − Counted Total</p>
-              {differenceAmount > 20.005 ? (
-                <div
-                  style={{
-                    marginTop: 10,
-                    padding: "12px 14px",
-                    background: "rgba(239,68,68,0.08)",
-                    border: "1px solid rgba(239,68,68,0.4)",
-                    borderRadius: 8,
-                    display: "flex",
-                    gap: 10,
-                    color: "#c13515",
-                    fontSize: 13,
-                    lineHeight: 1.45,
-                  }}
-                  data-testid="warning-shortage-major"
-                >
-                  <AlertTriangle style={{ width: 18, height: 18, flexShrink: 0, marginTop: 1 }} />
-                  <span>
-                    <b>Report to your manager immediately.</b> This difference is recorded in your close, and you may be asked to verify it during reconciliation.
-                  </span>
-                </div>
-              ) : differenceAmount > 0.005 ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, color: "#ef4444", fontSize: 13 }}>
-                  <AlertTriangle style={{ width: 14, height: 14 }} />
-                  <span>Cash shortage detected</span>
-                </div>
-              ) : null}
             </div>
           </div>
         </SectionCard>
@@ -845,6 +742,92 @@ export function MobileDailyClose() {
               <Plus style={{ width: 16, height: 16 }} />
               Add cash expense
             </button>
+          </div>
+        </SectionCard>
+
+        {/* Note Count */}
+        <SectionCard title="Note Count — Credit Amount">
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
+            {NOTE_DENOMS.map(d => (
+              <div key={d.key} style={{ textAlign: "center" }}>
+                <p style={{ fontSize: 12, fontWeight: 600, color: "#222222", marginBottom: 6 }}>{d.label}</p>
+                <Input
+                  type="tel"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={notes[d.key] || ""}
+                  onChange={(e) => updateNote(d.key, e.target.value.replace(/\D/g, ""))}
+                  className="h-14 text-center text-lg font-bold"
+                  data-testid={`input-${d.key}`}
+                />
+                {notes[d.key] > 0 && (
+                  <p style={{ fontSize: 10, color: "#6a6a6a", marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
+                    ${(notes[d.key] * d.value).toFixed(0)}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 16, padding: "12px 16px", background: "#f2f2f2", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 14, color: "#6a6a6a" }}>Counted Total</span>
+            <span style={{ fontSize: 22, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px" }} data-testid="text-counted-total">${totalCounted.toFixed(2)}</span>
+          </div>
+        </SectionCard>
+
+        {/* Reconciliation */}
+        <SectionCard title="Reconciliation">
+          <div style={{ background: "#f2f2f2", borderRadius: 8, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: "#222222" }}>Expected Cash</span>
+                <span style={{ fontSize: 22, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px" }} data-testid="text-expected-credit">${expectedCredit.toFixed(2)}</span>
+              </div>
+              <p style={{ fontSize: 11, color: "#6a6a6a" }}>Prev Float + Cash Sales − Cash Expenses − Next Float</p>
+              <p style={{ fontSize: 11, color: "#6a6a6a", fontFamily: "monospace", marginTop: 2 }}>
+                ${num(form.previousFloat).toFixed(2)} + ${num(form.cashSales).toFixed(2)} − ${cashExpenseTotal.toFixed(2)} − ${num(form.nextFloat).toFixed(2)}
+              </p>
+            </div>
+            <div style={{ borderTop: "1px solid #c1c1c1", paddingTop: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: "#222222" }}>Difference</span>
+                <span
+                  style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.44px", color: differenceAmount > 0.005 ? "#ef4444" : differenceAmount < -0.005 ? "#222222" : "#6a6a6a" }}
+                  data-testid="text-difference"
+                >
+                  {differenceAmount > 0.005 ? `-$${differenceAmount.toFixed(2)}` : differenceAmount < -0.005 ? `+$${Math.abs(differenceAmount).toFixed(2)}` : `$${differenceAmount.toFixed(2)}`}
+                  {differenceAmount > 0.005 && <span style={{ fontSize: 11, marginLeft: 4 }}>(Shortage)</span>}
+                  {differenceAmount < -0.005 && <span style={{ fontSize: 11, marginLeft: 4 }}>(Overage)</span>}
+                </span>
+              </div>
+              <p style={{ fontSize: 11, color: "#6a6a6a" }}>Expected Cash − Counted Total</p>
+              {differenceAmount > 20.005 ? (
+                <div
+                  style={{
+                    marginTop: 10,
+                    padding: "12px 14px",
+                    background: "rgba(239,68,68,0.08)",
+                    border: "1px solid rgba(239,68,68,0.4)",
+                    borderRadius: 8,
+                    display: "flex",
+                    gap: 10,
+                    color: "#c13515",
+                    fontSize: 13,
+                    lineHeight: 1.45,
+                  }}
+                  data-testid="warning-shortage-major"
+                >
+                  <AlertTriangle style={{ width: 18, height: 18, flexShrink: 0, marginTop: 1 }} />
+                  <span>
+                    <b>Report to your manager immediately.</b> This difference is recorded in your close, and you may be asked to verify it during reconciliation.
+                  </span>
+                </div>
+              ) : differenceAmount > 0.005 ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, color: "#ef4444", fontSize: 13 }}>
+                  <AlertTriangle style={{ width: 14, height: 14 }} />
+                  <span>Cash shortage detected</span>
+                </div>
+              ) : null}
+            </div>
           </div>
         </SectionCard>
 
