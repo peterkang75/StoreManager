@@ -595,8 +595,8 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
               <tr className="bg-muted/50">
                 <th className="sticky left-0 bg-muted/50 z-10 px-1 py-1 text-left font-medium border-b border-r">Date</th>
                 <th className="px-1 py-1 text-left font-medium border-b border-r">Staff</th>
-                <th className="px-1 py-1 text-right font-medium border-b border-r">Envelope</th>
-                <th className="px-1 py-1 text-right font-medium border-b border-r bg-muted/80">Counted</th>
+                <th className="px-1 py-1 text-right font-medium border-b border-r bg-muted/80">Envelope</th>
+                <th className="px-1 py-1 text-right font-medium border-b border-r">Counted</th>
                 {DENOMINATIONS.map((d) => (
                   <th key={d.key} className="px-0.5 py-1 text-center font-medium border-b border-r">
                     {d.label}
@@ -655,6 +655,18 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                     >
                       {row.date ? (submitterByDate.get(row.date) ?? "—") : "—"}
                     </td>
+                    {/* Envelope = actual cash physically in the envelope, derived
+                        from the denomination tally (calcCounted). Read-only and
+                        spotlighted with bg-muted/30 because this is the
+                        owner-facing "answer". */}
+                    <td className="px-1 py-0.5 border-b border-r text-right font-mono text-xs tabular-nums bg-muted/30 font-bold" data-testid={`text-envelope-${idx}`}>
+                      {(row.countedAmount as number) > 0 ? `$${(row.countedAmount as number).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
+                    </td>
+                    {/* Counted = theoretical expected (Prev Float + Cash Sales −
+                        Cash Out − Next Float). Auto-filled from the matching
+                        close form (cf.envelopeAmount), editable for admin
+                        override. The data-col stays "envelopeAmount" so the
+                        Tab-key navigation order in TAB_COLS keeps working. */}
                     <td className="px-0.5 py-0.5 border-b border-r">
                       <Input
                         type="number"
@@ -671,11 +683,8 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                         onKeyDown={(e) => handleKeyDown(e, idx, "envelopeAmount")}
                         data-row={idx}
                         data-col="envelopeAmount"
-                        data-testid={`input-envelope-${idx}`}
+                        data-testid={`input-counted-${idx}`}
                       />
-                    </td>
-                    <td className="px-1 py-0.5 border-b border-r text-right font-mono text-xs tabular-nums bg-muted/30 font-medium" data-testid={`text-counted-${idx}`}>
-                      {(row.countedAmount as number) > 0 ? `$${(row.countedAmount as number).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
                     </td>
                     {DENOMINATIONS.map((denom) => (
                       <td key={denom.key} className="px-0.5 py-0.5 border-b border-r">
@@ -798,11 +807,13 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
               <tr className="bg-muted/60 font-medium">
                 <td className="sticky left-0 bg-muted/60 z-10 px-1 py-1.5 border-t-2 text-xs font-bold">TOTAL</td>
                 <td className="px-1 py-1.5 border-t-2" />
-                <td className="px-1 py-1.5 border-t-2 text-right font-mono text-xs tabular-nums" data-testid="text-total-envelope">
-                  ${totalEnvelope.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </td>
-                <td className="px-1 py-1.5 border-t-2 text-right font-mono text-xs tabular-nums font-bold bg-muted/80" data-testid="text-grand-total">
+                {/* Envelope column total = sum of actual counted amounts. */}
+                <td className="px-1 py-1.5 border-t-2 text-right font-mono text-xs tabular-nums font-bold bg-muted/30" data-testid="text-total-envelope">
                   ${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </td>
+                {/* Counted column total = sum of theoretical expected amounts. */}
+                <td className="px-1 py-1.5 border-t-2 text-right font-mono text-xs tabular-nums" data-testid="text-grand-total">
+                  ${totalEnvelope.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </td>
                 {DENOMINATIONS.map((d) => {
                   const colTotal = rows.reduce((sum, r) => sum + (Number(r[d.key]) || 0), 0);
