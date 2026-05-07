@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { 
   Store, 
@@ -262,17 +263,41 @@ function AdminSidebar() {
   );
 }
 
+// Server boot timestamp formatted as YYYYMMDDHHMMSS in Sydney time —
+// surfaced in the admin sidebar so it's obvious which deploy is live.
+function formatBuildNumber(iso: string | undefined | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  // en-CA gives ISO-style date, en-GB gives 24h time — combined we get
+  // a Sydney-anchored timestamp without needing a tz library.
+  const date = d.toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
+  const time = d.toLocaleTimeString("en-GB", {
+    timeZone: "Australia/Sydney",
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  return `${date.replace(/-/g, "")}${time.replace(/:/g, "")}`;
+}
+
 function UserFooter() {
   const { user, logout } = useAuth();
   const [, navigate] = useLocation();
+  const { data: buildInfo } = useQuery<{ bootAt: string }>({
+    queryKey: ["/api/build-info"],
+    staleTime: 60_000,
+  });
   if (!user) return null;
   const name = user.firstName ?? user.email ?? "Account";
+  const buildNumber = formatBuildNumber(buildInfo?.bootAt);
   return (
     <>
       <SidebarMenuItem>
-        <div className="px-2 py-1 text-xs text-sidebar-foreground/60 truncate" title={user.email ?? ""}>
+        <div className="px-2 py-1 text-xs text-sidebar-foreground/60 truncate" title={buildNumber ? `Build ${buildNumber} (Sydney)` : ""}>
           <div className="font-medium text-sidebar-foreground">{name}</div>
-          <div className="truncate">{user.email}</div>
+          <div className="truncate font-mono tabular-nums" data-testid="text-build-number">{buildNumber || "—"}</div>
         </div>
       </SidebarMenuItem>
       <SidebarMenuItem>

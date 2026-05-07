@@ -126,6 +126,12 @@ const upload = multer({
   },
 });
 
+// Captured once when the module is first loaded — used as the build/deploy
+// "version" stamp surfaced in the admin sidebar. On Railway each deploy boots
+// a fresh container so this naturally bumps per release; locally it bumps on
+// every dev restart.
+const BOOT_TIME = new Date().toISOString();
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -135,6 +141,12 @@ export async function registerRoutes(
     res.setHeader("Cache-Control", "public, max-age=31536000");
     next();
   }, express.static(uploadDir));
+
+  // Public — no auth gate. Returns ISO boot timestamp; the client formats
+  // it in Sydney time for the sidebar build label.
+  app.get("/api/build-info", (_req: Request, res: Response) => {
+    res.json({ bootAt: BOOT_TIME });
+  });
 
   // ─── Portal auth middleware ──────────────────────────────────────────
   // Bearer-token gate for /api/portal/* data routes. The token is created

@@ -112,6 +112,7 @@ export function apiToRouteKey(apiPath: string): string | "ADMIN_ONLY" | "EMPLOYE
   if (apiPath.startsWith("/api/daily-closings") || apiPath.startsWith("/api/daily-close-forms")) return "EMPLOYEE_OK"; // mobile DailyClose POST
   if (apiPath.startsWith("/api/cash-expenses")) return "EMPLOYEE_OK"; // §7 Wave 1: employees POST own entries; PATCH/DELETE/summary role-checked in handlers
   if (apiPath.startsWith("/api/permissions")) return "EMPLOYEE_OK"; // matrix readable by all authed (write-protected in handler)
+  if (apiPath.startsWith("/api/build-info")) return "EMPLOYEE_OK"; // tiny build-stamp endpoint shown in sidebar — harmless
 
 
   // ADMIN-only routes (matrix not consulted)
