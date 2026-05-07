@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, Fragment } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,10 +40,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Wallet, Receipt, AlertTriangle, ChevronLeft, ChevronRight, Pencil, Trash2, Loader2 } from "lucide-react";
+import { Wallet, Receipt, AlertTriangle, ChevronLeft, ChevronRight, ChevronDown, Pencil, Trash2, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import type { Store, DailyClosing, DailyCloseForm } from "@shared/schema";
+import type { Store, DailyClosing, DailyCloseForm, CashExpense, Supplier } from "@shared/schema";
 import { STORE_COLORS as STORE_BRAND } from "@shared/storeColors";
 import { useAdminRole } from "@/contexts/AdminRoleContext";
 
@@ -120,11 +120,29 @@ const num = (s: string): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+// One labelled $-amount line in the expanded detail panel. `muted` softens
+// the row (used for sub-components that roll up into a parent total),
+// `bold` highlights the rolled-up total itself.
+function DetailRow({ label, value, muted, bold }: { label: string; value: number; muted?: boolean; bold?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 text-sm">
+      <span className={muted ? "text-muted-foreground" : "text-foreground"}>{label}</span>
+      <span className={`tabular-nums whitespace-nowrap ${bold ? "font-bold" : muted ? "text-muted-foreground" : "font-medium"}`}>
+        ${value.toFixed(2)}
+      </span>
+    </div>
+  );
+}
+
 export function AdminCash() {
   const { currentRole } = useAdminRole();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [storeFilter, setStoreFilter] = useState<string>("all");
+  // §7 Wave 1 Day 6: page is single-store now (no "All Stores" aggregation).
+  // Empty initial value gets resolved to the Sushi store once /api/stores
+  // loads; falling back to the first eligible store keeps the UI usable
+  // even on a non-Sushi tenant.
+  const [storeFilter, setStoreFilter] = useState<string>("");
   const [weekStart, setWeekStart] = useState<string>(() => getMonday(new Date()));
   const weekEnd = addDays(weekStart, 6);
   const startDate = weekStart;
@@ -132,6 +150,7 @@ export function AdminCash() {
 
   const [editing, setEditing] = useState<{ id: string; fields: EditFields } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<DailyClosing | null>(null);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   const { data: stores } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
@@ -143,22 +162,25 @@ export function AdminCash() {
     [stores],
   );
 
-  const buildQuery = () => {
-    const params = new URLSearchParams();
-    if (storeFilter !== "all") params.append("store_id", storeFilter);
-    if (startDate) params.append("start_date", startDate);
-    if (endDate) params.append("end_date", endDate);
-    return params.toString();
-  };
+  // Default the filter to the Sushi store the moment the list arrives.
+  useEffect(() => {
+    if (storeFilter !== "" || activeStores.length === 0) return;
+    const sushi = activeStores.find(s => /sushi/i.test(s.name));
+    setStoreFilter((sushi ?? activeStores[0]).id);
+  }, [activeStores, storeFilter]);
 
   const { data: dailyClosings, isLoading: closingsLoading } = useQuery<DailyClosing[]>({
     queryKey: ["/api/daily-closings", storeFilter, startDate, endDate],
     queryFn: async () => {
-      const query = buildQuery();
-      const res = await fetch(`/api/daily-closings${query ? `?${query}` : ""}`);
+      const params = new URLSearchParams();
+      params.append("store_id", storeFilter);
+      params.append("start_date", startDate);
+      params.append("end_date", endDate);
+      const res = await fetch(`/api/daily-closings?${params.toString()}`);
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
+    enabled: storeFilter !== "",
   });
 
   // Cash Details now reads from daily_close_forms — the same record the
@@ -168,19 +190,66 @@ export function AdminCash() {
     queryKey: ["/api/daily-close-forms", storeFilter, startDate, endDate],
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (storeFilter !== "all") params.append("storeId", storeFilter);
-      if (startDate) params.append("startDate", startDate);
-      if (endDate) params.append("endDate", endDate);
-      const q = params.toString();
-      const res = await fetch(`/api/daily-close-forms${q ? `?${q}` : ""}`);
+      params.append("storeId", storeFilter);
+      params.append("startDate", startDate);
+      params.append("endDate", endDate);
+      const res = await fetch(`/api/daily-close-forms?${params.toString()}`);
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
-    enabled: currentRole !== "MANAGER",
+    enabled: currentRole !== "MANAGER" && storeFilter !== "",
   });
+
+  // §7 Wave 1 Day 6: per-supplier cash out breakdown for the expanded row.
+  // Same store + week window so the join in render is just a date lookup.
+  const { data: cashExpenses } = useQuery<CashExpense[]>({
+    queryKey: ["/api/cash-expenses", storeFilter, startDate, endDate],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.append("storeId", storeFilter);
+      params.append("from", startDate);
+      params.append("to", endDate);
+      const res = await fetch(`/api/cash-expenses?${params.toString()}`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+    enabled: storeFilter !== "",
+  });
+
+  // Supplier names for the cash-out breakdown labels. Admin-side already so
+  // /api/suppliers (admin-gated) is fine here.
+  const { data: suppliers } = useQuery<Supplier[]>({
+    queryKey: ["/api/suppliers"],
+  });
+
+  const supplierNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of suppliers ?? []) m.set(s.id, s.name);
+    return m;
+  }, [suppliers]);
+
+  // Group cash expenses by date for fast per-row lookup.
+  const cashExpensesByDate = useMemo(() => {
+    const m = new Map<string, CashExpense[]>();
+    for (const e of cashExpenses ?? []) {
+      const arr = m.get(e.expenseDate) ?? [];
+      arr.push(e);
+      m.set(e.expenseDate, arr);
+    }
+    return m;
+  }, [cashExpenses]);
 
   const getStoreName = (storeId: string) => {
     return stores?.find(s => s.id === storeId)?.name || "-";
+  };
+
+  const toggleRow = (id: string) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const updateMutation = useMutation({
@@ -270,7 +339,7 @@ export function AdminCash() {
               <CardTitle className="text-base">Filter</CardTitle>
               <div className="flex flex-wrap items-center gap-4">
                 <div className="flex items-center gap-1 flex-wrap">
-                  {[{ id: "all", name: "All Stores" }, ...activeStores].map(store => {
+                  {activeStores.map(store => {
                     const isActive = storeFilter === store.id;
                     const brandColor = STORE_BRAND[store.name] ?? null;
                     return (
@@ -345,86 +414,138 @@ export function AdminCash() {
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          <TableHead className="w-8" />
                           <TableHead>Date</TableHead>
-                          <TableHead>Store</TableHead>
                           <TableHead>Staff</TableHead>
-                          <TableHead className="text-right">POS Sales Total</TableHead>
-                          <TableHead className="text-right">Cash Amount</TableHead>
-                          <TableHead className="text-right">Cash Out</TableHead>
-                          <TableHead className="text-right">Expected Cash</TableHead>
-                          <TableHead className="text-right">Uber</TableHead>
-                          <TableHead className="text-right">DoorDash</TableHead>
                           <TableHead className="text-right">Total Income</TableHead>
-                          <TableHead className="text-right">Difference</TableHead>
+                          <TableHead className="text-right">POS Sales Total</TableHead>
+                          <TableHead className="text-right">Delivery Total</TableHead>
+                          <TableHead className="text-right">EFTPOS Total</TableHead>
+                          <TableHead className="text-right">Cash Sales Total</TableHead>
                           <TableHead className="text-right">Credit</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {dailyClosings.map(closing => {
-                          const isShortage = closing.differenceAmount > 0;
-                          const storeName = getStoreName(closing.storeId);
-                          const storeColor = STORE_BRAND[storeName] ?? "#6a6a6a";
-                          const totalIncome = closing.salesTotal + closing.ubereatsAmount + closing.doordashAmount;
+                          const isShortage = closing.differenceAmount > 0.005;
+                          const isOverage = closing.differenceAmount < -0.005;
+                          // POS Sales Total already aggregates cash + EFTPOS at the
+                          // till; isolate the EFTPOS portion by subtracting the cash
+                          // half so each table column is independent.
+                          const eftposTotal = Math.max(0, closing.salesTotal - closing.cashSales);
+                          const deliveryTotal = closing.ubereatsAmount + closing.doordashAmount;
+                          const totalIncome = closing.salesTotal + deliveryTotal;
+                          const isExpanded = expandedRows.has(closing.id);
+                          const expenses = cashExpensesByDate.get(closing.date) ?? [];
                           return (
-                            <TableRow key={closing.id} data-testid={`row-closing-${closing.id}`}>
-                              <TableCell className="whitespace-nowrap">{fmtRowDate(closing.date)}</TableCell>
-                              <TableCell>
-                                <span
-                                  className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full text-white"
-                                  style={{ backgroundColor: storeColor }}
-                                >
-                                  {storeName}
-                                </span>
-                              </TableCell>
-                              <TableCell className="max-w-[150px] truncate">{closing.staffNames || "-"}</TableCell>
-                              <TableCell className="text-right">${closing.salesTotal.toFixed(2)}</TableCell>
-                              <TableCell className="text-right">${closing.cashSales.toFixed(2)}</TableCell>
-                              <TableCell className="text-right">${closing.cashOut.toFixed(2)}</TableCell>
-                              <TableCell className="text-right">${closing.creditAmount.toFixed(2)}</TableCell>
-                              <TableCell className="text-right">${closing.ubereatsAmount.toFixed(2)}</TableCell>
-                              <TableCell className="text-right">${closing.doordashAmount.toFixed(2)}</TableCell>
-                              <TableCell className="text-right font-medium">${totalIncome.toFixed(2)}</TableCell>
-                              <TableCell className="text-right" data-testid={`text-diff-${closing.id}`}>
-                                {isShortage ? (
-                                  <span className="inline-flex items-center gap-1 text-red-600 font-bold">
-                                    <AlertTriangle className="w-3 h-3" />
-                                    ${closing.differenceAmount.toFixed(2)}
-                                  </span>
-                                ) : closing.differenceAmount < 0 ? (
-                                  <span className="text-green-600 font-medium">
-                                    -${Math.abs(closing.differenceAmount).toFixed(2)}
-                                  </span>
-                                ) : (
-                                  <span className="text-muted-foreground">$0.00</span>
-                                )}
-                              </TableCell>
-                              <TableCell className="text-right font-medium">${closing.actualCashCounted.toFixed(2)}</TableCell>
-                              <TableCell className="text-right">
-                                <div className="inline-flex gap-1">
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-8 w-8"
-                                    onClick={() => setEditing({ id: closing.id, fields: closingToEditFields(closing) })}
-                                    data-testid={`button-edit-${closing.id}`}
-                                    aria-label="Edit"
-                                  >
-                                    <Pencil className="h-4 w-4" />
-                                  </Button>
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-8 w-8 text-destructive hover:text-destructive"
-                                    onClick={() => setConfirmDelete(closing)}
-                                    data-testid={`button-delete-${closing.id}`}
-                                    aria-label="Delete"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </TableCell>
-                            </TableRow>
+                            <Fragment key={closing.id}>
+                              <TableRow
+                                data-testid={`row-closing-${closing.id}`}
+                                className="cursor-pointer hover:bg-muted/30"
+                                onClick={() => toggleRow(closing.id)}
+                              >
+                                <TableCell className="w-8 px-2">
+                                  <ChevronDown
+                                    className={`h-4 w-4 text-muted-foreground transition-transform ${isExpanded ? "" : "-rotate-90"}`}
+                                  />
+                                </TableCell>
+                                <TableCell className="whitespace-nowrap">{fmtRowDate(closing.date)}</TableCell>
+                                <TableCell className="max-w-[150px] truncate">{closing.staffNames || "-"}</TableCell>
+                                <TableCell className="text-right font-semibold tabular-nums">${totalIncome.toFixed(2)}</TableCell>
+                                <TableCell className="text-right tabular-nums">${closing.salesTotal.toFixed(2)}</TableCell>
+                                <TableCell className="text-right tabular-nums">${deliveryTotal.toFixed(2)}</TableCell>
+                                <TableCell className="text-right tabular-nums">${eftposTotal.toFixed(2)}</TableCell>
+                                <TableCell className="text-right tabular-nums">${closing.cashSales.toFixed(2)}</TableCell>
+                                <TableCell className="text-right font-medium tabular-nums">${closing.actualCashCounted.toFixed(2)}</TableCell>
+                                <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                                  <div className="inline-flex gap-1">
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-8 w-8"
+                                      onClick={() => setEditing({ id: closing.id, fields: closingToEditFields(closing) })}
+                                      data-testid={`button-edit-${closing.id}`}
+                                      aria-label="Edit"
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-8 w-8 text-destructive hover:text-destructive"
+                                      onClick={() => setConfirmDelete(closing)}
+                                      data-testid={`button-delete-${closing.id}`}
+                                      aria-label="Delete"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                              {isExpanded && (
+                                <TableRow className="bg-muted/30 hover:bg-muted/30">
+                                  <TableCell colSpan={10} className="p-0">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-6 py-4" data-testid={`detail-${closing.id}`}>
+                                      {/* Sales breakdown */}
+                                      <div className="space-y-2">
+                                        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Sales Breakdown</p>
+                                        <DetailRow label="POS Sales (cash + EFTPOS)" value={closing.salesTotal} />
+                                        <DetailRow label="EFTPOS portion" value={eftposTotal} muted />
+                                        <DetailRow label="Cash Sales portion" value={closing.cashSales} muted />
+                                        <DetailRow label="UberEats" value={closing.ubereatsAmount} muted />
+                                        <DetailRow label="DoorDash" value={closing.doordashAmount} muted />
+                                        <DetailRow label="Total Income" value={totalIncome} bold />
+                                      </div>
+
+                                      {/* Cash flow */}
+                                      <div className="space-y-2">
+                                        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Cash Flow</p>
+                                        <DetailRow label="Previous Float" value={closing.previousFloat} />
+                                        <DetailRow label="+ Cash Sales (in)" value={closing.cashSales} muted />
+                                        <div className="space-y-1">
+                                          <DetailRow label="− Cash Out" value={closing.cashOut} />
+                                          {expenses.length > 0 && (
+                                            <ul className="ml-4 space-y-0.5 text-xs text-muted-foreground">
+                                              {expenses.map(e => (
+                                                <li key={e.id} className="flex items-baseline justify-between gap-3">
+                                                  <span className="truncate">
+                                                    {supplierNameById.get(e.supplierId) ?? "(unknown)"}
+                                                    {e.reviewStatus === "PENDING" && (
+                                                      <span className="ml-1.5 text-[10px] uppercase text-amber-700 dark:text-amber-400">pending</span>
+                                                    )}
+                                                    {e.memo && <span className="ml-1.5 italic">"{e.memo}"</span>}
+                                                  </span>
+                                                  <span className="tabular-nums whitespace-nowrap">${e.amount.toFixed(2)}</span>
+                                                </li>
+                                              ))}
+                                            </ul>
+                                          )}
+                                        </div>
+                                        <DetailRow label="− Next Float" value={closing.nextFloat} muted />
+                                        <DetailRow label="= Expected Cash" value={closing.creditAmount} />
+                                        <DetailRow label="Counted (Credit)" value={closing.actualCashCounted} bold />
+                                        <div className="flex items-baseline justify-between pt-1 border-t" data-testid={`text-diff-${closing.id}`}>
+                                          <span className="text-sm font-medium">Difference</span>
+                                          {isShortage ? (
+                                            <span className="inline-flex items-center gap-1 text-red-600 font-bold tabular-nums">
+                                              <AlertTriangle className="w-3 h-3" />
+                                              ${closing.differenceAmount.toFixed(2)} <span className="text-xs font-normal">(shortage)</span>
+                                            </span>
+                                          ) : isOverage ? (
+                                            <span className="text-green-600 font-medium tabular-nums">
+                                              +${Math.abs(closing.differenceAmount).toFixed(2)} <span className="text-xs font-normal">(overage)</span>
+                                            </span>
+                                          ) : (
+                                            <span className="text-muted-foreground tabular-nums">$0.00</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </Fragment>
                           );
                         })}
                       </TableBody>
@@ -450,7 +571,6 @@ export function AdminCash() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Date</TableHead>
-                          <TableHead>Store</TableHead>
                           <TableHead>Submitter</TableHead>
                           <TableHead className="text-right">Envelope</TableHead>
                           <TableHead className="text-right">$100</TableHead>
@@ -470,7 +590,6 @@ export function AdminCash() {
                           return (
                             <TableRow key={f.id} data-testid={`row-cash-${f.id}`}>
                               <TableCell>{f.date}</TableCell>
-                              <TableCell>{getStoreName(f.storeId)}</TableCell>
                               <TableCell className="max-w-[150px] truncate">{f.submitterName || "-"}</TableCell>
                               <TableCell className="text-right">${envelope.toFixed(2)}</TableCell>
                               <TableCell className="text-right">{f.note100Count}</TableCell>
