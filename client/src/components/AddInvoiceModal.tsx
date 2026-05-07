@@ -91,8 +91,12 @@ export default function AddInvoiceModal({ open, onClose }: Props) {
 
   const CREATE_NEW = "__new__";
 
-  const { data: suppliers = [] } = useQuery<Supplier[]>({ queryKey: ["/api/suppliers"] });
+  const { data: rawSuppliers = [] } = useQuery<Supplier[]>({ queryKey: ["/api/suppliers"] });
   const { data: stores = [] } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
+
+  // §7 Wave 1: hide the "Other / Unknown" cash-expense sentinel from the AP
+  // supplier picker — it should never be assignable to a real invoice.
+  const suppliers = rawSuppliers.filter(s => s.name !== "Other / Unknown");
 
   const activeStores = stores.filter((s) => s.active);
 

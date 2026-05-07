@@ -578,7 +578,7 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
                     <CommandEmpty>No supplier found.</CommandEmpty>
                     <CommandGroup>
                       {allSuppliers
-                        .filter(s => s.active !== false)
+                        .filter(s => s.active !== false && s.name !== "Other / Unknown")
                         .map(s => (
                           <CommandItem
                             key={s.id}
@@ -794,7 +794,7 @@ function ReassignSupplierDialog({ invoice, onClose, onSuccess }: ReassignSupplie
                     <CommandEmpty>No supplier found.</CommandEmpty>
                     <CommandGroup>
                       {allSuppliers
-                        .filter(s => s.active !== false && s.id !== invoice.supplierId)
+                        .filter(s => s.active !== false && s.id !== invoice.supplierId && s.name !== "Other / Unknown")
                         .map(s => (
                           <CommandItem
                             key={s.id}
@@ -1676,9 +1676,22 @@ export function AdminAccountsPayable() {
 
                           {/* CENTRE — total + selected */}
                           <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-sm font-semibold tabular-nums text-foreground">
-                              {fmtAUD(group.totalAmount)}
-                            </span>
+                            <div className="flex flex-col items-end">
+                              <span className="text-sm font-semibold tabular-nums text-foreground">
+                                {fmtAUD(group.totalAmount)}
+                              </span>
+                              {/* §7 Wave 1 Day 5: aggregated GST estimate per supplier group */}
+                              {(() => {
+                                const rate = group.invoices[0]?.supplier?.defaultGstRate ?? 0;
+                                if (rate <= 0) return null;
+                                const est = Math.round((group.totalAmount * rate / 100 / 11) * 100) / 100;
+                                return (
+                                  <span className="text-[10px] text-muted-foreground/80 tabular-nums">
+                                    GST ~{fmtAUD(est)}
+                                  </span>
+                                );
+                              })()}
+                            </div>
                             {groupSelectedCount > 0 && (
                               <span className="text-sm font-bold tabular-nums text-primary flex items-center gap-1">
                                 <CheckCircle className="h-3.5 w-3.5" />
@@ -1787,6 +1800,22 @@ export function AdminAccountsPayable() {
                                             </span>
                                           )}
                                         </div>
+                                        {/* §7 Wave 1 Day 5: GST estimate from supplier.defaultGstRate.
+                                            UI-only; supplier_invoices.gst_amount lands in Wave 3. */}
+                                        {(() => {
+                                          const rate = inv.supplier?.defaultGstRate ?? 0;
+                                          if (rate <= 0) return null;
+                                          const est = Math.round(((inv.amount ?? 0) * rate / 100 / 11) * 100) / 100;
+                                          return (
+                                            <div
+                                              className="text-[10px] font-normal text-muted-foreground/80 mt-0.5"
+                                              title={`Supplier defaults to ${rate}% GST applicable. Override on Wave 3+.`}
+                                              data-testid={`text-gst-estimate-${inv.id}`}
+                                            >
+                                              GST ~{fmtAUD(est)} ({rate}%)
+                                            </div>
+                                          );
+                                        })()}
                                       </td>
                                       <td className="py-2.5 px-3 whitespace-nowrap">
                                         {inv.dueDate ? (
@@ -2281,7 +2310,23 @@ export function AdminAccountsPayable() {
                                             data-testid={`row-invoice-${inv.id}`}
                                           >
                                             <td className="py-2.5 px-4 pl-10 text-muted-foreground whitespace-nowrap">{fmt(inv.invoiceDate)}</td>
-                                            <td className="py-2.5 px-4 font-semibold tabular-nums text-right whitespace-nowrap">{fmtAUD(inv.amount ?? 0)}</td>
+                                            <td className="py-2.5 px-4 font-semibold tabular-nums text-right whitespace-nowrap">
+                                              {fmtAUD(inv.amount ?? 0)}
+                                              {/* §7 Wave 1 Day 5: GST estimate from supplier.defaultGstRate */}
+                                              {(() => {
+                                                const rate = inv.supplier?.defaultGstRate ?? 0;
+                                                if (rate <= 0) return null;
+                                                const est = Math.round(((inv.amount ?? 0) * rate / 100 / 11) * 100) / 100;
+                                                return (
+                                                  <div
+                                                    className="text-[10px] font-normal text-muted-foreground/80"
+                                                    title={`Supplier defaults to ${rate}% GST applicable. Override on Wave 3+.`}
+                                                  >
+                                                    GST ~{fmtAUD(est)} ({rate}%)
+                                                  </div>
+                                                );
+                                              })()}
+                                            </td>
                                             <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground">{displayInvNumber(inv.invoiceNumber)}</td>
                                             <td className="py-2.5 px-4 text-xs text-muted-foreground">{store?.name ?? "—"}</td>
                                             <td className="py-2.5 px-4">
