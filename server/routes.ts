@@ -6175,6 +6175,30 @@ export async function registerRoutes(
         return null;
       }
 
+      // ── Helper: scan email body + PDF text for any store's bodyAliases ────────
+      // Owner registers per-store fragments (utility account numbers, supply
+      // addresses, doing-business-as names) on /admin/stores. The webhook
+      // checks every fragment against the haystack and returns the first
+      // matching store. Case-insensitive substring match. Whitespace inside
+      // an alias is collapsed before matching so "7092 888 010" still hits
+      // "7092 888  010" or "7092888010" in the source text.
+      function resolveStoreFromBodyAliases(haystack: string | null | undefined): string | null {
+        if (!haystack) return null;
+        const hayLow = haystack.toLowerCase();
+        const hayCompact = hayLow.replace(/\s+/g, "");
+        for (const store of allStores) {
+          const aliases = ((store as any).bodyAliases as string[] | null | undefined) ?? [];
+          for (const alias of aliases) {
+            const a = (alias ?? "").trim().toLowerCase();
+            if (a.length < 3) continue;
+            if (hayLow.includes(a)) return store.id;
+            const aCompact = a.replace(/\s+/g, "");
+            if (aCompact.length >= 4 && hayCompact.includes(aCompact)) return store.id;
+          }
+        }
+        return null;
+      }
+
       // ══════════════════════════════════════════════════════════════════════════
       // WHITELIST GATE (strict)
       // The only way an email reaches the AP pipeline is if its sender is on
@@ -6249,9 +6273,13 @@ export async function registerRoutes(
                   console.log(`[Webhook] Body-parse: ${invNum} already exists for ${matchedSupplier.name} — skipping as dupe`);
                   return res.status(200).json({ received: true, action: "body_parse_duplicate", supplier: matchedSupplier.name, invoiceNumber: invNum });
                 }
-                // Resolve storeId from the parsed body (or supplier history)
+                // Resolve storeId — try the admin-curated bodyAliases first
+                // (the most reliable signal for utility-style suppliers like
+                // AGL where the email body has the account number), then
+                // fall back to the standard storeCode/history resolver.
                 const storesCache = await storage.getStores();
-                const resolvedStoreId = await resolveStoreIdForInvoice({
+                const aliasMatch = resolveStoreFromBodyAliases(bodyTrim);
+                const resolvedStoreId = aliasMatch ?? await resolveStoreIdForInvoice({
                   parsedStoreCode: first.storeCode,
                   parentStoreId: null,
                   supplierId: matchedSupplier.id,
@@ -6405,7 +6433,9 @@ export async function registerRoutes(
             console.warn(`[Webhook] STATEMENT with 1 row — suspected grand-total mis-grab. Forcing REVIEW for "${attName}".`);
             const inv = await storage.createSupplierInvoice({
               supplierId: currentSupplier.id,
-              storeId: resolveStoreId(parsedItems[0].storeCode) ?? resolveStoreFromDelivery(parsedItems[0].deliveryLocation),
+              storeId: resolveStoreId(parsedItems[0].storeCode)
+                ?? resolveStoreFromBodyAliases(`${pdfResult.text ?? ""}\n${emailBody ?? ""}`)
+                ?? resolveStoreFromDelivery(parsedItems[0].deliveryLocation),
               invoiceNumber: parsedItems[0].invoiceNumber || `STMT-${Date.now()}-${attIdx}`,
               invoiceDate: parsedItems[0].issueDate || today,
               dueDate: parsedItems[0].dueDate ?? undefined,
@@ -6427,8 +6457,11 @@ export async function registerRoutes(
             continue;
           }
 
-          // Store resolution: storeCode first, then deliveryLocation fuzzy match
-          const storeId = resolveStoreId(parsed.storeCode) ?? resolveStoreFromDelivery(parsed.deliveryLocation);
+          // Store resolution: storeCode first, then bodyAliases (admin-managed
+          // utility/account fragments), then deliveryLocation fuzzy match.
+          const storeId = resolveStoreId(parsed.storeCode)
+            ?? resolveStoreFromBodyAliases(`${pdfResult.text ?? ""}\n${emailBody ?? ""}`)
+            ?? resolveStoreFromDelivery(parsed.deliveryLocation);
           if (storeId) {
             const storeName = allStores.find(s => s.id === storeId)?.name ?? storeId;
             console.log(`[Webhook] Attachment "${attName}": invoice ${parsed.invoiceNumber} → store "${storeName}" (storeCode=${parsed.storeCode}, delivery="${parsed.deliveryLocation ?? "n/a"}")`);

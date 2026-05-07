@@ -92,6 +92,12 @@ const STATEMENTS: string[] = [
   `ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS cash_expense_eligible boolean NOT NULL DEFAULT false`,
   `UPDATE suppliers SET cash_expense_eligible = true WHERE name = 'Other / Unknown' AND cash_expense_eligible = false`,
 
+  // Body-text fragments that identify a store on inbound invoices (utility
+  // account numbers, supply addresses, doing-business-as names, etc.). Used
+  // by the AP webhook to auto-assign storeId when a match is found in the
+  // email body or parsed PDF text. Nullable text array, no default.
+  `ALTER TABLE stores ADD COLUMN IF NOT EXISTS body_aliases text[]`,
+
   // Backfill daily_sales from any existing daily_closings rows so the unified
   // ledger contains both POSnet historical imports and previously-submitted
   // close forms. Idempotent via the (store_id, date) unique index — historical

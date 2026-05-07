@@ -13,6 +13,12 @@ export const stores = pgTable("stores", {
   globalPayrollNote: text("global_payroll_note"),
   openTime: text("open_time").default("06:00").notNull(),
   closeTime: text("close_time").default("22:00").notNull(),
+  // Free-form body fragments that uniquely identify this store on inbound
+  // invoices: utility account numbers, supply/delivery addresses, doing-
+  // business-as names, etc. AP webhook scans the email body + parsed PDF
+  // text for any of these strings and auto-assigns the matching storeId.
+  // One-line-per-alias in the admin UI; stored as a postgres text array.
+  bodyAliases: text("body_aliases").array(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

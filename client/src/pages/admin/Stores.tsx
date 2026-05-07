@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -49,10 +50,21 @@ function StoreForm({
     openTime: (store as any)?.openTime ?? "06:00",
     closeTime: (store as any)?.closeTime ?? "22:00",
   });
+  // Body aliases as one-per-line text. Stored as text[] in DB; the textarea
+  // is the friendliest editing surface for a small list of fragments.
+  const [bodyAliasesText, setBodyAliasesText] = useState<string>(
+    Array.isArray((store as any)?.bodyAliases)
+      ? ((store as any).bodyAliases as string[]).join("\n")
+      : ""
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(formData);
+    const aliases = bodyAliasesText
+      .split(/\r?\n/)
+      .map(s => s.trim())
+      .filter(Boolean);
+    onSave({ ...formData, bodyAliases: aliases.length > 0 ? aliases : undefined } as any);
   };
 
   return (
@@ -90,6 +102,22 @@ function StoreForm({
           placeholder="Enter store address"
           data-testid="input-store-address"
         />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="bodyAliases">Invoice Body Aliases</Label>
+        <Textarea
+          id="bodyAliases"
+          value={bodyAliasesText}
+          onChange={(e) => setBodyAliasesText(e.target.value)}
+          placeholder={"7092 888 010\nKOGARAH NSW 2217\nEatem Pty Ltd"}
+          rows={4}
+          data-testid="input-store-body-aliases"
+        />
+        <p className="text-xs text-muted-foreground">
+          한 줄에 하나씩. AGL 같은 utility 인보이스 본문에서 이 매장을 식별하는
+          텍스트(account 번호, supply 주소, 사업체명 등)를 등록하면 다음부터
+          자동으로 이 매장으로 분류됩니다.
+        </p>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
