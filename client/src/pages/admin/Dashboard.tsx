@@ -185,15 +185,15 @@ function StatCard({
     <Link href={href}>
       <Card className="hover-elevate cursor-pointer transition-all">
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
-          <Icon className="h-4 w-4 text-muted-foreground" />
+          <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground truncate">{title}</CardTitle>
+          <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <Skeleton className="h-8 w-16" />
           ) : (
             <div
-              className="text-2xl font-bold"
+              className="text-xl sm:text-2xl font-bold"
               data-testid={`text-stat-${title.toLowerCase().replace(/\s/g, "-")}`}
             >
               {value}
@@ -239,8 +239,8 @@ function KpiCard({
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
-        <div className={`p-1.5 rounded-md ${colorClass}`}>
+        <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground truncate">{title}</CardTitle>
+        <div className={`p-1.5 rounded-md shrink-0 ${colorClass}`}>
           <Icon className="h-4 w-4 text-white" />
         </div>
       </CardHeader>
@@ -249,18 +249,17 @@ function KpiCard({
           <Skeleton className="h-9 w-32" />
         ) : (
           <>
-            <div className="text-2xl font-bold tabular-nums" data-testid={testId}>
+            <div className="text-xl sm:text-2xl font-bold tabular-nums" data-testid={testId}>
               {fmtAUD(amount)}
             </div>
             {percent !== undefined && (
-              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                <TrendIcon className="h-3 w-3" />
-                {percent.toFixed(1)}% of sales
-                {subtitle ? ` — ${subtitle}` : ""}
+              <p className="text-[11px] sm:text-xs text-muted-foreground mt-1 flex items-center gap-1 flex-wrap">
+                <TrendIcon className="h-3 w-3 shrink-0" />
+                <span>{percent.toFixed(1)}% of sales{subtitle ? ` — ${subtitle}` : ""}</span>
               </p>
             )}
             {percent === undefined && subtitle && (
-              <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+              <p className="text-[11px] sm:text-xs text-muted-foreground mt-1">{subtitle}</p>
             )}
           </>
         )}
@@ -473,34 +472,36 @@ export function AdminDashboard() {
             <p className="text-sm text-muted-foreground">매출, 인건비, 원가 비율 개요</p>
           </div>
 
-          {/* Filters */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground whitespace-nowrap">From</span>
+          {/* Filters — on mobile the row wraps and date inputs flex-grow so
+              they share the available width without forcing horizontal scroll. */}
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-1 min-w-[140px]">
+              <span className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">From</span>
               <input
                 type="date"
                 value={startDate}
                 max={endDate}
                 onChange={e => setStartDate(e.target.value)}
-                className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                className="h-9 w-full min-w-0 rounded-md border border-input bg-background px-2 sm:px-3 py-1 text-xs sm:text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
                 data-testid="input-start-date"
               />
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground whitespace-nowrap">To</span>
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-1 min-w-[140px]">
+              <span className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">To</span>
               <input
                 type="date"
                 value={endDate}
                 min={startDate}
                 max={todayYMD()}
                 onChange={e => setEndDate(e.target.value)}
-                className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                className="h-9 w-full min-w-0 rounded-md border border-input bg-background px-2 sm:px-3 py-1 text-xs sm:text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
                 data-testid="input-end-date"
               />
             </div>
             <Button
               size="sm"
               variant="outline"
+              className="h-9 px-2.5 sm:px-3 text-xs sm:text-sm"
               onClick={() => { setStartDate(thisWeekStartYMD()); setEndDate(todayYMD()); }}
               data-testid="button-this-week"
             >
@@ -509,12 +510,13 @@ export function AdminDashboard() {
             <Button
               size="sm"
               variant="outline"
+              className="h-9 px-2.5 sm:px-3 text-xs sm:text-sm"
               onClick={() => { setStartDate(firstOfMonthYMD()); setEndDate(todayYMD()); }}
               data-testid="button-this-month"
             >
               This Month
             </Button>
-            <div className="flex items-center gap-2 ml-2">
+            <div className="flex items-center gap-2 sm:ml-2">
               {(["Sushi", "Sandwich"] as const).map(type => {
                 const isOn = selectedTypes.includes(type);
                 const brandColor = type === "Sushi" ? BRAND.sushi.sales : BRAND.sandwich.sales;
@@ -524,7 +526,7 @@ export function AdminDashboard() {
                     onClick={() => setSelectedTypes(prev =>
                       prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
                     )}
-                    className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
+                    className={`h-9 px-2.5 sm:px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium border transition-colors ${
                       isOn ? "text-white border-transparent" : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40"
                     }`}
                     style={isOn ? { backgroundColor: brandColor } : {}}
@@ -652,27 +654,32 @@ export function AdminDashboard() {
               </CardHeader>
               <CardContent className="space-y-3">
                 {visibleRules.map(rule => (
-                  <div key={rule.id} className="flex items-start justify-between gap-4 flex-wrap py-3 border-b last:border-b-0" data-testid={`row-recurring-${rule.id}`}>
-                    <div className="space-y-1 min-w-0">
+                  <div
+                    key={rule.id}
+                    className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 py-3 border-b last:border-b-0"
+                    data-testid={`row-recurring-${rule.id}`}
+                  >
+                    <div className="space-y-1 min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-sm" data-testid={`text-recurring-title-${rule.id}`}>{rule.title}</span>
+                        <span className="font-medium text-sm break-words" data-testid={`text-recurring-title-${rule.id}`}>{rule.title}</span>
                         <Badge className={ACTION_BADGE_COLORS[rule.actionType] ?? ""} data-testid={`badge-recurring-type-${rule.id}`}>
                           {ACTION_LABELS[rule.actionType] ?? rule.actionType}
                         </Badge>
                       </div>
                       {rule.description && (
-                        <p className="text-xs text-muted-foreground">{rule.description}</p>
+                        <p className="text-xs text-muted-foreground break-words">{rule.description}</p>
                       )}
                       {(rule.employeeName || rule.storeName) && (
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-xs text-muted-foreground break-words">
                           {[rule.employeeName, rule.storeName].filter(Boolean).join(" · ")}
                         </p>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 sm:shrink-0">
                       <Button
                         size="sm"
                         variant="outline"
+                        className="flex-1 sm:flex-initial"
                         onClick={() => setSkippedRuleIds(prev => new Set([...prev, rule.id]))}
                         data-testid={`button-skip-${rule.id}`}
                       >
@@ -681,6 +688,7 @@ export function AdminDashboard() {
                       </Button>
                       <Button
                         size="sm"
+                        className="flex-1 sm:flex-initial"
                         onClick={() => executeRule(rule.id)}
                         disabled={executingRuleId === rule.id}
                         data-testid={`button-execute-${rule.id}`}
@@ -721,22 +729,22 @@ export function AdminDashboard() {
                 {pendingSettlements.map(s => (
                   <div
                     key={s.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-blue-400/30 bg-blue-400/5 px-3 py-2.5"
+                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-md border border-blue-400/30 bg-blue-400/5 px-3 py-2.5"
                     data-testid={`settlement-row-${s.id}`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <ArrowRightLeft className="h-4 w-4 shrink-0 text-blue-500" />
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground">
+                        <p className="text-sm font-medium text-foreground truncate">
                           {s.employeeName}
                         </p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-xs text-muted-foreground truncate">
                           {s.fromStoreName} → {s.toStoreName}
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <span className="text-sm font-semibold text-blue-700 dark:text-blue-400" data-testid={`text-settlement-due-${s.id}`}>
+                    <div className="flex items-center justify-between sm:justify-end gap-3 sm:shrink-0">
+                      <span className="text-sm font-semibold text-blue-700 dark:text-blue-400 tabular-nums" data-testid={`text-settlement-due-${s.id}`}>
                         ${s.totalAmountDue.toFixed(2)}
                       </span>
                       <Button

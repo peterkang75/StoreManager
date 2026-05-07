@@ -335,9 +335,9 @@ export function AdminCash() {
       <div className="space-y-6">
         <Card>
           <CardHeader>
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <CardTitle className="text-base">Filter</CardTitle>
-              <div className="flex flex-wrap items-center gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4">
+              <CardTitle className="text-sm sm:text-base">Filter</CardTitle>
+              <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full sm:w-auto">
                 <div className="flex items-center gap-1 flex-wrap">
                   {activeStores.map(store => {
                     const isActive = storeFilter === store.id;
@@ -346,7 +346,7 @@ export function AdminCash() {
                       <button
                         key={store.id}
                         onClick={() => setStoreFilter(store.id)}
-                        className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
+                        className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-xs sm:text-sm font-medium border transition-colors ${
                           isActive ? "text-white border-transparent" : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40"
                         }`}
                         style={isActive ? { backgroundColor: brandColor ?? "#1a1a1a" } : {}}
@@ -357,21 +357,23 @@ export function AdminCash() {
                     );
                   })}
                 </div>
-                <div className="flex items-center border rounded-md">
+                <div className="flex items-center border rounded-md ml-auto sm:ml-0">
                   <Button
                     size="icon"
                     variant="ghost"
+                    className="h-8 w-8 sm:h-10 sm:w-10"
                     onClick={() => setWeekStart(addDays(weekStart, -7))}
                     data-testid="button-prev-week"
                   >
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
-                  <span className="px-2 text-sm font-medium whitespace-nowrap" data-testid="text-week-range">
+                  <span className="px-1.5 sm:px-2 text-xs sm:text-sm font-medium whitespace-nowrap" data-testid="text-week-range">
                     {fmtWeekLabel(weekStart)} – {fmtWeekLabel(weekEnd)}
                   </span>
                   <Button
                     size="icon"
                     variant="ghost"
+                    className="h-8 w-8 sm:h-10 sm:w-10"
                     onClick={() => setWeekStart(addDays(weekStart, 7))}
                     data-testid="button-next-week"
                   >

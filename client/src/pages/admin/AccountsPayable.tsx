@@ -1504,37 +1504,37 @@ export function AdminAccountsPayable() {
             when the page scrolls so the running pay batch is always in
             sight. The store filter row + Add Invoice sit just below this and
             scroll normally with the content. */}
-        <div className="sticky top-0 z-20 bg-muted/30 pt-1 -mt-1 pb-2 space-y-4">
+        <div className="sticky top-0 z-20 bg-muted/30 pt-1 -mt-1 pb-2 space-y-3 sm:space-y-4">
 
           {/* Summary cards — always rendered */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-2 sm:gap-4">
             <Card>
-              <CardContent className="p-4">
+              <CardContent className="p-3 sm:p-4">
                 <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Total Payable</p>
-                    <p className="text-2xl font-bold tracking-tight tabular-nums" data-testid="text-total-payable">
+                  <div className="min-w-0">
+                    <p className="text-[10px] sm:text-xs text-muted-foreground mb-0.5 sm:mb-1">Total Payable</p>
+                    <p className="text-lg sm:text-2xl font-bold tracking-tight tabular-nums truncate" data-testid="text-total-payable">
                       {fmtAUD(totalPayable)}
                     </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{toPayInvoices.length} pending invoices</p>
+                    <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">{toPayInvoices.length} pending invoices</p>
                   </div>
                   <DollarSign className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
                 </div>
                 {totalOverdue > 0 && (
-                  <p className="text-xs text-red-600 dark:text-red-400 font-semibold mt-2 flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    Overdue: {fmtAUD(totalOverdue)}
+                  <p className="text-[10px] sm:text-xs text-red-600 dark:text-red-400 font-semibold mt-1.5 sm:mt-2 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3 shrink-0" />
+                    <span className="truncate">Overdue: {fmtAUD(totalOverdue)}</span>
                   </p>
                 )}
               </CardContent>
             </Card>
 
             <Card className={selected.size > 0 ? "border-primary/40" : ""}>
-              <CardContent className="p-4">
+              <CardContent className="p-3 sm:p-4">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs text-muted-foreground mb-1">Selected Total</p>
-                    <p className={`text-2xl font-bold tracking-tight tabular-nums transition-colors ${selected.size > 0 ? "text-primary" : "text-muted-foreground/50"}`} data-testid="text-selected-total-card">
+                    <p className="text-[10px] sm:text-xs text-muted-foreground mb-0.5 sm:mb-1">Selected Total</p>
+                    <p className={`text-lg sm:text-2xl font-bold tracking-tight tabular-nums truncate transition-colors ${selected.size > 0 ? "text-primary" : "text-muted-foreground/50"}`} data-testid="text-selected-total-card">
                       {fmtAUD(selectedTotal)}
                     </p>
                     {selected.size > 0 ? (
@@ -1576,73 +1576,76 @@ export function AdminAccountsPayable() {
             </Card>
           </div>
 
-          {/* ── Tab bar + Pay action ───────────────────────────────────── */}
-          <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg shrink-0 flex-wrap">
-            {tabs.map(tab => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
-                  activeTab === tab.key
-                    ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-                data-testid={`tab-${tab.key}`}
-              >
-                {tab.label}
-                {tab.badge !== undefined && (
-                  <span className={`ml-2 text-[11px] px-1.5 py-0.5 rounded-full font-semibold ${
-                    activeTab === tab.key ? tab.badgeColor : "bg-muted text-muted-foreground"
-                  }`}>
-                    {tab.badge}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex-1" />
-
-          {activeTab === "topay" && selected.size > 0 && (
-            <div className="shrink-0 flex items-center gap-2">
-              <span className="text-sm font-semibold tabular-nums text-foreground whitespace-nowrap" data-testid="text-selected-total">
-                {fmtAUD(selectedTotal)}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={clearSelection}
-                data-testid="button-clear-selection"
-              >
-                Clear
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setBulkDeleteConfirmOpen(true)}
-                disabled={bulkSoftDeleteMutation.isPending}
-                data-testid="button-bulk-delete"
-                className="gap-1.5 whitespace-nowrap text-destructive border-destructive/40 hover:bg-destructive/5"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                Delete ({selected.size})
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => bulkMarkPaidMutation.mutate(Array.from(selected))}
-                disabled={bulkMarkPaidMutation.isPending}
-                data-testid="button-bulk-mark-paid"
-                className="gap-1.5 whitespace-nowrap"
-              >
-                {bulkMarkPaidMutation.isPending ? (
-                  <><Loader2 className="h-3.5 w-3.5 animate-spin" />Paying…</>
-                ) : (
-                  <><CheckCircle className="h-3.5 w-3.5" />Pay Selected ({selected.size})</>
-                )}
-              </Button>
+          {/* ── Tab bar + Pay action ─────────────────────────────────────
+              On mobile the tab strip wraps to a second line and tab labels
+              shrink so all options stay reachable without horizontal scroll. */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-0.5 sm:gap-1 bg-muted/50 p-0.5 sm:p-1 rounded-lg flex-wrap">
+              {tabs.map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
+                    activeTab === tab.key
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  data-testid={`tab-${tab.key}`}
+                >
+                  {tab.label}
+                  {tab.badge !== undefined && (
+                    <span className={`ml-1 sm:ml-2 text-[10px] sm:text-[11px] px-1 sm:px-1.5 py-0.5 rounded-full font-semibold ${
+                      activeTab === tab.key ? tab.badgeColor : "bg-muted text-muted-foreground"
+                    }`}>
+                      {tab.badge}
+                    </span>
+                  )}
+                </button>
+              ))}
             </div>
-          )}
+
+            <div className="hidden sm:block flex-1" />
+
+            {activeTab === "topay" && selected.size > 0 && (
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <span className="text-xs sm:text-sm font-semibold tabular-nums text-foreground whitespace-nowrap" data-testid="text-selected-total">
+                  {fmtAUD(selectedTotal)}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 sm:h-9 px-2.5 text-xs sm:text-sm"
+                  onClick={clearSelection}
+                  data-testid="button-clear-selection"
+                >
+                  Clear
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setBulkDeleteConfirmOpen(true)}
+                  disabled={bulkSoftDeleteMutation.isPending}
+                  data-testid="button-bulk-delete"
+                  className="h-8 sm:h-9 px-2.5 text-xs sm:text-sm gap-1 sm:gap-1.5 whitespace-nowrap text-destructive border-destructive/40 hover:bg-destructive/5"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete ({selected.size})
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => bulkMarkPaidMutation.mutate(Array.from(selected))}
+                  disabled={bulkMarkPaidMutation.isPending}
+                  data-testid="button-bulk-mark-paid"
+                  className="h-8 sm:h-9 px-2.5 text-xs sm:text-sm gap-1 sm:gap-1.5 whitespace-nowrap flex-1 sm:flex-initial"
+                >
+                  {bulkMarkPaidMutation.isPending ? (
+                    <><Loader2 className="h-3.5 w-3.5 animate-spin" />Paying…</>
+                  ) : (
+                    <><CheckCircle className="h-3.5 w-3.5" />Pay Selected ({selected.size})</>
+                  )}
+                </Button>
+              </div>
+            )}
           </div>
 
         </div>
@@ -1652,7 +1655,7 @@ export function AdminAccountsPayable() {
             Owner request: Add Invoice button now sits at the right end of
             this row instead of a separate top-of-page action bar. Row
             scrolls with the content (not part of the sticky header). */}
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           {showStoreFilter && (
           <div className="flex items-center gap-1 flex-wrap">
             {[
@@ -1670,7 +1673,7 @@ export function AdminAccountsPayable() {
                 <button
                   key={opt.id}
                   onClick={() => setStoreFilter(opt.id)}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
+                  className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-xs sm:text-sm font-medium border transition-colors ${
                     isActive
                       ? "text-white border-transparent"
                       : isUnassigned && unassignedCount > 0
@@ -1682,7 +1685,7 @@ export function AdminAccountsPayable() {
                 >
                   {opt.label}
                   {isUnassigned && unassignedCount > 0 && (
-                    <span className={`ml-1.5 text-xs ${isActive ? "opacity-90" : "opacity-80"}`}>
+                    <span className={`ml-1 sm:ml-1.5 text-[10px] sm:text-xs ${isActive ? "opacity-90" : "opacity-80"}`}>
                       {unassignedCount}
                     </span>
                   )}
@@ -1692,15 +1695,15 @@ export function AdminAccountsPayable() {
           </div>
           )}
 
-          <div className="flex-1" />
+          <div className="hidden sm:block flex-1" />
 
           <Button
             size="sm"
             onClick={() => setAddInvoiceOpen(true)}
             data-testid="button-add-invoice"
-            className="shrink-0"
+            className="shrink-0 ml-auto sm:ml-0 h-8 sm:h-9 px-2.5 sm:px-3 text-xs sm:text-sm"
           >
-            <Plus className="w-4 h-4 mr-1.5" />
+            <Plus className="w-4 h-4 mr-1 sm:mr-1.5" />
             Add Invoice
           </Button>
         </div>
@@ -1757,11 +1760,14 @@ export function AdminAccountsPayable() {
                       className={`group border rounded-lg bg-card overflow-hidden ${group.isAutoPay ? "border-border/25 opacity-75" : "border-border/40"}`}
                       data-testid={`supplier-group-${group.supplierId}`}
                     >
-                      {/* Header — bottom border appears only when expanded */}
-                      <AccordionPrimitive.Header className="flex items-center w-full px-4 py-3 hover:bg-muted/20 transition-colors group-data-[state=open]:border-b group-data-[state=open]:border-border/20">
+                      {/* Header — bottom border appears only when expanded.
+                          Mobile: header stacks into 2 rows (name+chevron, then
+                          totals/overdue) so long supplier names + amounts both
+                          stay readable on a 375px viewport. */}
+                      <AccordionPrimitive.Header className="flex items-start sm:items-center w-full px-3 sm:px-4 py-2.5 sm:py-3 hover:bg-muted/20 transition-colors group-data-[state=open]:border-b group-data-[state=open]:border-border/20">
                         {/* Checkbox: hidden for Auto-Pay suppliers, replaced with spacer */}
                         {group.isAutoPay ? (
-                          <div className="w-4 h-4 mr-3 shrink-0" aria-hidden="true" />
+                          <div className="w-4 h-4 mr-2 sm:mr-3 shrink-0 mt-0.5 sm:mt-0" aria-hidden="true" />
                         ) : (
                           <Checkbox
                             checked={allGroupSelected}
@@ -1769,28 +1775,29 @@ export function AdminAccountsPayable() {
                             onCheckedChange={() => toggleSupplier(group)}
                             aria-label={`Select all invoices for ${group.supplierName}`}
                             data-testid={`checkbox-supplier-${group.supplierId}`}
-                            className="mr-3 shrink-0"
+                            className="mr-2 sm:mr-3 shrink-0 mt-0.5 sm:mt-0"
                           />
                         )}
 
-                        <AccordionPrimitive.Trigger className="flex flex-1 items-center gap-3 min-w-0 text-left">
+                        <AccordionPrimitive.Trigger className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 flex-1 min-w-0 text-left">
                           {/* LEFT — supplier name + badge + count */}
                           <div className="flex items-center gap-2 min-w-0 flex-1">
                             <p className="font-semibold text-sm truncate">{group.supplierName}</p>
                             {group.isAutoPay && (
                               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300 whitespace-nowrap shrink-0" data-testid={`badge-autopay-${group.supplierId}`}>
                                 <Zap className="h-2.5 w-2.5" />
-                                Direct Debit
+                                <span className="hidden sm:inline">Direct Debit</span>
+                                <span className="sm:hidden">DD</span>
                               </span>
                             )}
-                            <span className="text-xs text-muted-foreground shrink-0">
-                              {group.invoices.length} invoice{group.invoices.length !== 1 ? "s" : ""}
+                            <span className="text-[10px] sm:text-xs text-muted-foreground shrink-0">
+                              {group.invoices.length} inv{group.invoices.length !== 1 ? "s" : ""}
                             </span>
                           </div>
 
                           {/* CENTRE — total + selected */}
-                          <div className="flex items-center gap-2 shrink-0">
-                            <div className="flex flex-col items-end">
+                          <div className="flex items-center gap-2 sm:shrink-0 flex-wrap">
+                            <div className="flex flex-col items-start sm:items-end">
                               <span className="text-sm font-semibold tabular-nums text-foreground">
                                 {fmtAUD(group.totalAmount)}
                               </span>
@@ -1807,61 +1814,222 @@ export function AdminAccountsPayable() {
                               })()}
                             </div>
                             {groupSelectedCount > 0 && (
-                              <span className="text-sm font-bold tabular-nums text-primary flex items-center gap-1">
+                              <span className="text-xs sm:text-sm font-bold tabular-nums text-primary flex items-center gap-1">
                                 <CheckCircle className="h-3.5 w-3.5" />
                                 {fmtAUD(groupSelectedTotal)}
-                                <span className="text-xs font-medium opacity-75">({groupSelectedCount})</span>
+                                <span className="text-[10px] sm:text-xs font-medium opacity-75">({groupSelectedCount})</span>
                               </span>
                             )}
-                          </div>
-
-                          {/* FAR RIGHT — overdue + chevron */}
-                          <div className="flex items-center gap-2 shrink-0">
                             {group.overdueAmount > 0 && (
-                              <span className="text-xs font-bold text-red-600 dark:text-red-400 flex items-center gap-1">
-                                <AlertCircle className="h-3.5 w-3.5" />
-                                Overdue: {fmtAUD(group.overdueAmount)}
+                              <span className="text-[10px] sm:text-xs font-bold text-red-600 dark:text-red-400 flex items-center gap-1">
+                                <AlertCircle className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                                <span className="hidden sm:inline">Overdue: </span>{fmtAUD(group.overdueAmount)}
                               </span>
                             )}
-                            <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-180" />
                           </div>
                         </AccordionPrimitive.Trigger>
+                        <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-180 ml-2 mt-1 sm:mt-0" />
                       </AccordionPrimitive.Header>
 
                       <AccordionContent className="pb-0">
-                        <div className="bg-muted/20 dark:bg-muted/10">
-                          <table className="w-full text-sm" data-testid={`invoice-table-${group.supplierId}`}>
-                            <thead>
-                              <tr className="bg-muted/30 border-b border-border/20">
-                                <th className="w-10 py-2 pl-4" />
-                                <th className="py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice Date</th>
-                                <th className="py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right whitespace-nowrap">Amount</th>
-                                <th className="py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Due Date</th>
-                                <th className="py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice #</th>
-                                <th className="py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Store</th>
-                                <th className="w-16 py-2 pr-4" />
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {(() => {
-                                const sortedInvoices = [...group.invoices].sort(
-                                  (a, b) => (a.invoiceDate ?? "").localeCompare(b.invoiceDate ?? "")
-                                );
-                                // Week buckets keyed by Monday-of-week string.
-                                // Only apply alternating color bands when at least
-                                // one week contains multiple invoices (skip
-                                // monthly-cadence suppliers).
-                                const weekIdxById = new Map<string, number>();
-                                const weekCounts = new Map<string, number>();
-                                const weekOrder: string[] = [];
-                                for (const i of sortedInvoices) {
-                                  const k = getMondayStr(i.invoiceDate);
-                                  if (!weekOrder.includes(k)) weekOrder.push(k);
-                                  weekIdxById.set(i.id, weekOrder.indexOf(k));
-                                  weekCounts.set(k, (weekCounts.get(k) ?? 0) + 1);
-                                }
-                                const applyWeekBands = Array.from(weekCounts.values()).some(n => n > 1);
-                                return sortedInvoices.map((inv) => {
+                        {(() => {
+                          const sortedInvoices = [...group.invoices].sort(
+                            (a, b) => (a.invoiceDate ?? "").localeCompare(b.invoiceDate ?? "")
+                          );
+                          // Week buckets keyed by Monday-of-week string.
+                          // Only apply alternating color bands when at least
+                          // one week contains multiple invoices (skip
+                          // monthly-cadence suppliers).
+                          const weekIdxById = new Map<string, number>();
+                          const weekCounts = new Map<string, number>();
+                          const weekOrder: string[] = [];
+                          for (const i of sortedInvoices) {
+                            const k = getMondayStr(i.invoiceDate);
+                            if (!weekOrder.includes(k)) weekOrder.push(k);
+                            weekIdxById.set(i.id, weekOrder.indexOf(k));
+                            weekCounts.set(k, (weekCounts.get(k) ?? 0) + 1);
+                          }
+                          const applyWeekBands = Array.from(weekCounts.values()).some(n => n > 1);
+                          return (
+                            <div className="bg-muted/20 dark:bg-muted/10">
+                              {/* Mobile: card layout (each invoice is a stacked card). */}
+                              <div className="sm:hidden divide-y divide-border/20" data-testid={`invoice-cards-${group.supplierId}`}>
+                                {sortedInvoices.map((inv) => {
+                                  const overdue = isOverdue(inv.dueDate, inv.status);
+                                  const dueSoon = isDueSoon(inv.dueDate, inv.status);
+                                  const isChecked = selected.has(inv.id);
+                                  const store = stores.find(s => s.id === inv.storeId);
+                                  const isAutoDebitRow = inv.supplier?.isAutoPay === true;
+                                  const weekIdx = weekIdxById.get(inv.id) ?? 0;
+                                  const weekBandBg = applyWeekBands && weekIdx % 2 === 1
+                                    ? "bg-slate-200/40 dark:bg-slate-700/30"
+                                    : "";
+                                  const rate = inv.supplier?.defaultGstRate ?? 0;
+                                  const gstEst = rate > 0
+                                    ? Math.round(((inv.amount ?? 0) * rate / 100 / 11) * 100) / 100
+                                    : null;
+                                  return (
+                                    <div
+                                      key={inv.id}
+                                      className={`px-3 py-3 ${
+                                        isChecked ? "bg-primary/10" : weekBandBg
+                                      } ${isAutoDebitRow ? "opacity-60" : ""}`}
+                                      data-testid={`card-invoice-${inv.id}`}
+                                    >
+                                      {/* Top row: checkbox + date + amount */}
+                                      <div className="flex items-center gap-2">
+                                        {isAutoDebitRow ? (
+                                          <div className="w-4 h-4 shrink-0" aria-hidden="true" />
+                                        ) : (
+                                          <Checkbox
+                                            checked={isChecked}
+                                            onClick={(e) => { shiftKeyPressedRef.current = (e as React.MouseEvent).shiftKey; }}
+                                            onCheckedChange={() => handleRowCheckbox(inv.id, group)}
+                                            aria-label={`Select invoice ${inv.invoiceNumber}`}
+                                            data-testid={`checkbox-invoice-mobile-${inv.id}`}
+                                            className="shrink-0"
+                                          />
+                                        )}
+                                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                          {fmt(inv.invoiceDate)}
+                                        </span>
+                                        <div className="flex-1 min-w-0" />
+                                        <div className="flex flex-col items-end">
+                                          <div className="flex items-center gap-1 font-semibold tabular-nums text-sm">
+                                            {fmtAUD(inv.amount ?? 0)}
+                                            {isAutoDebitRow && (
+                                              <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-semibold bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-400">
+                                                <Zap className="h-2 w-2" />
+                                                DD
+                                              </span>
+                                            )}
+                                          </div>
+                                          {gstEst !== null && (
+                                            <span className="text-[10px] text-muted-foreground/80 tabular-nums" title={`Supplier defaults to ${rate}% GST applicable`}>
+                                              GST ~{fmtAUD(gstEst)}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      {/* Middle row: due date + invoice number */}
+                                      <div className="flex items-center gap-2 mt-2 text-xs flex-wrap">
+                                        <span className="text-muted-foreground shrink-0">Due:</span>
+                                        {inv.dueDate ? (
+                                          <span className={
+                                            overdue
+                                              ? "text-red-600 dark:text-red-400 font-semibold flex items-center gap-1"
+                                              : dueSoon
+                                                ? "text-orange-600 dark:text-orange-400 font-medium flex items-center gap-1"
+                                                : "text-foreground"
+                                          }>
+                                            {overdue && <AlertCircle className="h-3 w-3 shrink-0" />}
+                                            {dueSoon && !overdue && <Clock className="h-3 w-3 shrink-0" />}
+                                            {fmt(inv.dueDate)}
+                                          </span>
+                                        ) : (
+                                          <span className="text-muted-foreground">—</span>
+                                        )}
+                                        <span className="text-muted-foreground/50">·</span>
+                                        <span className="font-mono text-[11px] text-muted-foreground truncate">
+                                          {displayInvNumber(inv.invoiceNumber)}
+                                        </span>
+                                      </div>
+
+                                      {/* Bottom row: store select + actions */}
+                                      <div className="flex items-center gap-1.5 mt-2">
+                                        <select
+                                          className={`flex-1 min-w-0 h-8 text-xs rounded px-2 ${
+                                            store
+                                              ? "border border-border text-muted-foreground bg-transparent"
+                                              : "border border-destructive/50 bg-destructive/5 text-destructive"
+                                          }`}
+                                          value={store?.id ?? ""}
+                                          onChange={async (e) => {
+                                            const v = e.target.value;
+                                            if (!v || v === inv.storeId) return;
+                                            try {
+                                              await apiRequest("PATCH", `/api/invoices/${inv.id}/store`, { storeId: v });
+                                              queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+                                              toast({ title: "Store updated" });
+                                            } catch (err: any) {
+                                              toast({ title: "Failed to update store", description: err?.message, variant: "destructive" });
+                                            }
+                                          }}
+                                          onClick={(e) => e.stopPropagation()}
+                                          data-testid={`select-store-mobile-${inv.id}`}
+                                        >
+                                          {!store && <option value="">⚠ Assign…</option>}
+                                          {filteredStores.map(s => (
+                                            <option key={s.id} value={s.id}>{s.name}</option>
+                                          ))}
+                                        </select>
+                                        {((inv.rawExtractedData as any)?.pdfBase64 || inv.notes || (inv.rawExtractedData as any)?.body) && (
+                                          <button
+                                            type="button"
+                                            title={(inv.rawExtractedData as any)?.pdfBase64 ? "View PDF Invoice" : "View source email / notes"}
+                                            className={`h-8 w-8 flex items-center justify-center rounded transition-colors ${(inv.rawExtractedData as any)?.pdfBase64 ? "text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300" : "text-muted-foreground hover:text-foreground"}`}
+                                            data-testid={`button-notes-mobile-${inv.id}`}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if ((inv.rawExtractedData as any)?.pdfBase64) {
+                                                openInvoicePdf(inv.id);
+                                              } else {
+                                                setViewEmailInvoice(inv);
+                                              }
+                                            }}
+                                          >
+                                            <FileText className="h-4 w-4" />
+                                          </button>
+                                        )}
+                                        <button
+                                          type="button"
+                                          title="Change Supplier"
+                                          className="h-8 w-8 flex items-center justify-center rounded text-muted-foreground/60 hover:text-primary transition-colors"
+                                          data-testid={`button-reassign-invoice-mobile-${inv.id}`}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setReassignInvoice(inv);
+                                          }}
+                                        >
+                                          <Link2 className="h-4 w-4" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          title="Move to Trash"
+                                          className="h-8 w-8 flex items-center justify-center rounded text-muted-foreground/60 hover:text-destructive transition-colors"
+                                          data-testid={`button-softdelete-invoice-mobile-${inv.id}`}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            softDeleteMutation.mutate(inv.id);
+                                          }}
+                                          disabled={softDeleteMutation.isPending && softDeleteMutation.variables === inv.id}
+                                        >
+                                          {softDeleteMutation.isPending && softDeleteMutation.variables === inv.id
+                                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                                            : <Trash2 className="h-4 w-4" />}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
+                              {/* Desktop: original table layout. */}
+                              <table className="hidden sm:table w-full text-sm" data-testid={`invoice-table-${group.supplierId}`}>
+                                <thead>
+                                  <tr className="bg-muted/30 border-b border-border/20">
+                                    <th className="w-10 py-2 pl-4" />
+                                    <th className="py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice Date</th>
+                                    <th className="py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right whitespace-nowrap">Amount</th>
+                                    <th className="py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Due Date</th>
+                                    <th className="py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice #</th>
+                                    <th className="py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Store</th>
+                                    <th className="w-16 py-2 pr-4" />
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {sortedInvoices.map((inv) => {
                                   const overdue = isOverdue(inv.dueDate, inv.status);
                                   const dueSoon = isDueSoon(inv.dueDate, inv.status);
                                   const isChecked = selected.has(inv.id);
@@ -2039,11 +2207,12 @@ export function AdminAccountsPayable() {
                                       </td>
                                     </tr>
                                   );
-                                });
-                              })()}
-                            </tbody>
-                          </table>
-                        </div>
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          );
+                        })()}
                       </AccordionContent>
                     </AccordionItem>
                   );
@@ -2454,9 +2623,13 @@ export function AdminAccountsPayable() {
                                   <span className="font-semibold tabular-nums text-sm shrink-0">{fmtAUD(suppTotal)}</span>
                                 </button>
 
-                                {/* Invoice rows for this supplier */}
+                                {/* Invoice rows for this supplier — wrapped in
+                                    horizontal-scroll container so the table can
+                                    overflow on mobile without forcing the page
+                                    to scroll sideways. */}
                                 {isSuppExpanded && (
-                                  <table className="w-full text-sm">
+                                  <div className="overflow-x-auto">
+                                  <table className="w-full text-sm min-w-[640px]">
                                     <thead>
                                       <tr className="bg-muted/20">
                                         <th className="py-1.5 px-4 pl-10 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left whitespace-nowrap">Invoice Date</th>
@@ -2541,6 +2714,7 @@ export function AdminAccountsPayable() {
                                       })}
                                     </tbody>
                                   </table>
+                                  </div>
                                 )}
                               </div>
                             );
@@ -2575,8 +2749,8 @@ export function AdminAccountsPayable() {
             </div>
           ) : (
             <Card>
-              <CardContent className="p-0">
-                <table className="w-full text-sm" data-testid="table-email-rules">
+              <CardContent className="p-0 overflow-x-auto">
+                <table className="w-full text-sm min-w-[640px]" data-testid="table-email-rules">
                   <thead>
                     <tr className="border-b border-border/40 bg-muted/30">
                       <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Email Address</th>
@@ -3034,8 +3208,8 @@ export function AdminAccountsPayable() {
             </div>
           ) : (
             <Card>
-              <CardContent className="p-0">
-                <table className="w-full text-sm">
+              <CardContent className="p-0 overflow-x-auto">
+                <table className="w-full text-sm min-w-[640px]">
                   <thead>
                     <tr className="border-b border-border/40 bg-muted/30">
                       <th className="py-2.5 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-left">Supplier</th>
