@@ -1952,40 +1952,58 @@ export function AdminAccountsPayable() {
                                         {displayInvNumber(inv.invoiceNumber)}
                                       </td>
                                       <td className="py-2.5 px-3 text-xs whitespace-nowrap">
-                                        {store ? (
-                                          <span className="text-muted-foreground">{store.name}</span>
-                                        ) : (
-                                          <select
-                                            className="h-7 text-xs rounded border border-destructive/50 bg-destructive/5 text-destructive px-1.5"
-                                            value=""
-                                            onChange={async (e) => {
-                                              const v = e.target.value;
-                                              if (!v) return;
+                                        {/* Always a select so the owner can correct
+                                            mis-assigned invoices (e.g., AGL row tagged
+                                            Sushi but actually for Sandwich). When
+                                            unassigned the select is highlighted red so
+                                            it still flags a missing store. */}
+                                        <select
+                                          className={`h-7 text-xs rounded px-1.5 ${
+                                            store
+                                              ? "border border-border text-muted-foreground bg-transparent hover:border-foreground/40"
+                                              : "border border-destructive/50 bg-destructive/5 text-destructive"
+                                          }`}
+                                          value={store?.id ?? ""}
+                                          onChange={async (e) => {
+                                            const v = e.target.value;
+                                            if (!v || v === inv.storeId) return;
+                                            try {
                                               await apiRequest("PATCH", `/api/invoices/${inv.id}/store`, { storeId: v });
                                               queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-                                            }}
-                                            onClick={(e) => e.stopPropagation()}
-                                            data-testid={`select-store-${inv.id}`}
-                                          >
-                                            <option value="">⚠ Assign…</option>
-                                            {filteredStores.map(s => (
-                                              <option key={s.id} value={s.id}>{s.name}</option>
-                                            ))}
-                                          </select>
-                                        )}
+                                              toast({ title: "Store updated" });
+                                            } catch (err: any) {
+                                              toast({ title: "Failed to update store", description: err?.message, variant: "destructive" });
+                                            }
+                                          }}
+                                          onClick={(e) => e.stopPropagation()}
+                                          data-testid={`select-store-${inv.id}`}
+                                        >
+                                          {!store && <option value="">⚠ Assign…</option>}
+                                          {filteredStores.map(s => (
+                                            <option key={s.id} value={s.id}>{s.name}</option>
+                                          ))}
+                                        </select>
                                       </td>
                                       <td className="py-2.5 pr-4 w-20">
                                         <div className="flex items-center gap-0.5 justify-end">
-                                          {((inv.rawExtractedData as any)?.pdfBase64 || inv.notes) && (
+                                          {((inv.rawExtractedData as any)?.pdfBase64 || inv.notes || (inv.rawExtractedData as any)?.body) && (
                                             <button
                                               type="button"
-                                              title={(inv.rawExtractedData as any)?.pdfBase64 ? "View PDF Invoice" : inv.notes}
-                                              className={`h-6 w-6 flex items-center justify-center rounded transition-colors ${(inv.rawExtractedData as any)?.pdfBase64 ? "text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300" : "text-muted-foreground/40 hover:text-muted-foreground"}`}
+                                              title={(inv.rawExtractedData as any)?.pdfBase64 ? "View PDF Invoice" : "View source email / notes"}
+                                              className={`h-6 w-6 flex items-center justify-center rounded transition-colors ${(inv.rawExtractedData as any)?.pdfBase64 ? "text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300" : "text-muted-foreground hover:text-foreground"}`}
                                               data-testid={`button-notes-${inv.id}`}
-                                              onClick={(inv.rawExtractedData as any)?.pdfBase64 ? (e) => {
+                                              onClick={(e) => {
                                                 e.stopPropagation();
-                                                openInvoicePdf(inv.id);
-                                              } : undefined}
+                                                if ((inv.rawExtractedData as any)?.pdfBase64) {
+                                                  openInvoicePdf(inv.id);
+                                                } else {
+                                                  // No PDF — fall back to the source-email
+                                                  // viewer so the owner can read the body
+                                                  // text and notes (typical for AGL/utility
+                                                  // invoices parsed from email body).
+                                                  setViewEmailInvoice(inv);
+                                                }
+                                              }}
                                             >
                                               <FileText className="h-3.5 w-3.5" />
                                             </button>
