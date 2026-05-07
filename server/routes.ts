@@ -3685,12 +3685,63 @@ export async function registerRoutes(
       const allSuppliers = await storage.getSuppliers();
       const supplierMap = new Map(allSuppliers.map(s => [s.id, s]));
 
+      // Hint-based supplier resolver — used both as the early no-PDF rescue
+      // and as the per-row resolver after parse. Pulls email/name candidates
+      // from any combination of the fresh parse, the previously-stored
+      // rawExtractedData, and the raw senderEmail field. Tries email matches
+      // first because the AI commonly mixes seller and buyer fields, and the
+      // email side is the seller's authoritative address.
+      const linkSupplierFromHints = async (
+        inv: { id: string; supplierId: string | null },
+        raw: any,
+        parsedSupplier: any,
+      ): Promise<string | null> => {
+        if (inv.supplierId) return inv.supplierId;
+        const emailHints = [
+          parsedSupplier?.supplierEmail,
+          raw?.supplier?.supplierEmail,
+          raw?.senderEmail,
+        ].filter((e): e is string => typeof e === "string" && e.trim().length > 0);
+        const nameHints = [
+          parsedSupplier?.supplierName,
+          raw?.supplier?.supplierName,
+        ].filter((n): n is string => typeof n === "string" && n.trim().length > 0 && n !== "Unknown Supplier");
+        for (const e of emailHints) {
+          const m = await storage.findSupplierByEmail(e);
+          if (m) {
+            console.log(`[bulk-reclassify] ${inv.id}: linked by email "${e}" → ${m.name}`);
+            return m.id;
+          }
+        }
+        for (const n of nameHints) {
+          const m = await storage.findSupplierByName(n);
+          if (m) {
+            console.log(`[bulk-reclassify] ${inv.id}: linked by name "${n}" → ${m.name}`);
+            return m.id;
+          }
+        }
+        return null;
+      };
+
       for (const inv of rows) {
         try {
           const raw = inv.rawExtractedData as any;
           const pdfBase64: string | undefined = raw?.pdfBase64;
           if (!pdfBase64) {
-            if (inv.status !== "REVIEW") await storage.updateSupplierInvoice(inv.id, { status: "REVIEW" });
+            // No PDF stored — typical for forwarded notification emails
+            // ("Invoice X is due" body, no attachment). Promote-to-PENDING
+            // requires an amount, which we don't have here, so the row stays
+            // in REVIEW. But we can still re-attach the right supplier from
+            // the stored rawExtractedData hints so the row at least groups
+            // under the actual seller in the inbox instead of the buyer-
+            // mislabel that the original capture wrote.
+            const linked = await linkSupplierFromHints(inv, raw, null);
+            const patch: any = { status: "REVIEW" };
+            if (linked && linked !== inv.supplierId) {
+              patch.supplierId = linked;
+              summary.linkedByEmail++;
+            }
+            await storage.updateSupplierInvoice(inv.id, patch);
             summary.needsManual++;
             summary.reasons.noPdf++;
             continue;
@@ -3698,7 +3749,13 @@ export async function registerRoutes(
           const buf = Buffer.from(pdfBase64, "base64");
           const pdfText = await extractPdfText(buf);
           if (!pdfText.trim()) {
-            if (inv.status !== "REVIEW") await storage.updateSupplierInvoice(inv.id, { status: "REVIEW" });
+            const linked = await linkSupplierFromHints(inv, raw, null);
+            const patch: any = { status: "REVIEW" };
+            if (linked && linked !== inv.supplierId) {
+              patch.supplierId = linked;
+              summary.linkedByEmail++;
+            }
+            await storage.updateSupplierInvoice(inv.id, patch);
             summary.needsManual++;
             summary.reasons.pdfTextEmpty++;
             continue;
@@ -3734,45 +3791,15 @@ export async function registerRoutes(
             continue;
           }
 
-          // Helper: even when AI parse can't produce a final amount/invoice#,
-          // try to attach the right supplier to the row so the owner sees it
-          // grouped under the actual seller in Review Inbox instead of an
-          // "Unknown Supplier" / buyer-mislabel bucket. Returns the linked
-          // supplier id (or null) so the caller's reason counters stay accurate.
-          const resolveSupplierFromHints = async (): Promise<string | null> => {
-            if (inv.supplierId) return inv.supplierId;
-            const emailHints = [
-              parsedSupplier?.supplierEmail,
-              raw?.supplier?.supplierEmail,
-              raw?.senderEmail,
-            ].filter((e): e is string => typeof e === "string" && e.trim().length > 0);
-            const nameHints = [
-              parsedSupplier?.supplierName,
-              raw?.supplier?.supplierName,
-            ].filter((n): n is string => typeof n === "string" && n.trim().length > 0 && n !== "Unknown Supplier");
-            for (const e of emailHints) {
-              const m = await storage.findSupplierByEmail(e);
-              if (m) { console.log(`[bulk-reclassify] ${inv.id}: link-only by email "${e}" → ${m.name}`); return m.id; }
-            }
-            for (const n of nameHints) {
-              const m = await storage.findSupplierByName(n);
-              if (m) { console.log(`[bulk-reclassify] ${inv.id}: link-only by name "${n}" → ${m.name}`); return m.id; }
-            }
-            return null;
-          };
-
           if (parsedInvoices.length === 0) {
-            // AI couldn't pull invoices — at least link the supplier if we can,
-            // so the row groups under the right vendor next time the owner
-            // opens Review Inbox.
-            const linkOnly = await resolveSupplierFromHints();
-            const linkPatch: any = { status: "REVIEW" };
-            if (linkOnly && linkOnly !== inv.supplierId) {
-              linkPatch.supplierId = linkOnly;
+            const linked = await linkSupplierFromHints(inv, raw, parsedSupplier);
+            const patch: any = { status: "REVIEW" };
+            if (linked && linked !== inv.supplierId) {
+              patch.supplierId = linked;
               summary.linkedByEmail++;
             }
-            await storage.updateSupplierInvoice(inv.id, linkPatch);
-            console.warn(`[bulk-reclassify] ${inv.id} (${supplier?.name ?? "unknown"}): AI returned no invoices from ${pdfText.length} chars of text${linkOnly ? ` — linked supplier ${linkOnly}` : ""}`);
+            await storage.updateSupplierInvoice(inv.id, patch);
+            console.warn(`[bulk-reclassify] ${inv.id} (${supplier?.name ?? "unknown"}): AI returned no invoices from ${pdfText.length} chars of text${linked ? ` — linked supplier ${linked}` : ""}`);
             summary.needsManual++;
             summary.reasons.aiReturnedNothing++;
             continue;
@@ -3780,58 +3807,21 @@ export async function registerRoutes(
 
           const first = parsedInvoices[0];
           if (!first || (!first.totalAmount && !first.invoiceNumber)) {
-            const linkOnly = await resolveSupplierFromHints();
-            const linkPatch: any = { status: "REVIEW" };
-            if (linkOnly && linkOnly !== inv.supplierId) {
-              linkPatch.supplierId = linkOnly;
+            const linked = await linkSupplierFromHints(inv, raw, parsedSupplier);
+            const patch: any = { status: "REVIEW" };
+            if (linked && linked !== inv.supplierId) {
+              patch.supplierId = linked;
               summary.linkedByEmail++;
             }
-            await storage.updateSupplierInvoice(inv.id, linkPatch);
+            await storage.updateSupplierInvoice(inv.id, patch);
             summary.needsManual++;
             summary.reasons.parsedButEmpty++;
             continue;
           }
 
-          // Resolve supplier for rows that came in with supplier_id = null
-          // (the cross-check-failure case). Try EMAIL hints first because
-          // they're the seller's authoritative address; the supplierName
-          // field is more often the buyer (the user's own entity) thanks
-          // to AI buyer/seller mix-ups. Hints come from both the fresh
-          // parse AND the previously-stored rawExtractedData so we don't
-          // depend on every re-parse hitting the same answer.
-          let resolvedSupplierId: string | null = inv.supplierId ?? null;
-          if (!resolvedSupplierId) {
-            const emailHints = [
-              parsedSupplier?.supplierEmail,
-              raw?.supplier?.supplierEmail,
-              raw?.senderEmail,
-            ].filter((e): e is string => typeof e === "string" && e.trim().length > 0);
-            const nameHints = [
-              parsedSupplier?.supplierName,
-              raw?.supplier?.supplierName,
-            ].filter((n): n is string => typeof n === "string" && n.trim().length > 0 && n !== "Unknown Supplier");
-
-            for (const e of emailHints) {
-              const match = await storage.findSupplierByEmail(e);
-              if (match) {
-                resolvedSupplierId = match.id;
-                summary.linkedByEmail++;
-                console.log(`[bulk-reclassify] ${inv.id}: linked by email "${e}" → ${match.name}`);
-                break;
-              }
-            }
-            if (!resolvedSupplierId) {
-              for (const n of nameHints) {
-                const match = await storage.findSupplierByName(n);
-                if (match) {
-                  resolvedSupplierId = match.id;
-                  summary.linkedByName++;
-                  console.log(`[bulk-reclassify] ${inv.id}: linked by name "${n}" → ${match.name}`);
-                  break;
-                }
-              }
-            }
-          }
+          // Resolve supplier for the happy path (item parsed, ready to
+          // promote to PENDING). Same hint-pool helper.
+          const resolvedSupplierId = await linkSupplierFromHints(inv, raw, parsedSupplier);
 
           // No supplier resolved → keep as REVIEW so the owner can attach
           // one manually instead of writing an orphaned PENDING.
@@ -3840,6 +3830,12 @@ export async function registerRoutes(
             summary.needsManual++;
             summary.reasons.noSupplierMatch++;
             continue;
+          }
+          if (resolvedSupplierId !== inv.supplierId) {
+            // Helper logged "linked by email/name" already; just bump the
+            // counter so the toast adds up. A pre-existing inv.supplierId
+            // is a no-op (helper short-circuits).
+            if (!inv.supplierId) summary.linkedByEmail++;
           }
 
           // Resolve storeId from parsed PDF (or fallbacks) before patching
