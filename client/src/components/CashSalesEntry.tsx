@@ -247,6 +247,17 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     setDeleteConfirmDate(null);
   }, [existingData, closeFormsData, periodStart]);
 
+  // Map of close-form submitter name by date — drives the Staff column so
+  // the owner can see who submitted the matching mobile close form for
+  // each row of the bulk envelope sheet.
+  const submitterByDate = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const cf of closeFormsData ?? []) {
+      if (cf.submitterName) m.set(cf.date, cf.submitterName);
+    }
+    return m;
+  }, [closeFormsData]);
+
   const updateRow = useCallback(
     (index: number, field: string, value: number) => {
       setRows((prev) => {
@@ -570,18 +581,20 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
           <table className="w-full text-sm border-collapse table-fixed">
             <colgroup>
               <col style={{ width: "11%" }} />
+              <col style={{ width: "9%" }} />
               <col style={{ width: "8%" }} />
               <col style={{ width: "8%" }} />
               {DENOMINATIONS.map((d) => (
-                <col key={d.key} style={{ width: "6.5%" }} />
+                <col key={d.key} style={{ width: "6%" }} />
               ))}
               <col style={{ width: "7%" }} />
-              <col style={{ width: "14%" }} />
+              <col style={{ width: "13%" }} />
               <col style={{ width: "4%" }} />
             </colgroup>
             <thead>
               <tr className="bg-muted/50">
                 <th className="sticky left-0 bg-muted/50 z-10 px-1 py-1 text-left font-medium border-b border-r">Date</th>
+                <th className="px-1 py-1 text-left font-medium border-b border-r">Staff</th>
                 <th className="px-1 py-1 text-right font-medium border-b border-r">Envelope</th>
                 <th className="px-1 py-1 text-right font-medium border-b border-r bg-muted/80">Counted</th>
                 {DENOMINATIONS.map((d) => (
@@ -635,6 +648,13 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                         data-testid={`input-date-${idx}`}
                       />
                     </td>
+                    <td
+                      className="px-1 py-0.5 border-b border-r text-xs text-muted-foreground truncate"
+                      title={row.date ? submitterByDate.get(row.date) ?? "" : ""}
+                      data-testid={`text-staff-${idx}`}
+                    >
+                      {row.date ? (submitterByDate.get(row.date) ?? "—") : "—"}
+                    </td>
                     <td className="px-0.5 py-0.5 border-b border-r">
                       <Input
                         type="number"
@@ -675,7 +695,13 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                       </td>
                     ))}
                     <td
-                      className={`px-1 py-0.5 border-b border-r text-right font-mono text-xs tabular-nums ${hasDiff ? "text-red-600 dark:text-red-400 font-bold" : "text-muted-foreground"}`}
+                      className={`px-1 py-0.5 border-b border-r text-right font-mono text-xs tabular-nums font-bold ${
+                        !hasDiff
+                          ? "text-muted-foreground font-normal"
+                          : diff > 0
+                            ? "text-green-600 dark:text-green-400"
+                            : "text-red-600 dark:text-red-400"
+                      }`}
                       data-testid={`text-diff-${idx}`}
                     >
                       {hasDiff ? `${diff > 0 ? "+" : "-"}$${Math.abs(diff).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
@@ -771,6 +797,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
             <tfoot>
               <tr className="bg-muted/60 font-medium">
                 <td className="sticky left-0 bg-muted/60 z-10 px-1 py-1.5 border-t-2 text-xs font-bold">TOTAL</td>
+                <td className="px-1 py-1.5 border-t-2" />
                 <td className="px-1 py-1.5 border-t-2 text-right font-mono text-xs tabular-nums" data-testid="text-total-envelope">
                   ${totalEnvelope.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </td>
@@ -786,7 +813,13 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                   );
                 })}
                 <td
-                  className={`px-1 py-1.5 border-t-2 text-right font-mono text-xs tabular-nums ${Math.abs(totalDifference) >= 0.01 ? "text-red-600 dark:text-red-400 font-bold" : "text-muted-foreground"}`}
+                  className={`px-1 py-1.5 border-t-2 text-right font-mono text-xs tabular-nums ${
+                    Math.abs(totalDifference) < 0.01
+                      ? "text-muted-foreground"
+                      : totalDifference > 0
+                        ? "text-green-600 dark:text-green-400 font-bold"
+                        : "text-red-600 dark:text-red-400 font-bold"
+                  }`}
                   data-testid="text-total-diff"
                 >
                   {Math.abs(totalDifference) >= 0.01
