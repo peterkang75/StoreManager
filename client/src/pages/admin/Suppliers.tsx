@@ -52,6 +52,7 @@ type FormState = {
   active: boolean;
   isAutoPay: boolean;
   defaultGstRate: number; // 0~100
+  cashExpenseEligible: boolean;
 };
 
 const BLANK_FORM: FormState = {
@@ -66,6 +67,7 @@ const BLANK_FORM: FormState = {
   active: true,
   isAutoPay: false,
   defaultGstRate: 0,
+  cashExpenseEligible: false,
 };
 
 function clampGst(value: number): number {
@@ -247,6 +249,24 @@ function SupplierForm({
         />
       </div>
 
+      {/* §7 Wave 1 Day 6: gate the mobile Daily Close cash-expense picker. */}
+      <div className="flex items-center justify-between pt-1 border-t mt-1">
+        <div className="flex flex-col gap-0.5 pr-3">
+          <Label htmlFor="sup-cash-eligible" className="cursor-pointer">
+            Show in Daily Close cash expense picker
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            현금 지출 시 직원이 모바일에서 선택할 수 있는 supplier로 표시. 보통 은행 결제 supplier는 OFF.
+          </p>
+        </div>
+        <Switch
+          id="sup-cash-eligible"
+          checked={form.cashExpenseEligible}
+          onCheckedChange={checked => setForm({ ...form, cashExpenseEligible: checked })}
+          data-testid="switch-cash-eligible"
+        />
+      </div>
+
       {isEdit && (
         <div className="flex items-center justify-between pt-1">
           <Label htmlFor="sup-active">Active</Label>
@@ -303,6 +323,7 @@ export function AdminSuppliers() {
       active: f.active,
       isAutoPay: f.isAutoPay,
       defaultGstRate: clampGst(f.defaultGstRate),
+      cashExpenseEligible: f.cashExpenseEligible,
     };
   }
 
@@ -341,6 +362,22 @@ export function AdminSuppliers() {
     },
   });
 
+  // §7 Wave 1 Day 6: inline quick-toggle for the cash-expense picker flag —
+  // lets the owner flip the right vendors on without opening each edit modal.
+  // Sends only the changed field; server preserves the rest.
+  const cashEligibleMutation = useMutation({
+    mutationFn: async ({ id, value }: { id: string; value: boolean }) => {
+      const res = await apiRequest("PUT", `/api/suppliers/${id}`, { cashExpenseEligible: value });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/suppliers"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: err.message || "Failed to toggle", variant: "destructive" });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       await apiRequest("DELETE", `/api/suppliers/${id}`);
@@ -369,6 +406,7 @@ export function AdminSuppliers() {
       active: supplier.active,
       isAutoPay: supplier.isAutoPay ?? false,
       defaultGstRate: clampGst(supplier.defaultGstRate ?? 0),
+      cashExpenseEligible: supplier.cashExpenseEligible ?? false,
     });
   };
 
@@ -445,6 +483,9 @@ export function AdminSuppliers() {
                     <TableHead>Whitelisted Emails</TableHead>
                     <TableHead>Banking Details</TableHead>
                     <TableHead className="text-right">GST</TableHead>
+                    <TableHead className="text-center" title="Show this supplier in the mobile Daily Close cash-expense picker">
+                      Cash<br /><span className="text-[10px] font-normal text-muted-foreground">in picker</span>
+                    </TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -502,6 +543,21 @@ export function AdminSuppliers() {
 
                       <TableCell className="text-right text-sm font-medium tabular-nums" data-testid={`cell-gst-${supplier.id}`}>
                         {supplier.defaultGstRate ?? 0}%
+                      </TableCell>
+
+                      <TableCell className="text-center">
+                        <Switch
+                          checked={supplier.cashExpenseEligible ?? false}
+                          onCheckedChange={(checked) =>
+                            cashEligibleMutation.mutate({ id: supplier.id, value: checked })
+                          }
+                          disabled={
+                            cashEligibleMutation.isPending ||
+                            supplier.name === "Other / Unknown"
+                          }
+                          data-testid={`switch-cash-eligible-${supplier.id}`}
+                          aria-label={`Show ${supplier.name} in mobile cash expense picker`}
+                        />
                       </TableCell>
 
                       <TableCell>

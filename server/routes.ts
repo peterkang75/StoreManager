@@ -2926,6 +2926,16 @@ export async function registerRoutes(
         }
         req.body.defaultGstRate = rate;
       }
+      // §7 Wave 1 Day 6: lock the Other/Unknown sentinel — accidentally turning
+      // it off would silently break the employee Daily Close fallback.
+      if (req.body && req.body.cashExpenseEligible === false) {
+        const existing = await storage.getSupplier(id);
+        if (existing?.name === "Other / Unknown") {
+          return res.status(400).json({
+            error: "The 'Other / Unknown' sentinel must remain visible to employees and cannot be hidden.",
+          });
+        }
+      }
       const supplier = await storage.updateSupplier(id, req.body);
       if (!supplier) {
         return res.status(404).json({ error: "Supplier not found" });
@@ -2954,12 +2964,14 @@ export async function registerRoutes(
   // ── §7 Wave 1: Cash Expenses ────────────────────────────────────────────────
   // Lightweight supplier picker for the mobile Daily Close cash-expense entry —
   // returns only the fields the picker needs, avoiding a leak of bsb/account_number
-  // through the admin-gated /api/suppliers list. Mounted ahead of /:id routes.
+  // through the admin-gated /api/suppliers list. Filtered to active +
+  // cashExpenseEligible suppliers so the mobile picker only shows the few
+  // vendors employees actually pay with till cash. Mounted ahead of /:id routes.
   app.get("/api/cash-expenses/suppliers", async (_req: Request, res: Response) => {
     try {
       const all = await storage.getSuppliers();
       const minimal = all
-        .filter(s => s.active !== false)
+        .filter(s => s.active !== false && s.cashExpenseEligible === true)
         .map(s => ({ id: s.id, name: s.name, defaultGstRate: s.defaultGstRate ?? 0 }));
       res.json(minimal);
     } catch (error) {
@@ -7627,6 +7639,8 @@ Rules:
             notes: supplierData.notes || null,
             active: true,
             isAutoPay: supplierData.isAutoPay ?? false,
+            defaultGstRate: 0,
+            cashExpenseEligible: false,
           });
         }
       }

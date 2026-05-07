@@ -85,6 +85,13 @@ const STATEMENTS: string[] = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_cash_expenses_store_date ON cash_expenses(store_id, expense_date DESC)`,
 
+  // §7 Wave 1 Day 6: gate the Daily Close cash-expense picker by an admin-
+  // controlled per-supplier flag. New column defaults to false so existing
+  // bank-paid suppliers stay hidden from the mobile picker; the sentinel is
+  // forced to true so the Other/Unknown fallback always reaches employees.
+  `ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS cash_expense_eligible boolean NOT NULL DEFAULT false`,
+  `UPDATE suppliers SET cash_expense_eligible = true WHERE name = 'Other / Unknown' AND cash_expense_eligible = false`,
+
   // Backfill daily_sales from any existing daily_closings rows so the unified
   // ledger contains both POSnet historical imports and previously-submitted
   // close forms. Idempotent via the (store_id, date) unique index — historical

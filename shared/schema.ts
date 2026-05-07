@@ -444,6 +444,12 @@ export const suppliers = pgTable("suppliers", {
   // §7 Wave 1: default GST rate (0~100). Snapshot copied to cash_expenses + AP at entry time.
   // 0=GST-free (fresh produce, chicken shop), 50=mixed (Woolworths/Coles), 100=fully GST-applicable (drinks, Daiso).
   defaultGstRate: integer("default_gst_rate").default(0).notNull(),
+  // §7 Wave 1 Day 6: gate the Daily Close cash-expense supplier picker.
+  // Most suppliers are paid by bank (AP), so they shouldn't clutter the
+  // mobile picker. Owner flips this on only for vendors employees actually
+  // pay with till cash (Woolworths, vegetable stalls, chicken shop). The
+  // "Other / Unknown" sentinel is force-seeded true.
+  cashExpenseEligible: boolean("cash_expense_eligible").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

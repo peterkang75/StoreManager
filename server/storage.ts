@@ -1099,6 +1099,7 @@ export class MemStorage implements IStorage {
       active: insertSupplier.active ?? true,
       isAutoPay: insertSupplier.isAutoPay ?? false,
       defaultGstRate: insertSupplier.defaultGstRate ?? 0,
+      cashExpenseEligible: insertSupplier.cashExpenseEligible ?? false,
       createdAt: now,
       updatedAt: now,
     };
