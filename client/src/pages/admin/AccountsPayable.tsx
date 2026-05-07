@@ -1991,6 +1991,44 @@ export function AdminAccountsPayable() {
             </div>
           ) : (
             <div className="space-y-3">
+              {/* Backfill: re-run the 4-way classifier + supplier fallback on
+                  every stuck REVIEW + QUARANTINE row. Mirrors the bar in the
+                  Quarantine tab so the owner can trigger it from wherever the
+                  backlog is most visible. */}
+              <div className="rounded-md border border-blue-300/50 bg-blue-50 dark:bg-blue-950/20 p-3 flex items-center justify-between gap-3">
+                <div className="text-xs text-blue-800 dark:text-blue-200 min-w-0">
+                  <strong>Backfill</strong> — re-classify every stuck REVIEW + QUARANTINE row at once. Auto-links suppliers by AI-extracted name/email so previously orphaned invoices move to To Pay where possible.
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 shrink-0"
+                  onClick={async () => {
+                    if (!window.confirm("Run bulk reclassify on ALL stuck REVIEW + QUARANTINE invoices? This will promote invoices with PDFs to To Pay and soft-delete remittances. You can review the summary after.")) return;
+                    try {
+                      const res = await apiRequest("POST", "/api/invoices/bulk-reclassify", {});
+                      const s = await res.json();
+                      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+                      queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
+                      queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
+                      const reasons = s.reasons ? ` (no PDF: ${s.reasons.noPdf ?? 0}, blank text: ${s.reasons.pdfTextEmpty ?? 0}, AI blank: ${s.reasons.aiReturnedNothing ?? 0}, parsed empty: ${s.reasons.parsedButEmpty ?? 0}, no supplier match: ${s.reasons.noSupplierMatch ?? 0})` : "";
+                      const linked = (s.linkedByName ?? 0) + (s.linkedByEmail ?? 0);
+                      const linkedDetail = linked > 0 ? ` · ${linked} auto-linked supplier (${s.linkedByName ?? 0} by name, ${s.linkedByEmail ?? 0} by email)` : "";
+                      toast({
+                        title: "Reclassify complete",
+                        description: `${s.promoted} → To Pay · ${s.statementExpanded} from statements · ${s.dropped} dropped · ${s.needsManual} manual${linkedDetail}${reasons} · ${s.errors} errors.`,
+                      });
+                    } catch (e: any) {
+                      toast({ title: "Reclassify failed", description: e?.message ?? "Try again.", variant: "destructive" });
+                    }
+                  }}
+                  data-testid="button-bulk-reclassify-review"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Reclassify all stuck invoices
+                </Button>
+              </div>
+
               {reviewGroups.map(group => {
                 const raw = group.rawFirst;
                 const isPending = ignoreSenderMutation.isPending;
