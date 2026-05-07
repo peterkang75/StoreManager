@@ -6230,31 +6230,16 @@ export async function registerRoutes(
               console.log(`[Webhook] Cross-check: redirecting to known supplier "${pdfSupplier.name}"`);
               currentSupplier = pdfSupplier;
             } else {
-              // Unknown supplier — route all items from this attachment to REVIEW
-              for (const parsed of parsedItems) {
-                const storeId = resolveStoreId(parsed.storeCode) ?? resolveStoreFromDelivery(parsed.deliveryLocation);
-                const inv = await storage.createSupplierInvoice({
-                  supplierId: null, storeId,
-                  invoiceNumber: parsed.invoiceNumber || `EMAIL-${Date.now()}-${attIdx}`,
-                  invoiceDate: parsed.issueDate || today,
-                  dueDate: parsed.dueDate ?? undefined,
-                  amount: parsed.totalAmount,
-                  status: "REVIEW",
-                  rawExtractedData: {
-                    senderEmail, subject, pdfBase64: pdfResult.pdfBase64,
-                    body: emailBody?.slice(0, 8000) || null,
-                    supplier: { supplierName: pdfSupplierName, abn: parsedItems[0]?.abn ?? null },
-                    invoices: parsedItems.map(p => ({
-                      invoiceNumber: p.invoiceNumber, issueDate: p.issueDate,
-                      dueDate: p.dueDate, totalAmount: p.totalAmount, storeCode: p.storeCode,
-                    })),
-                  },
-                  notes: `Supplier mismatch: email from "${currentSupplier.name}" but PDF identifies "${pdfSupplierName}"${parsedItems[0]?.abn ? ` (ABN: ${parsedItems[0].abn})` : ""}.\nAttachment: ${attName}\nFrom: ${senderEmail}\nSubject: ${subject}`,
-                });
-                reviewCount++;
-                created.push(inv.id);
-              }
-              continue; // Done with this attachment
+              // The PDF-extracted supplier name doesn't resolve to any known
+              // supplier in the database. The most common cause is the AI
+              // grabbing the buyer's company name (the user's own entity)
+              // instead of the seller's. Since the inbound email already
+              // passed the whitelist gate via findSupplierByEmail above,
+              // the email-matched supplier is reliable — trust it and fall
+              // through to PENDING creation rather than dumping the row to
+              // REVIEW. The mismatch detail goes into the invoice notes for
+              // visibility.
+              console.log(`[Webhook] Cross-check: PDF supplier "${pdfSupplierName}" not in DB — keeping email-matched "${currentSupplier.name}" (whitelist gate trusted)`);
             }
           }
         }
@@ -7057,9 +7042,23 @@ export async function registerRoutes(
                         "REVIEW",
                       );
                     } else {
-                    const nameMatch = unknownParsed.supplier.supplierName
+                    // Try matching the supplier by name first, then by AI-extracted
+                    // seller email. Email-fallback catches the common case where the
+                    // AI mixes seller and buyer fields on the invoice (e.g. extracts
+                    // the buyer's company name as supplierName but keeps the seller's
+                    // email as supplierEmail) — without this fallback those invoices
+                    // got dumped to REVIEW even though the seller was already in the
+                    // suppliers table.
+                    let nameMatch = unknownParsed.supplier.supplierName
                       ? await storage.findSupplierByName(unknownParsed.supplier.supplierName)
                       : undefined;
+                    if (!nameMatch && unknownParsed.supplier.supplierEmail) {
+                      const emailMatch = await storage.findSupplierByEmail(unknownParsed.supplier.supplierEmail);
+                      if (emailMatch) {
+                        console.log(`[TriageRoute/bg] Email-fallback matched supplier "${emailMatch.name}" via AI-extracted email ${unknownParsed.supplier.supplierEmail} (PDF supplierName="${unknownParsed.supplier.supplierName}" had no DB match)`);
+                        nameMatch = emailMatch;
+                      }
+                    }
                     if (nameMatch) {
                       // ── Process ALL invoices in the statement (not just the first) ────
                       // This is the same two-phase pattern used by approve-group:
