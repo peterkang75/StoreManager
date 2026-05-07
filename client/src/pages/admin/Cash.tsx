@@ -427,7 +427,7 @@ export function AdminCash() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {dailyClosings.map(closing => {
+                        {[...dailyClosings].sort((a, b) => a.date.localeCompare(b.date)).map(closing => {
                           const isShortage = closing.differenceAmount > 0.005;
                           const isOverage = closing.differenceAmount < -0.005;
                           // POS Sales Total already aggregates cash + EFTPOS at the
@@ -583,7 +583,7 @@ export function AdminCash() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {closeForms.map(f => {
+                        {[...closeForms].sort((a, b) => a.date.localeCompare(b.date)).map(f => {
                           const envelope = f.envelopeAmount ?? 0;
                           const counted = f.totalCalculated ?? 0;
                           const diff = counted - envelope;
