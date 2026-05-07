@@ -1435,26 +1435,19 @@ export function AdminAccountsPayable() {
   ];
 
   const showStoreFilter = activeTab === "topay" || activeTab === "history" || activeTab === "cashexpense";
-  const showSummaryCards = activeTab === "topay";
-
   return (
     <AdminLayout title="Accounts Payable">
       <div className="flex flex-col gap-5">
 
-        {/* ── Page header actions ────────────────────────────────────────── */}
-        <div className="flex justify-end">
-          <Button
-            size="sm"
-            onClick={() => setAddInvoiceOpen(true)}
-            data-testid="button-add-invoice"
-          >
-            <Plus className="w-4 h-4 mr-1.5" />
-            Add Invoice
-          </Button>
-        </div>
+        {/* ── Sticky header: summary cards + tab bar ─────────────────────────
+            Owner request: Total Payable + Selected Total stay visible across
+            every tab (even Review Inbox / Paid History) and pin to the top
+            when the page scrolls so the running pay batch is always in
+            sight. The store filter row + Add Invoice sit just below this and
+            scroll normally with the content. */}
+        <div className="sticky top-0 z-20 bg-muted/30 pt-1 -mt-1 pb-2 space-y-4">
 
-        {/* ── Summary Cards (To Pay only) ────────────────────────────────── */}
-        {showSummaryCards && (
+          {/* Summary cards — always rendered */}
           <div className="grid grid-cols-2 gap-4">
             <Card>
               <CardContent className="p-4">
@@ -1523,10 +1516,9 @@ export function AdminAccountsPayable() {
               </CardContent>
             </Card>
           </div>
-        )}
 
-        {/* ── Tab bar + Pay action ───────────────────────────────────────── */}
-        <div className="flex items-center gap-3 flex-wrap">
+          {/* ── Tab bar + Pay action ───────────────────────────────────── */}
+          <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg shrink-0 flex-wrap">
             {tabs.map(tab => (
               <button
@@ -1592,10 +1584,17 @@ export function AdminAccountsPayable() {
               </Button>
             </div>
           )}
-        </div>
+          </div>
 
-        {/* ── Store Filter (To Pay + History only) ──────────────────────── */}
-        {showStoreFilter && (
+        </div>
+        {/* ── /Sticky header ─────────────────────────────────────────────── */}
+
+        {/* ── Store Filter row + Add Invoice (right end) ─────────────────
+            Owner request: Add Invoice button now sits at the right end of
+            this row instead of a separate top-of-page action bar. Row
+            scrolls with the content (not part of the sticky header). */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {showStoreFilter && (
           <div className="flex items-center gap-1 flex-wrap">
             {[
               ...filteredStores.map(s => ({ id: s.id, label: s.name })),
@@ -1632,7 +1631,20 @@ export function AdminAccountsPayable() {
               );
             })}
           </div>
-        )}
+          )}
+
+          <div className="flex-1" />
+
+          <Button
+            size="sm"
+            onClick={() => setAddInvoiceOpen(true)}
+            data-testid="button-add-invoice"
+            className="shrink-0"
+          >
+            <Plus className="w-4 h-4 mr-1.5" />
+            Add Invoice
+          </Button>
+        </div>
 
         {/* ── Content Area ───────────────────────────────────────────────── */}
 
