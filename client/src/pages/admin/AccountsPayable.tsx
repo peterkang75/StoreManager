@@ -1364,15 +1364,28 @@ export function AdminAccountsPayable() {
     rawSenderEmail: string;    // Actual From: address — used for email routing rules
     rawFirst: ReviewRawData | null;
   }
+  // Includes inactive suppliers too — Backfill might link a row to a
+  // deactivated vendor (e.g., dormant supplier still registered with the
+  // whitelisted email). Without this the display would fall back to the
+  // AI-extracted buyer mislabel even after a successful link.
+  const { data: allSuppliersIncludingInactive = [] } = useQuery<any[]>({
+    queryKey: ["/api/suppliers", "all"],
+    queryFn: async () => {
+      const res = await fetch("/api/suppliers?includeInactive=1");
+      if (!res.ok) throw new Error("Failed to fetch suppliers (incl. inactive)");
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+
   // Map supplier id → registered supplier name so REVIEW rows that already
   // got their supplier_id linked (e.g., by Backfill) display under the real
-  // supplier instead of the AI-extracted buyer/trading-name mislabel. Built
-  // from the same allSuppliers query the picker uses.
+  // supplier instead of the AI-extracted buyer/trading-name mislabel.
   const supplierNameById = useMemo(() => {
     const m = new Map<string, string>();
-    for (const s of allSuppliersForPicker as Array<{ id: string; name: string }>) m.set(s.id, s.name);
+    for (const s of allSuppliersIncludingInactive as Array<{ id: string; name: string }>) m.set(s.id, s.name);
     return m;
-  }, [allSuppliersForPicker]);
+  }, [allSuppliersIncludingInactive]);
 
   const reviewGroups = useMemo<ReviewGroup[]>(() => {
     const map = new Map<string, ReviewGroup>();

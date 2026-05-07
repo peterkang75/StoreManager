@@ -152,6 +152,7 @@ export interface IStorage {
   updateCashSalesDetail(id: string, detail: Partial<InsertCashSalesDetail>): Promise<CashSalesDetail | undefined>;
 
   getSuppliers(): Promise<Supplier[]>;
+  getAllSuppliersIncludingInactive(): Promise<Supplier[]>;
   getSupplier(id: string): Promise<Supplier | undefined>;
   createSupplier(supplier: InsertSupplier): Promise<Supplier>;
   updateSupplier(id: string, supplier: Partial<InsertSupplier>): Promise<Supplier | undefined>;
@@ -1074,6 +1075,11 @@ export class MemStorage implements IStorage {
   async getSuppliers(): Promise<Supplier[]> {
     return Array.from(this.suppliers.values())
       .filter(s => s.active)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async getAllSuppliersIncludingInactive(): Promise<Supplier[]> {
+    return Array.from(this.suppliers.values())
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
@@ -2554,6 +2560,10 @@ export class DatabaseStorage implements IStorage {
       .orderBy(asc(suppliers.name));
   }
 
+  async getAllSuppliersIncludingInactive(): Promise<Supplier[]> {
+    return db.select().from(suppliers).orderBy(asc(suppliers.name));
+  }
+
   async getSupplier(id: string): Promise<Supplier | undefined> {
     const [s] = await db.select().from(suppliers).where(eq(suppliers.id, id));
     return s;
@@ -2718,14 +2728,30 @@ export class DatabaseStorage implements IStorage {
   async findSupplierByEmail(email: string): Promise<Supplier | undefined> {
     const needle = email.trim().toLowerCase();
     if (!needle) return undefined;
-    const all = await db.select().from(suppliers).where(eq(suppliers.active, true));
-    return all.find(s => (s.contactEmails ?? []).some(e => (e ?? "").trim().toLowerCase() === needle));
+    // Search active first; if no match, fall back to inactive — bulk
+    // re-classify reattaches old REVIEW rows whose original supplier may
+    // have been temporarily deactivated. Active suppliers get priority so
+    // a renamed-and-deactivated record never wins over a current vendor
+    // sharing the same email.
+    const active = await db.select().from(suppliers).where(eq(suppliers.active, true));
+    const activeMatch = active.find(s => (s.contactEmails ?? []).some(e => (e ?? "").trim().toLowerCase() === needle)
+      || (typeof s.email === "string" && s.email.trim().toLowerCase() === needle));
+    if (activeMatch) return activeMatch;
+    const inactive = await db.select().from(suppliers).where(eq(suppliers.active, false));
+    return inactive.find(s => (s.contactEmails ?? []).some(e => (e ?? "").trim().toLowerCase() === needle)
+      || (typeof s.email === "string" && s.email.trim().toLowerCase() === needle));
   }
 
   async findSupplierByName(name: string): Promise<Supplier | undefined> {
-    const [supplier] = await db.select().from(suppliers)
+    // Active first, then fall back to inactive (mirrors findSupplierByEmail
+    // so the bulk back-fill path can still attach to a deactivated vendor
+    // when that's the only match).
+    const [activeMatch] = await db.select().from(suppliers)
       .where(and(eq(suppliers.active, true), ilike(suppliers.name, name)));
-    return supplier;
+    if (activeMatch) return activeMatch;
+    const [inactiveMatch] = await db.select().from(suppliers)
+      .where(and(eq(suppliers.active, false), ilike(suppliers.name, name)));
+    return inactiveMatch;
   }
 
   async findSupplierByNameAny(name: string): Promise<Supplier | undefined> {

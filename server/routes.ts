@@ -2905,7 +2905,14 @@ export async function registerRoutes(
 
   app.get("/api/suppliers", async (req: Request, res: Response) => {
     try {
-      const suppliers = await storage.getSuppliers();
+      const includeInactive = req.query.includeInactive === "1" || req.query.includeInactive === "true";
+      // Default is active-only (picker-friendly). Pass ?includeInactive=1
+      // to surface deactivated suppliers too — used by the AP Review Inbox
+      // so rows linked to a now-inactive vendor still resolve to the
+      // registered name on screen.
+      const suppliers = includeInactive
+        ? await storage.getAllSuppliersIncludingInactive()
+        : await storage.getSuppliers();
       res.json(suppliers);
     } catch (error) {
       console.error("Error fetching suppliers:", error);
