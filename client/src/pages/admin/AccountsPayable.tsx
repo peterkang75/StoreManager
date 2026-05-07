@@ -253,7 +253,14 @@ function groupBySupplier(invoices: EnrichedInvoice[]): SupplierGroup[] {
       g.overdueAmount += inv.amount ?? 0;
     }
   });
-  return Array.from(map.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+  // Direct-debit (auto-pay) suppliers don't need manual action — they get
+  // pushed to the bottom so the owner's eye lands on the manual-pay batch
+  // first. Within each tier, sort by total amount descending so the biggest
+  // exposure stays prominent.
+  return Array.from(map.values()).sort((a, b) => {
+    if (a.isAutoPay !== b.isAutoPay) return a.isAutoPay ? 1 : -1;
+    return b.totalAmount - a.totalAmount;
+  });
 }
 
 // ── Supplier hint extraction from rawExtractedData + notes fallback ──────────
