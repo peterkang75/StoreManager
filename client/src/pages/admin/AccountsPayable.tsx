@@ -1196,6 +1196,28 @@ export function AdminAccountsPayable() {
     onError: () => toast({ title: "Failed to permanently delete", variant: "destructive" }),
   });
 
+  // Open the stored invoice PDF in a new tab. window.open() can't carry the
+  // admin Bearer token, so the route's auth middleware 401s the bare
+  // navigation. Instead fetch with auth (the patched fetch wrapper injects
+  // the token), wrap the response as an object URL, and open that. Cleans
+  // the blob URL after a short delay so memory doesn't pile up.
+  const openInvoicePdf = async (invoiceId: string) => {
+    try {
+      const res = await fetch(`/api/supplier-invoices/${invoiceId}/pdf`);
+      if (!res.ok) {
+        const msg = await res.text().catch(() => "");
+        toast({ title: "Couldn't open PDF", description: msg.slice(0, 200) || `HTTP ${res.status}`, variant: "destructive" });
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e: any) {
+      toast({ title: "Couldn't open PDF", description: e?.message ?? "Network error", variant: "destructive" });
+    }
+  };
+
   const deleteRuleMutation = useMutation({
     mutationFn: async (email: string) => {
       await apiRequest("DELETE", `/api/email-routing-rules/${encodeURIComponent(email)}`);
@@ -1342,22 +1364,39 @@ export function AdminAccountsPayable() {
     rawSenderEmail: string;    // Actual From: address — used for email routing rules
     rawFirst: ReviewRawData | null;
   }
+  // Map supplier id → registered supplier name so REVIEW rows that already
+  // got their supplier_id linked (e.g., by Backfill) display under the real
+  // supplier instead of the AI-extracted buyer/trading-name mislabel. Built
+  // from the same allSuppliers query the picker uses.
+  const supplierNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of allSuppliersForPicker as Array<{ id: string; name: string }>) m.set(s.id, s.name);
+    return m;
+  }, [allSuppliersForPicker]);
+
   const reviewGroups = useMemo<ReviewGroup[]>(() => {
     const map = new Map<string, ReviewGroup>();
     for (const inv of reviewInvoices) {
       const r = inv.rawExtractedData as ReviewRawData | null;
-      // Smart hint: trusted AI name > subject cleanup > domain (external only) > "Unknown Supplier"
+      // Linked supplier (set by Backfill or webhook) wins; otherwise fall back
+      // to AI-extracted hint. This keeps groups labelled by the registered
+      // vendor name when the row is correctly linked, even if AI mislabelled.
+      const linkedName = inv.supplierId ? supplierNameById.get(inv.supplierId) ?? null : null;
       const hint = extractSupplierHint(r, inv.notes ?? null);
-      const name = hint.name || "Unknown Supplier";
+      const name = linkedName || hint.name || "Unknown Supplier";
       const abn = hint.abn;
       const senderEmail = hint.email;
       const rawSenderEmail = hint.rawSenderEmail;
 
-      // Grouping key: prefer ABN (globally unique) over name to avoid false merges
-      // from similar-but-different supplier names. Fall back to name if no ABN.
-      // For truly unknown invoices with no name and no ABN, use invoice ID so they
-      // appear as individual entries rather than merging into one "Unknown Supplier" blob.
-      const groupKey = abn ? `abn:${abn}` : (name !== "Unknown Supplier" ? `name:${name}` : `id:${inv.id}`);
+      // Grouping key: prefer linked supplier id (the real, deduped key once a
+      // row is attached), then ABN, then name. Falls back to invoice id for
+      // truly unknown rows.
+      const groupKey =
+        inv.supplierId
+          ? `supplier:${inv.supplierId}`
+          : abn
+            ? `abn:${abn}`
+            : (name !== "Unknown Supplier" ? `name:${name}` : `id:${inv.id}`);
 
       if (!map.has(groupKey)) {
         map.set(groupKey, {
@@ -1925,7 +1964,7 @@ export function AdminAccountsPayable() {
                                               data-testid={`button-notes-${inv.id}`}
                                               onClick={(inv.rawExtractedData as any)?.pdfBase64 ? (e) => {
                                                 e.stopPropagation();
-                                                window.open(`/api/supplier-invoices/${inv.id}/pdf`, "_blank");
+                                                openInvoicePdf(inv.id);
                                               } : undefined}
                                             >
                                               <FileText className="h-3.5 w-3.5" />
@@ -2443,7 +2482,7 @@ export function AdminAccountsPayable() {
                                                     title={(inv.rawExtractedData as any)?.pdfBase64 ? "View PDF Invoice" : inv.notes}
                                                     className={`h-7 w-7 flex items-center justify-center rounded transition-colors ${(inv.rawExtractedData as any)?.pdfBase64 ? "text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300" : "text-muted-foreground/40 hover:text-muted-foreground"}`}
                                                     data-testid={`button-notes-${inv.id}`}
-                                                    onClick={(inv.rawExtractedData as any)?.pdfBase64 ? () => window.open(`/api/supplier-invoices/${inv.id}/pdf`, "_blank") : undefined}
+                                                    onClick={(inv.rawExtractedData as any)?.pdfBase64 ? () => openInvoicePdf(inv.id) : undefined}
                                                   >
                                                     <FileText className="h-3.5 w-3.5" />
                                                   </button>
@@ -2855,7 +2894,7 @@ export function AdminAccountsPayable() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => window.open(`/api/supplier-invoices/${inv.id}/pdf`, "_blank")}
+                                onClick={() => openInvoicePdf(inv.id)}
                                 data-testid={`button-quarantine-pdf-${inv.id}`}
                                 className="gap-1.5"
                               >
@@ -3155,7 +3194,7 @@ export function AdminAccountsPayable() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => window.open(`/api/supplier-invoices/${viewEmailInvoice.id}/pdf`, "_blank")}
+                      onClick={() => openInvoicePdf(viewEmailInvoice.id)}
                       data-testid="button-view-email-pdf"
                       className="gap-1.5"
                     >
