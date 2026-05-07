@@ -857,7 +857,22 @@ export function AdminAccountsPayable() {
   const [activeTab, setActiveTab] = useState<TabKey>("topay");
   const [storeFilter, setStoreFilter] = useState<string>("");
   const defaultFilterSet = useRef(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Persist selection across navigation — owner builds the pay batch over
+  // multiple visits (review one invoice on a different page, come back,
+  // tick another, etc.). localStorage keeps the picks alive across page
+  // reloads too. Stale IDs (invoices since paid/deleted by someone else)
+  // are pruned by an effect once /api/invoices loads below.
+  const SELECTED_STORAGE_KEY = "ap_selected_invoices_v1";
+  const [selected, setSelected] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(SELECTED_STORAGE_KEY);
+      if (!raw) return new Set();
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? new Set(arr.filter(x => typeof x === "string")) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
   const [expandedPayDates, setExpandedPayDates] = useState<Set<string>>(new Set());
   const [expandedHistorySuppliers, setExpandedHistorySuppliers] = useState<Set<string>>(new Set());
   const [openAccordions, setOpenAccordions] = useState<string[]>([]);
@@ -878,6 +893,34 @@ export function AdminAccountsPayable() {
     },
     staleTime: 30_000,
   });
+
+  // Mirror selection to localStorage on every change so a navigation away
+  // (or accidental reload) brings the same picks back on return.
+  useEffect(() => {
+    try {
+      localStorage.setItem(SELECTED_STORAGE_KEY, JSON.stringify(Array.from(selected)));
+    } catch {
+      // localStorage full / disabled — selection still works in-memory.
+    }
+  }, [selected]);
+
+  // Prune stale IDs once invoices load — keeps the persisted selection from
+  // ghost-counting invoices that another admin already paid or deleted.
+  // Runs only when allInvoices arrives so an empty initial render doesn't
+  // wipe the saved picks before the data is in.
+  useEffect(() => {
+    if (allInvoices.length === 0) return;
+    const valid = new Set(allInvoices.map(i => i.id));
+    setSelected(prev => {
+      let dirty = false;
+      const next = new Set<string>();
+      Array.from(prev).forEach(id => {
+        if (valid.has(id)) next.add(id);
+        else dirty = true;
+      });
+      return dirty ? next : prev;
+    });
+  }, [allInvoices]);
 
   const { data: reviewInvoices = [], isLoading: reviewLoading } = useQuery<SupplierInvoice[]>({
     queryKey: ["/api/invoices/review"],
