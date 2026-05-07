@@ -3671,8 +3671,13 @@ export async function registerRoutes(
         dropped: 0,
         needsManual: 0,
         errors: 0,
+        // Diagnostic counters for auto-linked supplier resolution. Helps the
+        // owner see how many of the previously-stuck rows were rescued by
+        // the AI-extracted email/name fallbacks vs. needed manual link.
+        linkedByName: 0,
+        linkedByEmail: 0,
         // Breakdown of why rows landed in "needsManual" — useful for diagnosis
-        reasons: { noPdf: 0, pdfTextEmpty: 0, aiReturnedNothing: 0, parsedButEmpty: 0 } as Record<string, number>,
+        reasons: { noPdf: 0, pdfTextEmpty: 0, aiReturnedNothing: 0, parsedButEmpty: 0, noSupplierMatch: 0 } as Record<string, number>,
       };
       const todayStr = new Date().toISOString().split("T")[0];
 
@@ -3745,11 +3750,44 @@ export async function registerRoutes(
             continue;
           }
 
+          // Resolve supplier for rows that came in with supplier_id = null
+          // (the cross-check-failure case). Try name first, then the AI-
+          // extracted seller email — the latter rescues rows where the AI
+          // grabbed the buyer's name but kept the seller's email.
+          let resolvedSupplierId: string | null = inv.supplierId ?? null;
+          if (!resolvedSupplierId && parsedSupplier) {
+            if (parsedSupplier.supplierName) {
+              const nameMatch = await storage.findSupplierByName(parsedSupplier.supplierName);
+              if (nameMatch) {
+                resolvedSupplierId = nameMatch.id;
+                summary.linkedByName++;
+                console.log(`[bulk-reclassify] ${inv.id}: linked by name "${parsedSupplier.supplierName}" → ${nameMatch.name}`);
+              }
+            }
+            if (!resolvedSupplierId && parsedSupplier.supplierEmail) {
+              const emailMatch = await storage.findSupplierByEmail(parsedSupplier.supplierEmail);
+              if (emailMatch) {
+                resolvedSupplierId = emailMatch.id;
+                summary.linkedByEmail++;
+                console.log(`[bulk-reclassify] ${inv.id}: linked by email "${parsedSupplier.supplierEmail}" → ${emailMatch.name} (PDF supplierName="${parsedSupplier.supplierName ?? "n/a"}" had no DB match)`);
+              }
+            }
+          }
+
+          // No supplier resolved → keep as REVIEW so the owner can attach
+          // one manually instead of writing an orphaned PENDING.
+          if (!resolvedSupplierId) {
+            if (inv.status !== "REVIEW") await storage.updateSupplierInvoice(inv.id, { status: "REVIEW" });
+            summary.needsManual++;
+            summary.reasons.noSupplierMatch++;
+            continue;
+          }
+
           // Resolve storeId from parsed PDF (or fallbacks) before patching
           const firstStoreId = await resolveStoreIdForInvoice({
             parsedStoreCode: first.storeCode,
             parentStoreId: inv.storeId,
-            supplierId: inv.supplierId,
+            supplierId: resolvedSupplierId,
           });
           const patch: any = {
             status: "PENDING",
@@ -3760,9 +3798,10 @@ export async function registerRoutes(
             rawExtractedData: { ...raw, supplier: parsedSupplier, invoices: parsedInvoices, _aiParsed: true, _reclassified: docType },
           };
           if (firstStoreId) patch.storeId = firstStoreId;
+          if (resolvedSupplierId !== inv.supplierId) patch.supplierId = resolvedSupplierId;
           await storage.updateSupplierInvoice(inv.id, patch);
           summary.promoted++;
-          console.log(`[bulk-reclassify] ${inv.id} → PENDING (amount=${first.totalAmount}, #=${first.invoiceNumber}, store=${firstStoreId ?? "unassigned"})`);
+          console.log(`[bulk-reclassify] ${inv.id} → PENDING (amount=${first.totalAmount}, #=${first.invoiceNumber}, store=${firstStoreId ?? "unassigned"}, supplier=${resolvedSupplierId})`);
 
           if (docType === "STATEMENT" && parsedInvoices.length > 1 && inv.supplierId) {
             const existing = await storage.getSupplierInvoices({ supplierId: inv.supplierId });
