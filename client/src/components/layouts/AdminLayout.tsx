@@ -285,9 +285,13 @@ function formatBuildNumber(iso: string | undefined | null): string {
 function UserFooter() {
   const { user, logout } = useAuth();
   const [, navigate] = useLocation();
+  // Refetch on every mount + every minute so a fresh deploy (= new server
+  // boot time = new build number) shows up without forcing a hard refresh.
   const { data: buildInfo } = useQuery<{ bootAt: string }>({
     queryKey: ["/api/build-info"],
-    staleTime: 60_000,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchInterval: 60_000,
   });
   if (!user) return null;
   const name = user.firstName ?? user.email ?? "Account";

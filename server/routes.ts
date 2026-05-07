@@ -3688,6 +3688,11 @@ export async function registerRoutes(
         promoted: 0,
         statementExpanded: 0,
         dropped: 0,
+        // Soft-deleted because the same (supplier_id, invoice_number) was
+        // already in the table — these REVIEW rows are duplicate placeholders
+        // for invoices that came in via multiple forwarder hops. Cleaning
+        // them up clears the inbox without losing data (real row stays).
+        duplicates: 0,
         needsManual: 0,
         errors: 0,
         // Diagnostic counters for auto-linked supplier resolution. Helps the
@@ -3703,6 +3708,36 @@ export async function registerRoutes(
       // Cache suppliers once so we don't re-query per row
       const allSuppliers = await storage.getSuppliers();
       const supplierMap = new Map(allSuppliers.map(s => [s.id, s]));
+
+      // Wraps storage.updateSupplierInvoice with the unique-constraint catch
+      // that the bulk path needs. When two REVIEW rows exist for the same
+      // (supplier_id, invoice_number) — typical when a single invoice was
+      // forwarded multiple times — Postgres throws 23505 on the second
+      // update. We soft-delete the conflicting REVIEW row (the canonical
+      // PENDING/PAID/REVIEW with the same key already lives in the table)
+      // and bump summary.duplicates so the toast shows a clear count.
+      const tryUpdate = async (
+        invId: string,
+        invStatus: string,
+        patch: any,
+      ): Promise<"ok" | "duplicate" | "error"> => {
+        try {
+          await storage.updateSupplierInvoice(invId, patch);
+          return "ok";
+        } catch (e: any) {
+          if (e?.code === "23505") {
+            await storage.updateSupplierInvoice(invId, {
+              status: "DELETED",
+              previousStatus: invStatus,
+              notes: `Duplicate of an existing invoice — auto-removed during backfill. (${e?.detail ?? "23505"})`,
+            });
+            console.warn(`[bulk-reclassify] ${invId}: 23505 duplicate — soft-deleted (${e?.detail ?? ""})`);
+            summary.duplicates++;
+            return "duplicate";
+          }
+          throw e;
+        }
+      };
 
       // Hint-based supplier resolver — used both as the early no-PDF rescue
       // and as the per-row resolver after parse. Pulls email/name candidates
@@ -3756,13 +3791,13 @@ export async function registerRoutes(
             // mislabel that the original capture wrote.
             const linked = await linkSupplierFromHints(inv, raw, null);
             const patch: any = { status: "REVIEW" };
-            if (linked && linked !== inv.supplierId) {
-              patch.supplierId = linked;
-              summary.linkedByEmail++;
+            if (linked && linked !== inv.supplierId) patch.supplierId = linked;
+            const tu = await tryUpdate(inv.id, inv.status, patch);
+            if (tu === "ok") {
+              if (linked && linked !== inv.supplierId) summary.linkedByEmail++;
+              summary.needsManual++;
+              summary.reasons.noPdf++;
             }
-            await storage.updateSupplierInvoice(inv.id, patch);
-            summary.needsManual++;
-            summary.reasons.noPdf++;
             continue;
           }
           const buf = Buffer.from(pdfBase64, "base64");
@@ -3770,13 +3805,13 @@ export async function registerRoutes(
           if (!pdfText.trim()) {
             const linked = await linkSupplierFromHints(inv, raw, null);
             const patch: any = { status: "REVIEW" };
-            if (linked && linked !== inv.supplierId) {
-              patch.supplierId = linked;
-              summary.linkedByEmail++;
+            if (linked && linked !== inv.supplierId) patch.supplierId = linked;
+            const tu = await tryUpdate(inv.id, inv.status, patch);
+            if (tu === "ok") {
+              if (linked && linked !== inv.supplierId) summary.linkedByEmail++;
+              summary.needsManual++;
+              summary.reasons.pdfTextEmpty++;
             }
-            await storage.updateSupplierInvoice(inv.id, patch);
-            summary.needsManual++;
-            summary.reasons.pdfTextEmpty++;
             continue;
           }
 
@@ -3813,14 +3848,14 @@ export async function registerRoutes(
           if (parsedInvoices.length === 0) {
             const linked = await linkSupplierFromHints(inv, raw, parsedSupplier);
             const patch: any = { status: "REVIEW" };
-            if (linked && linked !== inv.supplierId) {
-              patch.supplierId = linked;
-              summary.linkedByEmail++;
-            }
-            await storage.updateSupplierInvoice(inv.id, patch);
+            if (linked && linked !== inv.supplierId) patch.supplierId = linked;
+            const tu = await tryUpdate(inv.id, inv.status, patch);
             console.warn(`[bulk-reclassify] ${inv.id} (${supplier?.name ?? "unknown"}): AI returned no invoices from ${pdfText.length} chars of text${linked ? ` — linked supplier ${linked}` : ""}`);
-            summary.needsManual++;
-            summary.reasons.aiReturnedNothing++;
+            if (tu === "ok") {
+              if (linked && linked !== inv.supplierId) summary.linkedByEmail++;
+              summary.needsManual++;
+              summary.reasons.aiReturnedNothing++;
+            }
             continue;
           }
 
@@ -3828,13 +3863,13 @@ export async function registerRoutes(
           if (!first || (!first.totalAmount && !first.invoiceNumber)) {
             const linked = await linkSupplierFromHints(inv, raw, parsedSupplier);
             const patch: any = { status: "REVIEW" };
-            if (linked && linked !== inv.supplierId) {
-              patch.supplierId = linked;
-              summary.linkedByEmail++;
+            if (linked && linked !== inv.supplierId) patch.supplierId = linked;
+            const tu = await tryUpdate(inv.id, inv.status, patch);
+            if (tu === "ok") {
+              if (linked && linked !== inv.supplierId) summary.linkedByEmail++;
+              summary.needsManual++;
+              summary.reasons.parsedButEmpty++;
             }
-            await storage.updateSupplierInvoice(inv.id, patch);
-            summary.needsManual++;
-            summary.reasons.parsedButEmpty++;
             continue;
           }
 
@@ -3873,9 +3908,11 @@ export async function registerRoutes(
           };
           if (firstStoreId) patch.storeId = firstStoreId;
           if (resolvedSupplierId !== inv.supplierId) patch.supplierId = resolvedSupplierId;
-          await storage.updateSupplierInvoice(inv.id, patch);
-          summary.promoted++;
-          console.log(`[bulk-reclassify] ${inv.id} → PENDING (amount=${first.totalAmount}, #=${first.invoiceNumber}, store=${firstStoreId ?? "unassigned"}, supplier=${resolvedSupplierId})`);
+          const tu = await tryUpdate(inv.id, inv.status, patch);
+          if (tu === "ok") {
+            summary.promoted++;
+            console.log(`[bulk-reclassify] ${inv.id} → PENDING (amount=${first.totalAmount}, #=${first.invoiceNumber}, store=${firstStoreId ?? "unassigned"}, supplier=${resolvedSupplierId})`);
+          }
 
           if (docType === "STATEMENT" && parsedInvoices.length > 1 && inv.supplierId) {
             const existing = await storage.getSupplierInvoices({ supplierId: inv.supplierId });
