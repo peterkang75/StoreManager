@@ -1611,7 +1611,7 @@ export function AdminAccountsPayable() {
               return (
                 <button
                   key={opt.id}
-                  onClick={() => { setStoreFilter(opt.id); clearSelection(); }}
+                  onClick={() => setStoreFilter(opt.id)}
                   className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
                     isActive
                       ? "text-white border-transparent"
