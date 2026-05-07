@@ -343,20 +343,32 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
 
   return (
     <SidebarProvider style={style as React.CSSProperties}>
-      <div className="flex h-screen w-full">
+      {/* `overflow-x-hidden` on the outer flex prevents the whole viewport from
+          scrolling sideways when a child page accidentally renders something
+          wider than the screen on mobile. */}
+      <div className="flex h-screen w-full overflow-x-hidden">
         <AdminSidebar />
-        <div className="flex flex-col flex-1 min-w-0">
-          <header className="h-14 flex items-center gap-4 px-4 border-b bg-background sticky top-0 z-40">
+        <div className="flex flex-col flex-1 min-w-0 max-w-full">
+          <header className="h-14 flex items-center gap-2 sm:gap-4 px-3 sm:px-4 border-b bg-background sticky top-0 z-40">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
             {title && (
-              <h1 className="text-lg font-semibold flex-1" data-testid="text-page-title">{title}</h1>
+              <h1
+                className="text-base sm:text-lg font-semibold flex-1 min-w-0 truncate"
+                data-testid="text-page-title"
+              >
+                {title}
+              </h1>
             )}
-            <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${roleColor} border-current/30 bg-current/5`}>
+            <span className={`shrink-0 text-[10px] sm:text-xs font-medium px-2 py-0.5 rounded-full border ${roleColor} border-current/30 bg-current/5`}>
               {ROLE_LABELS[currentRole]}
             </span>
           </header>
-          <main className="flex-1 overflow-auto bg-muted/30">
-            <div className="p-6 max-w-7xl mx-auto">
+          {/* Vertical scroll only — `overflow-x-hidden` enforces the "no
+              sideways scrolling" rule even if a page has a too-wide child.
+              The inner wrapper is `min-w-0 w-full` so flex/grid descendants
+              don't push past the viewport. */}
+          <main className="flex-1 overflow-y-auto overflow-x-hidden bg-muted/30">
+            <div className="p-3 sm:p-6 max-w-7xl mx-auto w-full min-w-0">
               {children}
             </div>
           </main>
