@@ -21,6 +21,10 @@ function pickToken(url: string): string | null {
   }
 }
 
+// Mirror of EmployeePortal's localStorage key — duplicated here because
+// queryClient runs before any portal component is imported. Keep in sync.
+const PORTAL_SESSION_KEY = "ep_session_v5";
+
 // On 401 we redirect to the appropriate login screen. Avoid loops on the
 // login page itself + on the /api/auth/me probe (AuthContext handles its own).
 function handle401(url: string) {
@@ -30,8 +34,20 @@ function handle401(url: string) {
     if (url.endsWith("/api/auth/me")) return;
     // Portal employees see the PIN screen; admins see /admin/login.
     if (path.startsWith("/m/")) {
-      // Portal token expired → clear so PIN screen is forced
+      // Portal token expired. Clearing only PORTAL_TOKEN_KEY is not enough:
+      // EmployeePortal initialises its React `session` state from
+      // PORTAL_SESSION_KEY ONCE on mount, so the AppShell would keep rendering
+      // with a stale session while every query 401s — the user sees a broken
+      // page and never gets sent back to PIN login. Drop the session record
+      // and force-navigate to /m/portal so the next render picks up the empty
+      // session and shows PinLogin. Only navigate when we actually had a
+      // session — bad PIN attempts also 401, and we must NOT reload then.
       localStorage.removeItem(PORTAL_TOKEN_KEY);
+      const hadSession = localStorage.getItem(PORTAL_SESSION_KEY) !== null;
+      localStorage.removeItem(PORTAL_SESSION_KEY);
+      if (hadSession) {
+        window.location.href = "/m/portal";
+      }
       return;
     }
     if (path.startsWith("/admin")) {
