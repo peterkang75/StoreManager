@@ -1015,12 +1015,17 @@ export function AdminAccountsPayable() {
     [storeFiltered]
   );
 
-  // Group paid invoices by payment date (updatedAt date) for the collapsible history view
+  // Group paid invoices by payment date for the collapsible history view.
+  // updatedAt is a UTC timestamp — convert to Sydney-local YYYY-MM-DD so a
+  // payment made at 9am AEST May 15 (UTC May 14 23:00) groups under May 15,
+  // not May 14. invoiceDate is a plain YYYY-MM-DD text column with no TZ, so
+  // it's used as-is.
   const historyGrouped = useMemo(() => {
     const groups = new Map<string, typeof historyInvoices>();
     for (const inv of historyInvoices) {
-      const raw = inv.updatedAt?.toString() ?? inv.invoiceDate ?? "";
-      const payDate = raw.slice(0, 10); // YYYY-MM-DD
+      const payDate = inv.updatedAt
+        ? new Date(inv.updatedAt as unknown as string).toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" })
+        : (inv.invoiceDate ?? "");
       if (!groups.has(payDate)) groups.set(payDate, []);
       groups.get(payDate)!.push(inv);
     }
