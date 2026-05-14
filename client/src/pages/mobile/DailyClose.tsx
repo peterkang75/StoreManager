@@ -14,6 +14,10 @@ import {
   Trash2,
   ChevronsUpDown,
   Check,
+  DollarSign,
+  Receipt,
+  Banknote,
+  Scale,
 } from "lucide-react";
 import {
   Sheet,
@@ -108,11 +112,43 @@ const num = (s: string): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
-function SectionCard({ title, children }: { title?: string; children: React.ReactNode }) {
+// Colored icon badge in front of the section title — adds visual hierarchy
+// without violating the "no extra brand colors" rule (we only use Rausch,
+// Luxe, Plus, and Legal Blue, all listed in DESIGN.md §2). `iconColor`
+// drives both the icon stroke and the 10%-tint badge background.
+function SectionCard({
+  title,
+  icon: Icon,
+  iconColor,
+  children,
+}: {
+  title?: string;
+  icon?: React.ElementType;
+  iconColor?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div style={{ background: "#ffffff", borderRadius: 20, padding: "16px 20px", boxShadow: A.shadow }}>
       {title && (
-        <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6a6a6a", marginBottom: 16 }}>{title}</p>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          {Icon && iconColor && (
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 10,
+                background: `${iconColor}1A`, // ~10% alpha tint
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <Icon style={{ width: 16, height: 16, color: iconColor }} strokeWidth={2.2} />
+            </div>
+          )}
+          <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6a6a6a", margin: 0 }}>{title}</p>
+        </div>
       )}
       {children}
     </div>
@@ -509,7 +545,7 @@ export function MobileDailyClose() {
         </SectionCard>
 
         {/* Sales & Float */}
-        <SectionCard title="Sales & Float">
+        <SectionCard title="Sales & Float" icon={DollarSign} iconColor="#ef4444">
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div>
               <FieldLabel onInfoClick={() => setInfoField("previousFloat")}>Previous Float</FieldLabel>
@@ -543,7 +579,7 @@ export function MobileDailyClose() {
         </SectionCard>
 
         {/* Cash Expenses — §7 Wave 1 */}
-        <SectionCard title="Cash Expenses">
+        <SectionCard title="Cash Expenses" icon={Receipt} iconColor="#460479">
           <p style={{ fontSize: 12, color: "#6a6a6a", marginTop: -8, marginBottom: 14, lineHeight: 1.5 }}>
             Items you bought today using cash from the till. The owner reviews these for GST.
           </p>
@@ -746,7 +782,7 @@ export function MobileDailyClose() {
         </SectionCard>
 
         {/* Note Count */}
-        <SectionCard title="Note Count — Credit Amount">
+        <SectionCard title="Note Count — Credit Amount" icon={Banknote} iconColor="#92174d">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
             {NOTE_DENOMS.map(d => (
               <div key={d.key} style={{ textAlign: "center" }}>
@@ -768,14 +804,50 @@ export function MobileDailyClose() {
               </div>
             ))}
           </div>
-          <div style={{ marginTop: 16, padding: "12px 16px", background: "#f2f2f2", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: 14, color: "#6a6a6a" }}>Counted Total</span>
-            <span style={{ fontSize: 22, fontWeight: 700, color: "#222222", letterSpacing: "-0.44px" }} data-testid="text-counted-total">${totalCounted.toFixed(2)}</span>
+          {/* Counted Total — switches from muted/wallet (empty) to bold Rausch
+              + check-icon (populated). The colour change confirms that the
+              user's note count has registered, instead of the same grey row
+              regardless of state. */}
+          <div
+            style={{
+              marginTop: 16,
+              padding: "12px 16px",
+              background: totalCounted > 0 ? "rgba(239,68,68,0.08)" : "#f2f2f2",
+              border: totalCounted > 0 ? "1px solid rgba(239,68,68,0.25)" : "1px solid transparent",
+              borderRadius: 10,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              transition: "background 200ms, border-color 200ms",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {totalCounted > 0 ? (
+                <CheckCircle2 style={{ width: 16, height: 16, color: "#ef4444" }} strokeWidth={2.4} />
+              ) : (
+                <Wallet style={{ width: 16, height: 16, color: "#9a9a9a" }} strokeWidth={2} />
+              )}
+              <span style={{ fontSize: 14, color: totalCounted > 0 ? "#c13515" : "#6a6a6a", fontWeight: totalCounted > 0 ? 600 : 400 }}>
+                Counted Total
+              </span>
+            </div>
+            <span
+              style={{
+                fontSize: 22,
+                fontWeight: 700,
+                color: totalCounted > 0 ? "#ef4444" : "#9a9a9a",
+                letterSpacing: "-0.44px",
+                transition: "color 200ms",
+              }}
+              data-testid="text-counted-total"
+            >
+              ${totalCounted.toFixed(2)}
+            </span>
           </div>
         </SectionCard>
 
         {/* Reconciliation */}
-        <SectionCard title="Reconciliation">
+        <SectionCard title="Reconciliation" icon={Scale} iconColor="#428bff">
           <div style={{ background: "#f2f2f2", borderRadius: 8, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
@@ -878,11 +950,16 @@ export function MobileDailyClose() {
           disabled={!canSubmit}
           style={{
             width: "100%", height: 56, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            background: canSubmit ? "#222222" : "#f2f2f2",
-            color: canSubmit ? "#ffffff" : "#6a6a6a",
-            border: "none", borderRadius: 8, fontSize: 16, fontWeight: 500,
+            // Rausch Red on a primary CTA is the canonical brand usage
+            // (DESIGN.md §2: "Rausch Red — primary CTA, brand accent").
+            // Disabled state keeps the warm light-surface treatment.
+            background: canSubmit ? "#ef4444" : "#f2f2f2",
+            color: canSubmit ? "#ffffff" : "#9a9a9a",
+            border: "none", borderRadius: 8, fontSize: 16, fontWeight: 600,
             cursor: canSubmit ? "pointer" : "default",
-            fontFamily: A.font, transition: "background 160ms, color 160ms",
+            fontFamily: A.font,
+            transition: "background 160ms, color 160ms, box-shadow 160ms",
+            boxShadow: canSubmit ? "rgba(239,68,68,0.25) 0px 6px 14px" : "none",
           }}
           data-testid="button-submit"
         >
