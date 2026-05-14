@@ -128,7 +128,10 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <div style={{ background: "#ffffff", borderRadius: 20, padding: "16px 20px", boxShadow: A.shadow }}>
+    // Border-based card to match the admin Rosters / Schedule style the
+    // owner approved — keeps visual consistency with the rest of the app
+    // and avoids the "floating cards" look the shadow version had.
+    <div style={{ background: "#ffffff", borderRadius: 20, padding: "16px 20px", border: "1px solid #c1c1c1" }}>
       {title && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
           {Icon && iconColor && (
