@@ -938,14 +938,16 @@ export function MobileDailyClose() {
         </SheetContent>
       </Sheet>
 
-      {/* Fixed submit bar */}
+      {/* Fixed submit bar
+          iOS Safari has a known bug where `position: fixed` with `backdrop-filter`
+          becomes a containing block for itself and starts following scroll instead
+          of the viewport. Solid background + explicit zIndex avoids the trap. */}
       <div style={{
         position: "fixed", bottom: 0, left: 0, right: 0, padding: 16,
-        background: "rgba(255,255,255,0.9)",
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
+        background: "#ffffff",
         borderTop: "1px solid #c1c1c1",
         paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
+        zIndex: 50,
       }}>
         <button
           type="button"
