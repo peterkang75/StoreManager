@@ -289,6 +289,31 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     return Math.round((grandTotal - totalEnvelope) * 100) / 100;
   }, [totalEnvelope, grandTotal]);
 
+  // Confirmed = already persisted in cash_sales_details (meaningful, non-zero).
+  // Pending  = present in daily_close_forms only (employee submitted, owner has
+  //            not yet confirmed/saved into the master ledger).
+  const confirmedDateSet = useMemo(() => {
+    const out = new Set<string>();
+    if (!existingData) return out;
+    for (const rec of existingData) {
+      const env = typeof rec.envelopeAmount === "string" ? parseFloat(rec.envelopeAmount) || 0 : (rec.envelopeAmount ?? 0);
+      const cnt = typeof rec.countedAmount === "string" ? parseFloat(rec.countedAmount) || 0 : (rec.countedAmount ?? 0);
+      const anyDenom = ALL_DENOMINATIONS.some((d) => ((rec as any)[d.key] ?? 0) !== 0);
+      if (env !== 0 || cnt !== 0 || anyDenom) out.add(rec.date);
+    }
+    return out;
+  }, [existingData]);
+
+  const validRowCount = useMemo(() => rows.filter((r) => !!r.date).length, [rows]);
+  const pendingCount = useMemo(
+    () => rows.filter((r) => !!r.date && autoFilledDates.has(r.date)).length,
+    [rows, autoFilledDates]
+  );
+  const confirmedCount = useMemo(
+    () => rows.filter((r) => !!r.date && confirmedDateSet.has(r.date) && !autoFilledDates.has(r.date)).length,
+    [rows, confirmedDateSet, autoFilledDates]
+  );
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/cash-sales/bulk", {
@@ -558,13 +583,34 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
 
         <Button
           onClick={() => saveMutation.mutate()}
-          disabled={!storeId || saveMutation.isPending || !isDirty}
+          disabled={!storeId || saveMutation.isPending || validRowCount === 0}
           className="gap-1"
           data-testid="button-save-cashsales"
         >
           <Save className="h-3.5 w-3.5" />
           {saveMutation.isPending ? "Saving..." : "Save"}
         </Button>
+
+        {storeId && validRowCount > 0 && (
+          <div className="text-xs flex items-center gap-2" data-testid="text-save-status">
+            {isDirty ? (
+              <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                Unsaved changes
+              </span>
+            ) : pendingCount > 0 ? (
+              <span className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 font-medium">
+                <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+                {pendingCount} pending review · {confirmedCount} confirmed
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 font-medium">
+                <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                All {confirmedCount} entries confirmed
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {!storeId ? (
@@ -649,11 +695,20 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                       />
                     </td>
                     <td
-                      className="px-1 py-0.5 border-b border-r text-xs text-muted-foreground truncate"
-                      title={row.date ? submitterByDate.get(row.date) ?? "" : ""}
+                      className="px-1 py-0.5 border-b border-r text-xs text-muted-foreground"
+                      title={row.date ? `${submitterByDate.get(row.date) ?? ""}${isAutoFilled ? " (pending review)" : row.date && confirmedDateSet.has(row.date) ? " (confirmed)" : ""}` : ""}
                       data-testid={`text-staff-${idx}`}
                     >
-                      {row.date ? (submitterByDate.get(row.date) ?? "—") : "—"}
+                      {row.date ? (
+                        <div className="flex items-center gap-1 min-w-0">
+                          {isAutoFilled ? (
+                            <span className="h-1.5 w-1.5 rounded-full bg-blue-500 shrink-0" />
+                          ) : confirmedDateSet.has(row.date) ? (
+                            <span className="h-1.5 w-1.5 rounded-full bg-green-500 shrink-0" />
+                          ) : null}
+                          <span className="truncate">{submitterByDate.get(row.date) ?? "—"}</span>
+                        </div>
+                      ) : "—"}
                     </td>
                     {/* Envelope = actual cash physically in the envelope, derived
                         from the denomination tally (calcCounted). Read-only and
