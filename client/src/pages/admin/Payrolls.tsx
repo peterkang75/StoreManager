@@ -912,23 +912,28 @@ export function AdminPayrolls() {
     draftContextKey.current = ""; // triggers re-init on next render
   };
 
+  // Intercompany rows transfer to the primary store and have no direct
+  // payment from this store. Guard direct-pay fields so a stale saved
+  // cashAmount/grossAmount from a prior classification (e.g. Dual Role
+  // → Intercompany after rate is cleared) cannot pollute the totals.
   const grandTotals = rows.reduce(
-    (acc, r) => ({
-      hours: acc.hours + r.hours,
-      calculated: acc.calculated + r.calculatedAmount,
-      adjustment: acc.adjustment + r.adjustment,
-      total: acc.total + r.totalWithAdjustment,
-      gross: acc.gross + r.grossAmount,
-      cash: acc.cash + r.cashAmount,
-      tax: acc.tax + r.taxAmount,
-      super: acc.super + r.superAmount,
-      bank: acc.bank + r.bankDepositAmount,
-      directWages:
-        acc.directWages + (!r.isIntercompany ? r.totalWithAdjustment : 0),
-      intercompanyTransfers:
-        acc.intercompanyTransfers +
-        (r.isIntercompany ? r.intercompanyAmount : 0),
-    }),
+    (acc, r) => {
+      const isIC = r.isIntercompany;
+      return {
+        hours: acc.hours + r.hours,
+        calculated: acc.calculated + (isIC ? 0 : r.calculatedAmount),
+        adjustment: acc.adjustment + (isIC ? 0 : r.adjustment),
+        total: acc.total + (isIC ? 0 : r.totalWithAdjustment),
+        gross: acc.gross + (isIC ? 0 : r.grossAmount),
+        cash: acc.cash + (isIC ? 0 : r.cashAmount),
+        tax: acc.tax + (isIC ? 0 : r.taxAmount),
+        super: acc.super + (isIC ? 0 : r.superAmount),
+        bank: acc.bank + (isIC ? 0 : r.bankDepositAmount),
+        directWages: acc.directWages + (isIC ? 0 : r.totalWithAdjustment),
+        intercompanyTransfers:
+          acc.intercompanyTransfers + (isIC ? r.intercompanyAmount : 0),
+      };
+    },
     {
       hours: 0,
       calculated: 0,
