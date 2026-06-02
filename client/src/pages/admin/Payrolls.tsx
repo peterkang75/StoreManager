@@ -968,8 +968,10 @@ export function AdminPayrolls() {
                   );
                   if (hasSaved) continue;
                   const storeId = ctxKey.split("|")[0];
+                  // Intercompany rows don't pay cash from this store — skip
+                  // their (potentially stale) cashAmount, same guard as grandTotals.
                   const totalCash = Object.values(drafts).reduce(
-                    (sum, r) => sum + (r.cashAmount || 0),
+                    (sum, r) => sum + (r.isIntercompany ? 0 : (r.cashAmount || 0)),
                     0,
                   );
                   if (totalCash > 0) result[storeId] = totalCash;
