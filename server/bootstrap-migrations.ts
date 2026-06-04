@@ -144,6 +144,10 @@ const STATEMENTS: string[] = [
    )`,
   `INSERT INTO employee_field_requirements (id, required_fields) VALUES (1, '[]'::jsonb)
    ON CONFLICT (id) DO NOTHING`,
+
+  // §6.3.14 Bank account name — Australian payroll requires Account Name in
+  // addition to BSB + Account Number.
+  `ALTER TABLE employees ADD COLUMN IF NOT EXISTS account_name text`,
 ];
 
 // Phase B: seed the OWNER's password from environment variables on first deploy.

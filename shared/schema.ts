@@ -102,6 +102,7 @@ export const employees = pgTable("employees", {
   storeId: varchar("store_id").references(() => stores.id),
   fixedAmount: text("fixed_amount"),
   tfn: text("tfn"),
+  accountName: text("account_name"),
   bsb: text("bsb"),
   accountNo: text("account_no"),
   superCompany: text("super_company"),

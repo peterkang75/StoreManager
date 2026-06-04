@@ -1420,6 +1420,16 @@ export function AdminEmployeeDetail() {
                   />
                 </div>
                 <div className="space-y-2">
+                  <FieldLabel name="accountName" htmlFor="accountName">Account Name</FieldLabel>
+                  <Input
+                    id="accountName"
+                    value={currentData.accountName ?? ""}
+                    onChange={(e) => handleFieldChange("accountName", e.target.value)}
+                    placeholder="Bank Account Name"
+                    data-testid="input-account-name"
+                  />
+                </div>
+                <div className="space-y-2">
                   <FieldLabel name="bsb" htmlFor="bsb">BSB</FieldLabel>
                   <Input
                     id="bsb"

@@ -271,7 +271,7 @@ export function MobileOnboarding() {
       "streetAddress", "streetAddress2", "suburb", "state", "postCode",
       "visaType", "visaExpiry", "lineId", "typeOfContact",
       "rate", "fixedAmount", "contractPosition", "fhc", "salaryType", "annualLeave", "storeId",
-      "tfn", "bsb", "accountNo", "superCompany", "superMembershipNo",
+      "tfn", "accountName", "bsb", "accountNo", "superCompany", "superMembershipNo",
       ...Object.keys(fileMap),
     ]);
     const missing: string[] = [];
@@ -735,6 +735,18 @@ export function MobileOnboarding() {
                 onChange={(e) => handleChange("tfn", e.target.value)}
                 className="h-12 text-base"
                 data-testid="input-tfn"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="accountName">Account Name <Req name="accountName" /></Label>
+              <Input
+                id="accountName"
+                value={currentData.accountName ?? ""}
+                onChange={(e) => handleChange("accountName", e.target.value)}
+                placeholder="Name on the bank account"
+                className="h-12 text-base"
+                data-testid="input-account-name"
               />
             </div>
 

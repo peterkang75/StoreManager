@@ -2539,6 +2539,7 @@ interface ProfileFormData {
   passportUrl: string;
   fhc: string;
   tfn: string;
+  accountName: string;
   bsb: string;
   accountNo: string;
   superCompany: string;
@@ -2719,7 +2720,7 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
   const DRAFT_KEY = `ep_profile_draft_${session.id}`;
   const [form, setForm] = useState<ProfileFormData>({
     email: "", streetAddress: "", streetAddress2: "", suburb: "", state: "", postCode: "",
-    selfieUrl: "", passportUrl: "", fhc: "", tfn: "", bsb: "", accountNo: "",
+    selfieUrl: "", passportUrl: "", fhc: "", tfn: "", accountName: "", bsb: "", accountNo: "",
     superCompany: "", superMembershipNo: "",
   });
   const [bsbError, setBsbError] = useState("");
@@ -2741,6 +2742,7 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
       passportUrl: employee.passportUrl ?? "",
       fhc: employee.fhc ?? "",
       tfn: employee.tfn ?? "",
+      accountName: employee.accountName ?? "",
       bsb: employee.bsb ?? "",
       accountNo: employee.accountNo ?? "",
       superCompany: employee.superCompany ?? "",
@@ -2859,7 +2861,7 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
     const portalFieldNames = new Set([
       "email", "streetAddress", "streetAddress2", "suburb", "state", "postCode",
       "selfieUrl", "passportUrl", "fhc",
-      "tfn", "bsb", "accountNo",
+      "tfn", "accountName", "bsb", "accountNo",
       "superCompany", "superMembershipNo",
     ]);
     const missing: string[] = [];
@@ -3234,6 +3236,12 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
                   TFN (Tax File Number) <Req name="tfn" />
                 </Label>
                 <Input placeholder="e.g. 123 456 789" {...field("tfn")} data-testid="input-tfn" className="h-11 text-base font-mono" inputMode="numeric" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">
+                  Account Name <Req name="accountName" />
+                </Label>
+                <Input placeholder="Name on the bank account" {...field("accountName")} data-testid="input-account-name" className="h-11 text-base" />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">
