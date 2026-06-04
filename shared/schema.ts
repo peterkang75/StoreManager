@@ -722,6 +722,16 @@ export const insertPayrollBackPayItemSchema = createInsertSchema(payrollBackPayI
 export type InsertPayrollBackPayItem = z.infer<typeof insertPayrollBackPayItemSchema>;
 export type PayrollBackPayItem = typeof payrollBackPayItems.$inferSelect;
 
+// §6.3.13 Singleton settings row: which employee form fields are mandatory.
+// ID is fixed to 1 — application code only ever reads/writes this single row.
+export const employeeFieldRequirements = pgTable("employee_field_requirements", {
+  id: integer("id").primaryKey().default(1),
+  requiredFields: jsonb("required_fields").$type<string[]>().notNull().default([]),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type EmployeeFieldRequirements = typeof employeeFieldRequirements.$inferSelect;
+
 export const notices = pgTable("notices", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   title: text("title").notNull(),

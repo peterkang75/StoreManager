@@ -135,6 +135,15 @@ const STATEMENTS: string[] = [
      created_at timestamp NOT NULL DEFAULT now()
    )`,
   `CREATE INDEX IF NOT EXISTS idx_back_pay_items_payroll ON payroll_back_pay_items (applied_to_payroll_id)`,
+
+  // §6.3.13 Singleton settings: required-field list for the employee detail form.
+  `CREATE TABLE IF NOT EXISTS employee_field_requirements (
+     id integer PRIMARY KEY,
+     required_fields jsonb NOT NULL DEFAULT '[]'::jsonb,
+     updated_at timestamp NOT NULL DEFAULT now()
+   )`,
+  `INSERT INTO employee_field_requirements (id, required_fields) VALUES (1, '[]'::jsonb)
+   ON CONFLICT (id) DO NOTHING`,
 ];
 
 // Phase B: seed the OWNER's password from environment variables on first deploy.

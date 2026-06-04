@@ -52,6 +52,7 @@ import {
   type PortalSession, portalSessions,
   type DailySales, type InsertDailySales, dailySales,
   type PayrollBackPayItem, type InsertPayrollBackPayItem, payrollBackPayItems,
+  employeeFieldRequirements,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
@@ -146,6 +147,10 @@ export interface IStorage {
   detectBackPayCandidates(args: { storeId: string; forPeriodStart: string; forPeriodEnd: string }): Promise<BackPayCandidate[]>;
   applyBackPay(args: { payrollId: string; shiftTimesheetIds: string[] }): Promise<{ appliedCount: number; addedAmount: number; addedHours: number }>;
   getBackPayItemsByPayroll(payrollId: string): Promise<PayrollBackPayItem[]>;
+
+  // §6.3.13 Employee form required-field settings (singleton row).
+  getEmployeeFieldRequirements(): Promise<string[]>;
+  setEmployeeFieldRequirements(requiredFields: string[]): Promise<string[]>;
 
   getDailyClosings(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<DailyClosing[]>;
   // Unified per-day-per-store sales ledger. Includes POSnet imports
@@ -934,6 +939,13 @@ export class MemStorage implements IStorage {
     return { appliedCount: 0, addedAmount: 0, addedHours: 0 };
   }
   async getBackPayItemsByPayroll(): Promise<PayrollBackPayItem[]> { return []; }
+
+  private _employeeFieldRequirements: string[] = [];
+  async getEmployeeFieldRequirements(): Promise<string[]> { return this._employeeFieldRequirements; }
+  async setEmployeeFieldRequirements(requiredFields: string[]): Promise<string[]> {
+    this._employeeFieldRequirements = requiredFields;
+    return requiredFields;
+  }
 
   async getDailyClosings(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<DailyClosing[]> {
     let closings = Array.from(this.dailyClosings.values());
@@ -2604,6 +2616,23 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(payrollBackPayItems)
       .where(eq(payrollBackPayItems.appliedToPayrollId, payrollId))
       .orderBy(asc(payrollBackPayItems.originalPeriodStart));
+  }
+
+  // §6.3.13 Employee field requirements (singleton id=1).
+  async getEmployeeFieldRequirements(): Promise<string[]> {
+    const [row] = await db.select().from(employeeFieldRequirements).where(eq(employeeFieldRequirements.id, 1));
+    return row?.requiredFields ?? [];
+  }
+
+  async setEmployeeFieldRequirements(requiredFields: string[]): Promise<string[]> {
+    // Bootstrap migration seeds the row, but be defensive in case it didn't run.
+    await db.insert(employeeFieldRequirements)
+      .values({ id: 1, requiredFields, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: employeeFieldRequirements.id,
+        set: { requiredFields, updatedAt: new Date() },
+      });
+    return requiredFields;
   }
 
   async getDailyClosings(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<DailyClosing[]> {

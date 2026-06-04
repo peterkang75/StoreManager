@@ -22,7 +22,77 @@ import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAdminRole } from "@/contexts/AdminRoleContext";
 import type { Employee, Store, InsertEmployee, EmployeeStoreAssignment, Candidate } from "@shared/schema";
+
+// §6.3.13 Required-field hook + label helper.
+// One global setting controls which form fields are mandatory across all employees.
+function camelToKebab(s: string): string {
+  return s.replace(/([A-Z])/g, "-$1").toLowerCase();
+}
+
+function useEmployeeFieldRequirements() {
+  const { data, isLoading } = useQuery<{ requiredFields: string[] }>({
+    queryKey: ["/api/admin/employee-field-requirements"],
+  });
+  const required = data?.requiredFields ?? [];
+  const mutation = useMutation({
+    mutationFn: async (next: string[]) => {
+      const res = await fetch("/api/admin/employee-field-requirements", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requiredFields: next }),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/employee-field-requirements"] });
+    },
+  });
+  const toggle = (name: string, on: boolean) => {
+    const set = new Set(required);
+    if (on) set.add(name); else set.delete(name);
+    mutation.mutate(Array.from(set));
+  };
+  return { required, isLoading, toggle };
+}
+
+// Wrap a Label so ADMIN sees a checkbox to mark the adjacent field as required.
+// Non-ADMIN viewers see only a red asterisk when the field is required.
+function FieldLabel({
+  name,
+  children,
+  className,
+  htmlFor,
+}: {
+  name: string;
+  children: React.ReactNode;
+  className?: string;
+  htmlFor?: string;
+}) {
+  const { currentRole } = useAdminRole();
+  const { required, toggle } = useEmployeeFieldRequirements();
+  const isAdmin = currentRole === "ADMIN";
+  const isRequired = required.includes(name);
+  return (
+    <div className="flex items-center gap-2">
+      {isAdmin && (
+        <Checkbox
+          checked={isRequired}
+          onCheckedChange={(v) => toggle(name, v === true)}
+          className="h-3.5 w-3.5"
+          title={isRequired ? "필수 해제" : "필수로 지정"}
+          data-testid={`checkbox-required-${name}`}
+        />
+      )}
+      <Label className={className} htmlFor={htmlFor}>
+        {children}
+        {isRequired && <span className="text-red-600 ml-0.5" aria-label="required">*</span>}
+      </Label>
+    </div>
+  );
+}
 
 const SECTION_NAV_ITEMS: { id: string; label: string }[] = [
   { id: "section-personal", label: "Personal" },
@@ -518,6 +588,29 @@ export function AdminEmployeeDetail() {
   }, []);
 
   const handleSave = async () => {
+    // §6.3.13 Block save when any admin-flagged required field is empty.
+    // Reads the same setting the FieldLabel checkboxes write to.
+    const reqRes = await fetch("/api/admin/employee-field-requirements");
+    const reqJson: { requiredFields: string[] } = reqRes.ok ? await reqRes.json() : { requiredFields: [] };
+    const missing: string[] = [];
+    for (const name of reqJson.requiredFields) {
+      const v = (currentData as any)[name];
+      if (v === null || v === undefined || (typeof v === "string" && v.trim() === "")) {
+        missing.push(name);
+      }
+    }
+    if (missing.length > 0) {
+      toast({
+        title: "필수 항목이 비어있어",
+        description: `다음 항목을 채워줘: ${missing.join(", ")}`,
+        variant: "destructive",
+      });
+      const el = document.querySelector<HTMLElement>(`[data-testid="input-${camelToKebab(missing[0])}"]`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      el?.focus();
+      return;
+    }
+
     const promises: Promise<any>[] = [];
     if (Object.keys(formData).length > 0) {
       promises.push(updateMutation.mutateAsync(formData));
@@ -751,43 +844,43 @@ export function AdminEmployeeDetail() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label>First Name</Label>
+                  <FieldLabel name="firstName">First Name</FieldLabel>
                   <Input value={currentData.firstName ?? ""} onChange={(e) => handleFieldChange("firstName", e.target.value)} data-testid="input-first-name" />
                 </div>
                 <div className="space-y-2">
-                  <Label>Last Name</Label>
+                  <FieldLabel name="lastName">Last Name</FieldLabel>
                   <Input value={currentData.lastName ?? ""} onChange={(e) => handleFieldChange("lastName", e.target.value)} data-testid="input-last-name" />
                 </div>
                 <div className="space-y-2">
-                  <Label>Nickname</Label>
+                  <FieldLabel name="nickname">Nickname</FieldLabel>
                   <Input value={currentData.nickname ?? ""} onChange={(e) => handleFieldChange("nickname", e.target.value || null)} placeholder="Nickname" data-testid="input-nickname" />
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label>Email</Label>
+                  <FieldLabel name="email">Email</FieldLabel>
                   <Input value={currentData.email ?? ""} onChange={(e) => handleFieldChange("email", e.target.value || null)} placeholder="Email" data-testid="input-email" />
                 </div>
                 <div className="space-y-2">
-                  <Label>Phone</Label>
+                  <FieldLabel name="phone">Phone</FieldLabel>
                   <Input value={currentData.phone ?? ""} onChange={(e) => handleFieldChange("phone", e.target.value || null)} placeholder="Phone" data-testid="input-phone" />
                 </div>
                 <div className="space-y-2">
-                  <Label>Date of Birth</Label>
+                  <FieldLabel name="dob">Date of Birth</FieldLabel>
                   <Input value={currentData.dob ?? ""} onChange={(e) => handleFieldChange("dob", e.target.value || null)} placeholder="DD-MM-YYYY" data-testid="input-dob" />
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label>Gender</Label>
+                  <FieldLabel name="gender">Gender</FieldLabel>
                   <Input value={currentData.gender ?? ""} onChange={(e) => handleFieldChange("gender", e.target.value || null)} placeholder="Gender" data-testid="input-gender" />
                 </div>
                 <div className="space-y-2">
-                  <Label>Marital Status</Label>
+                  <FieldLabel name="maritalStatus">Marital Status</FieldLabel>
                   <Input value={currentData.maritalStatus ?? ""} onChange={(e) => handleFieldChange("maritalStatus", e.target.value || null)} placeholder="Marital Status" data-testid="input-marital-status" />
                 </div>
                 <div className="space-y-2">
-                  <Label>Line ID</Label>
+                  <FieldLabel name="lineId">Line ID</FieldLabel>
                   <Input value={currentData.lineId ?? ""} onChange={(e) => handleFieldChange("lineId", e.target.value || null)} placeholder="Line ID" data-testid="input-line-id" />
                 </div>
               </div>
@@ -796,25 +889,25 @@ export function AdminEmployeeDetail() {
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">Address</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>Street Address</Label>
+                    <FieldLabel name="streetAddress">Street Address</FieldLabel>
                     <Input value={currentData.streetAddress ?? ""} onChange={(e) => handleFieldChange("streetAddress", e.target.value || null)} placeholder="Street Address" data-testid="input-street-address" />
                   </div>
                   <div className="space-y-2">
-                    <Label>Street Address 2</Label>
+                    <FieldLabel name="streetAddress2">Street Address 2</FieldLabel>
                     <Input value={currentData.streetAddress2 ?? ""} onChange={(e) => handleFieldChange("streetAddress2", e.target.value || null)} placeholder="Apt, unit, etc." data-testid="input-street-address-2" />
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                   <div className="space-y-2">
-                    <Label>Suburb</Label>
+                    <FieldLabel name="suburb">Suburb</FieldLabel>
                     <Input value={currentData.suburb ?? ""} onChange={(e) => handleFieldChange("suburb", e.target.value || null)} placeholder="Suburb" data-testid="input-suburb" />
                   </div>
                   <div className="space-y-2">
-                    <Label>State</Label>
+                    <FieldLabel name="state">State</FieldLabel>
                     <Input value={currentData.state ?? ""} onChange={(e) => handleFieldChange("state", e.target.value || null)} placeholder="NSW" data-testid="input-state" />
                   </div>
                   <div className="space-y-2">
-                    <Label>Post Code</Label>
+                    <FieldLabel name="postCode">Post Code</FieldLabel>
                     <Input value={currentData.postCode ?? ""} onChange={(e) => handleFieldChange("postCode", e.target.value || null)} placeholder="2000" data-testid="input-post-code" />
                   </div>
                 </div>
@@ -893,30 +986,30 @@ export function AdminEmployeeDetail() {
                   {/* Visa Fields */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-2">
-                      <Label>Visa Type</Label>
+                      <FieldLabel name="visaType">Visa Type</FieldLabel>
                       <Input value={currentData.visaType ?? ""} onChange={(e) => handleFieldChange("visaType", e.target.value || null)} placeholder="e.g. Student, WHM, PR" data-testid="input-visa-type" />
                     </div>
                     <div className="space-y-2">
-                      <Label className="flex items-center gap-1">
+                      <FieldLabel name="visaSubclass" className="flex items-center gap-1">
                         Visa Subclass
                         {isVevoLocked(currentData.vevoUrl, currentData.visaSubclass) && <Lock className="h-3 w-3 text-muted-foreground" />}
-                      </Label>
+                      </FieldLabel>
                       <Input value={currentData.visaSubclass ?? ""} onChange={(e) => handleFieldChange("visaSubclass", e.target.value || null)} placeholder="e.g. 500, 417, 485" data-testid="input-visa-subclass" disabled={isVevoLocked(currentData.vevoUrl, currentData.visaSubclass)} />
                     </div>
                     <div className="space-y-2">
-                      <Label className="flex items-center gap-1">
+                      <FieldLabel name="visaExpiry" className="flex items-center gap-1">
                         Visa Expiry Date
                         {isVevoLocked(currentData.vevoUrl, currentData.visaExpiry) && <Lock className="h-3 w-3 text-muted-foreground" />}
-                      </Label>
+                      </FieldLabel>
                       <Input type="date" value={currentData.visaExpiry ?? ""} onChange={(e) => handleFieldChange("visaExpiry", e.target.value || null)} data-testid="input-visa-expiry" disabled={isVevoLocked(currentData.vevoUrl, currentData.visaExpiry)} />
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-2">
-                      <Label className="flex items-center gap-1">
+                      <FieldLabel name="workEntitlements" className="flex items-center gap-1">
                         Work Entitlements
                         {isVevoLocked(currentData.vevoUrl, currentData.workEntitlements) && <Lock className="h-3 w-3 text-muted-foreground" />}
-                      </Label>
+                      </FieldLabel>
                       <Select value={currentData.workEntitlements ?? ""} onValueChange={(v) => handleFieldChange("workEntitlements", v || null)} disabled={isVevoLocked(currentData.vevoUrl, currentData.workEntitlements)}>
                         <SelectTrigger data-testid="select-work-entitlements">
                           <SelectValue placeholder="Select..." />
@@ -929,17 +1022,17 @@ export function AdminEmployeeDetail() {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label className="flex items-center gap-1">
+                      <FieldLabel name="passportNo" className="flex items-center gap-1">
                         Passport No
                         {isVevoLocked(currentData.vevoUrl, currentData.passportNo) && <Lock className="h-3 w-3 text-muted-foreground" />}
-                      </Label>
+                      </FieldLabel>
                       <Input value={currentData.passportNo ?? ""} onChange={(e) => handleFieldChange("passportNo", e.target.value || null)} placeholder="Passport number" data-testid="input-passport-no" disabled={isVevoLocked(currentData.vevoUrl, currentData.passportNo)} />
                     </div>
                     <div className="space-y-2">
-                      <Label className="flex items-center gap-1">
+                      <FieldLabel name="nationality" className="flex items-center gap-1">
                         Country of Passport
                         {isVevoLocked(currentData.vevoUrl, currentData.nationality) && <Lock className="h-3 w-3 text-muted-foreground" />}
-                      </Label>
+                      </FieldLabel>
                       <Input value={currentData.nationality ?? ""} onChange={(e) => handleFieldChange("nationality", e.target.value || null)} placeholder="e.g. Nepal, India" data-testid="input-nationality" disabled={isVevoLocked(currentData.vevoUrl, currentData.nationality)} />
                     </div>
                   </div>
@@ -964,7 +1057,7 @@ export function AdminEmployeeDetail() {
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="space-y-2">
-                        <Label>Last VEVO Check Date</Label>
+                        <FieldLabel name="lastVevoCheckDate">Last VEVO Check Date</FieldLabel>
                         <Input type="date" value={currentData.lastVevoCheckDate ?? ""} onChange={(e) => handleFieldChange("lastVevoCheckDate", e.target.value || null)} data-testid="input-last-vevo-check" />
                       </div>
                     </div>
@@ -1199,7 +1292,7 @@ export function AdminEmployeeDetail() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="status">Status</Label>
+                  <FieldLabel name="status" htmlFor="status">Status</FieldLabel>
                   <Select
                     value={currentData.status ?? "ACTIVE"}
                     onValueChange={(value) => handleFieldChange("status", value)}
@@ -1214,7 +1307,7 @@ export function AdminEmployeeDetail() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="rate">Rate</Label>
+                  <FieldLabel name="rate" htmlFor="rate">Rate</FieldLabel>
                   <Input
                     id="rate"
                     value={currentData.rate ?? ""}
@@ -1224,7 +1317,7 @@ export function AdminEmployeeDetail() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="fixedAmount">Fixed Amount</Label>
+                  <FieldLabel name="fixedAmount" htmlFor="fixedAmount">Fixed Amount</FieldLabel>
                   <Input
                     id="fixedAmount"
                     value={currentData.fixedAmount ?? ""}
@@ -1236,7 +1329,7 @@ export function AdminEmployeeDetail() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="salaryType">Salary Type</Label>
+                  <FieldLabel name="salaryType" htmlFor="salaryType">Salary Type</FieldLabel>
                   <Select
                     value={currentData.salaryType ?? ""}
                     onValueChange={(value) => handleFieldChange("salaryType", value)}
@@ -1252,7 +1345,7 @@ export function AdminEmployeeDetail() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="annualLeave">Annual Leave</Label>
+                  <FieldLabel name="annualLeave" htmlFor="annualLeave">Annual Leave</FieldLabel>
                   <Input
                     id="annualLeave"
                     value={currentData.annualLeave ?? ""}
@@ -1272,7 +1365,7 @@ export function AdminEmployeeDetail() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="role">Role</Label>
+                  <FieldLabel name="role" htmlFor="role">Role</FieldLabel>
                   <Select
                     value={currentData.role ?? "EMPLOYEE"}
                     onValueChange={(value) => handleFieldChange("role", value)}
@@ -1289,7 +1382,7 @@ export function AdminEmployeeDetail() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="pin">4-Digit PIN</Label>
+                  <FieldLabel name="pin" htmlFor="pin">4-Digit PIN</FieldLabel>
                   <Input
                     id="pin"
                     value={currentData.pin ?? ""}
@@ -1317,7 +1410,7 @@ export function AdminEmployeeDetail() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="tfn">TFN</Label>
+                  <FieldLabel name="tfn" htmlFor="tfn">TFN</FieldLabel>
                   <Input
                     id="tfn"
                     value={currentData.tfn ?? ""}
@@ -1327,7 +1420,7 @@ export function AdminEmployeeDetail() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="bsb">BSB</Label>
+                  <FieldLabel name="bsb" htmlFor="bsb">BSB</FieldLabel>
                   <Input
                     id="bsb"
                     value={currentData.bsb ?? ""}
@@ -1337,7 +1430,7 @@ export function AdminEmployeeDetail() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="accountNo">Account Number</Label>
+                  <FieldLabel name="accountNo" htmlFor="accountNo">Account Number</FieldLabel>
                   <Input
                     id="accountNo"
                     value={currentData.accountNo ?? ""}
@@ -1357,7 +1450,7 @@ export function AdminEmployeeDetail() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="superCompany">Super Company</Label>
+                  <FieldLabel name="superCompany" htmlFor="superCompany">Super Company</FieldLabel>
                   <Input
                     id="superCompany"
                     value={currentData.superCompany ?? ""}
@@ -1367,7 +1460,7 @@ export function AdminEmployeeDetail() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="superMembershipNo">Membership Number</Label>
+                  <FieldLabel name="superMembershipNo" htmlFor="superMembershipNo">Membership Number</FieldLabel>
                   <Input
                     id="superMembershipNo"
                     value={currentData.superMembershipNo ?? ""}

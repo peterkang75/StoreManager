@@ -5554,6 +5554,33 @@ export async function registerRoutes(
   // ===== TIMESHEET APPROVAL ROUTES =====
 
   // GET /api/admin/approvals — enriched shift timesheets with employee, store, scheduled shift
+  // §6.3.13 Employee form required-field settings (admin global).
+  // GET returns the currently required field names.
+  app.get("/api/admin/employee-field-requirements", async (_req: Request, res: Response) => {
+    try {
+      const requiredFields = await storage.getEmployeeFieldRequirements();
+      res.json({ requiredFields });
+    } catch (error) {
+      console.error("Error fetching employee field requirements:", error);
+      res.status(500).json({ error: "Failed to fetch employee field requirements" });
+    }
+  });
+
+  // PUT { requiredFields: string[] } — replaces the list wholesale.
+  app.put("/api/admin/employee-field-requirements", async (req: Request, res: Response) => {
+    try {
+      const { requiredFields } = req.body as { requiredFields?: unknown };
+      if (!Array.isArray(requiredFields) || !requiredFields.every((s) => typeof s === "string")) {
+        return res.status(400).json({ error: "requiredFields must be a string array" });
+      }
+      const saved = await storage.setEmployeeFieldRequirements(requiredFields);
+      res.json({ requiredFields: saved });
+    } catch (error) {
+      console.error("Error setting employee field requirements:", error);
+      res.status(500).json({ error: "Failed to set employee field requirements" });
+    }
+  });
+
   app.get("/api/admin/approvals", async (req: Request, res: Response) => {
     try {
       const statusFilter = (req.query.status as string) || "PENDING";
