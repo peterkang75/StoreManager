@@ -2704,6 +2704,18 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
     staleTime: 0,
   });
 
+  // §6.3.13 Admin-defined required fields. Portal renders a red asterisk on each
+  // and blocks save if any portal-visible required field is empty.
+  const { data: reqData } = useQuery<{ requiredFields: string[] }>({
+    queryKey: ["/api/admin/employee-field-requirements"],
+    queryFn: () => fetch("/api/admin/employee-field-requirements").then(r => r.json()),
+    staleTime: 60000,
+  });
+  const requiredFields = reqData?.requiredFields ?? [];
+  const isReq = (name: string) => requiredFields.includes(name);
+  const Req = ({ name }: { name: string }) =>
+    isReq(name) ? <span className="text-destructive font-bold">*</span> : null;
+
   const DRAFT_KEY = `ep_profile_draft_${session.id}`;
   const [form, setForm] = useState<ProfileFormData>({
     email: "", streetAddress: "", streetAddress2: "", suburb: "", state: "", postCode: "",
@@ -2841,6 +2853,38 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
   };
 
   const handleSave = () => {
+    // §6.3.13 Block save when any portal-visible required field is empty.
+    // We only enforce fields that this form actually surfaces — admin-only
+    // fields (e.g., firstName) are validated on the admin page, not here.
+    const portalFieldNames = new Set([
+      "email", "streetAddress", "streetAddress2", "suburb", "state", "postCode",
+      "selfieUrl", "passportUrl", "fhc",
+      "tfn", "bsb", "accountNo",
+      "superCompany", "superMembershipNo",
+    ]);
+    const missing: string[] = [];
+    for (const name of requiredFields) {
+      if (!portalFieldNames.has(name)) continue;
+      const v = (form as any)[name];
+      if (v === null || v === undefined || (typeof v === "string" && v.trim() === "")) {
+        missing.push(name);
+      }
+    }
+    if (missing.length > 0) {
+      toast({
+        title: "필수 항목이 비어있어",
+        description: `다음 항목을 채워줘: ${missing.join(", ")}`,
+        variant: "destructive",
+      });
+      // Scroll to first invalid (kebab-case data-testid pattern)
+      const kebab = missing[0].replace(/([A-Z])/g, "-$1").toLowerCase();
+      const el = document.querySelector<HTMLElement>(`[data-testid="input-${kebab}"]`)
+              ?? document.querySelector<HTMLElement>(`[data-testid="select-${kebab}"]`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      el?.focus?.();
+      return;
+    }
+
     const bsbClean = form.bsb.replace(/\s/g, "");
     if (bsbClean && !/^\d{6}$/.test(bsbClean)) {
       setBsbError("BSB must be exactly 6 digits");
@@ -2948,7 +2992,7 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
           <Card>
             <CardContent className="pt-4 pb-4">
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Email</Label>
+                <Label className="text-xs text-muted-foreground">Email <Req name="email" /></Label>
                 <Input
                   type="email"
                   placeholder="e.g. name@email.com"
@@ -2973,20 +3017,20 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
           <Card>
             <CardContent className="pt-4 pb-4 flex flex-col gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Street Address</Label>
+                <Label className="text-xs text-muted-foreground">Street Address <Req name="streetAddress" /></Label>
                 <Input placeholder="e.g. 12 Smith Street" {...field("streetAddress")} data-testid="input-street-address" className="h-11 text-base" />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Street Address 2 (Apt, Unit, etc.)</Label>
+                <Label className="text-xs text-muted-foreground">Street Address 2 (Apt, Unit, etc.) <Req name="streetAddress2" /></Label>
                 <Input placeholder="Optional" {...field("streetAddress2")} data-testid="input-street-address-2" className="h-11 text-base" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Suburb</Label>
+                  <Label className="text-xs text-muted-foreground">Suburb <Req name="suburb" /></Label>
                   <Input placeholder="Suburb" {...field("suburb")} data-testid="input-suburb" className="h-11 text-base" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">State</Label>
+                  <Label className="text-xs text-muted-foreground">State <Req name="state" /></Label>
                   <Select value={form.state} onValueChange={v => setForm(f => ({ ...f, state: v }))}>
                     <SelectTrigger className="h-11 text-base" data-testid="select-state">
                       <SelectValue placeholder="State" />
@@ -3000,7 +3044,7 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Post Code</Label>
+                <Label className="text-xs text-muted-foreground">Post Code <Req name="postCode" /></Label>
                 <Input placeholder="e.g. 2000" {...field("postCode")} data-testid="input-post-code" className="h-11 text-base" inputMode="numeric" />
               </div>
             </CardContent>
@@ -3187,13 +3231,13 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">
-                  TFN (Tax File Number) <span className="text-destructive font-bold">*</span>
+                  TFN (Tax File Number) <Req name="tfn" />
                 </Label>
                 <Input placeholder="e.g. 123 456 789" {...field("tfn")} data-testid="input-tfn" className="h-11 text-base font-mono" inputMode="numeric" />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">
-                  BSB (6 digits) <span className="text-destructive font-bold">*</span>
+                  BSB (6 digits) <Req name="bsb" />
                 </Label>
                 <Input
                   placeholder="e.g. 062000 or 062 000"
@@ -3214,7 +3258,7 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">
-                  Account Number <span className="text-destructive font-bold">*</span>
+                  Account Number <Req name="accountNo" />
                 </Label>
                 <Input placeholder="e.g. 12345678" {...field("accountNo")} data-testid="input-account-no" className="h-11 text-base font-mono" inputMode="numeric" />
               </div>
@@ -3234,13 +3278,13 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
             <CardContent className="pt-4 pb-4 flex flex-col gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">
-                  Super Fund Name <span className="text-destructive font-bold">*</span>
+                  Super Fund Name <Req name="superCompany" />
                 </Label>
                 <Input placeholder="e.g. Australian Super, Hostplus" {...field("superCompany")} data-testid="input-super-company" className="h-11 text-base" />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">
-                  Member Number <span className="text-destructive font-bold">*</span>
+                  Member Number <Req name="superMembershipNo" />
                 </Label>
                 <Input placeholder="Your membership number" {...field("superMembershipNo")} data-testid="input-super-membership-no" className="h-11 text-base font-mono" />
               </div>
