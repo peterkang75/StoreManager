@@ -306,7 +306,7 @@ function FhcUploadSection({ value, onChange }: { value: string | null; onChange:
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <FileImage className="h-4 w-4 text-muted-foreground" />
-        <Label className="font-medium">FHC (Food Handler Certificate)</Label>
+        <FieldLabel name="fhc" className="font-medium">FHC (Food Handler Certificate)</FieldLabel>
       </div>
       <div className="flex items-start gap-4">
         {/* Preview */}
@@ -1066,7 +1066,7 @@ export function AdminEmployeeDetail() {
                   {/* VEVO Document Upload */}
                   <div className="space-y-2">
                     <div>
-                      <Label className="font-medium">VEVO Result Document (PDF / Image)</Label>
+                      <FieldLabel name="vevoUrl" className="font-medium">VEVO Result Document (PDF / Image)</FieldLabel>
                       <p className="text-xs text-muted-foreground mt-0.5">텍스트 PDF는 자동 입력됩니다. 이미지/스캔 PDF는 자동 입력이 안 되며, 업로드 후 아래 항목을 직접 입력하세요.</p>
                     </div>
                     <div className="flex items-center gap-3">
@@ -1154,7 +1154,7 @@ export function AdminEmployeeDetail() {
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <Camera className="h-4 w-4 text-muted-foreground" />
-                  <Label className="font-medium">Selfie / Profile Photo</Label>
+                  <FieldLabel name="selfieUrl" className="font-medium">Selfie / Profile Photo</FieldLabel>
                 </div>
                 <div className="flex items-start gap-4">
                   {currentData.selfieUrl ? (
@@ -1187,7 +1187,7 @@ export function AdminEmployeeDetail() {
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <FileImage className="h-4 w-4 text-muted-foreground" />
-                  <Label className="font-medium">Passport Photo</Label>
+                  <FieldLabel name="passportUrl" className="font-medium">Passport Photo</FieldLabel>
                 </div>
                 <div className="flex items-start gap-4">
                   {currentData.passportUrl ? (
