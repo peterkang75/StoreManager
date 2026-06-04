@@ -224,6 +224,7 @@ interface PayrollRow {
 }
 
 interface ApprovedShift {
+  id: string;
   employeeId: string;
   storeId: string;
   date: string;
@@ -342,6 +343,13 @@ export function AdminPayrolls() {
   // Captures currentCtxKey at the moment save is triggered — prevents stale-closure issues in onSuccess
   const savingCtxKeyRef = useRef<string>("");
 
+  // §6.3.12 Back-pay state: modal open + selected shift IDs per employee
+  const [backPayModalOpen, setBackPayModalOpen] = useState(false);
+  const [backPaySelections, setBackPaySelections] = useState<Record<string, Set<string>>>({});
+  // PENDING-shifts pre-save warning (Q3)
+  const [pendingWarningOpen, setPendingWarningOpen] = useState(false);
+  const [pendingProceed, setPendingProceed] = useState<(() => void) | null>(null);
+
   const { data: stores, isLoading: storesLoading } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
   });
@@ -447,6 +455,86 @@ export function AdminPayrolls() {
       fetch("/api/admin/approvals?status=ALL").then((r) => r.json()),
     staleTime: 30000,
   });
+
+  // §6.3.12 Back-pay candidates — shifts approved AFTER their period's payroll was created.
+  type BackPayShift = {
+    shiftTimesheetId: string;
+    date: string;
+    actualStartTime: string;
+    actualEndTime: string;
+    hours: number;
+    amount: number;
+    approvedAt: string;
+  };
+  type BackPayCandidateGroup = {
+    employeeId: string;
+    employeeName: string;
+    storeId: string;
+    rate: number;
+    originalPayrollId: string;
+    originalPeriodStart: string;
+    originalPeriodEnd: string;
+    payrollCreatedAt: string;
+    shifts: BackPayShift[];
+    totalHours: number;
+    totalAmount: number;
+  };
+  const { data: backPayCandidates = [], refetch: refetchBackPay } = useQuery<BackPayCandidateGroup[]>({
+    queryKey: ["/api/payrolls/back-pay-candidates", selectedStoreId, periodStart, periodEnd],
+    queryFn: async () => {
+      if (!selectedStoreId || !periodStart || !periodEnd) return [];
+      const params = new URLSearchParams({
+        store_id: selectedStoreId,
+        for_period_start: periodStart,
+        for_period_end: periodEnd,
+      });
+      const res = await fetch(`/api/payrolls/back-pay-candidates?${params}`);
+      if (!res.ok) throw new Error("Failed to fetch back-pay candidates");
+      return res.json();
+    },
+    enabled: !!selectedStoreId && !!periodStart && !!periodEnd,
+    staleTime: 15000,
+  });
+
+  const backPayApplyMutation = useMutation({
+    mutationFn: async ({ payrollId, shiftTimesheetIds }: { payrollId: string; shiftTimesheetIds: string[] }) => {
+      const res = await fetch(`/api/payrolls/${payrollId}/back-pay-apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shiftTimesheetIds }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(err.error || "Failed to apply back-pay");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Back pay 적용됨",
+        description: `${data.appliedCount}건 / +${data.addedHours}h / +$${data.addedAmount}`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/payrolls/current"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payrolls/back-pay-candidates"] });
+      refetchBackPay();
+    },
+    onError: (e: Error) => {
+      toast({ title: "Back pay 적용 실패", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const totalBackPayCount = backPayCandidates.reduce((sum, g) => sum + g.shifts.length, 0);
+  const totalBackPayAmount = backPayCandidates.reduce((sum, g) => sum + g.totalAmount, 0);
+
+  // PENDING-shifts in current period (Q3): warn before save
+  const pendingShiftsInPeriod = useMemo(() => {
+    return approvedShifts.filter((ts) =>
+      ts.status === "PENDING" &&
+      ts.storeId === selectedStoreId &&
+      ts.date >= periodStart &&
+      ts.date <= periodEnd
+    );
+  }, [approvedShifts, selectedStoreId, periodStart, periodEnd]);
 
   const approvedHoursMap = useMemo(() => {
     const map: Record<string, number> = {};
@@ -1109,6 +1197,32 @@ export function AdminPayrolls() {
             </Button>
           </div>
         </div>
+
+        {/* §6.3.12 Back-pay banner — late-approved shifts from prior periods */}
+        {totalBackPayCount > 0 && selectedStore && (
+          <div
+            className="bg-amber-50 dark:bg-amber-950/20 border border-amber-300 dark:border-amber-700 rounded-md px-4 py-3 flex items-center justify-between gap-3 flex-wrap"
+            data-testid="banner-back-pay"
+          >
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-amber-900 dark:text-amber-200 text-sm">
+                ⚠ 지난 페이롤 기간 누락 {totalBackPayCount}건 — 총 ${totalBackPayAmount.toFixed(2)}
+              </div>
+              <div className="text-xs text-amber-800 dark:text-amber-300 mt-0.5">
+                {backPayCandidates.map((g) => `${g.employeeName} ${g.shifts.length}건`).join(" · ")}
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-amber-400 dark:border-amber-600"
+              onClick={() => setBackPayModalOpen(true)}
+              data-testid="button-open-back-pay-modal"
+            >
+              상세보기 / Back Pay 처리
+            </Button>
+          </div>
+        )}
 
         {rows.length > 0 && selectedStore && (
           <div className="bg-card border rounded-md px-4 py-3 space-y-2">
@@ -1880,7 +1994,15 @@ export function AdminPayrolls() {
                 </Button>
               )}
               <Button
-                onClick={() => saveMutation.mutate()}
+                onClick={() => {
+                  // §6.3.12 Q3: warn if PENDING shifts remain in this period
+                  if (pendingShiftsInPeriod.length > 0) {
+                    setPendingProceed(() => () => saveMutation.mutate());
+                    setPendingWarningOpen(true);
+                  } else {
+                    saveMutation.mutate();
+                  }
+                }}
                 disabled={saveMutation.isPending || rows.length === 0}
                 data-testid="button-save-payroll"
               >
@@ -2178,6 +2300,177 @@ export function AdminPayrolls() {
                 </div>
               </div>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* §6.3.12 Back-pay review modal */}
+      <Dialog open={backPayModalOpen} onOpenChange={setBackPayModalOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>지난 페이롤 누락 시프트 — Back Pay 처리</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="text-xs text-muted-foreground">
+              각 시프트는 이미 페이롤이 마감된 기간에 사후 추가/승인됐어. 선택해서 현재
+              페이롤({periodStart} ~ {periodEnd})에 Back Pay 라인으로 추가할 수 있어.
+              한 번 적용된 시프트는 다시 안 나타남.
+            </div>
+
+            {backPayCandidates.length === 0 ? (
+              <div className="text-sm text-muted-foreground py-8 text-center">
+                현재 처리 대기 중인 누락 시프트가 없어.
+              </div>
+            ) : (
+              backPayCandidates.map((g) => {
+                const currentRow = rows.find((r) => r.employeeId === g.employeeId);
+                const targetPayrollId = currentRow?.payrollId;
+                const selected = backPaySelections[g.employeeId] || new Set<string>();
+                const allChecked = g.shifts.length > 0 && g.shifts.every((s) => selected.has(s.shiftTimesheetId));
+                const someChecked = g.shifts.some((s) => selected.has(s.shiftTimesheetId));
+                const selectedHours = g.shifts
+                  .filter((s) => selected.has(s.shiftTimesheetId))
+                  .reduce((sum, s) => sum + s.hours, 0);
+                const selectedAmount = g.shifts
+                  .filter((s) => selected.has(s.shiftTimesheetId))
+                  .reduce((sum, s) => sum + s.amount, 0);
+
+                return (
+                  <div key={`${g.employeeId}-${g.originalPeriodStart}`} className="border rounded-md p-3 space-y-2" data-testid={`back-pay-group-${g.employeeId}`}>
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div>
+                        <div className="font-semibold text-sm">{g.employeeName}</div>
+                        <div className="text-xs text-muted-foreground">
+                          원 페이롤 기간: {g.originalPeriodStart} ~ {g.originalPeriodEnd} · 시급 ${g.rate.toFixed(2)}
+                        </div>
+                      </div>
+                      <div className="text-xs text-right">
+                        <div>총 누락: <span className="font-mono">{g.totalHours}h / ${g.totalAmount.toFixed(2)}</span></div>
+                        {someChecked && (
+                          <div className="text-amber-700 dark:text-amber-400">
+                            선택: <span className="font-mono">+{selectedHours.toFixed(2)}h / +${selectedAmount.toFixed(2)}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-xs border-b pb-1 mb-1">
+                        <Checkbox
+                          checked={allChecked}
+                          onCheckedChange={(v) => {
+                            setBackPaySelections((prev) => {
+                              const next = new Set(prev[g.employeeId] || []);
+                              if (v) g.shifts.forEach((s) => next.add(s.shiftTimesheetId));
+                              else g.shifts.forEach((s) => next.delete(s.shiftTimesheetId));
+                              return { ...prev, [g.employeeId]: next };
+                            });
+                          }}
+                          data-testid={`checkbox-select-all-${g.employeeId}`}
+                        />
+                        <span className="text-muted-foreground">전체 선택</span>
+                      </div>
+                      {g.shifts.map((s) => {
+                        const checked = selected.has(s.shiftTimesheetId);
+                        return (
+                          <div key={s.shiftTimesheetId} className="flex items-center gap-3 text-xs py-1">
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(v) => {
+                                setBackPaySelections((prev) => {
+                                  const next = new Set(prev[g.employeeId] || []);
+                                  if (v) next.add(s.shiftTimesheetId);
+                                  else next.delete(s.shiftTimesheetId);
+                                  return { ...prev, [g.employeeId]: next };
+                                });
+                              }}
+                              data-testid={`checkbox-shift-${s.shiftTimesheetId}`}
+                            />
+                            <span className="font-mono">{s.date}</span>
+                            <span className="font-mono text-muted-foreground">
+                              {s.actualStartTime}–{s.actualEndTime}
+                            </span>
+                            <span className="font-mono">{s.hours}h</span>
+                            <span className="font-mono">${s.amount.toFixed(2)}</span>
+                            <span className="ml-auto text-muted-foreground">
+                              승인 {new Date(s.approvedAt).toLocaleString("en-AU", { timeZone: "Australia/Sydney", dateStyle: "short", timeStyle: "short" })}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex justify-end pt-1">
+                      {!targetPayrollId ? (
+                        <span className="text-xs text-muted-foreground italic">
+                          이 직원의 현재 페이롤 row가 없어 — 먼저 페이롤 Save 후 적용 가능
+                        </span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          disabled={!someChecked || backPayApplyMutation.isPending}
+                          onClick={() => {
+                            backPayApplyMutation.mutate({
+                              payrollId: targetPayrollId,
+                              shiftTimesheetIds: Array.from(selected),
+                            });
+                            // Clear selection optimistically; refetch will repopulate
+                            setBackPaySelections((prev) => ({ ...prev, [g.employeeId]: new Set() }));
+                          }}
+                          data-testid={`button-apply-back-pay-${g.employeeId}`}
+                        >
+                          현재 페이롤에 Back Pay 적용
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* §6.3.12 PENDING-shifts warning before save (Q3) */}
+      <Dialog open={pendingWarningOpen} onOpenChange={setPendingWarningOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>미승인 시프트가 남아있어</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="text-sm">
+              현재 페이롤 기간({periodStart} ~ {periodEnd})에 아직 PENDING 상태인 시프트가
+              <span className="font-semibold text-amber-700 dark:text-amber-400"> {pendingShiftsInPeriod.length}건 </span>
+              남아있어. 지금 페이롤을 실행하면 이 시프트들은 포함되지 않고, 나중에 별도 Back Pay로 처리해야 해.
+            </div>
+            <div className="max-h-48 overflow-y-auto border rounded-md p-2 space-y-1">
+              {pendingShiftsInPeriod.slice(0, 20).map((ts) => (
+                <div key={ts.id} className="text-xs flex gap-2">
+                  <span className="font-mono">{ts.date}</span>
+                  <span className="font-mono text-muted-foreground">{ts.actualStartTime}–{ts.actualEndTime}</span>
+                  <span className="ml-auto text-muted-foreground">{ts.employeeId.slice(0, 8)}</span>
+                </div>
+              ))}
+              {pendingShiftsInPeriod.length > 20 && (
+                <div className="text-xs text-muted-foreground italic">…그 외 {pendingShiftsInPeriod.length - 20}건</div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => { setPendingWarningOpen(false); setPendingProceed(null); }}>
+                취소
+              </Button>
+              <Button
+                onClick={() => {
+                  setPendingWarningOpen(false);
+                  const fn = pendingProceed;
+                  setPendingProceed(null);
+                  fn?.();
+                }}
+                data-testid="button-proceed-with-pending"
+              >
+                그래도 저장
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

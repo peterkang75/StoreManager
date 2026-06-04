@@ -354,6 +354,31 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - **Cut-over:** Gmail 폴러 ≥3일 병행 관찰 → Cloudmailin 비활성화 → Railway env 제거.
 - **Prereq:** 없음. AP 수동 정리 안정화 후 시작.
 
+#### 6.3.12 Post-Payroll Back-Pay Workflow (Late-Approval Recovery) ✅
+- **Status:** 구현 완료 (2026-06-04). 5/4~5/17 누락분 시범 처리 대기.
+- **동기 / 실제 사례:** 2026-05-04~05-17 페이롤 마감(2026-05-19) 이후 매니저가 2026-05-21에 7개 시프트를 사후 일괄 입력 → Anjali 4건(36h raw), Dawa 2건(22h raw), Swaraj 1건(9h raw) 미지급 상태로 표류. 시스템은 누락 사실을 알리지도, 처리 경로를 제공하지도 않음.
+- **목표:** (1) 페이롤 마감 후 status/시간 변경된 시프트 자동 검출 (2) 다음 페이롤에 한 클릭으로 back-pay 반영 (3) 중복 반영 원천 차단 (4) 마감 전 PENDING 잔존 시 경고.
+- **결정 사항 (사용자 확정 2026-06-04):**
+  - **Q1=B**: 5/4~5/17 누락 7건은 이 기능의 첫 사용 케이스로 처리 (수동 SQL 없음).
+  - **Q2=A**: 한 클릭으로 `payrolls.adjustment` 자동 가산 + `adjustmentReason` 자동 입력.
+  - **Q3=A**: 페이롤 저장 시 PENDING 시프트 잔존 경고 같이 구현.
+- **마감 정의:** 별도 `lockedAt` 도입 없이 기존 `payrolls.created_at` = 마감 시점. 검출 조건: `shift_timesheets.updated_at > 그 기간 payroll.created_at` & `status=APPROVED` & `payroll_back_pay_items`에 미등록.
+- **시급 한계:** 시프트 시점 시급 별도 저장 없음 → **현재 직원 시급**으로 back-pay 계산 (인상 후엔 인상 시급 적용됨, 운영상 받아들임).
+- **REJECTED 처리 (1차 보류):** 마감 후 REJECTED 전환은 1차에서 검출 표시만, 마이너스 adjustment는 오너 수동.
+- **신규 테이블 (단 하나):** `payroll_back_pay_items(id, shift_timesheet_id UNIQUE, applied_to_payroll_id, original_period_start, original_period_end, hours, rate, amount, reason, created_at)`. UNIQUE 제약이 중복 반영 차단의 핵심.
+- **구현 순서:**
+  | Step | 작업 | 상태 |
+  |---|---|---|
+  | 1 | DB schema + storage 메서드 (`detectBackPayCandidates`, `applyBackPay`) | ✅ |
+  | 2 | `GET /api/payrolls/back-pay-candidates` + `POST /api/payrolls/:id/back-pay-apply` + `GET .../back-pay-items` | ✅ |
+  | 3 | Payrolls.tsx 상단 알림 배너 + 상세 모달 (체크박스 + Apply) | ✅ |
+  | 4 | 페이롤 Save 시 PENDING 잔존 경고 dialog | ✅ |
+  | 5 | PaySlips.tsx에 "Back Pay" 별도 라인 표시 (amber 강조 + 라벨) | ✅ |
+  | 6 | 5/4~5/17 누락 시범 처리 + 타입체크 + 배포 | 🚧 prod 검증 대기 |
+- **검출 검증 결과 (prod 데이터, 2026-06-04):** Sushi 8건 (Anjali 4 + Dawa 2 + Karma Yonjan 2 신규 발견) + Sandwich 1건 (Swaraj Ghising 5/16) = 총 9건. 사용자가 처음 알려준 7건 외에 Karma Yonjan 2건 추가 발견 — 검출 로직이 의도대로 wider net.
+- **위험 / 회복:** Migration 추가형 → 코드 롤백만으로 회복 가능. 기존 페이롤 계산 로직(adjustment, totalWithAdjustment) 재사용 — 기존 페이롤 변경 없음. UNIQUE 위반 시 transaction 롤백.
+- **Prereq:** 없음.
+
 ---
 
 ### 6.4 Architectural Principles (Maintained)

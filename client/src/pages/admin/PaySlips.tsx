@@ -233,17 +233,34 @@ export function AdminPaySlips() {
                   </tr>
                 </thead>
                 <tbody>
-                  {slip.entries.map((entry, idx) => (
-                    <tr key={idx}>
-                      <td>{entry.storeName}</td>
-                      <td className="num">{entry.hours > 0 ? entry.hours.toFixed(1) : "-"}</td>
-                      <td className="num">{fmtMoney(entry.grossAmount)}</td>
-                      <td className="num">{entry.adjustment !== 0 ? fmtMoney(entry.adjustment) : "-"}</td>
-                      <td>{entry.adjustmentReason || ""}</td>
-                      <td className="num">{fmtMoney(entry.cashAmount)}</td>
-                      <td className="num">{fmtMoney(entry.bankDepositAmount)}</td>
-                    </tr>
-                  ))}
+                  {slip.entries.map((entry, idx) => {
+                    // §6.3.12 Back-pay highlight: adjustment that originated from
+                    // late-approved shifts in prior periods is tagged in adjustmentReason.
+                    const isBackPay = !!entry.adjustmentReason?.toLowerCase().includes("back pay");
+                    return (
+                      <tr key={idx}>
+                        <td>{entry.storeName}</td>
+                        <td className="num">{entry.hours > 0 ? entry.hours.toFixed(1) : "-"}</td>
+                        <td className="num">{fmtMoney(entry.grossAmount)}</td>
+                        <td className="num" style={isBackPay ? { color: "#b45309", fontWeight: 600 } : undefined}>
+                          {entry.adjustment !== 0 ? fmtMoney(entry.adjustment) : "-"}
+                        </td>
+                        <td style={isBackPay ? { color: "#b45309", fontStyle: "italic", fontSize: "0.9em" } : undefined}>
+                          {isBackPay ? (
+                            <>
+                              <strong>Back Pay</strong>
+                              <br />
+                              <span style={{ fontSize: "0.85em" }}>{entry.adjustmentReason || ""}</span>
+                            </>
+                          ) : (
+                            entry.adjustmentReason || ""
+                          )}
+                        </td>
+                        <td className="num">{fmtMoney(entry.cashAmount)}</td>
+                        <td className="num">{fmtMoney(entry.bankDepositAmount)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 {slip.entries.length > 1 && (
                   <tfoot>

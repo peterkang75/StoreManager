@@ -1983,6 +1983,55 @@ export async function registerRoutes(
     }
   });
 
+  // §6.3.12 Post-payroll back-pay workflow ─────────────────────────────────────
+  // GET candidates: shift_timesheets approved/changed after their period's payroll was created,
+  // and not yet paid as back-pay. Scoped to (storeId, prior periods).
+  app.get("/api/payrolls/back-pay-candidates", async (req: Request, res: Response) => {
+    try {
+      const { store_id, for_period_start, for_period_end } = req.query as Record<string, string>;
+      if (!store_id || !for_period_start || !for_period_end) {
+        return res.status(400).json({ error: "store_id, for_period_start, for_period_end are required" });
+      }
+      const candidates = await storage.detectBackPayCandidates({
+        storeId: store_id,
+        forPeriodStart: for_period_start,
+        forPeriodEnd: for_period_end,
+      });
+      res.json(candidates);
+    } catch (error) {
+      console.error("Error detecting back-pay candidates:", error);
+      res.status(500).json({ error: "Failed to detect back-pay candidates" });
+    }
+  });
+
+  // POST apply: add selected shifts to a payroll as back-pay (adjustment increment + tracking row).
+  app.post("/api/payrolls/:id/back-pay-apply", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { shiftTimesheetIds } = req.body as { shiftTimesheetIds?: string[] };
+      if (!Array.isArray(shiftTimesheetIds) || shiftTimesheetIds.length === 0) {
+        return res.status(400).json({ error: "shiftTimesheetIds (non-empty array) is required" });
+      }
+      const result = await storage.applyBackPay({ payrollId: id, shiftTimesheetIds });
+      const updatedPayroll = await storage.getPayroll(id);
+      res.json({ ...result, payroll: updatedPayroll });
+    } catch (error) {
+      console.error("Error applying back-pay:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to apply back-pay" });
+    }
+  });
+
+  // GET back-pay items already applied to a specific payroll (for payslip rendering).
+  app.get("/api/payrolls/:id/back-pay-items", async (req: Request, res: Response) => {
+    try {
+      const items = await storage.getBackPayItemsByPayroll(req.params.id);
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching back-pay items:", error);
+      res.status(500).json({ error: "Failed to fetch back-pay items" });
+    }
+  });
+
   app.post("/api/payrolls/bulk", async (req: Request, res: Response) => {
     try {
       const { rows } = req.body;
@@ -5950,6 +5999,9 @@ export async function registerRoutes(
         "freshbooks.com",
         "sage.com",
         "numberkeepers.com.au",
+        // Inventory/ERP SaaS that sends on the supplier's behalf — the
+        // real sender lives in Reply-To. Escalate Hospitality uses this.
+        "unleashedsoftware.com",
       ]);
 
       function isGenericService(email: string): boolean {

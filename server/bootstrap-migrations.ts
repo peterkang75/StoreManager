@@ -119,6 +119,22 @@ const STATEMENTS: string[] = [
      SELECT 1 FROM daily_sales ds
      WHERE ds.store_id = dc.store_id AND ds.date = dc.date
    )`,
+
+  // §6.3.12 Post-Payroll Back-Pay Workflow — tracks which shift_timesheets have been
+  // applied as back-pay to which payroll. UNIQUE(shift_timesheet_id) blocks double-pay.
+  `CREATE TABLE IF NOT EXISTS payroll_back_pay_items (
+     id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+     shift_timesheet_id varchar NOT NULL UNIQUE REFERENCES shift_timesheets(id),
+     applied_to_payroll_id varchar NOT NULL REFERENCES payrolls(id),
+     original_period_start text NOT NULL,
+     original_period_end text NOT NULL,
+     hours real NOT NULL DEFAULT 0,
+     rate real NOT NULL DEFAULT 0,
+     amount real NOT NULL DEFAULT 0,
+     reason text,
+     created_at timestamp NOT NULL DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_back_pay_items_payroll ON payroll_back_pay_items (applied_to_payroll_id)`,
 ];
 
 // Phase B: seed the OWNER's password from environment variables on first deploy.

@@ -51,11 +51,35 @@ import {
   type AutomationRule, type InsertAutomationRule, automationRules,
   type PortalSession, portalSessions,
   type DailySales, type InsertDailySales, dailySales,
+  type PayrollBackPayItem, type InsertPayrollBackPayItem, payrollBackPayItems,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
 import { db } from "./db";
 import { eq, desc, and, gt, gte, lte, or, ilike, isNull, asc, sql, ne, inArray } from "drizzle-orm";
+
+// §6.3.12 Back-pay detection output. One group per (employee, original period).
+export interface BackPayCandidate {
+  employeeId: string;
+  employeeName: string;
+  storeId: string;
+  rate: number;
+  originalPayrollId: string;
+  originalPeriodStart: string;
+  originalPeriodEnd: string;
+  payrollCreatedAt: string;
+  shifts: Array<{
+    shiftTimesheetId: string;
+    date: string;
+    actualStartTime: string;
+    actualEndTime: string;
+    hours: number;
+    amount: number;
+    approvedAt: string;
+  }>;
+  totalHours: number;
+  totalAmount: number;
+}
 
 export interface IStorage {
   getStores(): Promise<Store[]>;
@@ -115,6 +139,13 @@ export interface IStorage {
   getPayroll(id: string): Promise<Payroll | undefined>;
   createPayroll(payroll: InsertPayroll): Promise<Payroll>;
   updatePayroll(id: string, payroll: Partial<InsertPayroll>): Promise<Payroll | undefined>;
+
+  // §6.3.12 Post-payroll back-pay workflow
+  // Detect shift_timesheets approved/changed after their period's payroll was created,
+  // grouped per employee. Skips timesheets already recorded in payroll_back_pay_items.
+  detectBackPayCandidates(args: { storeId: string; forPeriodStart: string; forPeriodEnd: string }): Promise<BackPayCandidate[]>;
+  applyBackPay(args: { payrollId: string; shiftTimesheetIds: string[] }): Promise<{ appliedCount: number; addedAmount: number; addedHours: number }>;
+  getBackPayItemsByPayroll(payrollId: string): Promise<PayrollBackPayItem[]>;
 
   getDailyClosings(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<DailyClosing[]>;
   // Unified per-day-per-store sales ledger. Includes POSnet imports
@@ -896,6 +927,13 @@ export class MemStorage implements IStorage {
     this.payrolls.set(id, updated);
     return updated;
   }
+
+  // MemStorage stubs — not used in production, only for unit-test scaffolding.
+  async detectBackPayCandidates(): Promise<BackPayCandidate[]> { return []; }
+  async applyBackPay(): Promise<{ appliedCount: number; addedAmount: number; addedHours: number }> {
+    return { appliedCount: 0, addedAmount: 0, addedHours: 0 };
+  }
+  async getBackPayItemsByPayroll(): Promise<PayrollBackPayItem[]> { return []; }
 
   async getDailyClosings(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<DailyClosing[]> {
     let closings = Array.from(this.dailyClosings.values());
@@ -2350,6 +2388,222 @@ export class DatabaseStorage implements IStorage {
   async updatePayroll(id: string, data: Partial<InsertPayroll>): Promise<Payroll | undefined> {
     const [p] = await db.update(payrolls).set({ ...data, updatedAt: new Date() }).where(eq(payrolls.id, id)).returning();
     return p;
+  }
+
+  // §6.3.12 Detect timesheets that were approved/changed AFTER their period's payroll was created.
+  // Groups per (employee × original period). Skips timesheets already paid as back-pay.
+  // Uses raw SQL — the join + LATERAL exclusion is awkward in drizzle.
+  async detectBackPayCandidates({ storeId, forPeriodStart, forPeriodEnd: _forPeriodEnd }: { storeId: string; forPeriodStart: string; forPeriodEnd: string }): Promise<BackPayCandidate[]> {
+    const result = await db.execute(sql`
+      WITH payroll_closes AS (
+        SELECT
+          employee_id,
+          period_start,
+          period_end,
+          MIN(created_at) AS payroll_created_at,
+          (array_agg(id ORDER BY created_at))[1] AS first_payroll_id
+        FROM payrolls
+        WHERE store_id = ${storeId}
+          AND period_end < ${forPeriodStart}
+        GROUP BY employee_id, period_start, period_end
+      )
+      SELECT
+        pc.employee_id              AS "employeeId",
+        pc.period_start             AS "originalPeriodStart",
+        pc.period_end               AS "originalPeriodEnd",
+        pc.payroll_created_at       AS "payrollCreatedAt",
+        pc.first_payroll_id         AS "originalPayrollId",
+        st.id                       AS "shiftTimesheetId",
+        st.date                     AS "date",
+        st.actual_start_time        AS "actualStartTime",
+        st.actual_end_time          AS "actualEndTime",
+        st.updated_at               AS "approvedAt",
+        st.store_id                 AS "storeId",
+        (e.first_name || ' ' || e.last_name) AS "employeeName",
+        COALESCE(NULLIF(esa.rate, '')::real, NULLIF(e.rate, '')::real, 0) AS "rate"
+      FROM payroll_closes pc
+      JOIN shift_timesheets st
+        ON st.employee_id = pc.employee_id
+       AND st.date >= pc.period_start
+       AND st.date <= pc.period_end
+       AND st.store_id = ${storeId}
+      JOIN employees e ON e.id = pc.employee_id
+      LEFT JOIN employee_store_assignments esa
+        ON esa.employee_id = pc.employee_id
+       AND esa.store_id = ${storeId}
+      WHERE st.status = 'APPROVED'
+        AND st.updated_at > pc.payroll_created_at
+        AND NOT EXISTS (
+          SELECT 1 FROM payroll_back_pay_items bpi
+          WHERE bpi.shift_timesheet_id = st.id
+        )
+      ORDER BY pc.employee_id, st.date
+    `);
+
+    type Row = {
+      employeeId: string; employeeName: string; storeId: string; rate: number;
+      originalPayrollId: string; originalPeriodStart: string; originalPeriodEnd: string;
+      payrollCreatedAt: Date | string;
+      shiftTimesheetId: string; date: string; actualStartTime: string; actualEndTime: string;
+      approvedAt: Date | string;
+    };
+    const rows = (result as any).rows as Row[];
+
+    // Group per (employeeId × originalPeriod). Compute hours/amount.
+    const groups = new Map<string, BackPayCandidate>();
+    for (const r of rows) {
+      const key = `${r.employeeId}::${r.originalPeriodStart}::${r.originalPeriodEnd}`;
+      const [sh, sm] = (r.actualStartTime || "0:0").split(":").map(Number);
+      const [eh, em] = (r.actualEndTime || "0:0").split(":").map(Number);
+      const diffMins = eh * 60 + em - (sh * 60 + sm);
+      const hrs = Math.round(((diffMins < 0 ? diffMins + 1440 : diffMins) / 60) * 100) / 100;
+      const rate = Number(r.rate) || 0;
+      const amount = Math.round(hrs * rate * 100) / 100;
+
+      let g = groups.get(key);
+      if (!g) {
+        g = {
+          employeeId: r.employeeId,
+          employeeName: r.employeeName,
+          storeId: r.storeId,
+          rate,
+          originalPayrollId: r.originalPayrollId,
+          originalPeriodStart: r.originalPeriodStart,
+          originalPeriodEnd: r.originalPeriodEnd,
+          payrollCreatedAt: typeof r.payrollCreatedAt === "string" ? r.payrollCreatedAt : (r.payrollCreatedAt as Date).toISOString(),
+          shifts: [],
+          totalHours: 0,
+          totalAmount: 0,
+        };
+        groups.set(key, g);
+      }
+      g.shifts.push({
+        shiftTimesheetId: r.shiftTimesheetId,
+        date: r.date,
+        actualStartTime: r.actualStartTime,
+        actualEndTime: r.actualEndTime,
+        hours: hrs,
+        amount,
+        approvedAt: typeof r.approvedAt === "string" ? r.approvedAt : (r.approvedAt as Date).toISOString(),
+      });
+      g.totalHours = Math.round((g.totalHours + hrs) * 100) / 100;
+      g.totalAmount = Math.round((g.totalAmount + amount) * 100) / 100;
+    }
+    return Array.from(groups.values()).sort((a, b) => a.employeeName.localeCompare(b.employeeName));
+  }
+
+  // Apply selected shift timesheets as back-pay to a target payroll.
+  // Transactional: payroll.adjustment += sum(amount), reason appended, back_pay_items inserted.
+  // UNIQUE constraint on shift_timesheet_id prevents double-apply.
+  async applyBackPay({ payrollId, shiftTimesheetIds }: { payrollId: string; shiftTimesheetIds: string[] }): Promise<{ appliedCount: number; addedAmount: number; addedHours: number }> {
+    if (!shiftTimesheetIds.length) return { appliedCount: 0, addedAmount: 0, addedHours: 0 };
+
+    return db.transaction(async (tx) => {
+      const [targetPayroll] = await tx.select().from(payrolls).where(eq(payrolls.id, payrollId));
+      if (!targetPayroll) throw new Error(`Payroll ${payrollId} not found`);
+
+      const storeId = targetPayroll.storeId;
+      if (!storeId) throw new Error(`Payroll ${payrollId} has no storeId — cannot apply back-pay`);
+
+      // Re-query candidates (state may have shifted between detect and apply).
+      // We only re-process the IDs the client asked for, and only if they still qualify.
+      const candidateRows = await tx.execute(sql`
+        WITH payroll_closes AS (
+          SELECT employee_id, period_start, period_end,
+                 MIN(created_at) AS payroll_created_at,
+                 (array_agg(id ORDER BY created_at))[1] AS first_payroll_id
+          FROM payrolls
+          WHERE store_id = ${storeId}
+            AND period_end < ${targetPayroll.periodStart}
+          GROUP BY employee_id, period_start, period_end
+        )
+        SELECT
+          st.id AS "shiftTimesheetId",
+          st.actual_start_time AS "actualStartTime",
+          st.actual_end_time   AS "actualEndTime",
+          st.store_id          AS "storeId",
+          pc.period_start      AS "originalPeriodStart",
+          pc.period_end        AS "originalPeriodEnd",
+          COALESCE(NULLIF(esa.rate, '')::real, NULLIF(e.rate, '')::real, 0) AS "rate"
+        FROM shift_timesheets st
+        JOIN payroll_closes pc
+          ON pc.employee_id = st.employee_id
+         AND st.date >= pc.period_start
+         AND st.date <= pc.period_end
+        JOIN employees e ON e.id = st.employee_id
+        LEFT JOIN employee_store_assignments esa
+          ON esa.employee_id = st.employee_id AND esa.store_id = ${storeId}
+        WHERE st.id = ANY(${shiftTimesheetIds}::text[])
+          AND st.employee_id = ${targetPayroll.employeeId}
+          AND st.store_id = ${storeId}
+          AND st.status = 'APPROVED'
+          AND st.updated_at > pc.payroll_created_at
+          AND NOT EXISTS (
+            SELECT 1 FROM payroll_back_pay_items bpi WHERE bpi.shift_timesheet_id = st.id
+          )
+      `);
+
+      type CRow = {
+        shiftTimesheetId: string; actualStartTime: string; actualEndTime: string;
+        storeId: string; originalPeriodStart: string; originalPeriodEnd: string;
+        rate: number;
+      };
+      const valid = (candidateRows as any).rows as CRow[];
+      if (!valid.length) return { appliedCount: 0, addedAmount: 0, addedHours: 0 };
+
+      let addedHours = 0;
+      let addedAmount = 0;
+      const reasonParts: string[] = [];
+      const inserts: InsertPayrollBackPayItem[] = [];
+      const periodLabel = `${valid[0].originalPeriodStart}~${valid[0].originalPeriodEnd}`;
+
+      for (const r of valid) {
+        const [sh, sm] = (r.actualStartTime || "0:0").split(":").map(Number);
+        const [eh, em] = (r.actualEndTime || "0:0").split(":").map(Number);
+        const diffMins = eh * 60 + em - (sh * 60 + sm);
+        const hrs = Math.round(((diffMins < 0 ? diffMins + 1440 : diffMins) / 60) * 100) / 100;
+        const rate = Number(r.rate) || 0;
+        const amt = Math.round(hrs * rate * 100) / 100;
+        addedHours = Math.round((addedHours + hrs) * 100) / 100;
+        addedAmount = Math.round((addedAmount + amt) * 100) / 100;
+        inserts.push({
+          shiftTimesheetId: r.shiftTimesheetId,
+          appliedToPayrollId: payrollId,
+          originalPeriodStart: r.originalPeriodStart,
+          originalPeriodEnd: r.originalPeriodEnd,
+          hours: hrs,
+          rate,
+          amount: amt,
+          reason: `Back pay: ${periodLabel}`,
+        });
+      }
+      // Distinct period labels in reason
+      const distinctPeriods = Array.from(new Set(valid.map((v) => `${v.originalPeriodStart}~${v.originalPeriodEnd}`)));
+      reasonParts.push(`Back pay (${distinctPeriods.join(", ")}): +${addedHours}h / +$${addedAmount}`);
+
+      await tx.insert(payrollBackPayItems).values(inserts);
+
+      const newAdjustment = Math.round(((Number(targetPayroll.adjustment) || 0) + addedAmount) * 100) / 100;
+      const newCalculated = Number(targetPayroll.calculatedAmount) || 0;
+      const newTotal = Math.round((newCalculated + newAdjustment) * 100) / 100;
+      const priorReason = targetPayroll.adjustmentReason?.trim() || "";
+      const newReason = priorReason ? `${priorReason} | ${reasonParts.join(" ")}` : reasonParts.join(" ");
+
+      await tx.update(payrolls).set({
+        adjustment: newAdjustment,
+        adjustmentReason: newReason,
+        totalWithAdjustment: newTotal,
+        updatedAt: new Date(),
+      }).where(eq(payrolls.id, payrollId));
+
+      return { appliedCount: valid.length, addedAmount, addedHours };
+    });
+  }
+
+  async getBackPayItemsByPayroll(payrollId: string): Promise<PayrollBackPayItem[]> {
+    return db.select().from(payrollBackPayItems)
+      .where(eq(payrollBackPayItems.appliedToPayrollId, payrollId))
+      .orderBy(asc(payrollBackPayItems.originalPeriodStart));
   }
 
   async getDailyClosings(filters?: { storeId?: string; startDate?: string; endDate?: string }): Promise<DailyClosing[]> {

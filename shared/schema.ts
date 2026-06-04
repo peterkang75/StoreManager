@@ -699,6 +699,29 @@ export const insertShiftTimesheetSchema = createInsertSchema(shiftTimesheets).om
 export type InsertShiftTimesheet = z.infer<typeof insertShiftTimesheetSchema>;
 export type ShiftTimesheet = typeof shiftTimesheets.$inferSelect;
 
+// Back-pay tracking: which shift_timesheets have been applied as back-pay to which payroll.
+// UNIQUE(shift_timesheet_id) prevents the same shift from being paid twice.
+export const payrollBackPayItems = pgTable("payroll_back_pay_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  shiftTimesheetId: varchar("shift_timesheet_id").references(() => shiftTimesheets.id).notNull().unique(),
+  appliedToPayrollId: varchar("applied_to_payroll_id").references(() => payrolls.id).notNull(),
+  originalPeriodStart: text("original_period_start").notNull(),
+  originalPeriodEnd: text("original_period_end").notNull(),
+  hours: real("hours").default(0).notNull(),
+  rate: real("rate").default(0).notNull(),
+  amount: real("amount").default(0).notNull(),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertPayrollBackPayItemSchema = createInsertSchema(payrollBackPayItems).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertPayrollBackPayItem = z.infer<typeof insertPayrollBackPayItemSchema>;
+export type PayrollBackPayItem = typeof payrollBackPayItems.$inferSelect;
+
 export const notices = pgTable("notices", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   title: text("title").notNull(),
