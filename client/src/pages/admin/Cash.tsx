@@ -239,6 +239,40 @@ export function AdminCash() {
     return m;
   }, [cashExpenses]);
 
+  // §6.3.13 Per-week totals row — weekday (Mon–Fri), weekend (Sat–Sun), total.
+  // Caps inclusion at "today" so a mid-week view shows running totals, not
+  // projected ones from days that haven't happened yet.
+  const todayStr = toYMD(new Date());
+  const weeklyTotals = useMemo(() => {
+    type Bucket = { totalIncome: number; posSales: number; delivery: number; eftpos: number; cashSales: number; credit: number };
+    const init = (): Bucket => ({ totalIncome: 0, posSales: 0, delivery: 0, eftpos: 0, cashSales: 0, credit: 0 });
+    const weekday = init();
+    const weekend = init();
+    const total = init();
+    for (const c of dailyClosings ?? []) {
+      if (c.date > todayStr) continue;
+      const delivery = c.ubereatsAmount + c.doordashAmount;
+      const eftpos = Math.max(0, c.salesTotal - c.cashSales);
+      const totalIncome = c.salesTotal + delivery;
+      const credit = c.actualCashCounted;
+      const dow = new Date(c.date + "T00:00:00").getDay(); // 0=Sun, 6=Sat
+      const bucket = dow === 0 || dow === 6 ? weekend : weekday;
+      bucket.totalIncome += totalIncome;
+      bucket.posSales += c.salesTotal;
+      bucket.delivery += delivery;
+      bucket.eftpos += eftpos;
+      bucket.cashSales += c.cashSales;
+      bucket.credit += credit;
+      total.totalIncome += totalIncome;
+      total.posSales += c.salesTotal;
+      total.delivery += delivery;
+      total.eftpos += eftpos;
+      total.cashSales += c.cashSales;
+      total.credit += credit;
+    }
+    return { weekday, weekend, total };
+  }, [dailyClosings, todayStr]);
+
   const getStoreName = (storeId: string) => {
     return stores?.find(s => s.id === storeId)?.name || "-";
   };
@@ -429,6 +463,37 @@ export function AdminCash() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
+                        {/* §6.3.13 Weekly running totals — weekday / weekend / total, capped at today */}
+                        {([
+                          { label: "주중 합계", bucket: weeklyTotals.weekday, testid: "row-totals-weekday" },
+                          { label: "주말 합계", bucket: weeklyTotals.weekend, testid: "row-totals-weekend" },
+                          { label: "전체 합계", bucket: weeklyTotals.total,   testid: "row-totals-all"     },
+                        ] as const).map((t, idx) => (
+                          <TableRow
+                            key={t.testid}
+                            data-testid={t.testid}
+                            className={`bg-muted/40 hover:bg-muted/40 ${idx === 2 ? "border-b-2" : ""}`}
+                          >
+                            <TableCell className="w-8 px-2" />
+                            <TableCell
+                              colSpan={2}
+                              className={`text-xs uppercase tracking-wide text-muted-foreground ${idx === 2 ? "font-semibold text-foreground" : ""}`}
+                            >
+                              {t.label}
+                            </TableCell>
+                            <TableCell className={`text-right tabular-nums ${idx === 2 ? "font-semibold" : ""}`}>
+                              ${t.bucket.totalIncome.toFixed(2)}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">${t.bucket.posSales.toFixed(2)}</TableCell>
+                            <TableCell className="text-right tabular-nums">${t.bucket.delivery.toFixed(2)}</TableCell>
+                            <TableCell className="text-right tabular-nums">${t.bucket.eftpos.toFixed(2)}</TableCell>
+                            <TableCell className="text-right tabular-nums">${t.bucket.cashSales.toFixed(2)}</TableCell>
+                            <TableCell className={`text-right tabular-nums ${idx === 2 ? "font-semibold" : ""}`}>
+                              ${t.bucket.credit.toFixed(2)}
+                            </TableCell>
+                            <TableCell />
+                          </TableRow>
+                        ))}
                         {[...dailyClosings].sort((a, b) => a.date.localeCompare(b.date)).map(closing => {
                           const isShortage = closing.differenceAmount > 0.005;
                           const isOverage = closing.differenceAmount < -0.005;
