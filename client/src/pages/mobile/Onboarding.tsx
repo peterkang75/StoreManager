@@ -38,6 +38,7 @@ interface OnboardingData {
 
 function FileUploadArea({
   label,
+  requiredMark,
   icon: Icon,
   file,
   onFileChange,
@@ -45,6 +46,7 @@ function FileUploadArea({
   testId,
 }: {
   label: string;
+  requiredMark?: React.ReactNode;
   icon: React.ElementType;
   file: File | null;
   onFileChange: (file: File | null) => void;
@@ -72,7 +74,7 @@ function FileUploadArea({
 
   return (
     <div className="space-y-2">
-      <Label>{label}</Label>
+      <Label>{label}{requiredMark}</Label>
       <div
         onClick={handleClick}
         className="relative border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
@@ -211,6 +213,18 @@ export function MobileOnboarding() {
     retry: false,
   });
 
+  // §6.3.13 Admin-defined required fields — same source the EmployeeDetail and
+  // EmployeePortal forms use. Endpoint is read-only and intentionally public.
+  const { data: reqData } = useQuery<{ requiredFields: string[] }>({
+    queryKey: ["/api/admin/employee-field-requirements"],
+    queryFn: () => fetch("/api/admin/employee-field-requirements").then(r => r.json()),
+    staleTime: 60000,
+  });
+  const requiredFields = reqData?.requiredFields ?? [];
+  const isReq = (name: string) => requiredFields.includes(name);
+  const Req = ({ name }: { name: string }) =>
+    isReq(name) ? <span className="text-destructive font-bold ml-0.5">*</span> : null;
+
   const submitMutation = useMutation({
     mutationFn: async (employeeData: FormData) => {
       const res = await fetch(`/api/onboarding/${token}`, {
@@ -238,9 +252,46 @@ export function MobileOnboarding() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!formData.firstName?.trim() || !formData.lastName?.trim()) {
       toast({ title: "Error", description: "First and last name are required", variant: "destructive" });
+      return;
+    }
+
+    // §6.3.13 Admin-defined required fields. Selfie/passport/signature live as
+    // File state, not formData strings — map their admin-side column names so
+    // requiring selfieUrl forces the selfie upload here.
+    const fileMap: Record<string, File | null> = {
+      selfieUrl: selfie,
+      passportUrl: passport,
+      signature: signature,
+    };
+    const onboardingFieldNames = new Set([
+      "nickname", "firstName", "lastName", "email", "phone", "dob", "gender", "maritalStatus",
+      "streetAddress", "streetAddress2", "suburb", "state", "postCode",
+      "visaType", "visaExpiry", "lineId", "typeOfContact",
+      "rate", "fixedAmount", "contractPosition", "fhc", "salaryType", "annualLeave", "storeId",
+      "tfn", "bsb", "accountNo", "superCompany", "superMembershipNo",
+      ...Object.keys(fileMap),
+    ]);
+    const missing: string[] = [];
+    for (const name of requiredFields) {
+      if (!onboardingFieldNames.has(name)) continue;
+      if (name in fileMap) {
+        if (!fileMap[name]) missing.push(name);
+        continue;
+      }
+      const v = (currentData as any)[name];
+      if (v === null || v === undefined || (typeof v === "string" && v.trim() === "")) {
+        missing.push(name);
+      }
+    }
+    if (missing.length > 0) {
+      toast({
+        title: "필수 항목이 비어있어 / Required fields missing",
+        description: missing.join(", "),
+        variant: "destructive",
+      });
       return;
     }
 
@@ -310,7 +361,7 @@ export function MobileOnboarding() {
             </h3>
 
             <div className="space-y-2">
-              <Label htmlFor="nickname">Nickname</Label>
+              <Label htmlFor="nickname">Nickname <Req name="nickname" /></Label>
               <Input
                 id="nickname"
                 value={currentData.nickname ?? ""}
@@ -323,7 +374,7 @@ export function MobileOnboarding() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="firstName">First Name *</Label>
+                <Label htmlFor="firstName">First Name <Req name="firstName" /></Label>
                 <Input
                   id="firstName"
                   value={currentData.firstName}
@@ -334,7 +385,7 @@ export function MobileOnboarding() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="lastName">Last Name *</Label>
+                <Label htmlFor="lastName">Last Name <Req name="lastName" /></Label>
                 <Input
                   id="lastName"
                   value={currentData.lastName}
@@ -348,7 +399,7 @@ export function MobileOnboarding() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">Email <Req name="email" /></Label>
                 <Input
                   id="email"
                   type="email"
@@ -359,7 +410,7 @@ export function MobileOnboarding() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="phone">Phone</Label>
+                <Label htmlFor="phone">Phone <Req name="phone" /></Label>
                 <Input
                   id="phone"
                   type="tel"
@@ -373,7 +424,7 @@ export function MobileOnboarding() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="dob">Date of Birth</Label>
+                <Label htmlFor="dob">Date of Birth <Req name="dob" /></Label>
                 <Input
                   id="dob"
                   type="date"
@@ -384,7 +435,7 @@ export function MobileOnboarding() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="gender">Gender</Label>
+                <Label htmlFor="gender">Gender <Req name="gender" /></Label>
                 <Select
                   value={currentData.gender ?? ""}
                   onValueChange={(value) => handleChange("gender", value)}
@@ -402,7 +453,7 @@ export function MobileOnboarding() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="maritalStatus">Marital Status</Label>
+              <Label htmlFor="maritalStatus">Marital Status <Req name="maritalStatus" /></Label>
               <Select
                 value={currentData.maritalStatus ?? ""}
                 onValueChange={(value) => handleChange("maritalStatus", value)}
@@ -428,7 +479,7 @@ export function MobileOnboarding() {
             </h3>
 
             <div className="space-y-2">
-              <Label htmlFor="streetAddress">Street Address</Label>
+              <Label htmlFor="streetAddress">Street Address <Req name="streetAddress" /></Label>
               <Input
                 id="streetAddress"
                 value={currentData.streetAddress ?? ""}
@@ -440,7 +491,7 @@ export function MobileOnboarding() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="streetAddress2">Address Line 2</Label>
+              <Label htmlFor="streetAddress2">Address Line 2 <Req name="streetAddress2" /></Label>
               <Input
                 id="streetAddress2"
                 value={currentData.streetAddress2 ?? ""}
@@ -453,7 +504,7 @@ export function MobileOnboarding() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="suburb">Suburb</Label>
+                <Label htmlFor="suburb">Suburb <Req name="suburb" /></Label>
                 <Input
                   id="suburb"
                   value={currentData.suburb ?? ""}
@@ -463,7 +514,7 @@ export function MobileOnboarding() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="state">State</Label>
+                <Label htmlFor="state">State <Req name="state" /></Label>
                 <Select
                   value={currentData.state ?? ""}
                   onValueChange={(value) => handleChange("state", value)}
@@ -486,7 +537,7 @@ export function MobileOnboarding() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="postCode">Post Code</Label>
+              <Label htmlFor="postCode">Post Code <Req name="postCode" /></Label>
               <Input
                 id="postCode"
                 value={currentData.postCode ?? ""}
@@ -506,7 +557,7 @@ export function MobileOnboarding() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="visaType">Visa Type</Label>
+                <Label htmlFor="visaType">Visa Type <Req name="visaType" /></Label>
                 <Select
                   value={currentData.visaType ?? ""}
                   onValueChange={(val) => handleChange("visaType", val)}
@@ -523,7 +574,7 @@ export function MobileOnboarding() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="visaExpiry">Expiry Date</Label>
+                <Label htmlFor="visaExpiry">Expiry Date <Req name="visaExpiry" /></Label>
                 <Input
                   id="visaExpiry"
                   type="date"
@@ -537,7 +588,7 @@ export function MobileOnboarding() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="lineId">LINE ID</Label>
+                <Label htmlFor="lineId">LINE ID <Req name="lineId" /></Label>
                 <Input
                   id="lineId"
                   value={currentData.lineId ?? ""}
@@ -547,7 +598,7 @@ export function MobileOnboarding() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="typeOfContact">Contact Type</Label>
+                <Label htmlFor="typeOfContact">Contact Type <Req name="typeOfContact" /></Label>
                 <Select
                   value={currentData.typeOfContact ?? ""}
                   onValueChange={(value) => handleChange("typeOfContact", value)}
@@ -574,7 +625,7 @@ export function MobileOnboarding() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="rate">Rate</Label>
+                <Label htmlFor="rate">Rate <Req name="rate" /></Label>
                 <Input
                   id="rate"
                   value={currentData.rate ?? ""}
@@ -585,7 +636,7 @@ export function MobileOnboarding() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="fixedAmount">Fixed Amount</Label>
+                <Label htmlFor="fixedAmount">Fixed Amount <Req name="fixedAmount" /></Label>
                 <Input
                   id="fixedAmount"
                   value={currentData.fixedAmount ?? ""}
@@ -598,7 +649,7 @@ export function MobileOnboarding() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="contractPosition">Position</Label>
+                <Label htmlFor="contractPosition">Position <Req name="contractPosition" /></Label>
                 <Input
                   id="contractPosition"
                   value={currentData.contractPosition ?? ""}
@@ -608,7 +659,7 @@ export function MobileOnboarding() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="fhc">FHC</Label>
+                <Label htmlFor="fhc">FHC <Req name="fhc" /></Label>
                 <Input
                   id="fhc"
                   value={currentData.fhc ?? ""}
@@ -621,7 +672,7 @@ export function MobileOnboarding() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="salaryType">Salary Type</Label>
+                <Label htmlFor="salaryType">Salary Type <Req name="salaryType" /></Label>
                 <Select
                   value={currentData.salaryType ?? ""}
                   onValueChange={(value) => handleChange("salaryType", value)}
@@ -637,7 +688,7 @@ export function MobileOnboarding() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="annualLeave">Annual Leave</Label>
+                <Label htmlFor="annualLeave">Annual Leave <Req name="annualLeave" /></Label>
                 <Input
                   id="annualLeave"
                   value={currentData.annualLeave ?? ""}
@@ -650,7 +701,7 @@ export function MobileOnboarding() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="storeId">Assigned Store</Label>
+              <Label htmlFor="storeId">Assigned Store <Req name="storeId" /></Label>
               <Select
                 value={currentData.storeId ?? ""}
                 onValueChange={(value) => handleChange("storeId", value)}
@@ -677,7 +728,7 @@ export function MobileOnboarding() {
             </h3>
 
             <div className="space-y-2">
-              <Label htmlFor="tfn">Tax File Number (TFN)</Label>
+              <Label htmlFor="tfn">Tax File Number (TFN) <Req name="tfn" /></Label>
               <Input
                 id="tfn"
                 value={currentData.tfn ?? ""}
@@ -689,7 +740,7 @@ export function MobileOnboarding() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="bsb">BSB</Label>
+                <Label htmlFor="bsb">BSB <Req name="bsb" /></Label>
                 <Input
                   id="bsb"
                   value={currentData.bsb ?? ""}
@@ -699,7 +750,7 @@ export function MobileOnboarding() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="accountNo">Account Number</Label>
+                <Label htmlFor="accountNo">Account Number <Req name="accountNo" /></Label>
                 <Input
                   id="accountNo"
                   value={currentData.accountNo ?? ""}
@@ -719,7 +770,7 @@ export function MobileOnboarding() {
             </h3>
 
             <div className="space-y-2">
-              <Label htmlFor="superCompany">Super Company</Label>
+              <Label htmlFor="superCompany">Super Company <Req name="superCompany" /></Label>
               <Input
                 id="superCompany"
                 value={currentData.superCompany ?? ""}
@@ -730,7 +781,7 @@ export function MobileOnboarding() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="superMembershipNo">Membership Number</Label>
+              <Label htmlFor="superMembershipNo">Membership Number <Req name="superMembershipNo" /></Label>
               <Input
                 id="superMembershipNo"
                 value={currentData.superMembershipNo ?? ""}
@@ -750,6 +801,7 @@ export function MobileOnboarding() {
 
             <FileUploadArea
               label="Selfie Photo"
+              requiredMark={<Req name="selfieUrl" />}
               icon={Camera}
               file={selfie}
               onFileChange={setSelfie}
@@ -759,6 +811,7 @@ export function MobileOnboarding() {
 
             <FileUploadArea
               label="Passport Cover"
+              requiredMark={<Req name="passportUrl" />}
               icon={FileText}
               file={passport}
               onFileChange={setPassport}
@@ -815,6 +868,7 @@ export function MobileOnboarding() {
 
             <FileUploadArea
               label="Signature"
+              requiredMark={<Req name="signature" />}
               icon={PenTool}
               file={signature}
               onFileChange={setSignature}
