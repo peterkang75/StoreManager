@@ -3490,10 +3490,11 @@ export async function registerRoutes(
       // mirrored on every create/update via storage.mirrorClosingToDailySales,
       // and the bootstrap migration backfills any pre-existing closings so this
       // is correct for both legacy and ongoing data.
-      const [salesRows, allPayrolls, allInvoices] = await Promise.all([
+      const [salesRows, allPayrolls, allInvoices, allBackPay] = await Promise.all([
         storage.getDailySales({ storeId, startDate, endDate }),
         storage.getPayrolls({}),
         storage.getSupplierInvoices({ storeId, startDate, endDate }),
+        storage.getBackPayItemsForCostReport(),
       ]);
 
       // Payrolls that overlap the requested date range
@@ -3504,11 +3505,24 @@ export async function registerRoutes(
         return true;
       });
 
+      // Back-pay attributed to the ORIGINAL period (accrual): the work was done then,
+      // even though the money is disbursed in a later pay run. Back-pay lives in
+      // payroll.adjustment, never in grossAmount, so adding it here does not double-count
+      // newly-added shifts. (Modified-existing shifts could double-count — see
+      // getBackPayItemsForCostReport; not triggered by current data.)
+      const filteredBackPay = allBackPay.filter(b => {
+        if (storeId && b.storeId !== storeId) return false;
+        if (startDate && b.originalPeriodEnd < startDate) return false;
+        if (endDate   && b.originalPeriodStart > endDate)  return false;
+        return true;
+      });
+
       // Exclude quarantined invoices
       const filteredInvoices = allInvoices.filter(inv => inv.status !== "QUARANTINE");
 
       const salesTotal  = salesRows.reduce((s, r) => s + (r.total ?? 0), 0);
-      const laborTotal  = filteredPayrolls.reduce((s, p) => s + (p.grossAmount ?? 0), 0);
+      const laborTotal  = filteredPayrolls.reduce((s, p) => s + (p.grossAmount ?? 0), 0)
+                        + filteredBackPay.reduce((s, b) => s + (b.amount ?? 0), 0);
       const cogsTotal   = filteredInvoices.reduce((s, i) => s + (i.amount ?? 0), 0);
       const grossProfit = salesTotal - laborTotal - cogsTotal;
 
@@ -3533,6 +3547,14 @@ export async function registerRoutes(
         if (!key) continue;
         const row = dateMap.get(key) ?? { date: key, sales: 0, cogs: 0, labor: 0 };
         row.labor += p.grossAmount ?? 0;
+        dateMap.set(key, row);
+      }
+      // Back-pay labor → bucketed at its ORIGINAL period start (accrual, same as payrolls above)
+      for (const b of filteredBackPay) {
+        const key = b.originalPeriodStart;
+        if (!key) continue;
+        const row = dateMap.get(key) ?? { date: key, sales: 0, cogs: 0, labor: 0 };
+        row.labor += b.amount ?? 0;
         dateMap.set(key, row);
       }
       const dailyTrend = Array.from(dateMap.values()).sort((a, b) =>

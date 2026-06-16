@@ -147,6 +147,7 @@ export interface IStorage {
   detectBackPayCandidates(args: { storeId: string; forPeriodStart: string; forPeriodEnd: string }): Promise<BackPayCandidate[]>;
   applyBackPay(args: { payrollId: string; shiftTimesheetIds: string[] }): Promise<{ appliedCount: number; addedAmount: number; addedHours: number }>;
   getBackPayItemsByPayroll(payrollId: string): Promise<PayrollBackPayItem[]>;
+  getBackPayItemsForCostReport(): Promise<Array<{ storeId: string | null; originalPeriodStart: string; originalPeriodEnd: string; amount: number; hours: number }>>;
 
   // §6.3.13 Employee form required-field settings (singleton row).
   getEmployeeFieldRequirements(): Promise<string[]>;
@@ -939,6 +940,7 @@ export class MemStorage implements IStorage {
     return { appliedCount: 0, addedAmount: 0, addedHours: 0 };
   }
   async getBackPayItemsByPayroll(): Promise<PayrollBackPayItem[]> { return []; }
+  async getBackPayItemsForCostReport(): Promise<Array<{ storeId: string | null; originalPeriodStart: string; originalPeriodEnd: string; amount: number; hours: number }>> { return []; }
 
   private _employeeFieldRequirements: string[] = [];
   async getEmployeeFieldRequirements(): Promise<string[]> { return this._employeeFieldRequirements; }
@@ -2601,10 +2603,19 @@ export class DatabaseStorage implements IStorage {
       const priorReason = targetPayroll.adjustmentReason?.trim() || "";
       const newReason = priorReason ? `${priorReason} | ${reasonParts.join(" ")}` : reasonParts.join(" ");
 
+      // Disburse the back-pay as CASH (envelope), matching recalcRow's adjustment→cash
+      // model on the payroll page (cashAmount = totalWithAdjustment − grossAmount).
+      // Without this, the amount lands only in `adjustment`/`totalWithAdjustment`; the
+      // payslip's Cash/Bank columns and the envelope/bank-deposit reports read the stored
+      // cashAmount/bankDepositAmount, so the employee would NOT actually be paid until a
+      // manual re-save. grossAmount/tax/super are unchanged, so bankDepositAmount stays put.
+      const newCash = Math.round(((Number(targetPayroll.cashAmount) || 0) + addedAmount) * 100) / 100;
+
       await tx.update(payrolls).set({
         adjustment: newAdjustment,
         adjustmentReason: newReason,
         totalWithAdjustment: newTotal,
+        cashAmount: newCash,
         updatedAt: new Date(),
       }).where(eq(payrolls.id, payrollId));
 
@@ -2616,6 +2627,29 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(payrollBackPayItems)
       .where(eq(payrollBackPayItems.appliedToPayrollId, payrollId))
       .orderBy(asc(payrollBackPayItems.originalPeriodStart));
+  }
+
+  // §6.3.12 Back-pay items joined with the shift's store, for accrual-correct cost
+  // reporting. Each amount is attributed to its ORIGINAL period (when the work was
+  // done) — NOT the pay period it was disbursed in.
+  // No double-count for *newly added* shifts: their hours were never in the original
+  // period's grossAmount, so adding the back-pay amount to that period is exact.
+  // CAVEAT: applyBackPay records the FULL shift amount, not a delta. If a shift was
+  // already counted in the original payroll's grossAmount and later edited (a
+  // modified-existing back-pay candidate), attributing the full amount here would
+  // double-count in that period. All current items are newly-added shifts, so this
+  // is not yet triggered — revisit if applyBackPay starts emitting delta-based items.
+  async getBackPayItemsForCostReport(): Promise<Array<{ storeId: string | null; originalPeriodStart: string; originalPeriodEnd: string; amount: number; hours: number }>> {
+    const result = await db.execute(sql`
+      SELECT st.store_id              AS "storeId",
+             bpi.original_period_start AS "originalPeriodStart",
+             bpi.original_period_end   AS "originalPeriodEnd",
+             bpi.amount               AS "amount",
+             bpi.hours                AS "hours"
+      FROM payroll_back_pay_items bpi
+      JOIN shift_timesheets st ON st.id = bpi.shift_timesheet_id
+    `);
+    return (result as any).rows as Array<{ storeId: string | null; originalPeriodStart: string; originalPeriodEnd: string; amount: number; hours: number }>;
   }
 
   // §6.3.13 Employee field requirements (singleton id=1).
