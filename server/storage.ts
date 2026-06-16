@@ -2521,6 +2521,10 @@ export class DatabaseStorage implements IStorage {
 
       // Re-query candidates (state may have shifted between detect and apply).
       // We only re-process the IDs the client asked for, and only if they still qualify.
+      // Build an escaped IN-list (codebase convention) instead of ANY(${array}::text[]):
+      // drizzle expands a JS array param as a record/scalar, which breaks the cast
+      // ("malformed array literal" for 1 id, "cannot cast record to text[]" for 2+).
+      const idList = shiftTimesheetIds.map((id) => `'${id.replace(/'/g, "''")}'`).join(",");
       const candidateRows = await tx.execute(sql`
         WITH payroll_closes AS (
           SELECT employee_id, period_start, period_end,
@@ -2547,7 +2551,7 @@ export class DatabaseStorage implements IStorage {
         JOIN employees e ON e.id = st.employee_id
         LEFT JOIN employee_store_assignments esa
           ON esa.employee_id = st.employee_id AND esa.store_id = ${storeId}
-        WHERE st.id = ANY(${shiftTimesheetIds}::text[])
+        WHERE st.id IN (${sql.raw(idList)})
           AND st.employee_id = ${targetPayroll.employeeId}
           AND st.store_id = ${storeId}
           AND st.status = 'APPROVED'
