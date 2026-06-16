@@ -60,11 +60,10 @@ export function AdminPaySlips() {
     fetch(`/api/payrolls/envelope-slips?${qs}`)
       .then((res) => res.json())
       .then((data: PaySlip[]) => {
-        setSlips(data.filter(s =>
-          s.grandTotals.grossAmount > 0 ||
-          s.grandTotals.cashAmount > 0 ||
-          s.grandTotals.bankDepositAmount > 0
-        ));
+        // Pay slips are the paper that goes INTO the cash envelope, so only
+        // employees who actually receive cash this period need one. Anyone with
+        // cashAmount 0 (bank-only, intercompany, etc.) is excluded.
+        setSlips(data.filter(s => s.grandTotals.cashAmount > 0));
         setLoading(false);
         setTimeout(() => window.print(), 500);
       })
