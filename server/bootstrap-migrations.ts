@@ -135,6 +135,19 @@ const STATEMENTS: string[] = [
      created_at timestamp NOT NULL DEFAULT now()
    )`,
   `CREATE INDEX IF NOT EXISTS idx_back_pay_items_payroll ON payroll_back_pay_items (applied_to_payroll_id)`,
+  // §6.3.12 paid_amount: actual disbursed $ (0 for fixed-salary). One-time backfill
+  // inside the guard so it runs ONLY when the column is first added — re-running on
+  // every boot would wrongly overwrite future fixed-salary rows (paid_amount=0).
+  `DO $$
+   BEGIN
+     IF NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_name = 'payroll_back_pay_items' AND column_name = 'paid_amount'
+     ) THEN
+       ALTER TABLE payroll_back_pay_items ADD COLUMN paid_amount real NOT NULL DEFAULT 0;
+       UPDATE payroll_back_pay_items SET paid_amount = amount;
+     END IF;
+   END $$`,
 
   // §6.3.13 Singleton settings: required-field list for the employee detail form.
   `CREATE TABLE IF NOT EXISTS employee_field_requirements (

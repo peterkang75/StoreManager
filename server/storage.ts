@@ -65,6 +65,7 @@ export interface BackPayCandidate {
   employeeName: string;
   storeId: string;
   rate: number;
+  isFixedSalary: boolean; // fixed-salary at this store → hours recorded, paid $0
   originalPayrollId: string;
   originalPeriodStart: string;
   originalPeriodEnd: string;
@@ -147,7 +148,7 @@ export interface IStorage {
   detectBackPayCandidates(args: { storeId: string; forPeriodStart: string; forPeriodEnd: string }): Promise<BackPayCandidate[]>;
   applyBackPay(args: { payrollId: string; shiftTimesheetIds: string[] }): Promise<{ appliedCount: number; addedAmount: number; addedHours: number }>;
   getBackPayItemsByPayroll(payrollId: string): Promise<PayrollBackPayItem[]>;
-  getBackPayItemsForCostReport(): Promise<Array<{ storeId: string | null; originalPeriodStart: string; originalPeriodEnd: string; amount: number; hours: number }>>;
+  getBackPayItemsForCostReport(): Promise<Array<{ storeId: string | null; originalPeriodStart: string; originalPeriodEnd: string; paidAmount: number; hours: number }>>;
 
   // §6.3.13 Employee form required-field settings (singleton row).
   getEmployeeFieldRequirements(): Promise<string[]>;
@@ -940,7 +941,7 @@ export class MemStorage implements IStorage {
     return { appliedCount: 0, addedAmount: 0, addedHours: 0 };
   }
   async getBackPayItemsByPayroll(): Promise<PayrollBackPayItem[]> { return []; }
-  async getBackPayItemsForCostReport(): Promise<Array<{ storeId: string | null; originalPeriodStart: string; originalPeriodEnd: string; amount: number; hours: number }>> { return []; }
+  async getBackPayItemsForCostReport(): Promise<Array<{ storeId: string | null; originalPeriodStart: string; originalPeriodEnd: string; paidAmount: number; hours: number }>> { return []; }
 
   private _employeeFieldRequirements: string[] = [];
   async getEmployeeFieldRequirements(): Promise<string[]> { return this._employeeFieldRequirements; }
@@ -2434,7 +2435,10 @@ export class DatabaseStorage implements IStorage {
         st.updated_at               AS "approvedAt",
         st.store_id                 AS "storeId",
         (e.first_name || ' ' || e.last_name) AS "employeeName",
-        COALESCE(NULLIF(esa.rate, '')::real, NULLIF(e.rate, '')::real, 0) AS "rate"
+        COALESCE(NULLIF(esa.rate, '')::real, NULLIF(e.rate, '')::real, 0) AS "rate",
+        (COALESCE(NULLIF(esa.fixed_amount, '')::real, 0) > 0
+          OR esa.is_fixed_salary IS TRUE
+          OR COALESCE(NULLIF(e.fixed_amount, '')::real, 0) > 0) AS "isFixedSalary"
       FROM payroll_closes pc
       JOIN shift_timesheets st
         ON st.employee_id = pc.employee_id
@@ -2455,7 +2459,7 @@ export class DatabaseStorage implements IStorage {
     `);
 
     type Row = {
-      employeeId: string; employeeName: string; storeId: string; rate: number;
+      employeeId: string; employeeName: string; storeId: string; rate: number; isFixedSalary: boolean;
       originalPayrollId: string; originalPeriodStart: string; originalPeriodEnd: string;
       payrollCreatedAt: Date | string;
       shiftTimesheetId: string; date: string; actualStartTime: string; actualEndTime: string;
@@ -2481,6 +2485,7 @@ export class DatabaseStorage implements IStorage {
           employeeName: r.employeeName,
           storeId: r.storeId,
           rate,
+          isFixedSalary: !!r.isFixedSalary,
           originalPayrollId: r.originalPayrollId,
           originalPeriodStart: r.originalPeriodStart,
           originalPeriodEnd: r.originalPeriodEnd,
@@ -2542,7 +2547,10 @@ export class DatabaseStorage implements IStorage {
           st.store_id          AS "storeId",
           pc.period_start      AS "originalPeriodStart",
           pc.period_end        AS "originalPeriodEnd",
-          COALESCE(NULLIF(esa.rate, '')::real, NULLIF(e.rate, '')::real, 0) AS "rate"
+          COALESCE(NULLIF(esa.rate, '')::real, NULLIF(e.rate, '')::real, 0) AS "rate",
+          (COALESCE(NULLIF(esa.fixed_amount, '')::real, 0) > 0
+            OR esa.is_fixed_salary IS TRUE
+            OR COALESCE(NULLIF(e.fixed_amount, '')::real, 0) > 0) AS "isFixedSalary"
         FROM shift_timesheets st
         JOIN payroll_closes pc
           ON pc.employee_id = st.employee_id
@@ -2564,16 +2572,19 @@ export class DatabaseStorage implements IStorage {
       type CRow = {
         shiftTimesheetId: string; actualStartTime: string; actualEndTime: string;
         storeId: string; originalPeriodStart: string; originalPeriodEnd: string;
-        rate: number;
+        rate: number; isFixedSalary: boolean;
       };
       const valid = (candidateRows as any).rows as CRow[];
       if (!valid.length) return { appliedCount: 0, addedAmount: 0, addedHours: 0 };
 
+      // A back-pay call is per-employee, so salary type is uniform across rows.
+      const isFixed = valid.some((v) => v.isFixedSalary);
+
       let addedHours = 0;
-      let addedAmount = 0;
+      let addedAmount = 0; // notional (hours × rate), recorded on every item
+      let addedPaid = 0;   // actually disbursed (0 for fixed-salary)
       const reasonParts: string[] = [];
       const inserts: InsertPayrollBackPayItem[] = [];
-      const periodLabel = `${valid[0].originalPeriodStart}~${valid[0].originalPeriodEnd}`;
 
       for (const r of valid) {
         const [sh, sm] = (r.actualStartTime || "0:0").split(":").map(Number);
@@ -2582,8 +2593,11 @@ export class DatabaseStorage implements IStorage {
         const hrs = Math.round(((diffMins < 0 ? diffMins + 1440 : diffMins) / 60) * 100) / 100;
         const rate = Number(r.rate) || 0;
         const amt = Math.round(hrs * rate * 100) / 100;
+        const paid = r.isFixedSalary ? 0 : amt;
+        const periodLabel = `${r.originalPeriodStart}~${r.originalPeriodEnd}`;
         addedHours = Math.round((addedHours + hrs) * 100) / 100;
         addedAmount = Math.round((addedAmount + amt) * 100) / 100;
+        addedPaid = Math.round((addedPaid + paid) * 100) / 100;
         inserts.push({
           shiftTimesheetId: r.shiftTimesheetId,
           appliedToPayrollId: payrollId,
@@ -2592,16 +2606,23 @@ export class DatabaseStorage implements IStorage {
           hours: hrs,
           rate,
           amount: amt,
+          paidAmount: paid,
           reason: `Back pay: ${periodLabel}`,
         });
       }
       // Distinct period labels in reason
       const distinctPeriods = Array.from(new Set(valid.map((v) => `${v.originalPeriodStart}~${v.originalPeriodEnd}`)));
-      reasonParts.push(`Back pay (${distinctPeriods.join(", ")}): +${addedHours}h / +$${addedAmount}`);
+      reasonParts.push(
+        isFixed
+          ? `Back pay (${distinctPeriods.join(", ")}): +${addedHours}h (hours only — fixed salary, no pay)`
+          : `Back pay (${distinctPeriods.join(", ")}): +${addedHours}h / +$${addedPaid}`
+      );
 
       await tx.insert(payrollBackPayItems).values(inserts);
 
-      const newAdjustment = Math.round(((Number(targetPayroll.adjustment) || 0) + addedAmount) * 100) / 100;
+      // Only the actually-disbursed amount (addedPaid) hits the payroll/cash — fixed-salary
+      // back-pay records hours but pays nothing, so adjustment/cash stay put for them.
+      const newAdjustment = Math.round(((Number(targetPayroll.adjustment) || 0) + addedPaid) * 100) / 100;
       const newCalculated = Number(targetPayroll.calculatedAmount) || 0;
       const newTotal = Math.round((newCalculated + newAdjustment) * 100) / 100;
       const priorReason = targetPayroll.adjustmentReason?.trim() || "";
@@ -2613,7 +2634,7 @@ export class DatabaseStorage implements IStorage {
       // payslip's Cash/Bank columns and the envelope/bank-deposit reports read the stored
       // cashAmount/bankDepositAmount, so the employee would NOT actually be paid until a
       // manual re-save. grossAmount/tax/super are unchanged, so bankDepositAmount stays put.
-      const newCash = Math.round(((Number(targetPayroll.cashAmount) || 0) + addedAmount) * 100) / 100;
+      const newCash = Math.round(((Number(targetPayroll.cashAmount) || 0) + addedPaid) * 100) / 100;
 
       await tx.update(payrolls).set({
         adjustment: newAdjustment,
@@ -2623,7 +2644,9 @@ export class DatabaseStorage implements IStorage {
         updatedAt: new Date(),
       }).where(eq(payrolls.id, payrollId));
 
-      return { appliedCount: valid.length, addedAmount, addedHours };
+      // addedAmount returned = actually disbursed (addedPaid) so the UI toast shows $0
+      // for fixed-salary; addedHours always reflects the recorded hours.
+      return { appliedCount: valid.length, addedAmount: addedPaid, addedHours };
     });
   }
 
@@ -2633,27 +2656,25 @@ export class DatabaseStorage implements IStorage {
       .orderBy(asc(payrollBackPayItems.originalPeriodStart));
   }
 
-  // §6.3.12 Back-pay items joined with the shift's store, for accrual-correct cost
-  // reporting. Each amount is attributed to its ORIGINAL period (when the work was
-  // done) — NOT the pay period it was disbursed in.
-  // No double-count for *newly added* shifts: their hours were never in the original
-  // period's grossAmount, so adding the back-pay amount to that period is exact.
-  // CAVEAT: applyBackPay records the FULL shift amount, not a delta. If a shift was
-  // already counted in the original payroll's grossAmount and later edited (a
-  // modified-existing back-pay candidate), attributing the full amount here would
-  // double-count in that period. All current items are newly-added shifts, so this
-  // is not yet triggered — revisit if applyBackPay starts emitting delta-based items.
-  async getBackPayItemsForCostReport(): Promise<Array<{ storeId: string | null; originalPeriodStart: string; originalPeriodEnd: string; amount: number; hours: number }>> {
+  // §6.3.12 Back-pay items joined with the shift's store, for accrual-correct reporting.
+  // Each row is attributed to its ORIGINAL period (when the work was done) — NOT the
+  // pay period it was disbursed in. Returns BOTH paidAmount (actual cost — 0 for
+  // fixed-salary) and hours (recorded for everyone), so cost views use paidAmount and
+  // hours views use hours.
+  // No double-count for *newly added* shifts: their hours/pay were never in the original
+  // period's payroll. CAVEAT: applyBackPay records the FULL shift, not a delta — a
+  // modified-existing candidate would double-count. All current items are newly-added.
+  async getBackPayItemsForCostReport(): Promise<Array<{ storeId: string | null; originalPeriodStart: string; originalPeriodEnd: string; paidAmount: number; hours: number }>> {
     const result = await db.execute(sql`
       SELECT st.store_id              AS "storeId",
              bpi.original_period_start AS "originalPeriodStart",
              bpi.original_period_end   AS "originalPeriodEnd",
-             bpi.amount               AS "amount",
+             bpi.paid_amount          AS "paidAmount",
              bpi.hours                AS "hours"
       FROM payroll_back_pay_items bpi
       JOIN shift_timesheets st ON st.id = bpi.shift_timesheet_id
     `);
-    return (result as any).rows as Array<{ storeId: string | null; originalPeriodStart: string; originalPeriodEnd: string; amount: number; hours: number }>;
+    return (result as any).rows as Array<{ storeId: string | null; originalPeriodStart: string; originalPeriodEnd: string; paidAmount: number; hours: number }>;
   }
 
   // §6.3.13 Employee field requirements (singleton id=1).

@@ -710,7 +710,11 @@ export const payrollBackPayItems = pgTable("payroll_back_pay_items", {
   originalPeriodEnd: text("original_period_end").notNull(),
   hours: real("hours").default(0).notNull(),
   rate: real("rate").default(0).notNull(),
+  // amount = notional value of the work (hours × rate), recorded for EVERY employee.
+  // paidAmount = what was actually disbursed: equals amount for hourly staff, 0 for
+  // fixed-salary staff (their pay doesn't change with hours — only hours are tracked).
   amount: real("amount").default(0).notNull(),
+  paidAmount: real("paid_amount").default(0).notNull(),
   reason: text("reason"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

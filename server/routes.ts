@@ -3557,7 +3557,7 @@ export async function registerRoutes(
 
       const salesTotal  = salesRows.reduce((s, r) => s + (r.total ?? 0), 0);
       const laborTotal  = filteredPayrolls.reduce((s, p) => s + (p.grossAmount ?? 0), 0)
-                        + filteredBackPay.reduce((s, b) => s + (b.amount ?? 0), 0);
+                        + filteredBackPay.reduce((s, b) => s + (b.paidAmount ?? 0), 0);
       const cogsTotal   = filteredInvoices.reduce((s, i) => s + (i.amount ?? 0), 0);
       const grossProfit = salesTotal - laborTotal - cogsTotal;
 
@@ -3584,12 +3584,13 @@ export async function registerRoutes(
         row.labor += p.grossAmount ?? 0;
         dateMap.set(key, row);
       }
-      // Back-pay labor → bucketed at its ORIGINAL period start (accrual, same as payrolls above)
+      // Back-pay labor → bucketed at its ORIGINAL period start (accrual, same as payrolls above).
+      // Uses paidAmount so fixed-salary back-pay (hours-only, $0) doesn't inflate cost.
       for (const b of filteredBackPay) {
         const key = b.originalPeriodStart;
         if (!key) continue;
         const row = dateMap.get(key) ?? { date: key, sales: 0, cogs: 0, labor: 0 };
-        row.labor += b.amount ?? 0;
+        row.labor += b.paidAmount ?? 0;
         dateMap.set(key, row);
       }
       const dailyTrend = Array.from(dateMap.values()).sort((a, b) =>

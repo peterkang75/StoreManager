@@ -471,6 +471,7 @@ export function AdminPayrolls() {
     employeeName: string;
     storeId: string;
     rate: number;
+    isFixedSalary: boolean;
     originalPayrollId: string;
     originalPeriodStart: string;
     originalPeriodEnd: string;
@@ -526,7 +527,8 @@ export function AdminPayrolls() {
   });
 
   const totalBackPayCount = backPayCandidates.reduce((sum, g) => sum + g.shifts.length, 0);
-  const totalBackPayAmount = backPayCandidates.reduce((sum, g) => sum + g.totalAmount, 0);
+  // Banner $ total = actually-payable only; fixed-salary groups are hours-only ($0).
+  const totalBackPayAmount = backPayCandidates.reduce((sum, g) => sum + (g.isFixedSalary ? 0 : g.totalAmount), 0);
 
   // PENDING-shifts in current period (Q3): warn before save
   const pendingShiftsInPeriod = useMemo(() => {
@@ -2341,16 +2343,31 @@ export function AdminPayrolls() {
                   <div key={`${g.employeeId}-${g.originalPeriodStart}`} className="border rounded-md p-3 space-y-2" data-testid={`back-pay-group-${g.employeeId}`}>
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       <div>
-                        <div className="font-semibold text-sm">{g.employeeName}</div>
+                        <div className="font-semibold text-sm">
+                          {g.employeeName}
+                          {g.isFixedSalary && (
+                            <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+                              고정급 · 시간만 기록
+                            </span>
+                          )}
+                        </div>
                         <div className="text-xs text-muted-foreground">
                           원 페이롤 기간: {g.originalPeriodStart} ~ {g.originalPeriodEnd} · 시급 ${g.rate.toFixed(2)}
                         </div>
                       </div>
                       <div className="text-xs text-right">
-                        <div>총 누락: <span className="font-mono">{g.totalHours}h / ${g.totalAmount.toFixed(2)}</span></div>
+                        <div>
+                          총 누락: <span className="font-mono">{g.totalHours}h</span>
+                          {g.isFixedSalary
+                            ? <span className="text-muted-foreground"> · 지급 $0</span>
+                            : <span className="font-mono"> / ${g.totalAmount.toFixed(2)}</span>}
+                        </div>
                         {someChecked && (
                           <div className="text-amber-700 dark:text-amber-400">
-                            선택: <span className="font-mono">+{selectedHours.toFixed(2)}h / +${selectedAmount.toFixed(2)}</span>
+                            선택: <span className="font-mono">+{selectedHours.toFixed(2)}h</span>
+                            {g.isFixedSalary
+                              ? <span> · 지급 $0</span>
+                              : <span className="font-mono"> / +${selectedAmount.toFixed(2)}</span>}
                           </div>
                         )}
                       </div>
