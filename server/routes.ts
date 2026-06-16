@@ -2019,6 +2019,41 @@ export async function registerRoutes(
       }
       const result = await storage.applyBackPay({ payrollId: id, shiftTimesheetIds });
       const updatedPayroll = await storage.getPayroll(id);
+
+      // Re-sync the CASH_WAGE ledger so the store's cash balance reflects the back-pay
+      // cash immediately (mirrors the upsert in POST /api/payrolls/bulk). Back-pay is
+      // disbursed as cash, so this period's total cash wages just went up.
+      if (updatedPayroll?.storeId && updatedPayroll.periodStart && updatedPayroll.periodEnd) {
+        const wStore = updatedPayroll.storeId;
+        const wStart = updatedPayroll.periodStart;
+        const wEnd = updatedPayroll.periodEnd;
+        const refNote = `CASH_WAGE:${wStore}:${wStart}~${wEnd}`;
+        const periodPayrolls = await storage.getPayrolls({ periodStart: wStart, periodEnd: wEnd });
+        const totalCash = Math.round(
+          periodPayrolls
+            .filter((p) => p.storeId === wStore)
+            .reduce((sum, p) => sum + (Number(p.cashAmount) || 0), 0) * 100
+        ) / 100;
+        const existingTx = await storage.getFinancialTransactionsByRef(refNote);
+        if (existingTx.length > 1) {
+          for (const tx of existingTx.slice(1)) await storage.deleteFinancialTransaction(tx.id);
+        }
+        if (totalCash > 0) {
+          await storage.upsertFinancialTransactionByRef(refNote, {
+            transactionType: "CASH_WAGE",
+            fromStoreId: wStore,
+            toStoreId: null,
+            cashAmount: totalCash,
+            bankAmount: 0,
+            referenceNote: refNote,
+            executedBy: null,
+            isBankSettled: false,
+          });
+        } else if (existingTx.length > 0) {
+          await storage.deleteFinancialTransaction(existingTx[0].id);
+        }
+      }
+
       res.json({ ...result, payroll: updatedPayroll });
     } catch (error) {
       console.error("Error applying back-pay:", error);

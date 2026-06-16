@@ -516,6 +516,8 @@ export function AdminPayrolls() {
       });
       queryClient.invalidateQueries({ queryKey: ["/api/payrolls/current"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payrolls/back-pay-candidates"] });
+      // Back-pay is disbursed as cash, so the store cash balance changed — refresh it.
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/balances"] });
       refetchBackPay();
     },
     onError: (e: Error) => {
