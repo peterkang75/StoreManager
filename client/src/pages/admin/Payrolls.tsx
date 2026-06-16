@@ -39,6 +39,8 @@ import {
   Circle,
   ArrowRightLeft,
   Copy,
+  Lock,
+  LockOpen,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -329,6 +331,11 @@ export function AdminPayrolls() {
     Record<string, Record<string, PayrollRow>>
   >({});
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>("");
+  // ctxKey (`${storeId}|${periodStart}|${periodEnd}`) the admin has intentionally
+  // unlocked for correcting an already-saved past period. Navigating to another
+  // store/period re-locks automatically (key no longer matches); a successful save
+  // also resets it. Empty string = nothing unlocked.
+  const [unlockedCtxKey, setUnlockedCtxKey] = useState<string>("");
   // Tracks which store+period the drafts were initialised for
   const draftContextKey = useRef<string>("");
   const [convertOpen, setConvertOpen] = useState(false);
@@ -768,9 +775,14 @@ export function AdminPayrolls() {
     ? (currentDrafts[selectedEmployeeId] ?? null)
     : null;
 
-  // Lock past payroll rows that have already been saved to DB
+  // Lock past payroll rows that have already been saved to DB. Admins can
+  // intentionally unlock a saved past period to correct mistakes (e.g. wrong
+  // Cash/Gross split) via the "Unlock to edit" button — see isPastSavedPeriod /
+  // isUnlocked below. Re-saving re-syncs all derived records (CASH_WAGE, settlements).
   const todayStr = new Date().toISOString().slice(0, 10);
-  const isLocked = !!(selectedRow?.payrollId && periodEnd < todayStr);
+  const isPastSavedPeriod = !!(selectedRow?.payrollId && periodEnd < todayStr);
+  const isUnlocked = isPastSavedPeriod && currentCtxKey === unlockedCtxKey;
+  const isLocked = isPastSavedPeriod && !isUnlocked;
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -820,6 +832,8 @@ export function AdminPayrolls() {
     },
     onSuccess: () => {
       toast({ title: "Payroll saved successfully" });
+      // Re-lock: an unlocked past period returns to its protected state after save.
+      setUnlockedCtxKey("");
       const savedKey = savingCtxKeyRef.current;
       // 1. Clear from React state
       setPayrollDrafts((prev) => {
@@ -1736,12 +1750,43 @@ export function AdminPayrolls() {
                               </div>
 
                               <div className="space-y-1">
-                                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+                                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-2 flex-wrap">
                                   Payment Split
                                   {isLocked && (
-                                    <span className="text-[10px] text-muted-foreground font-normal normal-case tracking-normal">
-                                      Read-only — past period
-                                    </span>
+                                    <>
+                                      <span className="text-[10px] text-muted-foreground font-normal normal-case tracking-normal">
+                                        Read-only — past period
+                                      </span>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-6 px-2 text-[10px] gap-1 normal-case tracking-normal font-normal"
+                                        onClick={() => setUnlockedCtxKey(currentCtxKey)}
+                                        data-testid="button-unlock-period"
+                                      >
+                                        <LockOpen className="h-3 w-3" />
+                                        Unlock to edit
+                                      </Button>
+                                    </>
+                                  )}
+                                  {isUnlocked && (
+                                    <>
+                                      <span className="text-[10px] text-orange-600 dark:text-orange-400 font-normal normal-case tracking-normal">
+                                        Editing past period — re-save to sync ledger
+                                      </span>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-6 px-2 text-[10px] gap-1 normal-case tracking-normal font-normal"
+                                        onClick={() => setUnlockedCtxKey("")}
+                                        data-testid="button-relock-period"
+                                      >
+                                        <Lock className="h-3 w-3" />
+                                        Re-lock
+                                      </Button>
+                                    </>
                                   )}
                                 </p>
                                 <div className="grid grid-cols-3 gap-3">
