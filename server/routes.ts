@@ -1955,6 +1955,27 @@ export async function registerRoutes(
     }
   });
 
+  // §6.3.12 Post-payroll back-pay workflow — GET candidates.
+  // MUST be registered before "/api/payrolls/:id" below, otherwise Express matches
+  // :id="back-pay-candidates" and returns 404 (the route would never be reached).
+  app.get("/api/payrolls/back-pay-candidates", async (req: Request, res: Response) => {
+    try {
+      const { store_id, for_period_start, for_period_end } = req.query as Record<string, string>;
+      if (!store_id || !for_period_start || !for_period_end) {
+        return res.status(400).json({ error: "store_id, for_period_start, for_period_end are required" });
+      }
+      const candidates = await storage.detectBackPayCandidates({
+        storeId: store_id,
+        forPeriodStart: for_period_start,
+        forPeriodEnd: for_period_end,
+      });
+      res.json(candidates);
+    } catch (error) {
+      console.error("Error detecting back-pay candidates:", error);
+      res.status(500).json({ error: "Failed to detect back-pay candidates" });
+    }
+  });
+
   app.get("/api/payrolls/:id", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
@@ -1984,25 +2005,9 @@ export async function registerRoutes(
   });
 
   // §6.3.12 Post-payroll back-pay workflow ─────────────────────────────────────
-  // GET candidates: shift_timesheets approved/changed after their period's payroll was created,
-  // and not yet paid as back-pay. Scoped to (storeId, prior periods).
-  app.get("/api/payrolls/back-pay-candidates", async (req: Request, res: Response) => {
-    try {
-      const { store_id, for_period_start, for_period_end } = req.query as Record<string, string>;
-      if (!store_id || !for_period_start || !for_period_end) {
-        return res.status(400).json({ error: "store_id, for_period_start, for_period_end are required" });
-      }
-      const candidates = await storage.detectBackPayCandidates({
-        storeId: store_id,
-        forPeriodStart: for_period_start,
-        forPeriodEnd: for_period_end,
-      });
-      res.json(candidates);
-    } catch (error) {
-      console.error("Error detecting back-pay candidates:", error);
-      res.status(500).json({ error: "Failed to detect back-pay candidates" });
-    }
-  });
+  // GET candidates route is registered ABOVE /api/payrolls/:id (it would otherwise be
+  // shadowed by the :id route and 404). Apply/items routes below have extra path
+  // segments, so they don't collide with /:id.
 
   // POST apply: add selected shifts to a payroll as back-pay (adjustment increment + tracking row).
   app.post("/api/payrolls/:id/back-pay-apply", async (req: Request, res: Response) => {
