@@ -623,34 +623,35 @@ export function AdminPayrolls() {
           : 0;
 
       if (payroll) {
-        return {
+        const savedGross = payroll.grossAmount || 0;
+        return recalcRow({
           employeeId: employee.id,
           employeeName:
             employee.nickname || `${employee.firstName} ${employee.lastName}`,
           payrollId: payroll.id,
-          hours: payroll.hours,
+          hours: currentHours,                              // always use fresh approved hours
           rate: payroll.rate || empRate,
           fixedAmount: isIntercompany
             ? 0
             : payroll.fixedAmount || effectiveFixed,
-          calculatedAmount: payroll.calculatedAmount,
-          adjustment: payroll.adjustment,
+          calculatedAmount: 0,                              // recalcRow will recompute
+          adjustment: payroll.adjustment,                   // manager input — preserved
           adjustmentReason: payroll.adjustmentReason || "",
-          totalWithAdjustment: payroll.totalWithAdjustment,
-          grossAmount: payroll.grossAmount,
-          cashAmount: payroll.cashAmount,
+          totalWithAdjustment: 0,                           // recalcRow will recompute
+          grossAmount: savedGross,
+          cashAmount: payroll.cashAmount || 0,
           taxAmount: payroll.taxAmount,
-          superAmount: payroll.superAmount,
-          bankDepositAmount: payroll.bankDepositAmount,
+          superAmount: 0,                                   // recalcRow will recompute
+          bankDepositAmount: 0,                             // recalcRow will recompute
           persistentMemo: employee.persistentMemo || "",
-          lastEditedField: null,
+          lastEditedField: savedGross > 0 ? "gross" : null, // infer mode from saved data
           taxOverridden: false,
           isCover: empIsCover,
           isIntercompany,
           isDualRole,
           intercompanyAmount,
           totalAllStoreHours: totalHours,
-        };
+        });
       }
 
       const base: PayrollRow = {
