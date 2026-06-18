@@ -8892,6 +8892,40 @@ Rules:
     }
   });
 
+  app.get("/api/store-config/hour-caps", async (_req: Request, res: Response) => {
+    try {
+      res.json(await storage.getStoreHourCaps());
+    } catch (err) {
+      console.error("Error fetching hour caps:", err);
+      res.status(500).json({ error: "Failed to fetch hour caps" });
+    }
+  });
+
+  app.put("/api/store-config/hour-caps", async (req: Request, res: Response) => {
+    try {
+      const { storeId, season, weeklyTotalHours, saturdayHours, sundayHours, publicHolidayHours } = req.body as Record<string, any>;
+      if (!storeId || (season !== "TERM" && season !== "HOLIDAY")) {
+        return res.status(400).json({ error: "storeId and season ('TERM'|'HOLIDAY') are required" });
+      }
+      const wk = Number(weeklyTotalHours) || 0;
+      const sat = Number(saturdayHours) || 0;
+      const sun = Number(sundayHours) || 0;
+      const ph = Number(publicHolidayHours) || 0;
+      // A week may contain at most one PH most weeks; require the fixed allocations
+      // (sat + sun + one PH) to fit within the weekly total so the weekday pool stays >= 0.
+      if (sat + sun + ph > wk) {
+        return res.status(400).json({ error: "saturday + sunday + publicHoliday must not exceed weeklyTotal" });
+      }
+      const row = await storage.upsertStoreHourCap({
+        storeId, season, weeklyTotalHours: wk, saturdayHours: sat, sundayHours: sun, publicHolidayHours: ph,
+      });
+      res.json(row);
+    } catch (err) {
+      console.error("Error saving hour cap:", err);
+      res.status(500).json({ error: "Failed to save hour cap" });
+    }
+  });
+
   // ── Automation Rules ───────────────────────────────────────────────────────
   // GET /api/automation-rules/due-today — MUST come before :id route
   app.get("/api/automation-rules/due-today", async (_req: Request, res: Response) => {
