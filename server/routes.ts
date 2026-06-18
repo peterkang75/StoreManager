@@ -7,6 +7,7 @@ import { sql } from "drizzle-orm";
 import { supplierInvoices } from "@shared/schema";
 import { PAYROLL_CYCLE_ANCHOR, getPayrollCycleStart, getPayrollCycleEnd, shiftDate, getApprovalDeadlineMonday, isCycleApprovalClosed } from "../shared/payrollCycle";
 import { classifyWeekSeason, resolveWeekCaps, sumByCategory, findBreaches, type Season, type ResolvedWeekCaps } from "../shared/rosterCaps";
+import { NSW_SCHOOL_HOLIDAYS } from "../shared/nswSchoolHolidays";
 import { storeColorFor } from "../shared/storeColors";
 import { extractPdfText, parseInvoiceWithAI, parseUploadedFile, parseInvoiceFromUnknownSender, triageEmail, summarizeTaskFromEmail, translateSummarizeEmail, classifyDocumentForAP } from "./invoiceParser";
 import {
@@ -8806,6 +8807,28 @@ Rules:
       res.json(rows);
     } catch {
       res.status(500).json({ error: "Failed to get school holidays" });
+    }
+  });
+
+  // Bulk-load the bundled NSW school-holiday periods (idempotent: skips any period
+  // whose name already exists). Admin only.
+  app.post("/api/store-config/school-holidays/load-nsw", async (req: Request, res: Response) => {
+    try {
+      if ((req.user?.role ?? "").toUpperCase() !== "ADMIN") {
+        return res.status(403).json({ error: "FORBIDDEN", message: "Director (ADMIN) only" });
+      }
+      const existing = await storage.getSchoolHolidays();
+      const existingNames = new Set(existing.map(h => h.name));
+      let added = 0;
+      for (const p of NSW_SCHOOL_HOLIDAYS) {
+        if (existingNames.has(p.name)) continue;
+        await storage.createSchoolHoliday({ name: p.name, startDate: p.startDate, endDate: p.endDate });
+        added++;
+      }
+      res.json({ added });
+    } catch (err) {
+      console.error("Error loading NSW holidays:", err);
+      res.status(500).json({ error: "Failed to load NSW holidays" });
     }
   });
 
