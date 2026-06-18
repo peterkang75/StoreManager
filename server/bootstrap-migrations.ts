@@ -172,6 +172,27 @@ const STATEMENTS: string[] = [
      unlocked_at timestamp NOT NULL DEFAULT now()
    )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS tao_store_cycle_uniq ON timesheet_approval_overrides (store_id, cycle_start)`,
+
+  // Season-based roster hour caps (per store, per season).
+  `CREATE TABLE IF NOT EXISTS store_hour_caps (
+     id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+     store_id varchar NOT NULL REFERENCES stores(id),
+     season text NOT NULL,
+     weekly_total_hours real NOT NULL DEFAULT 38,
+     saturday_hours real NOT NULL DEFAULT 0,
+     sunday_hours real NOT NULL DEFAULT 0,
+     public_holiday_hours real NOT NULL DEFAULT 0,
+     updated_at timestamp NOT NULL DEFAULT now()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS shc_store_season_uniq ON store_hour_caps (store_id, season)`,
+  // Seed TERM/HOLIDAY rows from the advisory recommended-hours table (idempotent:
+  // skips stores that already have a cap row for that season).
+  `INSERT INTO store_hour_caps (store_id, season, weekly_total_hours)
+     SELECT store_id, 'TERM', term_weekly_hours FROM store_recommended_hours
+   ON CONFLICT (store_id, season) DO NOTHING`,
+  `INSERT INTO store_hour_caps (store_id, season, weekly_total_hours)
+     SELECT store_id, 'HOLIDAY', holiday_weekly_hours FROM store_recommended_hours
+   ON CONFLICT (store_id, season) DO NOTHING`,
 ];
 
 // Phase B: seed the OWNER's password from environment variables on first deploy.
