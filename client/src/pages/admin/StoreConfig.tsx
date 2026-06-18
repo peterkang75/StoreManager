@@ -651,7 +651,18 @@ function PublicHolidaysSection({ stores }: { stores: Store[] }) {
   );
 }
 
-// ─── Section 4: Recommended Hours ────────────────────────────────────────────
+// ─── LabeledNum helper ────────────────────────────────────────────────────────
+function LabeledNum({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs">{label}</Label>
+      <Input type="number" min="0" step="0.5" value={value}
+        onChange={e => onChange(parseFloat(e.target.value) || 0)} className="text-sm" />
+    </div>
+  );
+}
+
+// ─── Section 4: Hour Caps ─────────────────────────────────────────────────────
 function RecommendedHoursSection({ stores }: { stores: Store[] }) {
   const { toast } = useToast();
   const rosterStores = stores.filter(isRosterStore)
@@ -660,56 +671,35 @@ function RecommendedHoursSection({ stores }: { stores: Store[] }) {
       return aIsSushi ? -1 : 1;
     });
 
-  const { data: allHours = [], isLoading } = useQuery<StoreRecommendedHours[]>({
-    queryKey: ["/api/store-config/recommended-hours"],
+  const { data: caps = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/store-config/hour-caps"],
   });
 
-  const hoursMap: Record<string, StoreRecommendedHours> = {};
-  for (const h of allHours) {
-    hoursMap[h.storeId] = h;
-  }
+  const capFor = (storeId: string, season: "TERM" | "HOLIDAY") =>
+    caps.find(c => c.storeId === storeId && c.season === season) ?? { weeklyTotalHours: 38, saturdayHours: 0, sundayHours: 0, publicHolidayHours: 0 };
 
-  const [draft, setDraft] = useState<Record<string, { termWeeklyHours?: number; holidayWeeklyHours?: number }>>({});
+  const [form, setForm] = useState<Record<string, any>>({});
 
   const saveMutation = useMutation({
-    mutationFn: async (storeId: string) => {
-      const current = hoursMap[storeId];
-      const d = draft[storeId] ?? {};
-      return apiRequest("PUT", "/api/store-config/recommended-hours", {
-        storeId,
-        termWeeklyHours: d.termWeeklyHours ?? current?.termWeeklyHours ?? 38,
-        holidayWeeklyHours: d.holidayWeeklyHours ?? current?.holidayWeeklyHours ?? 38,
-      });
+    mutationFn: (body: any) => apiRequest("PUT", "/api/store-config/hour-caps", body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/store-config/hour-caps"] });
+      toast({ title: "상한 저장됨" });
     },
-    onSuccess: (_data, storeId) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/store-config/recommended-hours"] });
-      setDraft(prev => { const n = { ...prev }; delete n[storeId]; return n; });
-      toast({ title: "Saved", description: "Recommended hours updated." });
-    },
-    onError: () => toast({ title: "Error", description: "Failed to save.", variant: "destructive" }),
+    onError: (e: any) => toast({ title: "저장 실패", description: e?.message ?? "", variant: "destructive" }),
   });
-
-  function getVal(storeId: string, field: "termWeeklyHours" | "holidayWeeklyHours"): number {
-    if (draft[storeId]?.[field] !== undefined) return draft[storeId][field]!;
-    return hoursMap[storeId]?.[field] ?? 38;
-  }
-
-  function setVal(storeId: string, field: "termWeeklyHours" | "holidayWeeklyHours", value: number) {
-    setDraft(prev => ({ ...prev, [storeId]: { ...prev[storeId], [field]: value } }));
-  }
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">학기 중과 방학 중의 매장별 주간 권장 근무시간을 설정하세요. 로스터 생성 시 참고 기준으로 사용됩니다.</p>
+      <p className="text-sm text-muted-foreground">매장별 시즌별 주간 근무시간 상한을 설정하세요. 로스터 발행 시 강제 적용됩니다.</p>
 
       <div className="grid gap-4 md:grid-cols-2">
         {isLoading
           ? [1, 2].map(i => <Skeleton key={i} className="h-40 w-full" />)
           : rosterStores.map(store => {
-              const isDirty = !!draft[store.id] && Object.keys(draft[store.id]).length > 0;
               const isSushi = store.name.toLowerCase().includes("sushi");
               return (
-                <Card key={store.id} data-testid={`card-rec-hours-${store.id}`}>
+                <Card key={store.id} data-testid={`card-hour-caps-${store.id}`}>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base flex items-center gap-2">
                       <div
@@ -718,53 +708,33 @@ function RecommendedHoursSection({ stores }: { stores: Store[] }) {
                       />
                       {store.name}
                     </CardTitle>
-                    <CardDescription className="text-xs">주간 권장 근무시간 (시간 단위)</CardDescription>
+                    <CardDescription className="text-xs">주간 근무시간 상한 (시간 단위)</CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <Label className="text-xs">
-                          <BookOpen className="w-3 h-3 inline mr-1" />
-                          학기 중 (Term)
-                        </Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={80}
-                          step={0.5}
-                          value={getVal(store.id, "termWeeklyHours")}
-                          onChange={e => setVal(store.id, "termWeeklyHours", parseFloat(e.target.value) || 0)}
-                          data-testid={`input-term-hours-${store.id}`}
-                        />
-                        <p className="text-xs text-muted-foreground text-right">{getVal(store.id, "termWeeklyHours")}h/week</p>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">
-                          <Sun className="w-3 h-3 inline mr-1" />
-                          방학 중 (Holiday)
-                        </Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={80}
-                          step={0.5}
-                          value={getVal(store.id, "holidayWeeklyHours")}
-                          onChange={e => setVal(store.id, "holidayWeeklyHours", parseFloat(e.target.value) || 0)}
-                          data-testid={`input-holiday-hours-${store.id}`}
-                        />
-                        <p className="text-xs text-muted-foreground text-right">{getVal(store.id, "holidayWeeklyHours")}h/week</p>
-                      </div>
-                    </div>
-                    <Button
-                      size="sm"
-                      className="w-full"
-                      disabled={!isDirty || saveMutation.isPending}
-                      onClick={() => saveMutation.mutate(store.id)}
-                      data-testid={`btn-save-rec-hours-${store.id}`}
-                    >
-                      {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Save className="w-3 h-3 mr-1" />}
-                      Save
-                    </Button>
+                  <CardContent className="space-y-2">
+                    {(["TERM", "HOLIDAY"] as const).map(season => {
+                      const c = capFor(store.id, season);
+                      const key = `${store.id}:${season}`;
+                      const f = form[key] ?? c;
+                      const set = (field: string, v: number) => setForm(p => ({ ...p, [key]: { ...(p[key] ?? c), [field]: v } }));
+                      const overflow = (f.saturdayHours + f.sundayHours + f.publicHolidayHours) > f.weeklyTotalHours;
+                      return (
+                        <div key={season} className="space-y-2 border-t pt-3">
+                          <p className="text-sm font-medium">{season === "TERM" ? "학기 중 (Term)" : "방학 중 (Holiday)"}</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <LabeledNum label="주 합계" value={f.weeklyTotalHours} onChange={v => set("weeklyTotalHours", v)} />
+                            <LabeledNum label="토요일" value={f.saturdayHours} onChange={v => set("saturdayHours", v)} />
+                            <LabeledNum label="일요일" value={f.sundayHours} onChange={v => set("sundayHours", v)} />
+                            <LabeledNum label="공휴일(1일당)" value={f.publicHolidayHours} onChange={v => set("publicHolidayHours", v)} />
+                          </div>
+                          <p className="text-xs text-muted-foreground">주중 풀 = {Math.max(0, f.weeklyTotalHours - f.saturdayHours - f.sundayHours - f.publicHolidayHours)}h (공휴일 1일 가정)</p>
+                          {overflow && <p className="text-xs text-red-600">토+일+공휴일이 주 합계를 초과합니다.</p>}
+                          <Button size="sm" disabled={overflow || saveMutation.isPending}
+                            onClick={() => saveMutation.mutate({ storeId: store.id, season, weeklyTotalHours: f.weeklyTotalHours, saturdayHours: f.saturdayHours, sundayHours: f.sundayHours, publicHolidayHours: f.publicHolidayHours })}>
+                            저장
+                          </Button>
+                        </div>
+                      );
+                    })}
                   </CardContent>
                 </Card>
               );
@@ -812,8 +782,8 @@ export function AdminStoreConfig() {
               </TabsTrigger>
               <TabsTrigger value="recommended-hours" data-testid="tab-recommended-hours">
                 <Sun className="w-4 h-4 mr-1.5" />
-                <span className="hidden sm:inline">Recommended Hours</span>
-                <span className="sm:hidden">Rec. Hours</span>
+                <span className="hidden sm:inline">Hour Caps</span>
+                <span className="sm:hidden">Caps</span>
               </TabsTrigger>
             </TabsList>
 
