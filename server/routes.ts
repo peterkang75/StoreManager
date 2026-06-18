@@ -35,8 +35,8 @@ import {
 function hoursBetween(start: string, end: string): number {
   const [sh, sm] = (start || "0:0").split(":").map(Number);
   const [eh, em] = (end || "0:0").split(":").map(Number);
-  let mins = (eh * 60 + em) - (sh * 60 + sm);
-  if (mins < 0) mins += 1440;
+  const mins = (eh * 60 + em) - (sh * 60 + sm);
+  if (mins <= 0) return 0;
   return Math.round((mins / 60) * 100) / 100;
 }
 
@@ -1180,20 +1180,24 @@ export async function registerRoutes(
       const { storeId, weekStart } = req.body;
       if (!storeId || !weekStart) return res.status(400).json({ error: "storeId and weekStart are required" });
       // Enforce season hour caps before publishing (ADMIN bypasses — Director override).
-      if ((req.user?.role ?? "").toUpperCase() !== "ADMIN") {
-        const { caps } = await getWeekCaps(storeId, weekStart);
-        const rosters = await storage.getRosters({ storeId, startDate: weekStart, endDate: shiftDate(weekStart, 6) });
-        const used = sumByCategory(
-          rosters.map(r => ({ date: r.date, hours: hoursBetween(r.startTime, r.endTime) })),
-          caps.phDays,
-        );
-        const breaches = findBreaches(caps, used);
-        if (breaches.length > 0) {
-          return res.status(403).json({
-            error: "CAP_EXCEEDED",
-            message: "이 주의 로스터가 근무시간 상한을 초과해 발행할 수 없습니다.",
-            breaches,
-          });
+      // Only enforce when: non-ADMIN, currently unpublished (this call publishes), and cap is configured.
+      const isCurrentlyPublished = await storage.isRosterWeekPublished(storeId, weekStart);
+      if ((req.user?.role ?? "").toUpperCase() !== "ADMIN" && !isCurrentlyPublished) {
+        const { caps, configMissing } = await getWeekCaps(storeId, weekStart);
+        if (!configMissing) {
+          const rosters = await storage.getRosters({ storeId, startDate: weekStart, endDate: shiftDate(weekStart, 6) });
+          const used = sumByCategory(
+            rosters.map(r => ({ date: r.date, hours: hoursBetween(r.startTime, r.endTime) })),
+            caps.phDays,
+          );
+          const breaches = findBreaches(caps, used);
+          if (breaches.length > 0) {
+            return res.status(403).json({
+              error: "CAP_EXCEEDED",
+              message: "이 주의 로스터가 근무시간 상한을 초과해 발행할 수 없습니다.",
+              breaches,
+            });
+          }
         }
       }
       const published = await storage.toggleRosterWeekPublished(storeId, weekStart);
