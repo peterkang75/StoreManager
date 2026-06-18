@@ -963,7 +963,16 @@ export function AdminRosters() {
         credentials: "include",
         body: JSON.stringify({ storeId: selectedStore, weekStart }),
       });
-      if (!res.ok) throw new Error("Failed to toggle publish");
+      if (!res.ok) {
+        let msg = "Failed to toggle publish";
+        try {
+          const body = await res.json();
+          msg = body.message ?? body.error ?? msg;
+        } catch {
+          msg = await res.text().catch(() => msg);
+        }
+        throw new Error(msg);
+      }
       return res.json();
     },
     onSuccess: (data: { published: boolean }) => {
@@ -979,6 +988,20 @@ export function AdminRosters() {
       toast({ title: "Failed", description: err.message, variant: "destructive" });
     },
   });
+
+  // ── Week caps query ────────────────────────────────────────────────────────
+  const { data: weekCaps } = useQuery<{
+    season: "TERM" | "HOLIDAY";
+    caps: { weeklyTotal: number; saturdayCap: number; sundayCap: number; publicHolidayCap: number; weekdayPool: number; phDays: string[] };
+    used: { SATURDAY: number; SUNDAY: number; PUBLIC_HOLIDAY: number; WEEKDAY: number };
+    breaches: { category: string; used: number; cap: number }[];
+    configMissing: boolean;
+  }>({
+    queryKey: ["/api/rosters/week-caps", selectedStore, weekStart],
+    queryFn: () => fetch(`/api/rosters/week-caps?storeId=${selectedStore}&weekStart=${weekStart}`).then(r => r.json()),
+    enabled: !!selectedStore && !!weekStart,
+  });
+  const overCap = (weekCaps?.breaches?.length ?? 0) > 0;
 
   // ── Summary calculations ───────────────────────────────────────────────────
   const empHours = (empId: string) =>
@@ -1014,7 +1037,8 @@ export function AdminRosters() {
                 size="default"
                 variant={isPublished ? "outline" : "default"}
                 onClick={() => publishMutation.mutate()}
-                disabled={publishMutation.isPending}
+                disabled={publishMutation.isPending || overCap}
+                title={overCap ? "근무시간 상한 초과 — 발행 불가" : undefined}
                 className="shrink-0 font-semibold"
                 style={
                   isPublished
@@ -1147,6 +1171,30 @@ export function AdminRosters() {
                 Timeline View
               </button>
             </div>
+          </div>
+        )}
+
+        {/* ── Season / hour-cap banner ─────────────────────────────────── */}
+        {weekCaps && (
+          <div className="flex flex-wrap items-center gap-3 text-xs rounded-none border-b border-border/40 bg-card px-4 py-2" data-testid="roster-caps-banner">
+            <span className="font-semibold">{weekCaps.season === "HOLIDAY" ? "방학" : "학기중"}</span>
+            {weekCaps.configMissing && <span className="text-amber-600">상한 미설정 — Store Settings에서 지정</span>}
+            {(() => {
+              const c = weekCaps.caps, u = weekCaps.used;
+              const total = Math.round((u.SATURDAY + u.SUNDAY + u.PUBLIC_HOLIDAY + u.WEEKDAY) * 100) / 100;
+              const cell = (label: string, used: number, cap: number) => (
+                <span key={label} className={used > cap ? "text-red-600 font-medium" : "text-muted-foreground"}>
+                  {label} {used}/{cap}
+                </span>
+              );
+              return (<>
+                {cell("주", total, c.weeklyTotal)}
+                {cell("토", u.SATURDAY, c.saturdayCap)}
+                {cell("일", u.SUNDAY, c.sundayCap)}
+                {cell("공휴일", u.PUBLIC_HOLIDAY, c.publicHolidayCap)}
+                {cell("주중", u.WEEKDAY, c.weekdayPool)}
+              </>);
+            })()}
           </div>
         )}
 

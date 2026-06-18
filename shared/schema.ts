@@ -983,6 +983,30 @@ export const insertStoreRecommendedHoursSchema = createInsertSchema(storeRecomme
 export type InsertStoreRecommendedHours = z.infer<typeof insertStoreRecommendedHoursSchema>;
 export type StoreRecommendedHours = typeof storeRecommendedHours.$inferSelect;
 
+// Enforced per-store, per-season staff-hour caps for rostering. One row per
+// (store, season). Replaces the advisory storeRecommendedHours at roster time;
+// weekly_total_hours is seeded from storeRecommendedHours on migration.
+export const storeHourCaps = pgTable("store_hour_caps", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  season: text("season").notNull(), // 'TERM' | 'HOLIDAY'
+  weeklyTotalHours: real("weekly_total_hours").default(38).notNull(),
+  saturdayHours: real("saturday_hours").default(0).notNull(),
+  sundayHours: real("sunday_hours").default(0).notNull(),
+  publicHolidayHours: real("public_holiday_hours").default(0).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  storeSeasonUniq: uniqueIndex("shc_store_season_uniq").on(table.storeId, table.season),
+}));
+
+export const insertStoreHourCapSchema = createInsertSchema(storeHourCaps).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export type InsertStoreHourCap = z.infer<typeof insertStoreHourCapSchema>;
+export type StoreHourCap = typeof storeHourCaps.$inferSelect;
+
 // Automation rules — recurring tasks that managers can execute with one click
 // actionType: ROSTER | PAYROLL_ADJUSTMENT | FINANCE_TRANSFER
 // frequency:  WEEKLY | MONTHLY_FIRST_WEEK | MONTHLY

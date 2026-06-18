@@ -6,6 +6,8 @@ import { db } from "./db";
 import { sql } from "drizzle-orm";
 import { supplierInvoices } from "@shared/schema";
 import { PAYROLL_CYCLE_ANCHOR, getPayrollCycleStart, getPayrollCycleEnd, shiftDate, getApprovalDeadlineMonday, isCycleApprovalClosed } from "../shared/payrollCycle";
+import { classifyWeekSeason, resolveWeekCaps, sumByCategory, findBreaches, type Season, type ResolvedWeekCaps } from "../shared/rosterCaps";
+import { NSW_SCHOOL_HOLIDAYS } from "../shared/nswSchoolHolidays";
 import { storeColorFor } from "../shared/storeColors";
 import { extractPdfText, parseInvoiceWithAI, parseUploadedFile, parseInvoiceFromUnknownSender, triageEmail, summarizeTaskFromEmail, translateSummarizeEmail, classifyDocumentForAP } from "./invoiceParser";
 import {
@@ -28,6 +30,15 @@ import {
   insertFinancialTransactionSchema,
   insertAutomationRuleSchema,
 } from "@shared/schema";
+
+// ── Roster hour-cap utilities (module scope) ──────────────────────────────────
+function hoursBetween(start: string, end: string): number {
+  const [sh, sm] = (start || "0:0").split(":").map(Number);
+  const [eh, em] = (end || "0:0").split(":").map(Number);
+  const mins = (eh * 60 + em) - (sh * 60 + sm);
+  if (mins <= 0) return 0;
+  return Math.round((mins / 60) * 100) / 100;
+}
 
 // §7 Wave 1: clamp supplier-defined GST rate (defensive — server-side trust boundary).
 function clampGstRate(value: number): number {
@@ -978,6 +989,54 @@ export async function registerRoutes(
   });
 
   // ===== ROSTER BUILDER ROUTES =====
+
+  // ── Season-based roster hour caps ──────────────────────────────────────────
+  // Single source of truth: used by the builder display AND publish validation.
+  async function getWeekCaps(storeId: string, weekStart: string): Promise<{
+    season: Season; caps: ResolvedWeekCaps; configMissing: boolean;
+  }> {
+    const [holidays, caps, publicHols] = await Promise.all([
+      storage.getSchoolHolidays(),
+      storage.getStoreHourCaps(storeId),
+      storage.getPublicHolidays(),
+    ]);
+    const season = classifyWeekSeason(weekStart, holidays.map(h => ({ startDate: h.startDate, endDate: h.endDate })));
+    const cfgRow = caps.find(c => c.season === season);
+    const config = {
+      weeklyTotalHours: cfgRow?.weeklyTotalHours ?? 0,
+      saturdayHours: cfgRow?.saturdayHours ?? 0,
+      sundayHours: cfgRow?.sundayHours ?? 0,
+      publicHolidayHours: cfgRow?.publicHolidayHours ?? 0,
+    };
+    // PH dates within the Mon..Sun week, where this store is NOT closed.
+    const weekEnd = shiftDate(weekStart, 6);
+    const phDays = publicHols
+      .filter(p => p.date >= weekStart && p.date <= weekEnd)
+      .filter(p => {
+        const closures = (p.storeClosures ?? {}) as Record<string, boolean>;
+        return closures[storeId] !== true;
+      })
+      .map(p => p.date);
+    return { season, caps: resolveWeekCaps(season, config, phDays), configMissing: !cfgRow };
+  }
+
+  app.get("/api/rosters/week-caps", async (req: Request, res: Response) => {
+    try {
+      const { storeId, weekStart } = req.query as Record<string, string>;
+      if (!storeId || !weekStart) return res.status(400).json({ error: "storeId and weekStart are required" });
+      const { season, caps, configMissing } = await getWeekCaps(storeId, weekStart);
+      // Actual usage from the flat rosters table for this store+week.
+      const rosters = await storage.getRosters({ storeId, startDate: weekStart, endDate: shiftDate(weekStart, 6) });
+      const shifts = rosters.map(r => ({ date: r.date, hours: hoursBetween(r.startTime, r.endTime) }));
+      const used = sumByCategory(shifts, caps.phDays);
+      const breaches = findBreaches(caps, used);
+      res.json({ season, caps, used, breaches, configMissing, weekStart });
+    } catch (err) {
+      console.error("Error computing week caps:", err);
+      res.status(500).json({ error: "Failed to compute week caps" });
+    }
+  });
+
   // Get employees assigned to a store (for roster grid)
   app.get("/api/rosters/employees", async (req: Request, res: Response) => {
     try {
@@ -1120,6 +1179,27 @@ export async function registerRoutes(
     try {
       const { storeId, weekStart } = req.body;
       if (!storeId || !weekStart) return res.status(400).json({ error: "storeId and weekStart are required" });
+      // Enforce season hour caps before publishing (ADMIN bypasses — Director override).
+      // Only enforce when: non-ADMIN, currently unpublished (this call publishes), and cap is configured.
+      const isCurrentlyPublished = await storage.isRosterWeekPublished(storeId, weekStart);
+      if ((req.user?.role ?? "").toUpperCase() !== "ADMIN" && !isCurrentlyPublished) {
+        const { caps, configMissing } = await getWeekCaps(storeId, weekStart);
+        if (!configMissing) {
+          const rosters = await storage.getRosters({ storeId, startDate: weekStart, endDate: shiftDate(weekStart, 6) });
+          const used = sumByCategory(
+            rosters.map(r => ({ date: r.date, hours: hoursBetween(r.startTime, r.endTime) })),
+            caps.phDays,
+          );
+          const breaches = findBreaches(caps, used);
+          if (breaches.length > 0) {
+            return res.status(403).json({
+              error: "CAP_EXCEEDED",
+              message: "이 주의 로스터가 근무시간 상한을 초과해 발행할 수 없습니다.",
+              breaches,
+            });
+          }
+        }
+      }
       const published = await storage.toggleRosterWeekPublished(storeId, weekStart);
       res.json({ published });
     } catch (error) {
@@ -8751,6 +8831,28 @@ Rules:
     }
   });
 
+  // Bulk-load the bundled NSW school-holiday periods (idempotent: skips any period
+  // whose name already exists). Admin only.
+  app.post("/api/store-config/school-holidays/load-nsw", async (req: Request, res: Response) => {
+    try {
+      if ((req.user?.role ?? "").toUpperCase() !== "ADMIN") {
+        return res.status(403).json({ error: "FORBIDDEN", message: "Director (ADMIN) only" });
+      }
+      const existing = await storage.getSchoolHolidays();
+      const existingNames = new Set(existing.map(h => h.name));
+      let added = 0;
+      for (const p of NSW_SCHOOL_HOLIDAYS) {
+        if (existingNames.has(p.name)) continue;
+        await storage.createSchoolHoliday({ name: p.name, startDate: p.startDate, endDate: p.endDate });
+        added++;
+      }
+      res.json({ added });
+    } catch (err) {
+      console.error("Error loading NSW holidays:", err);
+      res.status(500).json({ error: "Failed to load NSW holidays" });
+    }
+  });
+
   app.post("/api/store-config/school-holidays", async (req: Request, res: Response) => {
     try {
       const row = await storage.createSchoolHoliday(req.body);
@@ -8831,6 +8933,40 @@ Rules:
       res.json(row);
     } catch {
       res.status(500).json({ error: "Failed to save recommended hours" });
+    }
+  });
+
+  app.get("/api/store-config/hour-caps", async (_req: Request, res: Response) => {
+    try {
+      res.json(await storage.getStoreHourCaps());
+    } catch (err) {
+      console.error("Error fetching hour caps:", err);
+      res.status(500).json({ error: "Failed to fetch hour caps" });
+    }
+  });
+
+  app.put("/api/store-config/hour-caps", async (req: Request, res: Response) => {
+    try {
+      const { storeId, season, weeklyTotalHours, saturdayHours, sundayHours, publicHolidayHours } = req.body as Record<string, any>;
+      if (!storeId || (season !== "TERM" && season !== "HOLIDAY")) {
+        return res.status(400).json({ error: "storeId and season ('TERM'|'HOLIDAY') are required" });
+      }
+      const wk = Number(weeklyTotalHours) || 0;
+      const sat = Number(saturdayHours) || 0;
+      const sun = Number(sundayHours) || 0;
+      const ph = Number(publicHolidayHours) || 0;
+      // A week may contain at most one PH most weeks; require the fixed allocations
+      // (sat + sun + one PH) to fit within the weekly total so the weekday pool stays >= 0.
+      if (sat + sun + ph > wk) {
+        return res.status(400).json({ error: "saturday + sunday + publicHoliday must not exceed weeklyTotal" });
+      }
+      const row = await storage.upsertStoreHourCap({
+        storeId, season, weeklyTotalHours: wk, saturdayHours: sat, sundayHours: sun, publicHolidayHours: ph,
+      });
+      res.json(row);
+    } catch (err) {
+      console.error("Error saving hour cap:", err);
+      res.status(500).json({ error: "Failed to save hour cap" });
     }
   });
 
