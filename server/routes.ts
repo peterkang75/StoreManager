@@ -6,6 +6,7 @@ import { db } from "./db";
 import { sql } from "drizzle-orm";
 import { supplierInvoices } from "@shared/schema";
 import { PAYROLL_CYCLE_ANCHOR, getPayrollCycleStart, getPayrollCycleEnd, shiftDate, getApprovalDeadlineMonday, isCycleApprovalClosed } from "../shared/payrollCycle";
+import { classifyWeekSeason, resolveWeekCaps, sumByCategory, findBreaches, type Season, type ResolvedWeekCaps } from "../shared/rosterCaps";
 import { storeColorFor } from "../shared/storeColors";
 import { extractPdfText, parseInvoiceWithAI, parseUploadedFile, parseInvoiceFromUnknownSender, triageEmail, summarizeTaskFromEmail, translateSummarizeEmail, classifyDocumentForAP } from "./invoiceParser";
 import {
@@ -28,6 +29,15 @@ import {
   insertFinancialTransactionSchema,
   insertAutomationRuleSchema,
 } from "@shared/schema";
+
+// ── Roster hour-cap utilities (module scope) ──────────────────────────────────
+function hoursBetween(start: string, end: string): number {
+  const [sh, sm] = (start || "0:0").split(":").map(Number);
+  const [eh, em] = (end || "0:0").split(":").map(Number);
+  let mins = (eh * 60 + em) - (sh * 60 + sm);
+  if (mins < 0) mins += 1440;
+  return Math.round((mins / 60) * 100) / 100;
+}
 
 // §7 Wave 1: clamp supplier-defined GST rate (defensive — server-side trust boundary).
 function clampGstRate(value: number): number {
@@ -978,6 +988,54 @@ export async function registerRoutes(
   });
 
   // ===== ROSTER BUILDER ROUTES =====
+
+  // ── Season-based roster hour caps ──────────────────────────────────────────
+  // Single source of truth: used by the builder display AND publish validation.
+  async function getWeekCaps(storeId: string, weekStart: string): Promise<{
+    season: Season; caps: ResolvedWeekCaps; configMissing: boolean;
+  }> {
+    const [holidays, caps, publicHols] = await Promise.all([
+      storage.getSchoolHolidays(),
+      storage.getStoreHourCaps(storeId),
+      storage.getPublicHolidays(),
+    ]);
+    const season = classifyWeekSeason(weekStart, holidays.map(h => ({ startDate: h.startDate, endDate: h.endDate })));
+    const cfgRow = caps.find(c => c.season === season);
+    const config = {
+      weeklyTotalHours: cfgRow?.weeklyTotalHours ?? 0,
+      saturdayHours: cfgRow?.saturdayHours ?? 0,
+      sundayHours: cfgRow?.sundayHours ?? 0,
+      publicHolidayHours: cfgRow?.publicHolidayHours ?? 0,
+    };
+    // PH dates within the Mon..Sun week, where this store is NOT closed.
+    const weekEnd = shiftDate(weekStart, 6);
+    const phDays = publicHols
+      .filter(p => p.date >= weekStart && p.date <= weekEnd)
+      .filter(p => {
+        const closures = (p.storeClosures ?? {}) as Record<string, boolean>;
+        return closures[storeId] !== true;
+      })
+      .map(p => p.date);
+    return { season, caps: resolveWeekCaps(season, config, phDays), configMissing: !cfgRow };
+  }
+
+  app.get("/api/rosters/week-caps", async (req: Request, res: Response) => {
+    try {
+      const { storeId, weekStart } = req.query as Record<string, string>;
+      if (!storeId || !weekStart) return res.status(400).json({ error: "storeId and weekStart are required" });
+      const { season, caps, configMissing } = await getWeekCaps(storeId, weekStart);
+      // Actual usage from the flat rosters table for this store+week.
+      const rosters = await storage.getRosters({ storeId, startDate: weekStart, endDate: shiftDate(weekStart, 6) });
+      const shifts = rosters.map(r => ({ date: r.date, hours: hoursBetween(r.startTime, r.endTime) }));
+      const used = sumByCategory(shifts, caps.phDays);
+      const breaches = findBreaches(caps, used);
+      res.json({ season, caps, used, breaches, configMissing, weekStart });
+    } catch (err) {
+      console.error("Error computing week caps:", err);
+      res.status(500).json({ error: "Failed to compute week caps" });
+    }
+  });
+
   // Get employees assigned to a store (for roster grid)
   app.get("/api/rosters/employees", async (req: Request, res: Response) => {
     try {
