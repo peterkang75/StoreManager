@@ -161,6 +161,17 @@ const STATEMENTS: string[] = [
   // §6.3.14 Bank account name — Australian payroll requires Account Name in
   // addition to BSB + Account Number.
   `ALTER TABLE employees ADD COLUMN IF NOT EXISTS account_name text`,
+
+  // Timesheet-approval deadline: Director override (presence of row = store+cycle
+  // temporarily re-opened for manager approvals after the auto-close).
+  `CREATE TABLE IF NOT EXISTS timesheet_approval_overrides (
+     id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+     store_id varchar NOT NULL REFERENCES stores(id),
+     cycle_start text NOT NULL,
+     unlocked_by varchar,
+     unlocked_at timestamp NOT NULL DEFAULT now()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS tao_store_cycle_uniq ON timesheet_approval_overrides (store_id, cycle_start)`,
 ];
 
 // Phase B: seed the OWNER's password from environment variables on first deploy.

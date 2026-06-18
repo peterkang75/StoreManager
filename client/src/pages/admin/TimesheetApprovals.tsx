@@ -40,9 +40,12 @@ import {
   Minus,
   Trash2,
   Check,
+  Lock,
+  LockOpen,
+  CalendarClock,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
-import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "@shared/payrollCycle";
+import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate, isCycleApprovalClosed } from "@shared/payrollCycle";
 import { useAdminRole } from "@/contexts/AdminRoleContext";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -210,12 +213,14 @@ function EmployeeReviewModal({
   group,
   cycleStart,
   cycleEnd,
+  locked = false,
   onClose,
   onSaved,
 }: {
   group: EmployeeGroup;
   cycleStart: string;
   cycleEnd: string;
+  locked?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -599,7 +604,7 @@ function EmployeeReviewModal({
                 size="sm"
                 variant="default"
                 onClick={handleApproveAll}
-                disabled={approving || savingIds.size > 0}
+                disabled={approving || savingIds.size > 0 || locked}
                 data-testid="button-approve-all"
               >
                 {approving
@@ -620,6 +625,13 @@ function EmployeeReviewModal({
             </Button>
           </div>
         </div>
+
+        {locked && (
+          <div className="flex items-start gap-2 px-5 py-2.5 bg-red-500/10 border-b border-red-400/40 text-red-700 dark:text-red-300 text-xs shrink-0">
+            <Lock className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>이 급여 주기는 마감되었습니다. 승인·수정·추가가 잠겨 있습니다. 변경이 필요하면 Director에게 연락하세요.</span>
+          </div>
+        )}
 
         {/* Scrollable body */}
         <div className="overflow-y-auto flex-1">
@@ -765,7 +777,7 @@ function EmployeeReviewModal({
                   </div>
                 </div>
               );
-            })() : (
+            })() : locked ? null : (
               <div className="px-4 py-2 border-t border-border/10">
                 <button type="button" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors hover-elevate rounded px-2 py-1" onClick={() => setShowAddForm(true)} data-testid="button-add-missing-shift">
                   <Plus className="h-3.5 w-3.5" />
@@ -884,7 +896,7 @@ function EmployeeReviewModal({
               })()}
 
               {/* ── "Add Missing Shift" trigger row ── */}
-              {!showAddForm && (
+              {!showAddForm && !locked && (
                 <tbody>
                   <tr>
                     <td colSpan={7} className="py-2 px-3">
@@ -1255,13 +1267,20 @@ export function AdminTimesheetApprovals() {
   const [, navigate] = useLocation();
   const { currentRole } = useAdminRole();
 
-  // Cycle state — default to the previous (just-closed) cycle, since approval
-  // work is almost always for the cycle that already ended. "This Cycle" button
-  // jumps the user back to today's cycle when needed.
+  // Cycle state — see defaultCycleStart below for the landing-cycle rule.
+  // "This Cycle" button jumps the user to today's cycle when needed.
   const today = getAEDTToday();
   const currentCycleStart = getPayrollCycleStart(today);
   const previousCycleStart = shiftDate(currentCycleStart, -14);
-  const [cycleStart, setCycleStart] = useState(previousCycleStart);
+  // Default to the previous cycle while its approval window is still OPEN (managers
+  // are usually finalizing the just-ended fortnight). Once it has locked, land on the
+  // current open cycle instead, so managers arrive at work they can actually do rather
+  // than the locked "contact Director" wall — they can still navigate back to the
+  // locked cycle to view it. The approval deadline is only a cutoff, not a one-day window.
+  const defaultCycleStart = isCycleApprovalClosed(previousCycleStart, today)
+    ? currentCycleStart
+    : previousCycleStart;
+  const [cycleStart, setCycleStart] = useState(defaultCycleStart);
   const cycleEnd = getPayrollCycleEnd(cycleStart);
   const isCurrentCycle = cycleStart === currentCycleStart;
 
@@ -1313,6 +1332,38 @@ export function AdminTimesheetApprovals() {
     onError: () => toast({ title: "Error", description: "Auto-fill failed.", variant: "destructive" }),
   });
 
+  // ── Approval deadline / lock status for the displayed cycle (+ selected store) ──
+  const { data: cycleStatus } = useQuery<{
+    cycleStart: string; cycleEnd: string; deadlineMonday: string;
+    closed: boolean; overrideActive: boolean; serverToday: string;
+  }>({
+    queryKey: ["/api/admin/approvals/cycle-status", cycleStart, storeFilter],
+    queryFn: () => fetch(`/api/admin/approvals/cycle-status?cycleStart=${cycleStart}&storeId=${storeFilter}`).then(r => r.json()),
+  });
+  const isAdmin = currentRole === "ADMIN";
+  const cycleClosed = !!cycleStatus?.closed;
+  const overrideActive = !!cycleStatus?.overrideActive;
+  // Managers are locked out once a cycle closes, unless the Director opened an
+  // override for the selected store. ADMIN (Director) is never locked.
+  const approvalsLocked = cycleClosed && !overrideActive && !isAdmin;
+
+  const unlockMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/approvals/unlock-cycle", { storeId: storeFilter, cycleStart }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/approvals/cycle-status"] });
+      toast({ title: "주기 임시 해제됨", description: "매니저가 이 주기를 다시 승인할 수 있습니다." });
+    },
+    onError: () => toast({ title: "Error", description: "임시 해제에 실패했습니다.", variant: "destructive" }),
+  });
+  const relockMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/approvals/relock-cycle", { storeId: storeFilter, cycleStart }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/approvals/cycle-status"] });
+      toast({ title: "주기 다시 잠금됨" });
+    },
+    onError: () => toast({ title: "Error", description: "다시 잠금에 실패했습니다.", variant: "destructive" }),
+  });
+
   const totalPending = filtered.filter(t => t.status === "PENDING").length;
   const totalShifts = filtered.length;
 
@@ -1336,6 +1387,7 @@ export function AdminTimesheetApprovals() {
               variant="outline"
               className="h-9 gap-2 text-sm"
               onClick={() => setAddShiftOpen(true)}
+              disabled={approvalsLocked}
               data-testid="button-standalone-add-shift"
             >
               <Plus className="h-4 w-4 text-primary" />
@@ -1346,7 +1398,7 @@ export function AdminTimesheetApprovals() {
               variant="outline"
               className="h-9 gap-2 text-sm"
               onClick={() => autoFillMutation.mutate()}
-              disabled={autoFillMutation.isPending}
+              disabled={autoFillMutation.isPending || approvalsLocked}
               data-testid="button-auto-fill"
             >
               {autoFillMutation.isPending
@@ -1380,6 +1432,82 @@ export function AdminTimesheetApprovals() {
             onToday={() => setCycleStart(currentCycleStart)}
           />
         </div>
+
+        {/* ── Approval Deadline Banner ──────────────────────────────────────── */}
+        {cycleStatus && (
+          <div
+            className={`rounded-lg border px-3 py-2.5 text-sm ${
+              approvalsLocked
+                ? "border-red-400/50 bg-red-500/10 text-red-700 dark:text-red-300"
+                : cycleClosed && overrideActive
+                ? "border-amber-400/50 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                : "border-border/40 bg-card text-muted-foreground"
+            }`}
+            data-testid="banner-approval-deadline"
+          >
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="flex items-start gap-2">
+                {approvalsLocked ? (
+                  <Lock className="h-4 w-4 mt-0.5 shrink-0" />
+                ) : (
+                  <CalendarClock className="h-4 w-4 mt-0.5 shrink-0" />
+                )}
+                <div className="space-y-0.5">
+                  {!cycleClosed && (
+                    <p>
+                      근무시간 승인 마감: <b>{cycleStatus.deadlineMonday}(월) 자정</b>까지 — 이 날짜가 지나면 자동으로 마감됩니다.
+                    </p>
+                  )}
+                  {approvalsLocked && (
+                    <p>
+                      이 급여 주기는 <b>{cycleStatus.deadlineMonday}(월) 자정</b>에 마감되었습니다. 수정이 필요하면 <b>Director에게 연락</b>하세요.
+                    </p>
+                  )}
+                  {isAdmin && cycleClosed && !overrideActive && (
+                    <p>
+                      이 주기는 마감일({cycleStatus.deadlineMonday})이 지났습니다. Director는 언제든 직접 수정할 수 있습니다.{" "}
+                      {storeFilter === "ALL"
+                        ? "매니저용으로 임시 해제하려면 매장을 선택하세요."
+                        : "아래 버튼으로 매니저용 임시 해제도 가능합니다."}
+                    </p>
+                  )}
+                  {cycleClosed && overrideActive && (
+                    <p>
+                      Director가 이 주기를 <b>임시로 열어둠</b> — 매니저 승인 가능. 작업이 끝나면 다시 잠가주세요.
+                    </p>
+                  )}
+                </div>
+              </div>
+              {isAdmin && cycleClosed && storeFilter !== "ALL" && (
+                overrideActive ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1 text-xs shrink-0"
+                    onClick={() => relockMutation.mutate()}
+                    disabled={relockMutation.isPending}
+                    data-testid="button-relock-cycle"
+                  >
+                    <Lock className="h-3 w-3" />
+                    다시 잠금
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1 text-xs shrink-0"
+                    onClick={() => unlockMutation.mutate()}
+                    disabled={unlockMutation.isPending}
+                    data-testid="button-unlock-cycle"
+                  >
+                    <LockOpen className="h-3 w-3" />
+                    매니저용 임시 해제
+                  </Button>
+                )
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ── Summary Stats ─────────────────────────────────────────────────── */}
         {!isLoading && totalShifts > 0 && (
@@ -1551,6 +1679,7 @@ export function AdminTimesheetApprovals() {
           group={reviewingGroup}
           cycleStart={cycleStart}
           cycleEnd={cycleEnd}
+          locked={approvalsLocked}
           onClose={() => setReviewingGroup(null)}
           onSaved={() => setReviewingGroup(null)}
         />

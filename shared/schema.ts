@@ -727,6 +727,28 @@ export const insertPayrollBackPayItemSchema = createInsertSchema(payrollBackPayI
 export type InsertPayrollBackPayItem = z.infer<typeof insertPayrollBackPayItemSchema>;
 export type PayrollBackPayItem = typeof payrollBackPayItems.$inferSelect;
 
+// Director override for the timesheet-approval deadline. A cycle's approval window
+// auto-closes the day after its buffer Monday (see shared/payrollCycle.ts). The
+// PRESENCE of a row here = the Director has temporarily re-opened that store+cycle
+// for manager approvals. Re-locking deletes the row. UNIQUE(store_id, cycle_start).
+export const timesheetApprovalOverrides = pgTable("timesheet_approval_overrides", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  cycleStart: text("cycle_start").notNull(),
+  unlockedBy: varchar("unlocked_by"),
+  unlockedAt: timestamp("unlocked_at").defaultNow().notNull(),
+}, (table) => ({
+  storeCycleUniq: uniqueIndex("tao_store_cycle_uniq").on(table.storeId, table.cycleStart),
+}));
+
+export const insertTimesheetApprovalOverrideSchema = createInsertSchema(timesheetApprovalOverrides).omit({
+  id: true,
+  unlockedAt: true,
+});
+
+export type InsertTimesheetApprovalOverride = z.infer<typeof insertTimesheetApprovalOverrideSchema>;
+export type TimesheetApprovalOverride = typeof timesheetApprovalOverrides.$inferSelect;
+
 // §6.3.13 Singleton settings row: which employee form fields are mandatory.
 // ID is fixed to 1 — application code only ever reads/writes this single row.
 export const employeeFieldRequirements = pgTable("employee_field_requirements", {

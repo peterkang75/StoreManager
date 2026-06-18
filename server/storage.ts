@@ -53,6 +53,7 @@ import {
   type DailySales, type InsertDailySales, dailySales,
   type PayrollBackPayItem, type InsertPayrollBackPayItem, payrollBackPayItems,
   employeeFieldRequirements,
+  timesheetApprovalOverrides, type TimesheetApprovalOverride,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
@@ -287,10 +288,16 @@ export interface IStorage {
   toggleRosterWeekPublished(storeId: string, weekStart: string): Promise<boolean>;
 
   getShiftTimesheet(employeeId: string, date: string): Promise<ShiftTimesheet | undefined>;
+  getShiftTimesheetById(id: string): Promise<ShiftTimesheet | undefined>;
   createShiftTimesheet(data: InsertShiftTimesheet): Promise<ShiftTimesheet>;
   getShiftTimesheets(filters?: { storeId?: string; employeeId?: string; date?: string; startDate?: string; endDate?: string; status?: string; isUnscheduled?: boolean }): Promise<ShiftTimesheet[]>;
   updateShiftTimesheet(id: string, data: Partial<InsertShiftTimesheet>): Promise<ShiftTimesheet | undefined>;
   deleteShiftTimesheet(id: string): Promise<boolean>;
+
+  // Timesheet-approval deadline overrides (Director temporary unlock)
+  getApprovalOverride(storeId: string, cycleStart: string): Promise<TimesheetApprovalOverride | undefined>;
+  createApprovalOverride(data: { storeId: string; cycleStart: string; unlockedBy?: string | null }): Promise<TimesheetApprovalOverride>;
+  deleteApprovalOverride(storeId: string, cycleStart: string): Promise<boolean>;
 
   // Intercompany Settlements
   getIntercompanySettlements(filters?: { status?: string; payrollId?: string }): Promise<IntercompanySettlement[]>;
@@ -1886,6 +1893,33 @@ export class MemStorage implements IStorage {
 
   async deleteShiftTimesheet(id: string): Promise<boolean> {
     return this.shiftTimesheetsMap.delete(id);
+  }
+
+  async getShiftTimesheetById(id: string): Promise<ShiftTimesheet | undefined> {
+    return this.shiftTimesheetsMap.get(id);
+  }
+
+  private approvalOverridesMap: Map<string, TimesheetApprovalOverride> = new Map();
+  private aoKey(storeId: string, cycleStart: string): string { return `${storeId}|${cycleStart}`; }
+
+  async getApprovalOverride(storeId: string, cycleStart: string): Promise<TimesheetApprovalOverride | undefined> {
+    return this.approvalOverridesMap.get(this.aoKey(storeId, cycleStart));
+  }
+
+  async createApprovalOverride(data: { storeId: string; cycleStart: string; unlockedBy?: string | null }): Promise<TimesheetApprovalOverride> {
+    const key = this.aoKey(data.storeId, data.cycleStart);
+    const existing = this.approvalOverridesMap.get(key);
+    if (existing) return existing;
+    const row: TimesheetApprovalOverride = {
+      id: randomUUID(), storeId: data.storeId, cycleStart: data.cycleStart,
+      unlockedBy: data.unlockedBy ?? null, unlockedAt: new Date(),
+    };
+    this.approvalOverridesMap.set(key, row);
+    return row;
+  }
+
+  async deleteApprovalOverride(storeId: string, cycleStart: string): Promise<boolean> {
+    return this.approvalOverridesMap.delete(this.aoKey(storeId, cycleStart));
   }
 
   async getIntercompanySettlements(_filters?: { status?: string; payrollId?: string }): Promise<IntercompanySettlement[]> {
@@ -3644,6 +3678,35 @@ export class DatabaseStorage implements IStorage {
 
   async deleteShiftTimesheet(id: string): Promise<boolean> {
     const result = await db.delete(shiftTimesheets).where(eq(shiftTimesheets.id, id)).returning({ id: shiftTimesheets.id });
+    return result.length > 0;
+  }
+
+  async getShiftTimesheetById(id: string): Promise<ShiftTimesheet | undefined> {
+    const [ts] = await db.select().from(shiftTimesheets).where(eq(shiftTimesheets.id, id)).limit(1);
+    return ts;
+  }
+
+  // ─── Timesheet-approval deadline overrides ────────────────────────────────
+  async getApprovalOverride(storeId: string, cycleStart: string): Promise<TimesheetApprovalOverride | undefined> {
+    const [row] = await db.select().from(timesheetApprovalOverrides)
+      .where(and(eq(timesheetApprovalOverrides.storeId, storeId), eq(timesheetApprovalOverrides.cycleStart, cycleStart)))
+      .limit(1);
+    return row;
+  }
+
+  async createApprovalOverride(data: { storeId: string; cycleStart: string; unlockedBy?: string | null }): Promise<TimesheetApprovalOverride> {
+    const [row] = await db.insert(timesheetApprovalOverrides)
+      .values({ storeId: data.storeId, cycleStart: data.cycleStart, unlockedBy: data.unlockedBy ?? null })
+      .onConflictDoNothing()
+      .returning();
+    // onConflictDoNothing returns nothing if the override already exists — fetch it.
+    return row ?? (await this.getApprovalOverride(data.storeId, data.cycleStart))!;
+  }
+
+  async deleteApprovalOverride(storeId: string, cycleStart: string): Promise<boolean> {
+    const result = await db.delete(timesheetApprovalOverrides)
+      .where(and(eq(timesheetApprovalOverrides.storeId, storeId), eq(timesheetApprovalOverrides.cycleStart, cycleStart)))
+      .returning({ id: timesheetApprovalOverrides.id });
     return result.length > 0;
   }
 

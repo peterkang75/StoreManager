@@ -52,3 +52,30 @@ export function shiftDate(dateStr: string, days: number): string {
 export function isDateInOpenCycle(dateStr: string, todayStr: string): boolean {
   return getPayrollCycleStart(dateStr) === getPayrollCycleStart(todayStr);
 }
+
+/**
+ * Timesheet-approval deadline for a cycle.
+ *
+ * Managers must finish approvals by the END of the Monday that follows the cycle's
+ * Sunday end date ("그 다음 월요일 자정까지"). That Monday is the buffer day:
+ * for a cycle ending Sun, approvals stay open through all of the next Mon and the
+ * cycle LOCKS at 00:00 (Sydney) on the following Tuesday.
+ *
+ * - getApprovalDeadlineMonday(cycleStart) → "YYYY-MM-DD" of the buffer Monday (display).
+ * - getApprovalLockDate(cycleStart)       → "YYYY-MM-DD" of the first locked day (Tue).
+ * - isCycleApprovalClosed(cycleStart, sydneyTodayStr) → true once today reaches lock day.
+ *
+ * sydneyTodayStr MUST be a Sydney-local "YYYY-MM-DD" (callers compute it, keeping
+ * these helpers pure and DST-agnostic).
+ */
+export function getApprovalDeadlineMonday(cycleStart: string): string {
+  return shiftDate(getPayrollCycleEnd(cycleStart), 1); // Sun + 1 = Mon
+}
+
+export function getApprovalLockDate(cycleStart: string): string {
+  return shiftDate(getPayrollCycleEnd(cycleStart), 2); // Sun + 2 = Tue (first locked day)
+}
+
+export function isCycleApprovalClosed(cycleStart: string, sydneyTodayStr: string): boolean {
+  return sydneyTodayStr >= getApprovalLockDate(cycleStart);
+}

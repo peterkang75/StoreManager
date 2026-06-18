@@ -5,7 +5,7 @@ import { storage, generateSecureToken } from "./storage";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 import { supplierInvoices } from "@shared/schema";
-import { PAYROLL_CYCLE_ANCHOR, getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "../shared/payrollCycle";
+import { PAYROLL_CYCLE_ANCHOR, getPayrollCycleStart, getPayrollCycleEnd, shiftDate, getApprovalDeadlineMonday, isCycleApprovalClosed } from "../shared/payrollCycle";
 import { storeColorFor } from "../shared/storeColors";
 import { extractPdfText, parseInvoiceWithAI, parseUploadedFile, parseInvoiceFromUnknownSender, triageEmail, summarizeTaskFromEmail, translateSummarizeEmail, classifyDocumentForAP } from "./invoiceParser";
 import {
@@ -5680,9 +5680,94 @@ export async function registerRoutes(
     }
   });
 
+  // ── Timesheet-approval deadline (manager lock + Director override) ──────────
+  // Sydney-local "today" — the cycle close boundary flips at midnight Sydney time.
+  const sydneyTodayStr = () => new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
+  const isAdminReq = (req: Request) => (req.user?.role ?? "").toUpperCase() === "ADMIN";
+
+  // Returns a 403 payload if the (storeId, date) cycle is locked for this manager;
+  // null if allowed. ADMIN always allowed. Override (per store+cycle) re-opens it.
+  async function approvalLockBlock(req: Request, storeId: string | undefined, date: string): Promise<{ error: string; message: string; deadline: string } | null> {
+    if (isAdminReq(req)) return null;
+    const cycleStart = getPayrollCycleStart(date);
+    if (!isCycleApprovalClosed(cycleStart, sydneyTodayStr())) return null;
+    if (storeId) {
+      const override = await storage.getApprovalOverride(storeId, cycleStart);
+      if (override) return null;
+    }
+    const deadline = getApprovalDeadlineMonday(cycleStart);
+    return {
+      error: "CYCLE_LOCKED",
+      deadline,
+      message: `이 급여 주기(${cycleStart} ~ ${getPayrollCycleEnd(cycleStart)})의 근무시간 승인은 ${deadline}(월) 자정에 마감되었습니다. 수정이 필요하면 Director에게 연락하세요.`,
+    };
+  }
+  // Guard helper for :id routes — loads the sheet, enforces the lock. Returns the
+  // sheet if allowed; otherwise sends the response and returns null.
+  async function loadSheetOrLock(req: Request, res: Response): Promise<any | null> {
+    const sheet = await storage.getShiftTimesheetById(req.params.id);
+    if (!sheet) { res.status(404).json({ error: "Timesheet not found" }); return null; }
+    const block = await approvalLockBlock(req, sheet.storeId, sheet.date);
+    if (block) { res.status(403).json(block); return null; }
+    return sheet;
+  }
+
+  // GET cycle approval status — used by the Approve screen banner. Readable by managers.
+  app.get("/api/admin/approvals/cycle-status", async (req: Request, res: Response) => {
+    try {
+      const { storeId, cycleStart } = req.query as Record<string, string>;
+      if (!cycleStart) return res.status(400).json({ error: "cycleStart is required" });
+      const today = sydneyTodayStr();
+      const closed = isCycleApprovalClosed(cycleStart, today);
+      const overrideActive = storeId && storeId !== "ALL"
+        ? !!(await storage.getApprovalOverride(storeId, cycleStart))
+        : false;
+      res.json({
+        cycleStart,
+        cycleEnd: getPayrollCycleEnd(cycleStart),
+        deadlineMonday: getApprovalDeadlineMonday(cycleStart),
+        closed,
+        overrideActive,
+        serverToday: today,
+      });
+    } catch (err) {
+      console.error("Error fetching cycle status:", err);
+      res.status(500).json({ error: "Failed to fetch cycle status" });
+    }
+  });
+
+  // POST unlock a closed cycle for a store (Director only). Manual re-lock required.
+  app.post("/api/admin/approvals/unlock-cycle", async (req: Request, res: Response) => {
+    try {
+      if (!isAdminReq(req)) return res.status(403).json({ error: "FORBIDDEN", message: "Director (ADMIN) only" });
+      const { storeId, cycleStart } = req.body as { storeId?: string; cycleStart?: string };
+      if (!storeId || !cycleStart) return res.status(400).json({ error: "storeId and cycleStart are required" });
+      const row = await storage.createApprovalOverride({ storeId, cycleStart, unlockedBy: req.user?.id ?? null });
+      res.status(201).json(row);
+    } catch (err) {
+      console.error("Error unlocking cycle:", err);
+      res.status(500).json({ error: "Failed to unlock cycle" });
+    }
+  });
+
+  // POST re-lock a previously unlocked cycle (Director only).
+  app.post("/api/admin/approvals/relock-cycle", async (req: Request, res: Response) => {
+    try {
+      if (!isAdminReq(req)) return res.status(403).json({ error: "FORBIDDEN", message: "Director (ADMIN) only" });
+      const { storeId, cycleStart } = req.body as { storeId?: string; cycleStart?: string };
+      if (!storeId || !cycleStart) return res.status(400).json({ error: "storeId and cycleStart are required" });
+      const removed = await storage.deleteApprovalOverride(storeId, cycleStart);
+      res.json({ removed });
+    } catch (err) {
+      console.error("Error re-locking cycle:", err);
+      res.status(500).json({ error: "Failed to re-lock cycle" });
+    }
+  });
+
   // PUT /api/admin/approvals/:id/approve — approve as-is
   app.put("/api/admin/approvals/:id/approve", async (req: Request, res: Response) => {
     try {
+      if (!(await loadSheetOrLock(req, res))) return;
       const ts = await storage.updateShiftTimesheet(req.params.id, { status: "APPROVED" });
       if (!ts) return res.status(404).json({ error: "Timesheet not found" });
       res.json(ts);
@@ -5698,6 +5783,7 @@ export async function registerRoutes(
       if (!actualStartTime || !actualEndTime || !adjustmentReason?.trim()) {
         return res.status(400).json({ error: "actualStartTime, actualEndTime, and adjustmentReason are required" });
       }
+      if (!(await loadSheetOrLock(req, res))) return;
       const ts = await storage.updateShiftTimesheet(req.params.id, {
         actualStartTime,
         actualEndTime,
@@ -5718,6 +5804,7 @@ export async function registerRoutes(
       if (!actualStartTime || !actualEndTime) {
         return res.status(400).json({ error: "actualStartTime and actualEndTime are required" });
       }
+      if (!(await loadSheetOrLock(req, res))) return;
       const ts = await storage.updateShiftTimesheet(req.params.id, { actualStartTime, actualEndTime });
       if (!ts) return res.status(404).json({ error: "Timesheet not found" });
       res.json(ts);
@@ -5730,6 +5817,7 @@ export async function registerRoutes(
   // PATCH /api/admin/approvals/:id/reject — soft-delete: mark as REJECTED (tombstone)
   app.patch("/api/admin/approvals/:id/reject", async (req: Request, res: Response) => {
     try {
+      if (!(await loadSheetOrLock(req, res))) return;
       const ts = await storage.updateShiftTimesheet(req.params.id, { status: "REJECTED" });
       if (!ts) return res.status(404).json({ error: "Timesheet not found" });
       res.json(ts);
@@ -5741,6 +5829,7 @@ export async function registerRoutes(
 
   app.delete("/api/admin/approvals/:id", async (req: Request, res: Response) => {
     try {
+      if (!(await loadSheetOrLock(req, res))) return;
       const success = await storage.deleteShiftTimesheet(req.params.id);
       if (!success) return res.status(404).json({ error: "Timesheet not found" });
       res.json({ success: true });
@@ -5757,6 +5846,8 @@ export async function registerRoutes(
       if (!storeId || !employeeId || !date || !actualStartTime || !actualEndTime) {
         return res.status(400).json({ error: "storeId, employeeId, date, actualStartTime, and actualEndTime are required" });
       }
+      const addBlock = await approvalLockBlock(req, storeId, date);
+      if (addBlock) return res.status(403).json(addBlock);
       const ts = await storage.createShiftTimesheet({
         storeId,
         employeeId,
@@ -5781,6 +5872,12 @@ export async function registerRoutes(
       if (!Array.isArray(ids) || ids.length === 0) {
         return res.status(400).json({ error: "ids array is required" });
       }
+      const sheets = await Promise.all(ids.map((id: string) => storage.getShiftTimesheetById(id)));
+      for (const s of sheets) {
+        if (!s) continue;
+        const b = await approvalLockBlock(req, s.storeId, s.date);
+        if (b) return res.status(403).json(b);
+      }
       const results = await Promise.all(ids.map(id => storage.updateShiftTimesheet(id, { status: "APPROVED" })));
       res.json({ approved: results.filter(Boolean).length });
     } catch (err) {
@@ -5795,6 +5892,12 @@ export async function registerRoutes(
       if (!Array.isArray(ids) || ids.length === 0) {
         return res.status(400).json({ error: "ids array is required" });
       }
+      const sheets = await Promise.all(ids.map((id: string) => storage.getShiftTimesheetById(id)));
+      for (const s of sheets) {
+        if (!s) continue;
+        const b = await approvalLockBlock(req, s.storeId, s.date);
+        if (b) return res.status(403).json(b);
+      }
       const results = await Promise.all(ids.map(id => storage.updateShiftTimesheet(id, { status: "PENDING" })));
       res.json({ reverted: results.filter(Boolean).length });
     } catch (err) {
@@ -5807,6 +5910,8 @@ export async function registerRoutes(
     try {
       const { storeId, startDate, endDate } = req.body as { storeId?: string; startDate: string; endDate: string };
       if (!startDate || !endDate) return res.status(400).json({ error: "startDate and endDate are required" });
+      const afBlock = await approvalLockBlock(req, storeId, startDate);
+      if (afBlock) return res.status(403).json(afBlock);
 
       // 1. Fetch rosters for the date range (optionally filtered by store)
       const rostersInRange = await storage.getRosters({ storeId: storeId || undefined, startDate, endDate });
