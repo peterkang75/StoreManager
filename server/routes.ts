@@ -1179,6 +1179,23 @@ export async function registerRoutes(
     try {
       const { storeId, weekStart } = req.body;
       if (!storeId || !weekStart) return res.status(400).json({ error: "storeId and weekStart are required" });
+      // Enforce season hour caps before publishing (ADMIN bypasses — Director override).
+      if ((req.user?.role ?? "").toUpperCase() !== "ADMIN") {
+        const { caps } = await getWeekCaps(storeId, weekStart);
+        const rosters = await storage.getRosters({ storeId, startDate: weekStart, endDate: shiftDate(weekStart, 6) });
+        const used = sumByCategory(
+          rosters.map(r => ({ date: r.date, hours: hoursBetween(r.startTime, r.endTime) })),
+          caps.phDays,
+        );
+        const breaches = findBreaches(caps, used);
+        if (breaches.length > 0) {
+          return res.status(403).json({
+            error: "CAP_EXCEEDED",
+            message: "이 주의 로스터가 근무시간 상한을 초과해 발행할 수 없습니다.",
+            breaches,
+          });
+        }
+      }
       const published = await storage.toggleRosterWeekPublished(storeId, weekStart);
       res.json({ published });
     } catch (error) {
