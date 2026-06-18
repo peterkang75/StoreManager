@@ -33,7 +33,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Clock, CalendarDays, Sun, BookOpen, Plus, Trash2, Pencil, Save, Loader2 } from "lucide-react";
+import { Clock, CalendarDays, Sun, BookOpen, Plus, Trash2, Pencil, Save, Loader2, Download } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Store, StoreTradingHours, SchoolHoliday, PublicHoliday, StoreRecommendedHours } from "@shared/schema";
@@ -275,6 +275,16 @@ function SchoolHolidaysSection() {
     onError: () => toast({ title: "Error", description: "Failed to delete.", variant: "destructive" }),
   });
 
+  const loadNsw = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/store-config/school-holidays/load-nsw"),
+    onSuccess: async (r: any) => {
+      const data = await r.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/store-config/school-holidays"] });
+      toast({ title: `NSW 방학 ${data.added}건 불러옴` });
+    },
+    onError: (e: any) => toast({ title: "불러오기 실패", description: e?.message ?? "", variant: "destructive" }),
+  });
+
   function openCreate() {
     setEditId(null);
     setForm({ name: "", startDate: "", endDate: "" });
@@ -311,11 +321,17 @@ function SchoolHolidaysSection() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm text-muted-foreground">학교 방학 기간을 설정하세요 (호주 빅토리아주 기준, 연 4회).</p>
+          <p className="text-sm text-muted-foreground">학교 방학 기간을 설정하세요 (NSW 기준, 연 4회).</p>
         </div>
-        <Button size="sm" onClick={openCreate} data-testid="btn-add-school-holiday">
-          <Plus className="w-4 h-4 mr-1" /> Add Holiday Period
-        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => loadNsw.mutate()} disabled={loadNsw.isPending} data-testid="btn-load-nsw-holidays">
+            {loadNsw.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Download className="w-4 h-4 mr-1" />}
+            Load NSW holidays
+          </Button>
+          <Button size="sm" onClick={openCreate} data-testid="btn-add-school-holiday">
+            <Plus className="w-4 h-4 mr-1" /> Add Holiday Period
+          </Button>
+        </div>
       </div>
 
       <Card>
