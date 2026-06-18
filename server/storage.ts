@@ -48,6 +48,7 @@ import {
   type SchoolHoliday, type InsertSchoolHoliday, schoolHolidays,
   type PublicHoliday, type InsertPublicHoliday, publicHolidays,
   type StoreRecommendedHours, type InsertStoreRecommendedHours, storeRecommendedHours,
+  storeHourCaps, type StoreHourCap, type InsertStoreHourCap,
   type AutomationRule, type InsertAutomationRule, automationRules,
   type PortalSession, portalSessions,
   type DailySales, type InsertDailySales, dailySales,
@@ -357,6 +358,8 @@ export interface IStorage {
   // Store Config — Recommended Hours
   getStoreRecommendedHours(): Promise<StoreRecommendedHours[]>;
   upsertStoreRecommendedHours(data: InsertStoreRecommendedHours): Promise<StoreRecommendedHours>;
+  getStoreHourCaps(storeId?: string): Promise<StoreHourCap[]>;
+  upsertStoreHourCap(data: InsertStoreHourCap): Promise<StoreHourCap>;
   // Automation Rules
   getAutomationRules(): Promise<AutomationRule[]>;
   getAutomationRulesDueToday(): Promise<AutomationRule[]>;
@@ -2105,6 +2108,20 @@ export class MemStorage implements IStorage {
   async getStoreRecommendedHours(): Promise<StoreRecommendedHours[]> { return []; }
   async upsertStoreRecommendedHours(data: InsertStoreRecommendedHours): Promise<StoreRecommendedHours> {
     return { updatedAt: new Date(), ...data } as StoreRecommendedHours;
+  }
+  private storeHourCapsList: StoreHourCap[] = [];
+  async getStoreHourCaps(storeId?: string): Promise<StoreHourCap[]> {
+    return storeId ? this.storeHourCapsList.filter(c => c.storeId === storeId) : this.storeHourCapsList;
+  }
+  async upsertStoreHourCap(data: InsertStoreHourCap): Promise<StoreHourCap> {
+    const existing = this.storeHourCapsList.find(c => c.storeId === data.storeId && c.season === data.season);
+    if (existing) {
+      Object.assign(existing, data, { updatedAt: new Date() });
+      return existing;
+    }
+    const row = { id: randomUUID(), ...data, updatedAt: new Date() } as StoreHourCap;
+    this.storeHourCapsList.push(row);
+    return row;
   }
   // Automation Rules — MemStorage stubs
   async getAutomationRules(): Promise<AutomationRule[]> { return []; }
@@ -3971,6 +3988,30 @@ export class DatabaseStorage implements IStorage {
       .onConflictDoUpdate({
         target: storeRecommendedHours.storeId,
         set: { termWeeklyHours: data.termWeeklyHours, holidayWeeklyHours: data.holidayWeeklyHours, updatedAt: new Date() },
+      })
+      .returning();
+    return row;
+  }
+
+  async getStoreHourCaps(storeId?: string): Promise<StoreHourCap[]> {
+    if (storeId) {
+      return db.select().from(storeHourCaps).where(eq(storeHourCaps.storeId, storeId));
+    }
+    return db.select().from(storeHourCaps);
+  }
+
+  async upsertStoreHourCap(data: InsertStoreHourCap): Promise<StoreHourCap> {
+    const [row] = await db.insert(storeHourCaps)
+      .values({ ...data, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: [storeHourCaps.storeId, storeHourCaps.season],
+        set: {
+          weeklyTotalHours: data.weeklyTotalHours,
+          saturdayHours: data.saturdayHours,
+          sundayHours: data.sundayHours,
+          publicHolidayHours: data.publicHolidayHours,
+          updatedAt: new Date(),
+        },
       })
       .returning();
     return row;
