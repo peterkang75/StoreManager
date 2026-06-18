@@ -751,6 +751,7 @@ Turns interview capture + hiring + onboarding into one flow so anyone conducting
 | POST | `/api/rosters/publish` | Publish roster for a store+week |
 | GET | `/api/rosters/published` | Check published status |
 | GET | `/api/rosters/employees` | Employees eligible for roster |
+| GET | `/api/rosters/week-caps` | Season + resolved hour caps + usage/breaches for a store+week (roster cap enforcement) |
 | GET | `/api/roster-periods` | List roster periods |
 | POST | `/api/roster-periods` | Create roster period |
 | PUT | `/api/roster-periods/:id` | Update roster period |
@@ -773,14 +774,17 @@ Turns interview capture + hiring + onboarding into one flow so anyone conducting
 | PUT | `/api/store-config/trading-hours` | Upsert one day's trading hours for a store |
 | GET | `/api/store-config/school-holidays` | List all school holiday periods |
 | POST | `/api/store-config/school-holidays` | Create school holiday period |
+| POST | `/api/store-config/school-holidays/load-nsw` | Bulk-load bundled NSW holiday dataset (idempotent, ADMIN) |
 | PUT | `/api/store-config/school-holidays/:id` | Update school holiday period |
 | DELETE | `/api/store-config/school-holidays/:id` | Delete school holiday period |
 | GET | `/api/store-config/public-holidays` | List all public holidays |
 | POST | `/api/store-config/public-holidays` | Create public holiday |
 | PUT | `/api/store-config/public-holidays/:id` | Update public holiday |
 | DELETE | `/api/store-config/public-holidays/:id` | Delete public holiday |
-| GET | `/api/store-config/recommended-hours` | List recommended weekly hours for all stores |
-| PUT | `/api/store-config/recommended-hours` | Upsert recommended hours for a store |
+| GET | `/api/store-config/recommended-hours` | List recommended weekly hours for all stores (LEGACY advisory) |
+| PUT | `/api/store-config/recommended-hours` | Upsert recommended hours for a store (LEGACY advisory) |
+| GET | `/api/store-config/hour-caps` | List enforced per-store/season roster hour caps |
+| PUT | `/api/store-config/hour-caps` | Upsert a store+season hour cap (validates sat+sun+ph ≤ weekly) |
 | GET | `/api/automation-rules` | All rules enriched with employeeName + storeName |
 | POST | `/api/automation-rules` | Create rule |
 | GET | `/api/automation-rules/due-today` | Active rules due today (Sydney TZ) |
