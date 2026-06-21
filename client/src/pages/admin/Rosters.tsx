@@ -230,7 +230,7 @@ function GenerateRosterDialog({
         <div className="space-y-4 py-1">
           {/* Preset type */}
           <div>
-            <p className="text-xs font-medium text-muted-foreground mb-2">시프트 유형 Shift type</p>
+            <p className="text-xs font-medium text-muted-foreground mb-2">Shift type</p>
             <div className="grid grid-cols-2 gap-1.5">
               {([
                 { value: "full_day",    label: "Full Day" },
@@ -272,7 +272,7 @@ function GenerateRosterDialog({
 
           {/* Day selector */}
           <div>
-            <p className="text-xs font-medium text-muted-foreground mb-2">요일 Days</p>
+            <p className="text-xs font-medium text-muted-foreground mb-2">Days</p>
             <div className="flex gap-1 flex-wrap">
               {DAY_LABELS.map((d, i) => (
                 <button
@@ -294,7 +294,7 @@ function GenerateRosterDialog({
 
           {/* Employee selector */}
           <div>
-            <p className="text-xs font-medium text-muted-foreground mb-2">직원 Employees</p>
+            <p className="text-xs font-medium text-muted-foreground mb-2">Employees</p>
             <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
               <label className="flex items-center gap-2 cursor-pointer">
                 <Checkbox
@@ -331,7 +331,7 @@ function GenerateRosterDialog({
             />
             <div>
               <p className="text-xs font-medium">Overwrite existing shifts</p>
-              <p className="text-[10px] text-muted-foreground">기존 시프트를 덮어씁니다</p>
+              <p className="text-[10px] text-muted-foreground">Overwrites existing shifts</p>
             </div>
           </label>
         </div>
@@ -1002,6 +1002,11 @@ export function AdminRosters() {
     enabled: !!selectedStore && !!weekStart,
   });
   const overCap = (weekCaps?.breaches?.length ?? 0) > 0;
+  const breachCatLabel = (c: string) =>
+    ({ WEEKLY: "Week total", SATURDAY: "Saturday", SUNDAY: "Sunday", PUBLIC_HOLIDAY: "Public holiday", WEEKDAY: "Weekday" } as Record<string, string>)[c] ?? c;
+  const breachMessage = (weekCaps?.breaches ?? [])
+    .map(b => `${breachCatLabel(b.category)} ${b.used}/${b.cap}h`)
+    .join(", ");
 
   // ── Summary calculations ───────────────────────────────────────────────────
   const empHours = (empId: string) =>
@@ -1036,9 +1041,20 @@ export function AdminRosters() {
               <Button
                 size="default"
                 variant={isPublished ? "outline" : "default"}
-                onClick={() => publishMutation.mutate()}
-                disabled={publishMutation.isPending || overCap}
-                title={overCap ? "근무시간 상한 초과 — 발행 불가" : undefined}
+                onClick={() => {
+                  // Block-at-publish only (retracting an already-published week is allowed).
+                  if (!isPublished && overCap) {
+                    toast({
+                      title: "Can't publish — over hours cap",
+                      description: `${weekCaps?.season === "HOLIDAY" ? "Holiday" : "Term"} cap exceeded: ${breachMessage}. Reduce the hours or adjust the cap in Store Settings.`,
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+                  publishMutation.mutate();
+                }}
+                disabled={publishMutation.isPending}
+                title={!isPublished && overCap ? "Over hours cap — click to see why" : undefined}
                 className="shrink-0 font-semibold"
                 style={
                   isPublished
@@ -1177,22 +1193,25 @@ export function AdminRosters() {
         {/* ── Season / hour-cap banner ─────────────────────────────────── */}
         {weekCaps && (
           <div className="flex flex-wrap items-center gap-3 text-xs rounded-none border-b border-border/40 bg-card px-4 py-2" data-testid="roster-caps-banner">
-            <span className="font-semibold">{weekCaps.season === "HOLIDAY" ? "방학" : "학기중"}</span>
-            {weekCaps.configMissing && <span className="text-amber-600">상한 미설정 — Store Settings에서 지정</span>}
+            <span className="font-semibold">{weekCaps.season === "HOLIDAY" ? "Holiday" : "Term"}</span>
+            {weekCaps.configMissing && <span className="text-amber-600">No cap set — configure in Store Settings</span>}
             {(() => {
               const c = weekCaps.caps, u = weekCaps.used;
               const total = Math.round((u.SATURDAY + u.SUNDAY + u.PUBLIC_HOLIDAY + u.WEEKDAY) * 100) / 100;
-              const cell = (label: string, used: number, cap: number) => (
-                <span key={label} className={used > cap ? "text-red-600 font-medium" : "text-muted-foreground"}>
-                  {label} {used}/{cap}
+              const hasCarveOut = c.saturdayCap > 0 || c.sundayCap > 0 || c.publicHolidayCap > 0;
+              // A cap of 0 means "no limit" for that category — show usage without a
+              // limit and never flag it red. Only enforced caps show "used/cap".
+              const cell = (label: string, used: number, cap: number, enforced: boolean) => (
+                <span key={label} className={enforced && used > cap ? "text-red-600 font-medium" : "text-muted-foreground"}>
+                  {label} {used}{enforced ? `/${cap}` : ""}
                 </span>
               );
               return (<>
-                {cell("주", total, c.weeklyTotal)}
-                {cell("토", u.SATURDAY, c.saturdayCap)}
-                {cell("일", u.SUNDAY, c.sundayCap)}
-                {cell("공휴일", u.PUBLIC_HOLIDAY, c.publicHolidayCap)}
-                {cell("주중", u.WEEKDAY, c.weekdayPool)}
+                {cell("Week", total, c.weeklyTotal, c.weeklyTotal > 0)}
+                {cell("Sat", u.SATURDAY, c.saturdayCap, c.saturdayCap > 0)}
+                {cell("Sun", u.SUNDAY, c.sundayCap, c.sundayCap > 0)}
+                {cell("PH", u.PUBLIC_HOLIDAY, c.publicHolidayCap, c.publicHolidayCap > 0)}
+                {cell("Wkdy", u.WEEKDAY, c.weekdayPool, hasCarveOut)}
               </>);
             })()}
           </div>

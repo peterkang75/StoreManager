@@ -629,7 +629,7 @@ function EmployeeReviewModal({
         {locked && (
           <div className="flex items-start gap-2 px-5 py-2.5 bg-red-500/10 border-b border-red-400/40 text-red-700 dark:text-red-300 text-xs shrink-0">
             <Lock className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-            <span>이 급여 주기는 마감되었습니다. 승인·수정·추가가 잠겨 있습니다. 변경이 필요하면 Director에게 연락하세요.</span>
+            <span>This pay cycle is closed. Approving, editing and adding are locked. To make changes, contact the Director.</span>
           </div>
         )}
 
@@ -1351,17 +1351,17 @@ export function AdminTimesheetApprovals() {
     mutationFn: () => apiRequest("POST", "/api/admin/approvals/unlock-cycle", { storeId: storeFilter, cycleStart }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/approvals/cycle-status"] });
-      toast({ title: "주기 임시 해제됨", description: "매니저가 이 주기를 다시 승인할 수 있습니다." });
+      toast({ title: "Cycle unlocked", description: "Managers can approve this cycle again." });
     },
-    onError: () => toast({ title: "Error", description: "임시 해제에 실패했습니다.", variant: "destructive" }),
+    onError: () => toast({ title: "Error", description: "Failed to unlock the cycle.", variant: "destructive" }),
   });
   const relockMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/admin/approvals/relock-cycle", { storeId: storeFilter, cycleStart }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/approvals/cycle-status"] });
-      toast({ title: "주기 다시 잠금됨" });
+      toast({ title: "Cycle re-locked" });
     },
-    onError: () => toast({ title: "Error", description: "다시 잠금에 실패했습니다.", variant: "destructive" }),
+    onError: () => toast({ title: "Error", description: "Failed to re-lock the cycle.", variant: "destructive" }),
   });
 
   const totalPending = filtered.filter(t => t.status === "PENDING").length;
@@ -1455,25 +1455,25 @@ export function AdminTimesheetApprovals() {
                 <div className="space-y-0.5">
                   {!cycleClosed && (
                     <p>
-                      근무시간 승인 마감: <b>{cycleStatus.deadlineMonday}(월) 자정</b>까지 — 이 날짜가 지나면 자동으로 마감됩니다.
+                      Approval deadline: <b>end of Mon {cycleStatus.deadlineMonday}</b> — this cycle locks automatically after that date.
                     </p>
                   )}
                   {approvalsLocked && (
                     <p>
-                      이 급여 주기는 <b>{cycleStatus.deadlineMonday}(월) 자정</b>에 마감되었습니다. 수정이 필요하면 <b>Director에게 연락</b>하세요.
+                      This pay cycle closed at <b>end of Mon {cycleStatus.deadlineMonday}</b>. To make changes, <b>contact the Director</b>.
                     </p>
                   )}
                   {isAdmin && cycleClosed && !overrideActive && (
                     <p>
-                      이 주기는 마감일({cycleStatus.deadlineMonday})이 지났습니다. Director는 언제든 직접 수정할 수 있습니다.{" "}
+                      This cycle is past its deadline ({cycleStatus.deadlineMonday}). The Director can edit anytime.{" "}
                       {storeFilter === "ALL"
-                        ? "매니저용으로 임시 해제하려면 매장을 선택하세요."
-                        : "아래 버튼으로 매니저용 임시 해제도 가능합니다."}
+                        ? "Select a store to temporarily unlock it for managers."
+                        : "Use the button to temporarily unlock it for managers."}
                     </p>
                   )}
                   {cycleClosed && overrideActive && (
                     <p>
-                      Director가 이 주기를 <b>임시로 열어둠</b> — 매니저 승인 가능. 작업이 끝나면 다시 잠가주세요.
+                      The Director has <b>temporarily unlocked</b> this cycle — managers can approve. Re-lock it when done.
                     </p>
                   )}
                 </div>
@@ -1489,7 +1489,7 @@ export function AdminTimesheetApprovals() {
                     data-testid="button-relock-cycle"
                   >
                     <Lock className="h-3 w-3" />
-                    다시 잠금
+                    Re-lock
                   </Button>
                 ) : (
                   <Button
@@ -1501,7 +1501,7 @@ export function AdminTimesheetApprovals() {
                     data-testid="button-unlock-cycle"
                   >
                     <LockOpen className="h-3 w-3" />
-                    매니저용 임시 해제
+                    Unlock for managers
                   </Button>
                 )
               )}

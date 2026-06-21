@@ -1192,9 +1192,14 @@ export async function registerRoutes(
           );
           const breaches = findBreaches(caps, used);
           if (breaches.length > 0) {
+            const catLabel: Record<string, string> = {
+              WEEKLY: "Week total", SATURDAY: "Saturday", SUNDAY: "Sunday",
+              PUBLIC_HOLIDAY: "Public holiday", WEEKDAY: "Weekday",
+            };
+            const detail = breaches.map(b => `${catLabel[b.category] ?? b.category} ${b.used}/${b.cap}h`).join(", ");
             return res.status(403).json({
               error: "CAP_EXCEEDED",
-              message: "이 주의 로스터가 근무시간 상한을 초과해 발행할 수 없습니다.",
+              message: `Can't publish — over hours cap: ${detail}. Reduce the hours or adjust the cap in Store Settings.`,
               breaches,
             });
           }
