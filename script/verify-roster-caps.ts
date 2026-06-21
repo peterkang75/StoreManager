@@ -36,4 +36,24 @@ const used = sumByCategory([
 ], caps.phDays);
 const breaches = findBreaches(caps, used);
 assert.ok(breaches.some(b => b.category === "SATURDAY"));
+
+// "0 = no limit": weekly-total-only cap. Sat/Sun/PH = 0 must NOT be enforced;
+// weekend hours are allowed and only the weekly total binds.
+const totalOnly = resolveWeekCaps("TERM",
+  { weeklyTotalHours: 180, saturdayHours: 0, sundayHours: 0, publicHolidayHours: 0 }, []);
+// Under 180 across all days incl. weekend → no breach (weekend not separately capped).
+const underUsed = sumByCategory([
+  { date: "2026-06-06", hours: 18 }, // Sat
+  { date: "2026-06-07", hours: 16 }, // Sun
+  { date: "2026-06-01", hours: 100 }, // weekday
+], []); // total 134 <= 180
+assert.deepEqual(findBreaches(totalOnly, underUsed), [], "0-caps + under total must not breach");
+// Over 180 total → only WEEKLY breaches (no SAT/SUN/WEEKDAY breaches).
+const overUsed = sumByCategory([
+  { date: "2026-06-06", hours: 40 }, // Sat
+  { date: "2026-06-01", hours: 160 }, // weekday
+], []); // total 200 > 180
+const overBreaches = findBreaches(totalOnly, overUsed);
+assert.deepEqual(overBreaches.map(b => b.category), ["WEEKLY"], "0-caps over total breaches WEEKLY only");
+
 console.log("OK: roster-caps logic verified");

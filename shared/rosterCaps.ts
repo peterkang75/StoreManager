@@ -100,20 +100,34 @@ export function sumByCategory(
 
 export interface CapBreach { category: DayCategory | "WEEKLY"; used: number; cap: number }
 
-/** Returns any breaches (used > cap). Empty array = within all caps. */
+/**
+ * Returns any breaches (used > cap). Empty array = within all caps.
+ *
+ * A sub-cap value of 0 means "NO LIMIT for that category" — it is not enforced.
+ * So a store can enforce a pure weekly-total cap (e.g. 180 across all days, regardless
+ * of day) by leaving Saturday/Sunday/public-holiday at 0 and setting only weeklyTotal.
+ * The WEEKDAY pool is only enforced when a weekend/PH carve-out actually exists
+ * (any of sat/sun/ph > 0); with no carve-out it equals the weekly total and would be
+ * redundant. The weekly total is always enforced when set (> 0).
+ */
 export function findBreaches(
   caps: ResolvedWeekCaps,
   used: Record<DayCategory, number>,
 ): CapBreach[] {
   const total = round2(used.SATURDAY + used.SUNDAY + used.PUBLIC_HOLIDAY + used.WEEKDAY);
-  const checks: CapBreach[] = [
-    { category: "SATURDAY", used: used.SATURDAY, cap: caps.saturdayCap },
-    { category: "SUNDAY", used: used.SUNDAY, cap: caps.sundayCap },
-    { category: "PUBLIC_HOLIDAY", used: used.PUBLIC_HOLIDAY, cap: caps.publicHolidayCap },
-    { category: "WEEKDAY", used: used.WEEKDAY, cap: caps.weekdayPool },
-    { category: "WEEKLY", used: total, cap: caps.weeklyTotal },
-  ];
-  return checks.filter(c => c.used > c.cap + 1e-9);
+  const hasCarveOut = caps.saturdayCap > 0 || caps.sundayCap > 0 || caps.publicHolidayCap > 0;
+  const out: CapBreach[] = [];
+  if (caps.saturdayCap > 0 && used.SATURDAY > caps.saturdayCap + 1e-9)
+    out.push({ category: "SATURDAY", used: used.SATURDAY, cap: caps.saturdayCap });
+  if (caps.sundayCap > 0 && used.SUNDAY > caps.sundayCap + 1e-9)
+    out.push({ category: "SUNDAY", used: used.SUNDAY, cap: caps.sundayCap });
+  if (caps.publicHolidayCap > 0 && used.PUBLIC_HOLIDAY > caps.publicHolidayCap + 1e-9)
+    out.push({ category: "PUBLIC_HOLIDAY", used: used.PUBLIC_HOLIDAY, cap: caps.publicHolidayCap });
+  if (hasCarveOut && used.WEEKDAY > caps.weekdayPool + 1e-9)
+    out.push({ category: "WEEKDAY", used: used.WEEKDAY, cap: caps.weekdayPool });
+  if (caps.weeklyTotal > 0 && total > caps.weeklyTotal + 1e-9)
+    out.push({ category: "WEEKLY", used: total, cap: caps.weeklyTotal });
+  return out;
 }
 
 function round2(n: number): number { return Math.round(n * 100) / 100; }

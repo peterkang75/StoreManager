@@ -708,6 +708,7 @@ function RecommendedHoursSection({ stores }: { stores: Store[] }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">매장별 시즌별 주간 근무시간 상한을 설정하세요. 로스터 발행 시 강제 적용됩니다.</p>
+      <p className="text-xs text-muted-foreground">토·일·공휴일 칸을 <b>0</b>으로 두면 그 요일은 따로 제한하지 않고, <b>주 합계</b>만 강제합니다 (요일 구분 없이 주 전체 총합 기준). 특정 요일을 따로 제한하려면 그 칸에 0보다 큰 값을 넣으세요.</p>
 
       <div className="grid gap-4 md:grid-cols-2">
         {isLoading
