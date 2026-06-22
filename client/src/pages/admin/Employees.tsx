@@ -117,7 +117,7 @@ export function AdminEmployees() {
           title: "Error",
           description: isManager
             ? "Failed to update status."
-            : "상태 변경에 실패했습니다",
+            : "Failed to update status.",
           variant: "destructive",
         });
       }
@@ -133,7 +133,7 @@ export function AdminEmployees() {
           <p className="text-sm text-muted-foreground">
             {isManager
               ? "View and manage employee details."
-              : "직원 정보를 확인하고 관리합니다"}
+              : "View and manage employee details."}
           </p>
         </div>
 
@@ -191,10 +191,10 @@ export function AdminEmployees() {
                   {employees?.length === 0
                     ? isManager
                       ? "Onboarded employees will appear here."
-                      : "온보딩을 완료한 직원이 여기에 표시됩니다."
+                      : "Onboarded employees will appear here."
                     : isManager
                       ? "Try adjusting the search term or filter."
-                      : "검색어 또는 필터 조건을 조정해 보세요."}
+                      : "Try adjusting the search term or filter."}
                 </p>
               </div>
             ) : (

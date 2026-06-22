@@ -82,7 +82,7 @@ function FieldLabel({
           checked={isRequired}
           onCheckedChange={(v) => toggle(name, v === true)}
           className="h-3.5 w-3.5"
-          title={isRequired ? "필수 해제" : "필수로 지정"}
+          title={isRequired ? "Remove required" : "Mark as required"}
           data-testid={`checkbox-required-${name}`}
         />
       )}
@@ -198,7 +198,7 @@ function AdminPasswordCard({ employee, employeeId }: { employee: any; employeeId
       const data = await res.json();
       toast({
         title: "Password set",
-        description: `${data.email}로 로그인 가능합니다. 모든 기존 세션은 자동 로그아웃됐습니다.`,
+        description: `${data.email} can now log in. All existing sessions have been signed out.`,
       });
       setPwd("");
       setPwdConfirm("");
@@ -225,9 +225,9 @@ function AdminPasswordCard({ employee, employeeId }: { employee: any; employeeId
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="text-sm text-muted-foreground space-y-1">
-          <p>이 사용자가 어드민 페이지에 로그인할 비번을 설정합니다.</p>
-          <p>· 로그인 ID: <code className="bg-muted px-1.5 py-0.5 rounded text-xs">{hasEmail ? employee.email : "이메일 먼저 입력 필요"}</code></p>
-          <p>· 비번 변경 즉시 해당 사용자의 모든 활성 세션이 로그아웃됩니다.</p>
+          <p>Set the password this user will use to log in to the admin page.</p>
+          <p>· Login ID: <code className="bg-muted px-1.5 py-0.5 rounded text-xs">{hasEmail ? employee.email : "Enter email first"}</code></p>
+          <p>· Changing the password immediately signs out all active sessions for this user.</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -239,7 +239,7 @@ function AdminPasswordCard({ employee, employeeId }: { employee: any; employeeId
               autoComplete="new-password"
               value={pwd}
               onChange={(e) => setPwd(e.target.value)}
-              placeholder="8자 이상"
+              placeholder="8+ characters"
               disabled={!hasEmail || submitting}
               data-testid="input-admin-password"
             />
@@ -252,7 +252,7 @@ function AdminPasswordCard({ employee, employeeId }: { employee: any; employeeId
               autoComplete="new-password"
               value={pwdConfirm}
               onChange={(e) => setPwdConfirm(e.target.value)}
-              placeholder="다시 입력"
+              placeholder="Re-enter password"
               disabled={!hasEmail || submitting}
               data-testid="input-admin-password-confirm"
             />
@@ -601,8 +601,8 @@ export function AdminEmployeeDetail() {
     }
     if (missing.length > 0) {
       toast({
-        title: "필수 항목이 비어있어",
-        description: `다음 항목을 채워줘: ${missing.join(", ")}`,
+        title: "Required fields are empty",
+        description: `Please fill in the following: ${missing.join(", ")}`,
         variant: "destructive",
       });
       const el = document.querySelector<HTMLElement>(`[data-testid="input-${camelToKebab(missing[0])}"]`);
@@ -703,7 +703,7 @@ export function AdminEmployeeDetail() {
       if (parsedCount === 0) {
         toast({
           title: "VEVO document saved",
-          description: "파일이 이미지 기반 PDF라 텍스트를 자동으로 읽을 수 없습니다. 아래 입력창에 직접 입력 후 Save 해주세요.",
+          description: "This file is an image-based PDF — text could not be read automatically. Please enter the details manually in the fields below and save.",
           variant: "default",
         });
       } else {
@@ -754,7 +754,7 @@ export function AdminEmployeeDetail() {
             <User className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium mb-2">Employee not found</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              찾고 있는 직원이 존재하지 않습니다.
+              The employee you are looking for does not exist.
             </p>
             <Link href="/admin/employees">
               <Button>Back to Employees</Button>
@@ -1067,7 +1067,7 @@ export function AdminEmployeeDetail() {
                   <div className="space-y-2">
                     <div>
                       <FieldLabel name="vevoUrl" className="font-medium">VEVO Result Document (PDF / Image)</FieldLabel>
-                      <p className="text-xs text-muted-foreground mt-0.5">텍스트 PDF는 자동 입력됩니다. 이미지/스캔 PDF는 자동 입력이 안 되며, 업로드 후 아래 항목을 직접 입력하세요.</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Text-based PDFs are parsed automatically. Image/scanned PDFs cannot be parsed — upload and then fill in the fields below manually.</p>
                     </div>
                     <div className="flex items-center gap-3">
                       <input ref={vevoFileRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleVevoUpload} data-testid="input-vevo-file" />
@@ -1248,7 +1248,7 @@ export function AdminEmployeeDetail() {
                 </div>
                 {storeAssignments && storeAssignments.length > 1 && (
                   <div className="mt-3 space-y-2">
-                    <Label className="text-xs text-muted-foreground">매장별 Rate / Fixed Amount 설정</Label>
+                    <Label className="text-xs text-muted-foreground">Rate / Fixed Amount per store</Label>
                     <div className="space-y-2">
                       {storeAssignments.map((a) => {
                         const store = stores?.find((s) => s.id === a.storeId);
@@ -1395,7 +1395,7 @@ export function AdminEmployeeDetail() {
                     inputMode="numeric"
                     data-testid="input-pin"
                   />
-                  <p className="text-xs text-muted-foreground">모바일 앱 접속용 4자리 숫자 PIN</p>
+                  <p className="text-xs text-muted-foreground">4-digit numeric PIN for mobile app access</p>
                 </div>
               </div>
             </CardContent>

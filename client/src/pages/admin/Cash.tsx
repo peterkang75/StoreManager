@@ -442,7 +442,7 @@ export function AdminCash() {
                     <p>
                       {currentRole === "MANAGER"
                         ? "No daily closings yet."
-                        : "일일 마감 기록이 없습니다"}
+                        : "No daily closings yet."}
                     </p>
                   </div>
                 ) : (
@@ -465,9 +465,9 @@ export function AdminCash() {
                       <TableBody>
                         {/* §6.3.13 Weekly running totals — weekday / weekend / total, capped at today */}
                         {([
-                          { label: "주중 합계", bucket: weeklyTotals.weekday, testid: "row-totals-weekday" },
-                          { label: "주말 합계", bucket: weeklyTotals.weekend, testid: "row-totals-weekend" },
-                          { label: "전체 합계", bucket: weeklyTotals.total,   testid: "row-totals-all"     },
+                          { label: "Weekday Total", bucket: weeklyTotals.weekday, testid: "row-totals-weekday" },
+                          { label: "Weekend Total", bucket: weeklyTotals.weekend, testid: "row-totals-weekend" },
+                          { label: "Grand Total",   bucket: weeklyTotals.total,   testid: "row-totals-all"     },
                         ] as const).map((t, idx) => (
                           <TableRow
                             key={t.testid}
@@ -630,7 +630,7 @@ export function AdminCash() {
                 {!closeForms?.length ? (
                   <div className="text-center py-12 text-muted-foreground">
                     <Wallet className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                    <p>현금 매출 기록이 없습니다</p>
+                    <p>No cash sales records found.</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">

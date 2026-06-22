@@ -154,7 +154,7 @@ export function AdminNotices() {
             <p className="text-sm text-muted-foreground">
               {isManager
                 ? "Manage notices shown in the Employee Portal."
-                : "직원 포털에 표시할 공지사항을 관리하세요."}
+                : "Manage notices shown in the Employee Portal."}
             </p>
           </div>
           <Button onClick={openCreate} data-testid="button-create-notice">

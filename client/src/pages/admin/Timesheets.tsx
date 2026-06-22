@@ -410,7 +410,7 @@ function HistoryModal({
           <p className="text-[10px] text-muted-foreground italic">
             {isManager
               ? "Approved record — use Revert to Pending to edit."
-              : "승인 완료 기록 — 수정하려면 Revert to Pending을 사용하세요"}
+              : "Approved record — use Revert to Pending to edit."}
           </p>
         </div>
 
@@ -556,7 +556,7 @@ export function AdminTimesheets() {
           <p className="text-muted-foreground text-xs mt-0.5">
             {isManager
               ? "Approved work records — by fortnight cycle"
-              : "승인 완료된 근무 기록 — 포트나이트 주기별"}
+              : "Approved work records — by fortnight cycle"}
           </p>
         </div>
 
