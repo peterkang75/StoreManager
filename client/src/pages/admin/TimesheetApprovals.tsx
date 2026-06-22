@@ -1379,7 +1379,7 @@ export function AdminTimesheetApprovals() {
               Pending Approvals
             </h2>
             <p className="text-muted-foreground text-xs mt-0.5">
-              {currentRole === "MANAGER" ? "Review and approve timesheets." : "타임시트 검토 및 승인"}
+              {currentRole === "MANAGER" ? "Review and approve timesheets." : "Review and approve timesheets"}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
