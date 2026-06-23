@@ -19,19 +19,36 @@ import XLSX from "xlsx";
 
 const { Pool } = pg;
 
-type Args = { file: string };
+type Args = { files: string[]; dryRun: boolean; publish: boolean; skipExisting: boolean };
 
 function parseArgs(): Args {
-  const out: Partial<Args> = {};
+  const files: string[] = [];
+  let dryRun = false, publish = false, skipExisting = false;
   for (const arg of process.argv.slice(2)) {
-    const m = arg.match(/^--(file)=(.+)$/);
-    if (m) (out as Record<string, string>)[m[1]] = m[2];
+    if (arg === "--dry-run") { dryRun = true; continue; }
+    if (arg === "--publish") { publish = true; continue; }
+    if (arg === "--skip-existing") { skipExisting = true; continue; }
+    const m = arg.match(/^--file=(.+)$/);
+    if (m) { files.push(m[1]); continue; }
+    if (arg.toLowerCase().endsWith(".xlsx")) { files.push(arg); continue; } // bare path
   }
-  if (!out.file) {
-    console.error("Usage: tsx script/import-roster-xlsx.ts --file=<xlsx>");
+  if (!files.length) {
+    console.error("Usage: tsx script/import-roster-xlsx.ts --file=<xlsx> [--file=<xlsx> ...] [--dry-run] [--publish] [--skip-existing]");
     process.exit(1);
   }
-  return out as Args;
+  return { files, dryRun, publish, skipExisting };
+}
+
+// Monday (YYYY-MM-DD) of the week containing the given date. Computed in UTC to
+// match the server's getMondayStr() exactly (server runs in UTC), so the
+// roster_publications rows we write line up with what the app queries.
+function mondayOf(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  const day = dt.getUTCDay(); // 0=Sun
+  const diff = day === 0 ? -6 : 1 - day;
+  dt.setUTCDate(dt.getUTCDate() + diff);
+  return dt.toISOString().split("T")[0];
 }
 
 type RawRow = {
@@ -42,7 +59,9 @@ type RawRow = {
   user: string;        // Angy Tamang
 };
 
-const EXPECTED_HEADERS = ["Date", "Start", "End", "Timezone", "Shift title", "Job", "Users", "Shift tags", "Address"];
+// Only the columns we actually use — some newer Connecteam exports drop
+// Timezone/Shift title/Address, so don't require them.
+const EXPECTED_HEADERS = ["Date", "Start", "End", "Job", "Users"];
 
 function readSheet(file: string): RawRow[] {
   const wb = XLSX.readFile(file);
@@ -69,12 +88,39 @@ function readSheet(file: string): RawRow[] {
   return out;
 }
 
-// MM/DD/YYYY → YYYY-MM-DD
-function toYMD(mdy: string): string | null {
-  const m = mdy.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (!m) return null;
-  const [, mm, dd, yyyy] = m;
-  return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+function isValidYMD(y: number, mo: number, d: number): boolean {
+  return mo >= 1 && mo <= 12 && d >= 1 && d <= 31 && y >= 2000 && y <= 2100;
+}
+
+// Decide slash-date order from the data (never assume — the roster export is US
+// M/D/Y but the timesheet export is Australian D/M/Y; a future file could flip).
+function detectDayFirst(samples: string[]): boolean {
+  let dayFirst = false, monthFirst = false;
+  for (const s of samples) {
+    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (!m) continue;
+    if (+m[1] > 12) dayFirst = true;
+    if (+m[2] > 12) monthFirst = true;
+  }
+  if (dayFirst && !monthFirst) return true;
+  return false; // M/D/Y, or ambiguous → default M/D/Y (this export's locale)
+}
+
+// slash date or ISO → YYYY-MM-DD; null on out-of-range so a mis-parse surfaces.
+function toYMD(s: string, dayFirst: boolean): string | null {
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) {
+    const [y, mo, d] = [+m[1], +m[2], +m[3]];
+    return isValidYMD(y, mo, d) ? `${y}-${String(mo).padStart(2,"0")}-${String(d).padStart(2,"0")}` : null;
+  }
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) {
+    const y = +m[3];
+    const mo = dayFirst ? +m[2] : +m[1];
+    const d = dayFirst ? +m[1] : +m[2];
+    return isValidYMD(y, mo, d) ? `${y}-${String(mo).padStart(2,"0")}-${String(d).padStart(2,"0")}` : null;
+  }
+  return null;
 }
 
 // "06:30am" / "04:00pm" → "06:30" / "16:00"
@@ -99,16 +145,17 @@ function jobToStoreName(job: string): string | null {
 }
 
 async function main() {
-  const url = process.env.DATABASE_URL;
+  // This script runs locally (outside Railway's network), so prefer the public
+  // URL when present — DATABASE_URL on a Railway Postgres service is the
+  // internal *.railway.internal host, which does not resolve from a laptop.
+  const url = process.env.DATABASE_PUBLIC_URL || process.env.DATABASE_URL;
   if (!url) {
-    console.error("DATABASE_URL env var is required");
+    console.error("DATABASE_PUBLIC_URL or DATABASE_URL env var is required");
     process.exit(1);
   }
   const args = parseArgs();
-  console.log(`File: ${args.file}`);
-
-  const raw = readSheet(args.file);
-  console.log(`Read ${raw.length} shift rows.`);
+  if (args.dryRun) console.log("MODE: dry-run (read-only — no rows will be written)");
+  console.log(`Files: ${args.files.length}`);
 
   const pool = new Pool({ connectionString: url, ssl: { rejectUnauthorized: false }, max: 1 });
   try {
@@ -124,6 +171,10 @@ async function main() {
     const empByFull = new Map<string, string>();
     const empByNickname = new Map<string, string>();
     const empByFirstName = new Map<string, string[]>(); // first name → ids (may be multiple)
+    const empDisplayById = new Map<string, string>(); // id → "First Last" for dry-run reporting
+    for (const e of empRes.rows) {
+      empDisplayById.set(e.id, `${e.first_name ?? ""} ${e.last_name ?? ""}`.trim());
+    }
     for (const e of empRes.rows) {
       const full = `${e.first_name ?? ""} ${e.last_name ?? ""}`.trim().toLowerCase();
       if (full) empByFull.set(full, e.id);
@@ -159,64 +210,136 @@ async function main() {
       return null;
     }
 
-    // Resolve and accumulate
     type Resolved = { storeId: string; employeeId: string; date: string; startTime: string; endTime: string };
-    const resolved: Resolved[] = [];
-    const skips: string[] = [];
 
-    for (const r of raw) {
-      const storeName = jobToStoreName(r.job);
-      if (!storeName) { skips.push(`row job="${r.job}" — no store match`); continue; }
-      const storeId = storeByName.get(storeName.toLowerCase());
-      if (!storeId) { skips.push(`row job="${r.job}" → ${storeName} — store not found in DB`); continue; }
+    // Accumulators across all files.
+    const unmatchedNames = new Set<string>();
+    const allStoreWeeks = new Map<string, { storeId: string; weekStart: string }>();
+    let gResolved = 0, gSkipped = 0, gInserted = 0, gProtected = 0, gOverwritten = 0, gWouldInsert = 0;
 
-      const employeeId = lookupEmployee(r.user);
-      if (!employeeId) { skips.push(`row user="${r.user}" — no employee match`); continue; }
+    async function processFile(file: string): Promise<void> {
+      const name = file.split("/").pop();
+      const raw = readSheet(file);
+      const resolved: Resolved[] = [];
+      const skips: string[] = [];
+      const dayFirst = detectDayFirst(raw.map((r) => r.date));
 
-      const date = toYMD(r.date);
-      if (!date) { skips.push(`row date="${r.date}" — bad date format`); continue; }
-      const startTime = to24h(r.start);
-      const endTime = to24h(r.end);
-      if (!startTime || !endTime) { skips.push(`row time="${r.start}-${r.end}" — bad time format`); continue; }
+      for (const r of raw) {
+        const storeName = jobToStoreName(r.job);
+        if (!storeName) { skips.push(`job="${r.job}" — no store match`); continue; }
+        const storeId = storeByName.get(storeName.toLowerCase());
+        if (!storeId) { skips.push(`job="${r.job}" → ${storeName} — store not in DB`); continue; }
 
-      resolved.push({ storeId, employeeId, date, startTime, endTime });
+        const employeeId = lookupEmployee(r.user);
+        if (!employeeId) { skips.push(`user="${r.user}" — no employee match`); unmatchedNames.add(r.user); continue; }
+
+        const date = toYMD(r.date, dayFirst);
+        if (!date) { skips.push(`date="${r.date}" — bad date format`); continue; }
+        const startTime = to24h(r.start);
+        const endTime = to24h(r.end);
+        if (!startTime || !endTime) { skips.push(`time="${r.start}-${r.end}" — bad time format`); continue; }
+
+        resolved.push({ storeId, employeeId, date, startTime, endTime });
+        allStoreWeeks.set(`${storeId}|${mondayOf(date)}`, { storeId, weekStart: mondayOf(date) });
+      }
+
+      // Snapshot existing (store, emp, date) once. Earlier files in this run are
+      // already committed, so overlapping later files correctly see them.
+      const dates = resolved.map((r) => r.date).sort();
+      const existingKeys = new Set<string>();
+      if (resolved.length) {
+        const ex = await pool.query<{ store_id: string; employee_id: string; date: string }>(
+          `SELECT store_id, employee_id, date FROM rosters WHERE date >= $1 AND date <= $2`,
+          [dates[0], dates[dates.length - 1]],
+        );
+        for (const e of ex.rows) existingKeys.add(`${e.store_id}|${e.employee_id}|${e.date}`);
+      }
+      // Dedup within-file too (a person could appear twice for the same day).
+      const seen = new Set<string>();
+      const toInsert: Resolved[] = [];
+      const existingResolved: Resolved[] = [];
+      for (const r of resolved) {
+        const key = `${r.storeId}|${r.employeeId}|${r.date}`;
+        if (existingKeys.has(key)) { existingResolved.push(r); continue; }
+        if (seen.has(key)) continue; // duplicate row in same file
+        seen.add(key);
+        toInsert.push(r);
+      }
+      const protectedCount = existingResolved.length;
+      const win = dates.length ? `${dates[0]}..${dates[dates.length - 1]}` : "-";
+
+      let inserted = 0, overwritten = 0;
+      if (!args.dryRun) {
+        await pool.query("BEGIN");
+        try {
+          // Chunked multi-row insert of new shifts (single-row inserts over the
+          // public DB are too slow at scale).
+          const CHUNK = 800;
+          for (let i = 0; i < toInsert.length; i += CHUNK) {
+            const chunk = toInsert.slice(i, i + CHUNK);
+            const ph: string[] = [];
+            const vals: unknown[] = [];
+            chunk.forEach((r, j) => {
+              const b = j * 5;
+              ph.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5})`);
+              vals.push(r.storeId, r.employeeId, r.date, r.startTime, r.endTime);
+            });
+            await pool.query(
+              `INSERT INTO rosters (store_id, employee_id, date, start_time, end_time) VALUES ${ph.join(",")}`,
+              vals,
+            );
+            inserted += chunk.length;
+          }
+          // Overwrite mode (NOT skip-existing): update existing rows' times.
+          if (!args.skipExisting) {
+            for (const r of existingResolved) {
+              await pool.query(
+                `UPDATE rosters SET start_time = $1, end_time = $2, updated_at = now()
+                 WHERE store_id = $3 AND employee_id = $4 AND date = $5`,
+                [r.startTime, r.endTime, r.storeId, r.employeeId, r.date],
+              );
+              overwritten++;
+            }
+          }
+          await pool.query("COMMIT");
+        } catch (e) {
+          await pool.query("ROLLBACK");
+          throw e;
+        }
+      }
+
+      gResolved += resolved.length; gSkipped += skips.length; gWouldInsert += toInsert.length;
+      gInserted += inserted; gOverwritten += overwritten;
+      gProtected += args.skipExisting ? protectedCount : 0;
+      const protNote = args.skipExisting ? `protected ${protectedCount}` : `overwrite ${args.dryRun ? existingResolved.length : overwritten}`;
+      const act = args.dryRun ? `would insert ${toInsert.length}` : `inserted ${inserted}`;
+      console.log(`${name} | ${dayFirst ? "D/M/Y" : "M/D/Y"} | ${win} | rows ${raw.length}, resolved ${resolved.length}, skip ${skips.length} | ${act}, ${protNote}`);
+      for (const s of skips) console.log(`    skip: ${s}`);
     }
 
-    console.log(`Resolved: ${resolved.length}, Skipped: ${skips.length}`);
-    if (skips.length) {
-      console.log("--- Skips ---");
-      for (const s of skips) console.log("  " + s);
+    for (const f of args.files) {
+      try { await processFile(f); }
+      catch (e) { console.log(`${f.split("/").pop()} | ERROR: ${(e as Error).message} — skipped`); }
     }
 
-    // Manual upsert by (store_id, employee_id, date) — the rosters table has
-    // no unique constraint, so we SELECT-then-UPDATE/INSERT for each row.
-    let inserted = 0;
-    let updated = 0;
-    for (const r of resolved) {
-      const existing = await pool.query<{ id: string }>(
-        `SELECT id FROM rosters WHERE store_id = $1 AND employee_id = $2 AND date = $3 LIMIT 1`,
-        [r.storeId, r.employeeId, r.date],
-      );
-      if (existing.rowCount && existing.rowCount > 0) {
-        await pool.query(
-          `UPDATE rosters SET start_time = $1, end_time = $2, updated_at = now() WHERE id = $3`,
-          [r.startTime, r.endTime, existing.rows[0].id],
+    // --publish: mark each touched (store, week) as published (idempotent).
+    let pubInserted = 0, pubExisting = 0;
+    if (args.publish && !args.dryRun) {
+      for (const { storeId, weekStart } of allStoreWeeks.values()) {
+        const existing = await pool.query<{ id: string }>(
+          `SELECT id FROM roster_publications WHERE store_id = $1 AND week_start = $2 LIMIT 1`,
+          [storeId, weekStart],
         );
-        updated++;
-      } else {
-        await pool.query(
-          `INSERT INTO rosters (store_id, employee_id, date, start_time, end_time) VALUES ($1, $2, $3, $4, $5)`,
-          [r.storeId, r.employeeId, r.date, r.startTime, r.endTime],
-        );
-        inserted++;
+        if (existing.rowCount && existing.rowCount > 0) pubExisting++;
+        else { await pool.query(`INSERT INTO roster_publications (store_id, week_start) VALUES ($1, $2)`, [storeId, weekStart]); pubInserted++; }
       }
     }
 
-    console.log(`Inserted: ${inserted}, Updated: ${updated}`);
-    if (resolved.length > 0) {
-      const dates = resolved.map((r) => r.date).sort();
-      console.log(`Window: ${dates[0]} → ${dates[dates.length - 1]}`);
-    }
+    console.log(`\n===== TOTAL (${args.files.length} files) =====`);
+    console.log(`Resolved ${gResolved}, Skipped ${gSkipped}, ${args.dryRun ? `Would insert ${gWouldInsert}` : `Inserted ${gInserted}`}` +
+      (args.skipExisting ? `, Protected ${gProtected}` : `, Overwritten ${gOverwritten}`));
+    if (args.publish) console.log(`Weeks touched: ${allStoreWeeks.size}` + (args.dryRun ? " (would publish)" : `, published ${pubInserted} new / ${pubExisting} existing`));
+    if (unmatchedNames.size) console.log(`Unmatched names (need alias/check): ${[...unmatchedNames].sort().join(", ")}`);
   } finally {
     await pool.end().catch(() => {});
   }
