@@ -15,6 +15,7 @@ import {
   type DailyCloseForm, type InsertDailyCloseForm,
   type Supplier, type InsertSupplier,
   type SupplierInvoice, type InsertSupplierInvoice,
+  type InvoiceLineItem, type InsertInvoiceLineItem, invoiceLineItems,
   type SupplierPayment, type InsertSupplierPayment,
   type CashExpense, type InsertCashExpense, cashExpenses,
   type QuarantinedEmail, type InsertQuarantinedEmail,
@@ -203,6 +204,9 @@ export interface IStorage {
   updateSupplierInvoice(id: string, invoice: Partial<InsertSupplierInvoice>): Promise<SupplierInvoice | undefined>;
   deleteSupplierInvoice(id: string): Promise<boolean>;
 
+  createInvoiceLineItems(invoiceId: string, items: Omit<InsertInvoiceLineItem, "invoiceId">[]): Promise<InvoiceLineItem[]>;
+  getInvoiceLineItems(invoiceId: string): Promise<InvoiceLineItem[]>;
+
   getSupplierPayments(filters?: { supplierId?: string; invoiceId?: string; startDate?: string; endDate?: string }): Promise<SupplierPayment[]>;
   getSupplierPayment(id: string): Promise<SupplierPayment | undefined>;
   createSupplierPayment(payment: InsertSupplierPayment): Promise<SupplierPayment>;
@@ -386,6 +390,7 @@ export class MemStorage implements IStorage {
   private suppliers: Map<string, Supplier>;
   private supplierInvoices: Map<string, SupplierInvoice>;
   private supplierPayments: Map<string, SupplierPayment>;
+  private invoiceLineItemsMap: Map<string, InvoiceLineItem> = new Map();
   private cashExpensesMap: Map<string, CashExpense> = new Map();
   private quarantinedEmails: Map<string, QuarantinedEmail>;
   private emailRoutingRulesMap: Map<string, EmailRoutingRule>;
@@ -1229,6 +1234,31 @@ export class MemStorage implements IStorage {
 
   async deleteSupplierInvoice(id: string): Promise<boolean> {
     return this.supplierInvoices.delete(id);
+  }
+
+  async createInvoiceLineItems(invoiceId: string, items: Omit<InsertInvoiceLineItem, "invoiceId">[]): Promise<InvoiceLineItem[]> {
+    const created: InvoiceLineItem[] = [];
+    for (const item of items) {
+      const row: InvoiceLineItem = {
+        id: randomUUID(),
+        invoiceId,
+        description: item.description,
+        sku: item.sku ?? null,
+        qty: item.qty ?? null,
+        unit: item.unit ?? null,
+        unitPrice: item.unitPrice ?? null,
+        lineTotal: item.lineTotal ?? 0,
+        gstAmount: item.gstAmount ?? null,
+        createdAt: new Date(),
+      };
+      this.invoiceLineItemsMap.set(row.id, row);
+      created.push(row);
+    }
+    return created;
+  }
+
+  async getInvoiceLineItems(invoiceId: string): Promise<InvoiceLineItem[]> {
+    return Array.from(this.invoiceLineItemsMap.values()).filter((r) => r.invoiceId === invoiceId);
   }
 
   async getSupplierPayments(filters?: { supplierId?: string; invoiceId?: string; startDate?: string; endDate?: string }): Promise<SupplierPayment[]> {
@@ -3005,6 +3035,15 @@ export class DatabaseStorage implements IStorage {
   async deleteSupplierInvoice(id: string): Promise<boolean> {
     const result = await db.delete(supplierInvoices).where(eq(supplierInvoices.id, id));
     return (result as any).rowCount > 0;
+  }
+
+  async createInvoiceLineItems(invoiceId: string, items: Omit<InsertInvoiceLineItem, "invoiceId">[]): Promise<InvoiceLineItem[]> {
+    if (items.length === 0) return [];
+    return db.insert(invoiceLineItems).values(items.map((item) => ({ ...item, invoiceId }))).returning();
+  }
+
+  async getInvoiceLineItems(invoiceId: string): Promise<InvoiceLineItem[]> {
+    return db.select().from(invoiceLineItems).where(eq(invoiceLineItems.invoiceId, invoiceId));
   }
 
   async getSupplierPayments(filters?: { supplierId?: string; invoiceId?: string; startDate?: string; endDate?: string }): Promise<SupplierPayment[]> {
