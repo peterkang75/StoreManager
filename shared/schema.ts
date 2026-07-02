@@ -448,6 +448,11 @@ export const suppliers = pgTable("suppliers", {
   notes: text("notes"),
   active: boolean("active").default(true).notNull(),
   isAutoPay: boolean("is_auto_pay").default(false).notNull(),
+  // AP v2: supplier delivers to MULTIPLE stores (e.g. Escalate Hospitality Supplies).
+  // When true, store detection must come from the document itself ("Invoice To"),
+  // never from this supplier's invoice history. Replaces the old hardcoded
+  // MULTI_STORE_SUPPLIER_IDS set in routes.ts.
+  isMultiStore: boolean("is_multi_store").default(false).notNull(),
   // §7 Wave 1: default GST rate (0~100). Snapshot copied to cash_expenses + AP at entry time.
   // 0=GST-free (fresh produce, chicken shop), 50=mixed (Woolworths/Coles), 100=fully GST-applicable (drinks, Daiso).
   defaultGstRate: integer("default_gst_rate").default(0).notNull(),
@@ -520,6 +525,28 @@ export const insertSupplierPaymentSchema = createInsertSchema(supplierPayments).
 
 export type InsertSupplierPayment = z.infer<typeof insertSupplierPaymentSchema>;
 export type SupplierPayment = typeof supplierPayments.$inferSelect;
+
+// AP v2: product line items extracted from invoice PDFs (feeds future price tracking).
+export const invoiceLineItems = pgTable("invoice_line_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  invoiceId: varchar("invoice_id").references(() => supplierInvoices.id, { onDelete: "cascade" }).notNull(),
+  description: text("description").notNull(),
+  sku: text("sku"),
+  qty: real("qty"),
+  unit: text("unit"),
+  unitPrice: real("unit_price"),
+  lineTotal: real("line_total").default(0).notNull(),
+  gstAmount: real("gst_amount"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertInvoiceLineItemSchema = createInsertSchema(invoiceLineItems).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertInvoiceLineItem = z.infer<typeof insertInvoiceLineItemSchema>;
+export type InvoiceLineItem = typeof invoiceLineItems.$inferSelect;
 
 // §7 Wave 1: Cash expense ledger. Employees enter what they bought with petty cash;
 // owner reviews and approves. GST snapshot is frozen at entry — supplier rate edits don't rewrite history (D10).
