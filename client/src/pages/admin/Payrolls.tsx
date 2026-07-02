@@ -1773,18 +1773,19 @@ export function AdminPayrolls() {
                                   {isUnlocked && (
                                     <>
                                       <span className="text-[10px] text-orange-600 dark:text-orange-400 font-normal normal-case tracking-normal">
-                                        Editing past period — re-save to sync ledger
+                                        Editing past period — Save &amp; lock to sync ledger
                                       </span>
                                       <Button
                                         type="button"
                                         size="sm"
                                         variant="ghost"
                                         className="h-6 px-2 text-[10px] gap-1 normal-case tracking-normal font-normal"
-                                        onClick={() => setUnlockedCtxKey("")}
+                                        onClick={() => saveMutation.mutate()}
+                                        disabled={saveMutation.isPending}
                                         data-testid="button-relock-period"
                                       >
                                         <Lock className="h-3 w-3" />
-                                        Re-lock
+                                        {saveMutation.isPending ? "Saving…" : "Save & lock"}
                                       </Button>
                                     </>
                                   )}
