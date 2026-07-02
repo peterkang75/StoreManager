@@ -27,10 +27,6 @@ import type { Employee, Store, InsertEmployee, EmployeeStoreAssignment, Candidat
 
 // §6.3.13 Required-field hook + label helper.
 // One global setting controls which form fields are mandatory across all employees.
-function camelToKebab(s: string): string {
-  return s.replace(/([A-Z])/g, "-$1").toLowerCase();
-}
-
 function useEmployeeFieldRequirements() {
   const { data, isLoading } = useQuery<{ requiredFields: string[] }>({
     queryKey: ["/api/admin/employee-field-requirements"],
@@ -588,27 +584,22 @@ export function AdminEmployeeDetail() {
   }, []);
 
   const handleSave = async () => {
-    // §6.3.13 Block save when any admin-flagged required field is empty.
-    // Reads the same setting the FieldLabel checkboxes write to.
-    const reqRes = await fetch("/api/admin/employee-field-requirements");
-    const reqJson: { requiredFields: string[] } = reqRes.ok ? await reqRes.json() : { requiredFields: [] };
+    // §6.3.13 Required fields are the EMPLOYEE's obligation (enforced in the
+    // Employee Portal save), not the admin's. Staff-side saves never block on
+    // them — we only surface a non-blocking notice so the admin can see what
+    // the employee still has to fill in.
     const missing: string[] = [];
-    for (const name of reqJson.requiredFields) {
-      const v = (currentData as any)[name];
-      if (v === null || v === undefined || (typeof v === "string" && v.trim() === "")) {
-        missing.push(name);
+    try {
+      const reqRes = await fetch("/api/admin/employee-field-requirements");
+      const reqJson: { requiredFields: string[] } = reqRes.ok ? await reqRes.json() : { requiredFields: [] };
+      for (const name of reqJson.requiredFields) {
+        const v = (currentData as any)[name];
+        if (v === null || v === undefined || (typeof v === "string" && v.trim() === "")) {
+          missing.push(name);
+        }
       }
-    }
-    if (missing.length > 0) {
-      toast({
-        title: "Required fields are empty",
-        description: `Please fill in the following: ${missing.join(", ")}`,
-        variant: "destructive",
-      });
-      const el = document.querySelector<HTMLElement>(`[data-testid="input-${camelToKebab(missing[0])}"]`);
-      el?.scrollIntoView({ behavior: "smooth", block: "center" });
-      el?.focus();
-      return;
+    } catch {
+      // Config fetch failure must never affect saving.
     }
 
     const promises: Promise<any>[] = [];
@@ -635,7 +626,14 @@ export function AdminEmployeeDetail() {
       await Promise.all(promises);
       queryClient.invalidateQueries({ queryKey: ["/api/employee-store-assignments", employeeId] });
       queryClient.invalidateQueries({ queryKey: ["/api/payrolls/current"] });
-      toast({ title: "Employee updated successfully" });
+      toast(
+        missing.length > 0
+          ? {
+              title: "Employee updated successfully",
+              description: `Employee still needs to fill in: ${missing.join(", ")} (via Employee Portal)`,
+            }
+          : { title: "Employee updated successfully" },
+      );
     }
   };
 
