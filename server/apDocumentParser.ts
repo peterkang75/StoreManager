@@ -93,6 +93,8 @@ You receive one supplier document (PDF, image, or email text). Analyze it VISUAL
 - REMITTANCE/OTHER → "invoices" must be [].
 - Dates as YYYY-MM-DD (Australian documents: DD/MM/YYYY means day first). Unknown date → empty string; unknown dueDate → null.
 - supplierName: the SELLER as printed on the document. For aggregator platforms (Ordermentum, Fresho…) return the real underlying vendor, not the platform. Never return the buyer's name${input.supplierHint ? ` (buyer entities relate to the stores below)` : ""}.
+- invoiceNumber: copy EXACTLY as printed on the document — including suffixes, prefixes, dashes, and letters (e.g. "25121721-APR2026" must NOT be shortened to "25121721"). Never normalize or truncate it.
+- Credit notes / adjustment notes: totalAmount (and lineTotal) must be NEGATIVE when the document credits money back (e.g. a credit note of $87.50 → totalAmount: -87.5). Preserve the sign exactly as the document's effect on what we owe.
 
 ## 3. Store (buyer) detection
 Our stores:
