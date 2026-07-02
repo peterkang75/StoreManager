@@ -51,6 +51,7 @@ type FormState = {
   notes: string;
   active: boolean;
   isAutoPay: boolean;
+  isMultiStore: boolean;
   defaultGstRate: number; // 0~100
   cashExpenseEligible: boolean;
 };
@@ -66,6 +67,7 @@ const BLANK_FORM: FormState = {
   notes: "",
   active: true,
   isAutoPay: false,
+  isMultiStore: false,
   defaultGstRate: 0,
   cashExpenseEligible: false,
 };
@@ -249,6 +251,23 @@ function SupplierForm({
         />
       </div>
 
+      <div className="flex items-center justify-between pt-1 rounded-md border border-border px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <div>
+            <Label htmlFor="sup-multistore" className="cursor-pointer font-medium">Multi-store supplier</Label>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Store must come from the invoice itself.
+            </p>
+          </div>
+        </div>
+        <Switch
+          id="sup-multistore"
+          checked={form.isMultiStore}
+          onCheckedChange={checked => setForm({ ...form, isMultiStore: checked })}
+          data-testid="switch-multi-store"
+        />
+      </div>
+
       {/* §7 Wave 1 Day 6: gate the mobile Daily Close cash-expense picker. */}
       <div className="flex items-center justify-between pt-1 border-t mt-1">
         <div className="flex flex-col gap-0.5 pr-3">
@@ -322,6 +341,7 @@ export function AdminSuppliers() {
       notes: f.notes.trim() || null,
       active: f.active,
       isAutoPay: f.isAutoPay,
+      isMultiStore: f.isMultiStore,
       defaultGstRate: clampGst(f.defaultGstRate),
       cashExpenseEligible: f.cashExpenseEligible,
     };
@@ -405,6 +425,7 @@ export function AdminSuppliers() {
       notes: supplier.notes || "",
       active: supplier.active,
       isAutoPay: supplier.isAutoPay ?? false,
+      isMultiStore: supplier.isMultiStore ?? false,
       defaultGstRate: clampGst(supplier.defaultGstRate ?? 0),
       cashExpenseEligible: supplier.cashExpenseEligible ?? false,
     });
