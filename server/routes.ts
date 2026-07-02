@@ -8199,7 +8199,7 @@ Rules:
       const { supplierData, senderEmail, supplierName, existingSupplierId, reviewInvoiceIds } = req.body as {
         supplierData: {
           name: string; abn?: string; contactName?: string; contactEmails?: string[];
-          bsb?: string; accountNumber?: string; address?: string; notes?: string; isAutoPay?: boolean;
+          bsb?: string; accountNumber?: string; address?: string; notes?: string; isAutoPay?: boolean; isMultiStore?: boolean;
         };
         senderEmail?: string;
         supplierName: string;
@@ -8244,6 +8244,7 @@ Rules:
           accountNumber: supplier.accountNumber || supplierData.accountNumber || null,
           address: supplier.address || supplierData.address || null,
           isAutoPay: supplier.isAutoPay ?? supplierData.isAutoPay ?? false,
+          isMultiStore: supplier.isMultiStore ?? supplierData.isMultiStore ?? false,
         })) ?? supplier;
 
       } else {
@@ -8263,6 +8264,7 @@ Rules:
             address: supplierData.address || supplier.address,
             notes: supplierData.notes || supplier.notes,
             isAutoPay: supplierData.isAutoPay ?? supplier.isAutoPay,
+            isMultiStore: supplierData.isMultiStore ?? supplier.isMultiStore,
           })) ?? supplier;
         } else {
           supplier = await storage.createSupplier({
@@ -8276,6 +8278,7 @@ Rules:
             notes: supplierData.notes || null,
             active: true,
             isAutoPay: supplierData.isAutoPay ?? false,
+            isMultiStore: supplierData.isMultiStore ?? false,
             defaultGstRate: 0,
             cashExpenseEligible: false,
           });

@@ -375,6 +375,7 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
   const firstInvoice = invoices[0] ?? null;
   const raw = firstInvoice?.rawExtractedData as ReviewRawData | null;
   const [isAutoPay, setIsAutoPay] = useState(false);
+  const [isMultiStore, setIsMultiStore] = useState(false);
   const [mode, setMode] = useState<ApproveMode>("create");
   const [linkedSupplierId, setLinkedSupplierId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -424,6 +425,7 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
       const r = firstInvoice.rawExtractedData as ReviewRawData | null;
       reset(buildFormValues(r, firstInvoice.notes ?? null));
       setIsAutoPay(false);
+      setIsMultiStore(false);
       setMode("create");
       setLinkedSupplierId(null);
     }
@@ -435,6 +437,7 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
     setLinkedSupplierId(sup.id);
     setPickerOpen(false);
     setIsAutoPay(sup.isAutoPay ?? false);
+    setIsMultiStore(sup.isMultiStore ?? false);
 
     const formVals = buildFormFromSupplier(sup);
     // If supplier has no email yet, auto-populate with the incoming email hint
@@ -469,6 +472,7 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
           address: data.address || null,
           notes: data.notes || null,
           isAutoPay,
+          isMultiStore,
         },
         senderEmail: senderEmail || null,
         supplierName,
@@ -695,6 +699,11 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
               onCheckedChange={setIsAutoPay}
               data-testid="switch-approve-autopay"
             />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Checkbox id="multi-store" checked={isMultiStore} onCheckedChange={(v) => setIsMultiStore(v === true)} data-testid="checkbox-multi-store" />
+            <Label htmlFor="multi-store" className="text-sm">Multi-store supplier (store must come from the invoice itself)</Label>
           </div>
 
           <DialogFooter className="gap-2 pt-2">
@@ -2435,6 +2444,15 @@ export function AdminAccountsPayable() {
                                     {!hasUsefulInvoiceData && !emailInfo.subject && !emailInfo.from && inv.notes && (
                                       <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
                                         {inv.notes.slice(0, 160)}
+                                      </p>
+                                    )}
+                                    {/* AI parser reasoning (from webhook claude mode) */}
+                                    {(inv.rawExtractedData as any)?._reasoning && (
+                                      <p className="text-xs text-muted-foreground italic mt-1" data-testid={`text-parser-reasoning-${inv.id}`}>
+                                        AI: {(inv.rawExtractedData as any)._reasoning}
+                                        {(inv.rawExtractedData as any)?._confidence
+                                          ? ` (doc ${Math.round(((inv.rawExtractedData as any)._confidence.docType ?? 0) * 100)}% / store ${Math.round(((inv.rawExtractedData as any)._confidence.store ?? 0) * 100)}%)`
+                                          : ""}
                                       </p>
                                     )}
                                   </div>
