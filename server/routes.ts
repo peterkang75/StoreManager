@@ -10,6 +10,7 @@ import { classifyWeekSeason, resolveWeekCaps, sumByCategory, findBreaches, type 
 import { NSW_SCHOOL_HOLIDAYS } from "../shared/nswSchoolHolidays";
 import { storeColorFor } from "../shared/storeColors";
 import { extractPdfText, parseInvoiceWithAI, parseUploadedFile, parseInvoiceFromUnknownSender, triageEmail, summarizeTaskFromEmail, translateSummarizeEmail, classifyDocumentForAP } from "./invoiceParser";
+import { parseApDocument, type ApParseResult, type ApStoreProfile } from "./apDocumentParser";
 import {
   insertStoreSchema,
   insertCandidateSchema,
@@ -3831,13 +3832,10 @@ export async function registerRoutes(
   //   no PDF / parse fails → stay as REVIEW (needs manual entry)
   // ── Store-ID resolution for newly-parsed invoice rows ──────────────────────
   // Priority: PDF-extracted storeCode → parent row's storeId → supplier history
-  // (only for single-store suppliers) → null. Suppliers in
-  // MULTI_STORE_SUPPLIER_IDS serve BOTH Sushi & Sandwich, so we refuse to guess
+  // (only for single-store suppliers) → null. Suppliers flagged
+  // `isMultiStore` in the DB serve BOTH Sushi & Sandwich, so we refuse to guess
   // from history and leave storeId=null when the PDF doesn't say — the manager
-  // assigns it. Today only Escalate Hospitality Supplies falls in this bucket.
-  const MULTI_STORE_SUPPLIER_IDS = new Set<string>([
-    "6b80f712-4079-4836-8613-d78511698645", // Escalate Hospitality Supplies
-  ]);
+  // assigns it. (Was a hardcoded ID set; now DB-driven via suppliers.isMultiStore.)
 
   async function resolveStoreIdForInvoice(opts: {
     parsedStoreCode?: string | null;
@@ -3855,19 +3853,22 @@ export async function registerRoutes(
     // Step 2: inherit parent REVIEW row's storeId
     if (opts.parentStoreId) return opts.parentStoreId;
     // Step 3: supplier history — only safe for single-store suppliers
-    if (opts.supplierId && !MULTI_STORE_SUPPLIER_IDS.has(opts.supplierId)) {
-      const history = await storage.getSupplierInvoices({ supplierId: opts.supplierId });
-      const counts = new Map<string, number>();
-      for (const h of history) {
-        if (h.storeId && h.status !== "DELETED") {
-          counts.set(h.storeId, (counts.get(h.storeId) ?? 0) + 1);
+    if (opts.supplierId) {
+      const sup = await storage.getSupplier(opts.supplierId);
+      if (!sup?.isMultiStore) {
+        const history = await storage.getSupplierInvoices({ supplierId: opts.supplierId });
+        const counts = new Map<string, number>();
+        for (const h of history) {
+          if (h.storeId && h.status !== "DELETED") {
+            counts.set(h.storeId, (counts.get(h.storeId) ?? 0) + 1);
+          }
         }
-      }
-      // Only trust history if a clear majority (≥80%) points to one store.
-      const total = Array.from(counts.values()).reduce((a, b) => a + b, 0);
-      if (total >= 3) {
-        const [topId, topCount] = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0] ?? [null, 0];
-        if (topId && topCount / total >= 0.8) return topId;
+        // Only trust history if a clear majority (≥80%) points to one store.
+        const total = Array.from(counts.values()).reduce((a, b) => a + b, 0);
+        if (total >= 3) {
+          const [topId, topCount] = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0] ?? [null, 0];
+          if (topId && topCount / total >= 0.8) return topId;
+        }
       }
     }
     return null;
@@ -6563,6 +6564,24 @@ export async function registerRoutes(
       }
       // matchedSupplier is truthy from this point on
 
+      // ── AP v2: Claude parser branch (behind AP_PARSER flag) ──────────────────
+      // When AP_PARSER=claude, each attachment / body-text is understood by a
+      // single parseApDocument call instead of the classify+parse pair. Unset or
+      // "openai" → legacy path runs byte-identically. Defined here (not at the
+      // loop) because the body-text fallback below also consumes these.
+      const useClaudeParser = process.env.AP_PARSER === "claude";
+      const apStoreProfiles: ApStoreProfile[] = allStores
+        .filter((s: any) => s.active && !s.isExternal)
+        .map((s: any) => ({
+          name: s.name,
+          address: s.address ?? null,
+          aliases: (s.bodyAliases ?? []).filter(Boolean),
+        }));
+      const resolveStoreByName = (storeName: string): string | null => {
+        if (!storeName || storeName === "UNKNOWN") return null;
+        return allStores.find((s: any) => s.name.toLowerCase() === storeName.toLowerCase())?.id ?? null;
+      };
+
       // ══════════════════════════════════════════════════════════════════════════
       // DIRECT SUPPLIER — auto-process AP pipeline
       // Reaching here means matchedSupplier is truthy (triage gate passed).
@@ -6591,10 +6610,43 @@ export async function registerRoutes(
         const bodyTrim = emailBody.trim();
         if (bodyTrim.length >= 120) {
           try {
-            const bodyDocType = await classifyDocumentForAP(bodyTrim);
+            let bodyDocType: string;
+            let parsedFromBody: any[] | null;
+            let bodyApResult: ApParseResult | null = null;
+            if (useClaudeParser) {
+              bodyApResult = await parseApDocument({
+                textContent: bodyTrim,
+                supplierHint: matchedSupplier.name,
+                supplierIsMultiStore: (matchedSupplier as any).isMultiStore ?? false,
+                subject,
+                storeProfiles: apStoreProfiles,
+              });
+              bodyDocType = bodyApResult
+                ? (bodyApResult.confidence.docType < 0.7 ? "INVOICE" : bodyApResult.docType)
+                : "OTHER";
+              parsedFromBody = bodyApResult
+                ? bodyApResult.invoices.map((inv) => ({
+                    invoiceNumber: inv.invoiceNumber,
+                    issueDate: inv.issueDate,
+                    dueDate: inv.dueDate,
+                    totalAmount: inv.totalAmount,
+                    storeCode: "UNKNOWN",
+                    extractedSupplierName: bodyApResult!.supplierName,
+                    abn: bodyApResult!.abn,
+                    deliveryLocation: null,
+                    isStatement: bodyApResult!.docType === "STATEMENT",
+                    _lineItems: inv.lineItems,
+                  }))
+                : null;
+            } else {
+              bodyDocType = await classifyDocumentForAP(bodyTrim);
+              parsedFromBody = null;
+            }
             if (bodyDocType === "INVOICE" || bodyDocType === "STATEMENT") {
               console.log(`[Webhook] No attachments — body classified as ${bodyDocType}, attempting body-text parse for "${matchedSupplier.name}" (${bodyTrim.length} chars)`);
-              const parsedFromBody = await parseInvoiceWithAI(bodyTrim, matchedSupplier.name, subject);
+              if (!useClaudeParser) {
+                parsedFromBody = await parseInvoiceWithAI(bodyTrim, matchedSupplier.name, subject);
+              }
               const first = parsedFromBody?.[0];
               if (first && first.totalAmount > 0 && (first.invoiceNumber || first.dueDate)) {
                 // Dedup against this supplier's existing invoices
@@ -6687,18 +6739,62 @@ export async function registerRoutes(
 
         // ── Step 2: Extract PDF text ─────────────────────────────────────────
         const pdfResult = await extractPdfFromAttachment(att);
-        const classifyText = pdfResult?.text.trim() ? pdfResult.text : (validInvoiceAttachments.length === 1 ? emailBody : "");
 
-        // ── Step 3: Classify (INVOICE / STATEMENT / REMITTANCE / OTHER) ─────
-        const docType = await classifyDocumentForAP(classifyText || "no text available");
+        // ── Step 3: Classify + parse — one call in claude mode, legacy pair otherwise ─
+        let docType: string;
+        let parsedItems: any[] | null;
+        let apResult: ApParseResult | null = null;
+
+        if (useClaudeParser) {
+          // Raw base64 comes from the attachment itself; text extraction not needed
+          // (Claude reads scanned/image PDFs natively, so pdfResult may be null here).
+          const rawBase64: string | null = pdfResult?.pdfBase64
+            ?? (typeof (att.content ?? att.data ?? att.body) === "string" ? (att.content ?? att.data ?? att.body) : null);
+          const isPdf = attName.toLowerCase().endsWith(".pdf")
+            || String(att.content_type ?? att.contentType ?? att.mimeType ?? att.type ?? "").includes("pdf");
+          apResult = rawBase64
+            ? await parseApDocument({
+                fileBase64: rawBase64,
+                mediaType: isPdf ? "application/pdf" : (attName.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg"),
+                supplierHint: matchedSupplier.name,
+                supplierIsMultiStore: (matchedSupplier as any).isMultiStore ?? false,
+                subject,
+                storeProfiles: apStoreProfiles,
+              })
+            : null;
+          if (!apResult) {
+            // API failure or unreadable attachment → REVIEW placeholder (same as legacy unreadable path)
+            docType = "INVOICE";
+            parsedItems = null;
+          } else {
+            docType = apResult.confidence.docType < 0.7 ? "INVOICE" : apResult.docType; // low confidence → don't silently skip
+            parsedItems = apResult.invoices.map((inv) => ({
+              invoiceNumber: inv.invoiceNumber,
+              issueDate: inv.issueDate,
+              dueDate: inv.dueDate,
+              totalAmount: inv.totalAmount,
+              storeCode: "UNKNOWN",                    // legacy field unused in claude path
+              extractedSupplierName: apResult!.supplierName,
+              abn: apResult!.abn,
+              deliveryLocation: null,
+              isStatement: apResult!.docType === "STATEMENT",
+              _lineItems: inv.lineItems,               // carried through to creation step
+            }));
+          }
+        } else {
+          const classifyText = pdfResult?.text.trim() ? pdfResult.text : (validInvoiceAttachments.length === 1 ? emailBody : "");
+          docType = await classifyDocumentForAP(classifyText || "no text available");
+          parsedItems = null; // legacy parse happens after the unreadable/skip guards below
+        }
+
         if (docType === "OTHER" || docType === "REMITTANCE") {
           console.log(`[Webhook] Attachment "${attName}" classified as ${docType} — skipping`);
           confirmationCount++;
           continue;
         }
 
-        // ── Step 4: Handle unreadable PDF ───────────────────────────────────
-        if (!pdfResult) {
+        // ── Step 4: Handle unreadable PDF (claude: only when the parser returned nothing) ─
+        if (useClaudeParser ? !apResult : !pdfResult) {
           const placeholder = await storage.createSupplierInvoice({
             supplierId: matchedSupplier.id, storeId: null,
             invoiceNumber: `EMAIL-${Date.now()}-${attIdx}`,
@@ -6711,8 +6807,10 @@ export async function registerRoutes(
           continue;
         }
 
-        // ── Step 5: Parse with AI ────────────────────────────────────────────
-        const parsedItems = await parseInvoiceWithAI(pdfResult.text, matchedSupplier.name, subject);
+        // ── Step 5: Parse with AI (legacy only — claude already produced parsedItems) ─
+        if (!useClaudeParser) {
+          parsedItems = await parseInvoiceWithAI(pdfResult?.text ?? "", matchedSupplier.name, subject);
+        }
         if (!parsedItems || parsedItems.length === 0) {
           console.log(`[Webhook] Attachment "${attName}" — AI parse returned nothing`);
           continue;
@@ -6766,14 +6864,14 @@ export async function registerRoutes(
             const inv = await storage.createSupplierInvoice({
               supplierId: currentSupplier.id,
               storeId: resolveStoreId(parsedItems[0].storeCode)
-                ?? resolveStoreFromBodyAliases(`${pdfResult.text ?? ""}\n${emailBody ?? ""}`)
+                ?? resolveStoreFromBodyAliases(`${pdfResult?.text ?? ""}\n${emailBody ?? ""}`)
                 ?? resolveStoreFromDelivery(parsedItems[0].deliveryLocation),
               invoiceNumber: parsedItems[0].invoiceNumber || `STMT-${Date.now()}-${attIdx}`,
               invoiceDate: parsedItems[0].issueDate || today,
               dueDate: parsedItems[0].dueDate ?? undefined,
               amount: parsedItems[0].totalAmount,
               status: "REVIEW",
-              rawExtractedData: { pdfBase64: pdfResult.pdfBase64, senderEmail, subject, _isStatement: true },
+              rawExtractedData: { pdfBase64: pdfResult?.pdfBase64 ?? null, senderEmail, subject, _isStatement: true },
               notes: `STATEMENT OF ACCOUNT received but only 1 row extracted — possibly a grand-total error. Please verify the amount and individual invoice rows manually.\nFrom: ${senderEmail}\nSubject: ${subject}\nAttachment: ${attName}`,
             });
             reviewCount++;
@@ -6789,11 +6887,16 @@ export async function registerRoutes(
             continue;
           }
 
-          // Store resolution: storeCode first, then bodyAliases (admin-managed
-          // utility/account fragments), then deliveryLocation fuzzy match.
-          const storeId = resolveStoreId(parsed.storeCode)
-            ?? resolveStoreFromBodyAliases(`${pdfResult.text ?? ""}\n${emailBody ?? ""}`)
-            ?? resolveStoreFromDelivery(parsed.deliveryLocation);
+          // Store resolution. Claude mode: trust the parser's store when it is
+          // confident (≥0.7), else fall back to admin-curated bodyAliases.
+          // Legacy: storeCode first, then bodyAliases, then deliveryLocation fuzzy match.
+          const storeId = useClaudeParser
+            ? ((apResult && apResult.confidence.store >= 0.7 ? resolveStoreByName(apResult.store) : null)
+                ?? resolveStoreFromBodyAliases(`${pdfResult?.text ?? ""}\n${emailBody ?? ""}`)
+                ?? null)
+            : (resolveStoreId(parsed.storeCode)
+                ?? resolveStoreFromBodyAliases(`${pdfResult?.text ?? ""}\n${emailBody ?? ""}`)
+                ?? resolveStoreFromDelivery(parsed.deliveryLocation));
           if (storeId) {
             const storeName = allStores.find(s => s.id === storeId)?.name ?? storeId;
             console.log(`[Webhook] Attachment "${attName}": invoice ${parsed.invoiceNumber} → store "${storeName}" (storeCode=${parsed.storeCode}, delivery="${parsed.deliveryLocation ?? "n/a"}")`);
@@ -6816,13 +6919,33 @@ export async function registerRoutes(
             dueDate: parsed.dueDate ?? undefined,
             amount: parsed.totalAmount,
             status: invStatus,
-            rawExtractedData: { pdfBase64: pdfResult.pdfBase64, senderEmail, subject, deliveryLocation: parsed.deliveryLocation ?? null },
+            rawExtractedData: useClaudeParser
+              ? {
+                  pdfBase64: pdfResult?.pdfBase64 ?? null, senderEmail, subject,
+                  _parser: "claude",
+                  _confidence: apResult?.confidence ?? null,
+                  _reasoning: apResult?.reasoning ?? null,
+                }
+              : { pdfBase64: pdfResult?.pdfBase64 ?? null, senderEmail, subject, deliveryLocation: parsed.deliveryLocation ?? null },
             notes: needsReview
               ? `AI could not extract the invoice amount${numberMissing ? " or invoice number" : ""} — please review and fill in manually.\nFrom: ${senderEmail}\nSubject: ${subject}\nAttachment: ${attName}`
               : isAutoPay
                 ? `Auto-paid (Direct Debit) via email from ${senderEmail}. Subject: ${subject}. Attachment: ${attName}`
                 : `Auto-imported via email from ${senderEmail}. Subject: ${subject}. Attachment: ${attName}`,
           });
+
+          // ── Step 6: Persist parsed line items (claude mode, non-statement) ──
+          const lineItems = (parsed as any)._lineItems as any[] | undefined;
+          if (useClaudeParser && lineItems && lineItems.length > 0 && !(parsed as any).isStatement) {
+            try {
+              await storage.createInvoiceLineItems(newInv.id, lineItems.map((li) => ({
+                description: li.description, sku: li.sku, qty: li.qty, unit: li.unit,
+                unitPrice: li.unitPrice, lineTotal: li.lineTotal, gstAmount: li.gst,
+              })));
+            } catch (liErr: any) {
+              console.warn(`[Webhook] line-item insert failed for ${newInv.id}:`, liErr?.message ?? liErr);
+            }
+          }
 
           if (isAutoPay && !needsReview) {
             await storage.createSupplierPayment({
