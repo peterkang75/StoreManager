@@ -1017,6 +1017,13 @@ export function AdminRosters() {
 
   const totalStoreHours = activeEmployees.reduce((sum, e) => sum + empHours(e.employee.id), 0);
 
+  // Daily total scheduled hours across all employees (shown in the grid date header)
+  const dayHours = (date: string) =>
+    activeEmployees.reduce((sum, e) => {
+      const r = rosterMap.get(`${e.employee.id}|${date}`);
+      return r ? sum + calcHours(r.startTime, r.endTime) : sum;
+    }, 0);
+
   const empCost = (emp: Employee) => {
     const rate = parseFloat(emp.rate ?? "0") || 0;
     return empHours(emp.id) * rate;
@@ -1299,14 +1306,22 @@ export function AdminRosters() {
                     <th className="sticky left-0 z-10 bg-muted/50 px-3 py-2 text-left font-medium text-sm border-r">
                       Employee
                     </th>
-                    {weekDates.map((d, i) => (
-                      <th key={d} className={`px-1 py-2 text-center font-medium text-xs border-r ${i >= 5 ? "bg-amber-50/50 dark:bg-amber-950/20" : ""}`} data-testid={`header-day-${i}`}>
-                        <div>{DAY_NAMES[i]}</div>
-                        <div className="text-muted-foreground font-normal">
-                          {new Date(d).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
-                        </div>
-                      </th>
-                    ))}
+                    {weekDates.map((d, i) => {
+                      const dh = dayHours(d);
+                      return (
+                        <th key={d} className={`px-1 py-2 text-center font-medium text-xs border-r ${i >= 5 ? "bg-amber-50/50 dark:bg-amber-950/20" : ""}`} data-testid={`header-day-${i}`}>
+                          <div>{DAY_NAMES[i]}</div>
+                          <div className="text-muted-foreground font-normal">
+                            {new Date(d).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
+                          </div>
+                          {dh > 0 && (
+                            <div className="font-semibold text-foreground" data-testid={`header-day-hours-${i}`}>
+                              {dh.toFixed(1)}h
+                            </div>
+                          )}
+                        </th>
+                      );
+                    })}
                     <th className="px-2 py-2 text-right font-medium text-xs border-r">Hrs</th>
                     <th className="px-2 py-2 text-right font-medium text-xs">Est. Cost</th>
                   </tr>
