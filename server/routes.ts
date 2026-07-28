@@ -5736,27 +5736,30 @@ export async function registerRoutes(
       // REJECTED is an internal tombstone — never surface it in the approvals list
       const rawTimesheets = await storage.getShiftTimesheets(statusFilter !== "ALL" ? { status: statusFilter } : {});
       const timesheets = rawTimesheets.filter((ts: any) => ts.status !== "REJECTED");
-      const [allEmployees, allStores, allShifts] = await Promise.all([
+      // Scheduled times come from `rosters` — the table the Roster Builder writes to.
+      // The legacy `shifts` table is empty in production and left every Scheduled/Diff
+      // column blank; see docs/superpowers/specs/2026-07-28-attendance-roster-comparison-design.md
+      const [allEmployees, allStores, allRosters] = await Promise.all([
         storage.getEmployees(),
         storage.getStores(),
-        storage.getShifts(),
+        storage.getRosters(),
       ]);
+      // Indexed by employee+store+date — an employee can be rostered at two stores
+      // on the same day, so the store must be part of the key.
+      const rosterByKey = new Map<string, typeof allRosters[number]>();
+      allRosters.forEach(r => rosterByKey.set(`${r.employeeId}|${r.storeId}|${r.date}`, r));
       const enriched = timesheets.map(ts => {
         const employee = allEmployees.find(e => e.id === ts.employeeId);
         const store = allStores.find(s => s.id === ts.storeId);
-        const scheduledShift = allShifts.find(s =>
-          s.employeeId === ts.employeeId &&
-          s.storeId === ts.storeId &&
-          s.date === ts.date
-        ) ?? null;
+        const scheduledRoster = rosterByKey.get(`${ts.employeeId}|${ts.storeId}|${ts.date}`) ?? null;
         return {
           ...ts,
           employeeName: employee ? `${employee.firstName} ${employee.lastName}` : "Unknown",
           employeeNickname: employee?.nickname ?? null,
           storeName: store?.name ?? "Unknown",
           storeCode: store?.code ?? "",
-          scheduledStartTime: scheduledShift?.startTime ?? null,
-          scheduledEndTime: scheduledShift?.endTime ?? null,
+          scheduledStartTime: scheduledRoster?.startTime ?? null,
+          scheduledEndTime: scheduledRoster?.endTime ?? null,
         };
       });
       res.json(enriched);

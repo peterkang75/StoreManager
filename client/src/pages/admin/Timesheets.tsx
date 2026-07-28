@@ -15,33 +15,30 @@ import {
   RotateCcw,
   CheckCircle2,
   Lock,
+  LayoutGrid,
+  BarChart2,
+  List as ListIcon,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { getPayrollCycleStart, getPayrollCycleEnd } from "@shared/payrollCycle";
-import type { Payroll } from "@shared/schema";
+import type { Employee, Payroll, Roster, Store } from "@shared/schema";
 import { useAdminRole } from "@/contexts/AdminRoleContext";
+import {
+  addDays,
+  buildAttendanceModel,
+  calcHours,
+  fmtCycleDate,
+  fmtDate,
+  fmtDiffMinutes,
+  fmtHours,
+  fmtTime,
+  type EnrichedTimesheet,
+} from "@/components/attendance/attendanceModel";
+import { AttendanceGridView } from "@/components/attendance/AttendanceGridView";
+import { AttendanceTimelineView } from "@/components/attendance/AttendanceTimelineView";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-
-interface EnrichedTimesheet {
-  id: string;
-  date: string;
-  storeId: string;
-  storeName: string;
-  storeCode: string;
-  employeeId: string;
-  employeeName: string;
-  employeeNickname: string | null;
-  actualStartTime: string;
-  actualEndTime: string;
-  scheduledStartTime: string | null;
-  scheduledEndTime: string | null;
-  status: string;
-  adjustmentReason: string | null;
-  isUnscheduled: boolean;
-  createdAt: string;
-}
 
 interface EmployeeGroup {
   employeeId: string;
@@ -55,64 +52,11 @@ interface EmployeeGroup {
 }
 
 // ── Date / Time Helpers ────────────────────────────────────────────────────────
+// Shared with the Grid/Timeline views — see attendanceModel.ts. Date strings are
+// parsed as LOCAL midnight there; do not reintroduce bare `new Date(dateStr)`.
 
 function getAEDTToday(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
-}
-
-function toYMD(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function addDays(dateStr: string, n: number): string {
-  const d = new Date(dateStr + "T00:00:00");
-  d.setDate(d.getDate() + n);
-  return toYMD(d);
-}
-
-function fmtCycleDate(dateStr: string): string {
-  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", {
-    day: "2-digit", month: "short", year: "numeric",
-  });
-}
-
-function fmtDate(dateStr: string): string {
-  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", {
-    weekday: "short", day: "numeric", month: "short",
-  });
-}
-
-function fmtTime(time: string | null): string {
-  if (!time) return "—";
-  const [h, m] = time.split(":").map(Number);
-  const period = h >= 12 ? "PM" : "AM";
-  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${period}`;
-}
-
-function calcHours(start: string, end: string): number {
-  const [sh, sm] = start.split(":").map(Number);
-  const [eh, em] = end.split(":").map(Number);
-  const diff = (eh * 60 + em) - (sh * 60 + sm);
-  return diff < 0 ? (diff + 1440) / 60 : diff / 60;
-}
-
-function fmtHours(h: number): string {
-  const hh = Math.floor(h);
-  const mm = Math.round((h - hh) * 60);
-  return mm === 0 ? `${hh}h` : `${hh}h ${mm}m`;
-}
-
-function fmtDiffMinutes(diffMin: number): string {
-  const abs = Math.abs(diffMin);
-  const hh = Math.floor(abs / 60);
-  const mm = Math.round(abs % 60);
-  const sign = diffMin > 0 ? "+" : "-";
-  if (hh === 0) return `${sign}${mm}m`;
-  if (mm === 0) return `${sign}${hh}h`;
-  return `${sign}${hh}h ${mm}m`;
 }
 
 import { STORE_COLORS, storeColorFor as storeColor } from "@shared/storeColors";
@@ -488,9 +432,17 @@ export function AdminTimesheets() {
   const currentCycleStart = getPayrollCycleStart(today);
   const [cycleStart, setCycleStart] = useState(currentCycleStart);
   const [selectedGroup, setSelectedGroup] = useState<EmployeeGroup | null>(null);
+  const [storeFilter, setStoreFilter] = useState<string>("ALL");
+  const [viewMode, setViewMode] = useState<"list" | "grid" | "timeline">("list");
+  const [selectedDay, setSelectedDay] = useState<string>(currentCycleStart);
 
   const cycleEnd = getPayrollCycleEnd(cycleStart);
   const isCurrentCycle = cycleStart === currentCycleStart;
+
+  const goToCycle = useCallback((next: string) => {
+    setCycleStart(next);
+    setSelectedDay(next);   // keep the Grid/Timeline day inside the new cycle
+  }, []);
 
   // Fetch all timesheets (any status) — we filter APPROVED client-side
   const { data: allRows = [], isLoading } = useQuery<EnrichedTimesheet[]>({
@@ -499,6 +451,21 @@ export function AdminTimesheets() {
     staleTime: 0,
   });
 
+  // Roster schedule for the cycle — both stores in one call (storeId is optional
+  // server-side). This is what makes the comparison possible: /api/admin/approvals
+  // only returns rows that HAVE a timesheet, so a rostered-but-not-worked shift
+  // exists nowhere else.
+  const { data: cycleRosters = [] } = useQuery<Roster[]>({
+    queryKey: ["/api/rosters", "cycle", cycleStart, cycleEnd],
+    queryFn: () => fetch(`/api/rosters?startDate=${cycleStart}&endDate=${cycleEnd}`).then(r => r.json()),
+    staleTime: 30_000,
+  });
+
+  const { data: stores = [] } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
+
+  // Names for employees who have a roster but no timesheet in this cycle.
+  const { data: allEmployees = [] } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
+
   // Fetch payrolls for this cycle to detect PAID employees
   const { data: cyclePayrolls = [] } = useQuery<Payroll[]>({
     queryKey: ["/api/payrolls", "cycle", cycleStart],
@@ -506,13 +473,49 @@ export function AdminTimesheets() {
     staleTime: 30_000,
   });
 
-  // Filter: APPROVED only, within cycle dates
+  // Roster feature covers Sushi + Sandwich only — Sushi first, same as Rosters page.
+  const rosterStores = useMemo(() => {
+    const active = stores.filter(s => s.active && !s.isExternal);
+    return [
+      ...active.filter(s => s.name === "Sushi"),
+      ...active.filter(s => s.name === "Sandwich"),
+    ];
+  }, [stores]);
+
+  const storeNameById = useMemo(
+    () => new Map(stores.map(s => [s.id, s.name])),
+    [stores]
+  );
+  const employeesById = useMemo(
+    () => new Map(allEmployees.map(e => [e.id, e])),
+    [allEmployees]
+  );
+
+  // Filter at ENTRY level, before grouping — an employee working both stores would
+  // otherwise carry the other store's hours into their per-store totals.
   const approvedInCycle = useMemo(() =>
-    allRows.filter(r => r.status === "APPROVED" && r.date >= cycleStart && r.date <= cycleEnd),
-    [allRows, cycleStart, cycleEnd]
+    allRows.filter(r =>
+      r.status === "APPROVED" &&
+      r.date >= cycleStart && r.date <= cycleEnd &&
+      (storeFilter === "ALL" || r.storeId === storeFilter)
+    ),
+    [allRows, cycleStart, cycleEnd, storeFilter]
+  );
+
+  const rostersInCycle = useMemo(() =>
+    cycleRosters.filter(r =>
+      r.date >= cycleStart && r.date <= cycleEnd &&
+      (storeFilter === "ALL" || r.storeId === storeFilter)
+    ),
+    [cycleRosters, cycleStart, cycleEnd, storeFilter]
   );
 
   const groups = useMemo(() => groupByEmployee(approvedInCycle), [approvedInCycle]);
+
+  const model = useMemo(
+    () => buildAttendanceModel(approvedInCycle, rostersInCycle, storeNameById, employeesById),
+    [approvedInCycle, rostersInCycle, storeNameById, employeesById]
+  );
 
   // PAID map: employeeId → boolean
   const paidEmployeeIds = useMemo(() => {
@@ -538,6 +541,19 @@ export function AdminTimesheets() {
     groups.filter(g => paidEmployeeIds.has(g.employeeId)).length,
     [groups, paidEmployeeIds]
   );
+
+  // Timeline needs one store's open/close for its axis — "All" has no such pair.
+  const timelineStore = rosterStores.find(s => s.id === storeFilter);
+  const selectStore = useCallback((id: string) => {
+    setStoreFilter(id);
+    if (id === "ALL") setViewMode(v => (v === "timeline" ? "list" : v));
+  }, []);
+  const selectView = useCallback((v: "list" | "grid" | "timeline") => {
+    setViewMode(v);
+    if (v === "timeline") {
+      setStoreFilter(cur => (cur === "ALL" ? (rosterStores[0]?.id ?? cur) : cur));
+    }
+  }, [rosterStores]);
 
   const handleReverted = useCallback(() => {
     setSelectedGroup(null);
@@ -565,11 +581,75 @@ export function AdminTimesheets() {
           <CycleNavigator
             cycleStart={cycleStart}
             cycleEnd={cycleEnd}
-            onPrev={() => setCycleStart(s => addDays(s, -14))}
-            onNext={() => setCycleStart(s => addDays(s, 14))}
+            onPrev={() => goToCycle(addDays(cycleStart, -14))}
+            onNext={() => goToCycle(addDays(cycleStart, 14))}
             isCurrentCycle={isCurrentCycle}
-            onCurrent={() => setCycleStart(currentCycleStart)}
+            onCurrent={() => goToCycle(currentCycleStart)}
           />
+        </div>
+
+        {/* ── Store filter + View toggle ────────────────────────────────── */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => selectStore("ALL")}
+              className="h-9 px-4 text-xs font-semibold"
+              style={storeFilter === "ALL"
+                ? { backgroundColor: "hsl(var(--foreground))", borderColor: "hsl(var(--foreground))", color: "hsl(var(--background))" }
+                : undefined}
+              data-testid="button-store-filter-all"
+            >
+              All
+            </Button>
+            {rosterStores.map(s => {
+              const hex = STORE_COLORS[s.name] ?? "";
+              const isActive = storeFilter === s.id;
+              return (
+                <Button
+                  key={s.id}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => selectStore(s.id)}
+                  className="h-9 px-4 text-xs font-semibold"
+                  style={isActive
+                    ? { backgroundColor: hex, borderColor: hex, color: "white" }
+                    : { borderColor: hex, color: hex, backgroundColor: "transparent" }}
+                  data-testid={`button-store-filter-${s.name.toLowerCase()}`}
+                >
+                  {s.name}
+                </Button>
+              );
+            })}
+          </div>
+
+          <div className="flex-1" />
+
+          <div className="flex items-center border rounded-md overflow-hidden text-xs">
+            {([
+              { value: "list", label: "List", Icon: ListIcon },
+              { value: "grid", label: "Grid", Icon: LayoutGrid },
+              { value: "timeline", label: "Timeline", Icon: BarChart2 },
+            ] as const).map(({ value, label, Icon }, i) => (
+              <div key={value} className="flex items-center">
+                {i > 0 && <div className="w-px h-5 bg-border" />}
+                <button
+                  type="button"
+                  onClick={() => selectView(value)}
+                  className={`flex items-center gap-1.5 px-3 py-2 transition-colors ${
+                    viewMode === value
+                      ? "bg-muted text-foreground font-medium"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  }`}
+                  data-testid={`button-view-${value}`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* ── Summary Stats ─────────────────────────────────────────────── */}
@@ -580,9 +660,25 @@ export function AdminTimesheets() {
         ) : (
           <div className="grid grid-cols-3 gap-3">
             {[
-              { label: "Employees", value: groups.length, color: "text-foreground" },
-              { label: "Total Hours", value: fmtHours(totalHours), color: "text-foreground" },
-              { label: "Payroll Paid", value: paidCount, color: "text-green-600 dark:text-green-400" },
+              { label: "Employees", value: groups.length, color: "text-foreground", sub: null as React.ReactNode },
+              {
+                label: "Total Hours",
+                value: fmtHours(totalHours),
+                color: "text-foreground",
+                // Roster comparison surfaced even in List view — same story the Grid
+                // and Timeline tell, reduced to one line.
+                sub: model.totalRosterHours > 0 ? (
+                  <>
+                    Roster {fmtHours(model.totalRosterHours)}
+                    {model.totalDiffMinutes !== 0 && (
+                      <span className={`ml-1.5 font-semibold ${model.totalDiffMinutes > 0 ? "text-orange-600 dark:text-orange-400" : "text-blue-600 dark:text-blue-400"}`}>
+                        {fmtDiffMinutes(model.totalDiffMinutes)}
+                      </span>
+                    )}
+                  </>
+                ) : null,
+              },
+              { label: "Payroll Paid", value: paidCount, color: "text-green-600 dark:text-green-400", sub: null as React.ReactNode },
             ].map(item => (
               <div
                 key={item.label}
@@ -591,13 +687,59 @@ export function AdminTimesheets() {
               >
                 <p className="text-[11px] text-muted-foreground">{item.label}</p>
                 <p className={`text-2xl font-black leading-tight ${item.color}`}>{item.value}</p>
+                {item.sub && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight" data-testid="stat-roster-comparison">
+                    {item.sub}
+                  </p>
+                )}
               </div>
             ))}
           </div>
         )}
 
+        {/* ── Grid View ──────────────────────────────────────────────────── */}
+        {!isLoading && viewMode === "grid" && (
+          model.rows.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <CheckCircle2 className="h-12 w-12 text-muted-foreground/30 mb-4" />
+              <p className="font-semibold text-muted-foreground">Nothing to compare</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                No roster entries or approved timesheets for this cycle.
+              </p>
+            </div>
+          ) : (
+            <AttendanceGridView
+              rows={model.rows}
+              cycleStart={cycleStart}
+              hasRosterData={model.hasRosterData}
+              selectedDay={selectedDay}
+              onDayChange={setSelectedDay}
+            />
+          )
+        )}
+
+        {/* ── Timeline View ──────────────────────────────────────────────── */}
+        {!isLoading && viewMode === "timeline" && (
+          !timelineStore ? (
+            <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
+              Select a store to view the timeline.
+            </div>
+          ) : (
+            <AttendanceTimelineView
+              rows={model.rows}
+              cycleStart={cycleStart}
+              selectedDay={selectedDay}
+              onDayChange={setSelectedDay}
+              openTime={timelineStore.openTime ?? "06:00"}
+              closeTime={timelineStore.closeTime ?? "22:00"}
+              storeName={timelineStore.name}
+              hasRosterData={model.hasRosterData}
+            />
+          )
+        )}
+
         {/* ── Employee List ──────────────────────────────────────────────── */}
-        {isLoading ? (
+        {viewMode !== "list" ? null : isLoading ? (
           <div className="space-y-2">
             {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}
           </div>
