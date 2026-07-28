@@ -455,7 +455,12 @@ export function AdminTimesheets() {
   // server-side). This is what makes the comparison possible: /api/admin/approvals
   // only returns rows that HAVE a timesheet, so a rostered-but-not-worked shift
   // exists nowhere else.
-  const { data: cycleRosters = [] } = useQuery<Roster[]>({
+  // `rostersPending` matters: this key contains the cycle, while the approvals key
+  // does not. Stepping to another cycle serves approvals instantly from cache while
+  // rosters refetch — for that render `cycleRosters` would be [], every cell would
+  // classify as UNSCHEDULED and the "no roster data" banner would assert something
+  // false. Gate the comparison views on it rather than letting [] mean "none".
+  const { data: cycleRosters = [], isPending: rostersPending } = useQuery<Roster[]>({
     queryKey: ["/api/rosters", "cycle", cycleStart, cycleEnd],
     queryFn: () => fetch(`/api/rosters?startDate=${cycleStart}&endDate=${cycleEnd}`).then(r => r.json()),
     staleTime: 30_000,
@@ -698,7 +703,12 @@ export function AdminTimesheets() {
         )}
 
         {/* ── Grid View ──────────────────────────────────────────────────── */}
-        {!isLoading && viewMode === "grid" && (
+        {viewMode === "grid" && (isLoading || rostersPending) && (
+          <div className="space-y-3">
+            {[1, 2].map(i => <Skeleton key={i} className="h-64 w-full rounded-lg" />)}
+          </div>
+        )}
+        {!isLoading && !rostersPending && viewMode === "grid" && (
           model.rows.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <CheckCircle2 className="h-12 w-12 text-muted-foreground/30 mb-4" />
@@ -719,7 +729,10 @@ export function AdminTimesheets() {
         )}
 
         {/* ── Timeline View ──────────────────────────────────────────────── */}
-        {!isLoading && viewMode === "timeline" && (
+        {viewMode === "timeline" && (isLoading || rostersPending) && (
+          <Skeleton className="h-80 w-full rounded-lg" />
+        )}
+        {!isLoading && !rostersPending && viewMode === "timeline" && (
           !timelineStore ? (
             <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
               Select a store to view the timeline.

@@ -307,6 +307,65 @@ export function hoursDiffMinutes(actualHours: number, rosterHours: number): numb
   return Math.round((actualHours - rosterHours) * 60);
 }
 
+// ── Timeline bar colours ─────────────────────────────────────────────────────
+
+function relativeLuminance(hex: string): number {
+  const h = hex.replace("#", "");
+  const full = h.length === 3 ? h.split("").map(c => c + c).join("") : h;
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(full.slice(i, i + 2), 16) / 255);
+  const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+function mixWithWhite(hex: string, amount: number): string {
+  const h = hex.replace("#", "");
+  const full = h.length === 3 ? h.split("").map(c => c + c).join("") : h;
+  const parts = [0, 2, 4].map(i => {
+    const v = parseInt(full.slice(i, i + 2), 16);
+    return Math.round(v + (255 - v) * amount);
+  });
+  return `#${parts.map(p => p.toString(16).padStart(2, "0")).join("")}`;
+}
+
+const contrastRatio = (a: number, b: number) =>
+  (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+
+/** `--background` in dark mode: hsl(20 14% 4%) — see client/src/index.css. */
+const DARK_BG_LUMINANCE = relativeLuminance("#0b0a09");
+
+/**
+ * Per-theme colours for a timeline "actual" bar.
+ *
+ * The bar must always read as the SOLID element against the pale roster band. A
+ * literal brand hex breaks that in one theme: Sushi is `#222222`, which on the dark
+ * background sits nearly flush with the page while the band (a light-tinted overlay)
+ * becomes the more visible of the two — exactly inverting the faint/bold relationship
+ * this view exists to show.
+ *
+ * The test is CONTRAST against the dark background, not raw luminance. Saturated
+ * Sandwich red (#ef4444) is low-luminance but reads perfectly well on dark and must
+ * keep its brand identity; near-neutral Sushi black does not. Only colours that
+ * actually fail the contrast check get lightened, and only until they pass.
+ */
+export function timelineBarColors(hex: string): {
+  bgLight: string; fgLight: string; bgDark: string; fgDark: string;
+} {
+  const lum = relativeLuminance(hex);
+
+  let bgDark = hex;
+  for (let mix = 0; mix <= 0.9; mix += 0.1) {
+    bgDark = mix === 0 ? hex : mixWithWhite(hex, mix);
+    if (contrastRatio(relativeLuminance(bgDark), DARK_BG_LUMINANCE) >= 3) break;
+  }
+
+  return {
+    bgLight: hex,
+    fgLight: lum > 0.45 ? "#111111" : "#ffffff",
+    bgDark,
+    fgDark: relativeLuminance(bgDark) > 0.45 ? "#111111" : "#ffffff",
+  };
+}
+
 /** All entries on one date across every row, for the timeline's per-day view. */
 export function entriesForDate(rows: AttendanceRow[], date: string): {
   row: AttendanceRow;

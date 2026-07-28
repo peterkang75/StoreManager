@@ -18,6 +18,7 @@ import {
   entriesForDate,
   fmtDiffMinutes,
   hoursDiffMinutes,
+  timelineBarColors,
   toMins,
   type AttendanceRow,
 } from "./attendanceModel";
@@ -169,7 +170,15 @@ export function AttendanceTimelineView({
           Roster
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-3 w-2.5 rounded-sm" style={{ backgroundColor: dayEntries[0]?.entry.storeColor ?? "#6a6a6a" }} />
+          {(() => {
+            const c = timelineBarColors(dayEntries[0]?.entry.storeColor ?? "#6a6a6a");
+            return (
+              <span
+                className="inline-block h-3 w-2.5 rounded-sm bg-[var(--bar-bg)] dark:bg-[var(--bar-bg-dark)]"
+                style={{ ["--bar-bg" as any]: c.bgLight, ["--bar-bg-dark" as any]: c.bgDark }}
+              />
+            );
+          })()}
           Actual — {storeName}
         </span>
       </div>
@@ -256,32 +265,38 @@ export function AttendanceTimelineView({
                     )}
 
                     {/* Actual — solid, inset on top of the band */}
-                    {actualBox && (
-                      <div
-                        className="absolute rounded-sm shadow-sm overflow-hidden"
-                        style={{
-                          top: `${actualBox.top}px`,
-                          height: `${actualBox.height}px`,
-                          left: "25%",
-                          right: "25%",
-                          backgroundColor: entry.storeColor,
-                        }}
-                        title={`Actual ${entry.actual!.start}–${entry.actual!.end} (${entry.actual!.hours.toFixed(1)}h)`}
-                      >
-                        {actualBox.height >= 20 && (
-                          <div className="flex flex-col p-0.5 leading-none gap-px">
-                            <span className="text-[8px] font-bold text-white whitespace-nowrap leading-none tabular-nums">
-                              {entry.actual!.start}
-                            </span>
-                            {actualBox.height >= 34 && (
-                              <span className="text-[8px] text-white/80 whitespace-nowrap leading-none tabular-nums">
-                                {entry.actual!.end}
+                    {actualBox && (() => {
+                      const c = timelineBarColors(entry.storeColor);
+                      return (
+                        <div
+                          className="absolute rounded-sm shadow-sm overflow-hidden bg-[var(--bar-bg)] dark:bg-[var(--bar-bg-dark)] text-[color:var(--bar-fg)] dark:text-[color:var(--bar-fg-dark)]"
+                          style={{
+                            top: `${actualBox.top}px`,
+                            height: `${actualBox.height}px`,
+                            left: "25%",
+                            right: "25%",
+                            ["--bar-bg" as any]: c.bgLight,
+                            ["--bar-fg" as any]: c.fgLight,
+                            ["--bar-bg-dark" as any]: c.bgDark,
+                            ["--bar-fg-dark" as any]: c.fgDark,
+                          }}
+                          title={`Actual ${entry.actual!.start}–${entry.actual!.end} (${entry.actual!.hours.toFixed(1)}h)`}
+                        >
+                          {actualBox.height >= 20 && (
+                            <div className="flex flex-col p-0.5 leading-none gap-px">
+                              <span className="text-[8px] font-bold whitespace-nowrap leading-none tabular-nums">
+                                {entry.actual!.start}
                               </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                              {actualBox.height >= 34 && (
+                                <span className="text-[8px] opacity-80 whitespace-nowrap leading-none tabular-nums">
+                                  {entry.actual!.end}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}

@@ -242,9 +242,11 @@ Grid, rather than 14 tabs in one row. Selected day defaults to the first day of 
 cycle that has any entry; falls back to `cycleStart`. The selected day is shared state
 between Grid (mobile) and Timeline, so switching views keeps the day.
 
-Axis bounds come from the selected store's `openTime` / `closeTime`. Entries outside
-those bounds (e.g. an actual clock-out after close) are clamped for positioning but
-keep their true times in the label and tooltip.
+Axis bounds start from the selected store's `openTime` / `closeTime` and are **widened
+to contain any entry that fell outside them**. Clamping (the original plan) would have
+hidden overtime past closing — the exact case the "bar overflows the band" reading is
+meant to surface. A shift whose end time precedes its start ran past midnight and
+extends to the end of the axis rather than drawing a negative-height block.
 
 **Store requirement:** clicking `Timeline` while the store filter is `All` sets the
 filter to the first roster store (Sushi). Switching the filter back to `All` while in
@@ -308,12 +310,32 @@ The page stays a shell.
 - **Store colour for `Sushi` is `#222222`** (near-black). The pale roster band must be
   a neutral grey independent of store colour, or the Sushi band and bar would be
   indistinguishable in shade alone.
-- **Dark mode.** Roster band and dashed outlines use theme tokens
-  (`muted`, `border`) rather than hard-coded greys, so the faint/bold relationship
-  survives dark mode. Store brand colours stay literal hex, as they do today.
+- **Dark mode — the actual bar needs a per-theme colour.** Roster band and dashed
+  outlines use theme tokens (`muted`, `border`), so they adapt. A literal brand hex on
+  the solid bar does not: on the dark background (`hsl(20 14% 4%)`) Sushi `#222222`
+  sits nearly flush with the page while the band becomes the *more* visible element,
+  inverting the faint/bold relationship the view exists to show.
+  `timelineBarColors()` therefore tests **contrast against the dark background**, not
+  raw luminance, and lightens only until the bar passes (ratio ≥ 3). Saturated
+  Sandwich red `#ef4444` is low-luminance but reads fine on dark, so it keeps its
+  brand identity in both themes; Sushi resolves to `#646464` in dark mode only. Label
+  colour follows the resulting background. Applied via CSS custom properties plus
+  static `dark:` utility classes, since inline styles cannot carry theme variants.
 - **Empty roster weeks.** Cycles before 2025-04-14 have no roster data; every cell
   becomes `UNSCHEDULED`. The Grid shows an inline notice — "No roster data for this
   cycle" — rather than implying a fortnight of unscheduled work.
+- **Loading state must be distinguished from "no rosters".** The approvals query key
+  carries no cycle; the roster query key does. Stepping to another cycle therefore
+  serves approvals instantly from cache while rosters refetch, and a `= []` default
+  would make that frame indistinguishable from a genuinely unrostered cycle — every
+  cell `UNSCHEDULED` and the notice above asserting something false, on the page's
+  primary control. Grid and Timeline are gated on the roster query's `isPending`.
+- **Aggregate diffs come from hour totals, never from summing per-cell diffs.** A
+  `NO_SHOW` cell has no per-cell diff to contribute, so summing cells drops the missed
+  hours entirely. Found during verification: an employee rostered 36h who worked
+  19h15m reported `+1h 15m` instead of `−16h 45m` — the view built to catch no-shows
+  was hiding them. `hoursDiffMinutes(actual, roster)` is the single helper for every
+  row, week, day, and page total.
 
 ## Verification
 
