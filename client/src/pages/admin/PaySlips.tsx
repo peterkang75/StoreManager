@@ -29,6 +29,21 @@ interface PaySlip {
   periodEnd: string;
 }
 
+// A4 is split into three fixed-height slots so the cut lines always fall at the
+// same place on the paper, whatever each slip contains.
+const SLOTS_PER_SHEET = 3;
+
+function chunkIntoSheets(slips: PaySlip[]): (PaySlip | null)[][] {
+  const sheets: (PaySlip | null)[][] = [];
+  for (let i = 0; i < slips.length; i += SLOTS_PER_SHEET) {
+    const sheet: (PaySlip | null)[] = slips.slice(i, i + SLOTS_PER_SHEET);
+    // Pad the last sheet so its cut lines still print in the same positions.
+    while (sheet.length < SLOTS_PER_SHEET) sheet.push(null);
+    sheets.push(sheet);
+  }
+  return sheets;
+}
+
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr + "T00:00:00");
   return d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
@@ -93,27 +108,56 @@ export function AdminPaySlips() {
     );
   }
 
+  const sheets = chunkIntoSheets(slips);
+
   return (
     <>
       <style>{`
+        /* Fixed A4 thirds. Every sheet is the same physical size and every slot
+           is the same fixed height, so the cut lines always land at 99mm and
+           198mm from the top of the paper regardless of how much content a slip
+           has. That is what lets a stack of printed sheets be guillotined in one
+           go. Requires printing at 100% scale with no browser margins. */
+        @page { size: A4; margin: 0; }
+
         @media print {
-          body { margin: 0; padding: 0; }
+          body { margin: 0; padding: 0; background: #fff; }
           .no-print { display: none !important; }
-          .payslip-container { padding: 0; }
-          .payslip-page { page-break-inside: avoid; }
+          .payslip-container { padding: 0; margin: 0; }
+          .payslip-sheet { break-after: page; page-break-after: always; }
+          .payslip-sheet:last-child { break-after: auto; page-break-after: auto; }
         }
         @media screen {
-          .payslip-container { max-width: 800px; margin: 0 auto; padding: 20px; }
+          /* Sheets are a fixed 210mm so the preview is what prints. Scroll a
+             narrow window rather than shrinking them out of true. */
+          .payslip-container { padding: 20px 0 40px; background: #e8e8e8; overflow-x: auto; }
+          .payslip-sheet { margin: 0 auto 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
         }
+        .payslip-sheet {
+          width: 210mm;
+          height: 296.9mm; /* not 297mm: Chrome's mm->px rounding otherwise
+                              emits a blank page between sheets */
+          box-sizing: border-box;
+          background: #fff;
+          overflow: hidden;
+          break-inside: avoid;
+        }
+        .payslip-slot {
+          box-sizing: border-box;
+          height: 99mm;
+          overflow: hidden;
+          padding: 6mm 9mm;
+          display: flex;
+          flex-direction: column;
+        }
+        /* absorbs the 0.1mm shaved off the sheet, so slots 1 and 2 stay exact */
+        .payslip-slot:nth-child(3) { height: 98.9mm; }
+        .payslip-slot.cut-line { border-bottom: 1px dashed #999; }
         .payslip-page {
           font-family: Arial, Helvetica, sans-serif;
           color: #000;
           background: #fff;
-          padding: 14px 20px;
-          border-bottom: 1px dashed #999;
-          margin-bottom: 4px;
         }
-        .payslip-page:last-child { border-bottom: none; margin-bottom: 0; }
         .payslip-header {
           display: flex;
           justify-content: space-between;
@@ -136,6 +180,7 @@ export function AdminPaySlips() {
         }
         .payslip-table {
           width: 100%;
+          table-layout: fixed;
           border-collapse: collapse;
           margin-bottom: 8px;
           font-size: 11px;
@@ -164,6 +209,20 @@ export function AdminPaySlips() {
           font-weight: 700;
           border-bottom: none;
           border-top: 1px solid #000;
+        }
+        /* The reason is the only free-text field on the slip, so it is the only
+           thing that can overflow a fixed-height slot. Clamp it rather than let
+           it push the money rows or the summary box out of the slot. */
+        .payslip-table td.reason {
+          white-space: normal;
+          overflow-wrap: anywhere;
+          line-height: 1.25;
+        }
+        .payslip-table td.reason .reason-text {
+          display: -webkit-box;
+          -webkit-line-clamp: 3;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
         }
         .payslip-summary {
           border: 1px solid #000;
@@ -204,96 +263,129 @@ export function AdminPaySlips() {
         >
           Back to Payrolls
         </button>
+        {/* Manager-reachable screen, so English only (see PLAN §5, 2026-06-21). */}
+        <div style={{ marginTop: "8px", fontSize: "12px", color: "#555" }} data-testid="text-print-settings-hint">
+          3 slips per A4 sheet. The cut lines print in the same place on every sheet, so a stack can be cut in one go.<br />
+          Print settings: <strong>Scale 100%</strong>, <strong>Margins: None</strong>, <strong>Headers and footers: off</strong> — any other scale shifts the cut lines.
+        </div>
       </div>
 
       <div className="payslip-container">
-        {slips.map((slip) => {
-          const displayName = slip.employee.nickname || slip.employee.name;
-          return (
-            <div key={slip.employee.id} className="payslip-page" data-testid={`payslip-${slip.employee.id}`}>
-              <div className="payslip-header">
-                <h1 data-testid={`text-employee-name-${slip.employee.id}`}>{displayName}</h1>
-                <div className="period" data-testid={`text-period-${slip.employee.id}`}>
-                  From {formatDate(slip.periodStart)}<br />
-                  To {formatDate(slip.periodEnd)}
-                </div>
+        {sheets.map((sheet, sheetIdx) => (
+          <div key={sheetIdx} className="payslip-sheet" data-testid={`payslip-sheet-${sheetIdx}`}>
+            {sheet.map((slip, slotIdx) => (
+              <div
+                key={slip ? slip.employee.id : `empty-${slotIdx}`}
+                /* slots 1 and 2 carry the cut line; slot 3 ends at the paper edge.
+                   Empty slots on a partial last sheet still draw it, so the last
+                   sheet cuts at the same place as every other sheet. */
+                className={`payslip-slot${slotIdx < SLOTS_PER_SHEET - 1 ? " cut-line" : ""}`}
+                data-testid={`payslip-slot-${sheetIdx}-${slotIdx}`}
+              >
+                {slip && renderSlip(slip)}
               </div>
-
-              <table className="payslip-table">
-                <thead>
-                  <tr>
-                    <th>Store</th>
-                    <th className="num">Hours</th>
-                    <th className="num">Gross</th>
-                    <th className="num">Adjustment</th>
-                    <th>Reason</th>
-                    <th className="num">Cash (Env)</th>
-                    <th className="num">Bank Deposit</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {slip.entries.map((entry, idx) => {
-                    // §6.3.12 Back-pay highlight: adjustment that originated from
-                    // late-approved shifts in prior periods is tagged in adjustmentReason.
-                    const isBackPay = !!entry.adjustmentReason?.toLowerCase().includes("back pay");
-                    return (
-                      <tr key={idx}>
-                        <td>{entry.storeName}</td>
-                        <td className="num">{entry.hours > 0 ? entry.hours.toFixed(1) : "-"}</td>
-                        <td className="num">{fmtMoney(entry.grossAmount)}</td>
-                        <td className="num" style={isBackPay ? { color: "#b45309", fontWeight: 600 } : undefined}>
-                          {entry.adjustment !== 0 ? fmtMoney(entry.adjustment) : "-"}
-                        </td>
-                        <td style={isBackPay ? { color: "#b45309", fontStyle: "italic", fontSize: "0.9em" } : undefined}>
-                          {isBackPay ? (
-                            <>
-                              <strong>Back Pay</strong>
-                              <br />
-                              <span style={{ fontSize: "0.85em" }}>{entry.adjustmentReason || ""}</span>
-                            </>
-                          ) : (
-                            entry.adjustmentReason || ""
-                          )}
-                        </td>
-                        <td className="num">{fmtMoney(entry.cashAmount)}</td>
-                        <td className="num">{fmtMoney(entry.bankDepositAmount)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                {slip.entries.length > 1 && (
-                  <tfoot>
-                    <tr>
-                      <td>Total</td>
-                      <td className="num">{slip.grandTotals.hours > 0 ? slip.grandTotals.hours.toFixed(1) : "-"}</td>
-                      <td className="num">{fmtMoney(slip.grandTotals.grossAmount)}</td>
-                      <td className="num"></td>
-                      <td></td>
-                      <td className="num">{fmtMoney(slip.grandTotals.cashAmount)}</td>
-                      <td className="num">{fmtMoney(slip.grandTotals.bankDepositAmount)}</td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-
-              <div className="payslip-summary">
-                <div className="summary-item">
-                  <div className="summary-label">Total Cash for Envelope</div>
-                  <div className="summary-value" data-testid={`text-total-cash-${slip.employee.id}`}>
-                    {fmtMoney(slip.grandTotals.cashAmount)}
-                  </div>
-                </div>
-                <div className="summary-item" style={{ textAlign: "right" }}>
-                  <div className="summary-label">Total Bank Transfer</div>
-                  <div className="summary-value" data-testid={`text-total-bank-${slip.employee.id}`}>
-                    {fmtMoney(slip.grandTotals.bankDepositAmount)}
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
+            ))}
+          </div>
+        ))}
       </div>
     </>
+  );
+}
+
+function renderSlip(slip: PaySlip) {
+  const displayName = slip.employee.nickname || slip.employee.name;
+  return (
+    <div className="payslip-page" data-testid={`payslip-${slip.employee.id}`}>
+      <div className="payslip-header">
+        <h1 data-testid={`text-employee-name-${slip.employee.id}`}>{displayName}</h1>
+        <div className="period" data-testid={`text-period-${slip.employee.id}`}>
+          From {formatDate(slip.periodStart)}<br />
+          To {formatDate(slip.periodEnd)}
+        </div>
+      </div>
+
+      <table className="payslip-table">
+        {/* Fixed widths: the slot is wide enough that the free-text Reason gets
+            the bulk of the spare room instead of every column growing evenly. */}
+        <colgroup>
+          <col style={{ width: "13%" }} />
+          <col style={{ width: "8%" }} />
+          <col style={{ width: "11%" }} />
+          <col style={{ width: "11%" }} />
+          <col style={{ width: "31%" }} />
+          <col style={{ width: "13%" }} />
+          <col style={{ width: "13%" }} />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Store</th>
+            <th className="num">Hours</th>
+            <th className="num">Gross</th>
+            <th className="num">Adjustment</th>
+            <th>Reason</th>
+            <th className="num">Cash (Env)</th>
+            <th className="num">Bank Deposit</th>
+          </tr>
+        </thead>
+        <tbody>
+          {slip.entries.map((entry, idx) => {
+            // §6.3.12 Back-pay highlight: adjustment that originated from
+            // late-approved shifts in prior periods is tagged in adjustmentReason.
+            const isBackPay = !!entry.adjustmentReason?.toLowerCase().includes("back pay");
+            return (
+              <tr key={idx}>
+                <td>{entry.storeName}</td>
+                <td className="num">{entry.hours > 0 ? entry.hours.toFixed(1) : "-"}</td>
+                <td className="num">{fmtMoney(entry.grossAmount)}</td>
+                <td className="num" style={isBackPay ? { color: "#b45309", fontWeight: 600 } : undefined}>
+                  {entry.adjustment !== 0 ? fmtMoney(entry.adjustment) : "-"}
+                </td>
+                <td className="reason" style={isBackPay ? { color: "#b45309", fontStyle: "italic", fontSize: "0.9em" } : undefined}>
+                  {isBackPay ? (
+                    <>
+                      <strong>Back Pay</strong>
+                      <br />
+                      <span className="reason-text" style={{ fontSize: "0.85em" }}>{entry.adjustmentReason || ""}</span>
+                    </>
+                  ) : (
+                    <span className="reason-text">{entry.adjustmentReason || ""}</span>
+                  )}
+                </td>
+                <td className="num">{fmtMoney(entry.cashAmount)}</td>
+                <td className="num">{fmtMoney(entry.bankDepositAmount)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+        {slip.entries.length > 1 && (
+          <tfoot>
+            <tr>
+              <td>Total</td>
+              <td className="num">{slip.grandTotals.hours > 0 ? slip.grandTotals.hours.toFixed(1) : "-"}</td>
+              <td className="num">{fmtMoney(slip.grandTotals.grossAmount)}</td>
+              <td className="num"></td>
+              <td></td>
+              <td className="num">{fmtMoney(slip.grandTotals.cashAmount)}</td>
+              <td className="num">{fmtMoney(slip.grandTotals.bankDepositAmount)}</td>
+            </tr>
+          </tfoot>
+        )}
+      </table>
+
+      <div className="payslip-summary">
+        <div className="summary-item">
+          <div className="summary-label">Total Cash for Envelope</div>
+          <div className="summary-value" data-testid={`text-total-cash-${slip.employee.id}`}>
+            {fmtMoney(slip.grandTotals.cashAmount)}
+          </div>
+        </div>
+        <div className="summary-item" style={{ textAlign: "right" }}>
+          <div className="summary-label">Total Bank Transfer</div>
+          <div className="summary-value" data-testid={`text-total-bank-${slip.employee.id}`}>
+            {fmtMoney(slip.grandTotals.bankDepositAmount)}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
