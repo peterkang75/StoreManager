@@ -43,6 +43,7 @@ import {
   Lock,
   LockOpen,
   CalendarClock,
+  MessageSquareText,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate, isCycleApprovalClosed } from "@shared/payrollCycle";
@@ -192,6 +193,26 @@ function groupByEmployee(timesheets: EnrichedTimesheet[]): EmployeeGroup[] {
 }
 
 // ── Diff Display ───────────────────────────────────────────────────────────────
+
+/**
+ * The employee's own explanation for working away from the roster.
+ *
+ * The portal makes this mandatory whenever they change either time
+ * (EmployeePortal.tsx `canSubmit`), but until now nothing on the approval side
+ * displayed it — the person deciding whether to approve the shift could not see
+ * why it differed. Blank and whitespace-only values are treated as absent;
+ * imported history and some manager edit paths leave the column set but empty.
+ */
+function ShiftReason({ reason, className = "" }: { reason: string | null; className?: string }) {
+  const text = reason?.trim();
+  if (!text) return null;
+  return (
+    <div className={`flex items-start gap-1.5 min-w-0 ${className}`} data-testid="shift-reason">
+      <MessageSquareText className="h-3 w-3 shrink-0 mt-[3px] text-muted-foreground" />
+      <span className="text-xs text-foreground break-words">"{text}"</span>
+    </div>
+  );
+}
 
 function DiffCell({ diffMinutes, className = "" }: { diffMinutes: number; className?: string }) {
   if (diffMinutes === 0) return <span className={`text-muted-foreground text-sm ${className}`}>—</span>;
@@ -455,10 +476,25 @@ function EmployeeReviewModal({
       </div>
     );
 
-    return (
+    // The reason is a sentence, not a cell value — it gets its own full-width row
+    // beneath the shift so the seven columns keep their widths.
+    const reasonRow = ts.adjustmentReason?.trim() ? (
+      <tr
+        key={`${ts.id}-reason`}
+        className={`border-b border-border/20 ${isApproved ? "opacity-55" : ""}`}
+        data-testid={`review-reason-${ts.id}`}
+      >
+        <td />
+        <td colSpan={6} className="pb-2 pt-0 px-2">
+          <ShiftReason reason={ts.adjustmentReason} />
+        </td>
+      </tr>
+    ) : null;
+
+    const mainRow = (
       <tr
         key={ts.id}
-        className={`border-b border-border/20 ${isApproved ? "opacity-55" : ""}`}
+        className={`${reasonRow ? "" : "border-b border-border/20"} ${isApproved ? "opacity-55" : ""}`}
         data-testid={`review-row-${ts.id}`}
       >
         {/* Date + optional store badge */}
@@ -535,6 +571,9 @@ function EmployeeReviewModal({
         </td>
       </tr>
     );
+
+    // Two sibling rows for one shift — callers render this array inside <tbody>.
+    return reasonRow ? [mainRow, reasonRow] : [mainRow];
   };
 
   // Week section header row
@@ -721,6 +760,7 @@ function EmployeeReviewModal({
                         <span className="font-bold text-sm">{fmtHours(actualH)}</span>
                         {schedH !== null && <DiffCell diffMinutes={shiftDiffMin} />}
                       </div>
+                      <ShiftReason reason={ts.adjustmentReason} className="mt-1.5" />
                     </div>
                   );
                 }) : (
