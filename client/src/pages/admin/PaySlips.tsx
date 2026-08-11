@@ -49,8 +49,8 @@ function chunkIntoSheets(slips: PaySlip[]): (PaySlip | null)[][] {
 // own name — better an unmapped label than a wrong one.
 function storeCode(storeName: string): string {
   const n = storeName.toLowerCase();
-  if (n.includes("sushi")) return "A";
-  if (n.includes("sandwich")) return "B";
+  if (n.includes("sushi")) return "SS";
+  if (n.includes("sandwich")) return "SW";
   return storeName;
 }
 
