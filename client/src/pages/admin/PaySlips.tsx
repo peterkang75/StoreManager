@@ -44,6 +44,16 @@ function chunkIntoSheets(slips: PaySlip[]): (PaySlip | null)[][] {
   return sheets;
 }
 
+// Slips go into cash envelopes handed out on the floor, so stores print as
+// short codes rather than by name. Anything outside Sushi/Sandwich keeps its
+// own name — better an unmapped label than a wrong one.
+function storeCode(storeName: string): string {
+  const n = storeName.toLowerCase();
+  if (n.includes("sushi")) return "A";
+  if (n.includes("sandwich")) return "B";
+  return storeName;
+}
+
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr + "T00:00:00");
   return d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
@@ -210,20 +220,34 @@ export function AdminPaySlips() {
           border-bottom: none;
           border-top: 1px solid #000;
         }
-        /* The reason is the only free-text field on the slip, so it is the only
-           thing that can overflow a fixed-height slot. Clamp it rather than let
-           it push the money rows or the summary box out of the slot. */
-        .payslip-table td.reason {
-          white-space: normal;
-          overflow-wrap: anywhere;
-          line-height: 1.25;
+        /* Adjustment reason lives under the table, not in a table cell: it is
+           the only free-text field on the slip and a fixed-height slot cannot
+           absorb it growing. The box is a fixed two lines tall so the summary
+           below it never moves, whatever the reason says. */
+        .payslip-reason {
+          border: 1px solid #000;
+          padding: 5px 12px;
+          margin-bottom: 6px;
         }
-        .payslip-table td.reason .reason-text {
+        .payslip-reason .reason-label {
+          font-size: 9px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
+          margin-bottom: 2px;
+          color: #333;
+        }
+        .payslip-reason .reason-body {
+          font-size: 11px;
+          line-height: 1.3;
+          height: 2.6em; /* exactly two lines */
           display: -webkit-box;
-          -webkit-line-clamp: 3;
+          -webkit-line-clamp: 2;
           -webkit-box-orient: vertical;
           overflow: hidden;
+          overflow-wrap: anywhere;
         }
+        .payslip-reason .reason-store { font-weight: 700; }
         .payslip-summary {
           border: 1px solid #000;
           padding: 8px 12px;
@@ -292,6 +316,27 @@ export function AdminPaySlips() {
   );
 }
 
+// The reason box is per-slip but reasons are per-store, so prefix the store
+// name only when more than one store actually carries a reason — the common
+// single-store case reads as a plain sentence.
+function renderReasons(entries: SlipEntry[]) {
+  const withReason = entries.filter((e) => (e.adjustmentReason || "").trim().length > 0);
+  if (withReason.length === 0) return null;
+  return withReason.map((entry, idx) => {
+    // §6.3.12 Back-pay highlight: adjustment that originated from
+    // late-approved shifts in prior periods is tagged in adjustmentReason.
+    const isBackPay = !!entry.adjustmentReason?.toLowerCase().includes("back pay");
+    return (
+      <span key={idx} style={isBackPay ? { color: "#b45309" } : undefined}>
+        {idx > 0 && " · "}
+        {withReason.length > 1 && <span className="reason-store">{storeCode(entry.storeName)}: </span>}
+        {isBackPay && <strong>Back Pay — </strong>}
+        {entry.adjustmentReason}
+      </span>
+    );
+  });
+}
+
 function renderSlip(slip: PaySlip) {
   const displayName = slip.employee.nickname || slip.employee.name;
   return (
@@ -305,26 +350,22 @@ function renderSlip(slip: PaySlip) {
       </div>
 
       <table className="payslip-table">
-        {/* Fixed widths: the slot is wide enough that the free-text Reason gets
-            the bulk of the spare room instead of every column growing evenly. */}
         <colgroup>
-          <col style={{ width: "13%" }} />
-          <col style={{ width: "8%" }} />
-          <col style={{ width: "11%" }} />
-          <col style={{ width: "11%" }} />
-          <col style={{ width: "31%" }} />
-          <col style={{ width: "13%" }} />
-          <col style={{ width: "13%" }} />
+          <col style={{ width: "22%" }} />
+          <col style={{ width: "12%" }} />
+          <col style={{ width: "15%" }} />
+          <col style={{ width: "15%" }} />
+          <col style={{ width: "18%" }} />
+          <col style={{ width: "18%" }} />
         </colgroup>
         <thead>
           <tr>
-            <th>Store</th>
+            <th>Location</th>
             <th className="num">Hours</th>
-            <th className="num">Gross</th>
+            <th className="num">Total</th>
             <th className="num">Adjustment</th>
-            <th>Reason</th>
-            <th className="num">Cash (Env)</th>
-            <th className="num">Bank Deposit</th>
+            <th className="num">Envelope</th>
+            <th className="num">Deposit</th>
           </tr>
         </thead>
         <tbody>
@@ -334,22 +375,11 @@ function renderSlip(slip: PaySlip) {
             const isBackPay = !!entry.adjustmentReason?.toLowerCase().includes("back pay");
             return (
               <tr key={idx}>
-                <td>{entry.storeName}</td>
+                <td>{storeCode(entry.storeName)}</td>
                 <td className="num">{entry.hours > 0 ? entry.hours.toFixed(1) : "-"}</td>
                 <td className="num">{fmtMoney(entry.grossAmount)}</td>
                 <td className="num" style={isBackPay ? { color: "#b45309", fontWeight: 600 } : undefined}>
                   {entry.adjustment !== 0 ? fmtMoney(entry.adjustment) : "-"}
-                </td>
-                <td className="reason" style={isBackPay ? { color: "#b45309", fontStyle: "italic", fontSize: "0.9em" } : undefined}>
-                  {isBackPay ? (
-                    <>
-                      <strong>Back Pay</strong>
-                      <br />
-                      <span className="reason-text" style={{ fontSize: "0.85em" }}>{entry.adjustmentReason || ""}</span>
-                    </>
-                  ) : (
-                    <span className="reason-text">{entry.adjustmentReason || ""}</span>
-                  )}
                 </td>
                 <td className="num">{fmtMoney(entry.cashAmount)}</td>
                 <td className="num">{fmtMoney(entry.bankDepositAmount)}</td>
@@ -360,11 +390,12 @@ function renderSlip(slip: PaySlip) {
         {slip.entries.length > 1 && (
           <tfoot>
             <tr>
-              <td>Total</td>
+              {/* Left blank: the Gross column header is now "Total", and a
+                  second "Total" in the row label read as the same thing. */}
+              <td></td>
               <td className="num">{slip.grandTotals.hours > 0 ? slip.grandTotals.hours.toFixed(1) : "-"}</td>
               <td className="num">{fmtMoney(slip.grandTotals.grossAmount)}</td>
               <td className="num"></td>
-              <td></td>
               <td className="num">{fmtMoney(slip.grandTotals.cashAmount)}</td>
               <td className="num">{fmtMoney(slip.grandTotals.bankDepositAmount)}</td>
             </tr>
@@ -372,15 +403,20 @@ function renderSlip(slip: PaySlip) {
         )}
       </table>
 
+      <div className="payslip-reason" data-testid={`reason-${slip.employee.id}`}>
+        <div className="reason-label">Adjustment Reason</div>
+        <div className="reason-body">{renderReasons(slip.entries)}</div>
+      </div>
+
       <div className="payslip-summary">
         <div className="summary-item">
-          <div className="summary-label">Total Cash for Envelope</div>
+          <div className="summary-label">Envelope</div>
           <div className="summary-value" data-testid={`text-total-cash-${slip.employee.id}`}>
             {fmtMoney(slip.grandTotals.cashAmount)}
           </div>
         </div>
         <div className="summary-item" style={{ textAlign: "right" }}>
-          <div className="summary-label">Total Bank Transfer</div>
+          <div className="summary-label">Deposit</div>
           <div className="summary-value" data-testid={`text-total-bank-${slip.employee.id}`}>
             {fmtMoney(slip.grandTotals.bankDepositAmount)}
           </div>
