@@ -118,7 +118,17 @@ export interface AttendanceEntry {
   storeName: string;
   storeColor: string;
   roster: { start: string; end: string; hours: number } | null;
-  actual: { id: string; start: string; end: string; hours: number; isUnscheduled: boolean } | null;
+  actual: {
+    id: string; start: string; end: string; hours: number; isUnscheduled: boolean;
+    /**
+     * Why the worked time differs from the roster. The employee portal makes this
+     * mandatory whenever they change either time (EmployeePortal.tsx `canSubmit`),
+     * so it is the staff member's own explanation for the difference. Blank and
+     * whitespace-only values are normalised to null — imported history and some
+     * manager edit paths leave the column set but empty.
+     */
+    reason: string | null;
+  } | null;
   /** actual − roster, in minutes. 0 when either side is missing. */
   diffMinutes: number;
   status: CellStatus;
@@ -220,6 +230,7 @@ export function buildAttendanceModel(
       end: ts.actualEndTime,
       hours: calcHours(ts.actualStartTime, ts.actualEndTime),
       isUnscheduled: ts.isUnscheduled,
+      reason: ts.adjustmentReason?.trim() ? ts.adjustmentReason.trim() : null,
     };
   });
 

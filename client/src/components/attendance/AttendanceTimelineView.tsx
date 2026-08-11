@@ -10,7 +10,7 @@
 // Whether the solid bar fills, falls short of, or overflows the pale band is then
 // readable at a glance across the whole day.
 
-import { AlertCircle, Clock } from "lucide-react";
+import { AlertCircle, Clock, MessageSquareText } from "lucide-react";
 import {
   addDays,
   dayOfMonth,
@@ -280,7 +280,10 @@ export function AttendanceTimelineView({
                             ["--bar-bg-dark" as any]: c.bgDark,
                             ["--bar-fg-dark" as any]: c.fgDark,
                           }}
-                          title={`Actual ${entry.actual!.start}–${entry.actual!.end} (${entry.actual!.hours.toFixed(1)}h)`}
+                          title={
+                            `Actual ${entry.actual!.start}–${entry.actual!.end} (${entry.actual!.hours.toFixed(1)}h)` +
+                            (entry.actual!.reason ? `\nReason: ${entry.actual!.reason}` : "")
+                          }
                         >
                           {actualBox.height >= 20 && (
                             <div className="flex flex-col p-0.5 leading-none gap-px">
@@ -294,6 +297,12 @@ export function AttendanceTimelineView({
                               )}
                             </div>
                           )}
+                          {/* A column is far too narrow to hold the sentence, so the
+                              bar only flags that one exists; the text is listed
+                              under the grid where it has room to be read. */}
+                          {entry.actual!.reason && (
+                            <MessageSquareText className="absolute bottom-0.5 right-0.5 h-2.5 w-2.5 opacity-90" />
+                          )}
                         </div>
                       );
                     })()}
@@ -302,6 +311,59 @@ export function AttendanceTimelineView({
               })}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Staff explanations for the day ──────────────────────────────────
+          The portal makes a reason mandatory whenever the employee changes
+          either time, so this is where "why is the bar longer than the band?"
+          gets answered in their own words. */}
+      {dayEntries.some(({ entry }) => entry.actual?.reason) && (
+        <div className="border-t border-border/30 px-3 py-2 space-y-1.5" data-testid="timeline-reasons">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Staff notes
+          </p>
+          {dayEntries
+            .filter(({ entry }) => entry.actual?.reason)
+            .map(({ row, entry }) => (
+              <div
+                key={`${row.employeeId}-${entry.storeId}-note`}
+                className="flex items-start gap-2 text-xs"
+                data-testid={`timeline-reason-${row.employeeId}`}
+              >
+                <MessageSquareText className="h-3 w-3 shrink-0 mt-0.5 text-muted-foreground" />
+                <span className="font-semibold shrink-0">{row.displayName}</span>
+                <span className="text-muted-foreground shrink-0 tabular-nums">
+                  {entry.actual!.start}–{entry.actual!.end}
+                </span>
+                {entry.status === "DIFF" && (
+                  <span className={`shrink-0 font-semibold ${entry.diffMinutes > 0 ? "text-orange-600 dark:text-orange-400" : "text-blue-600 dark:text-blue-400"}`}>
+                    {fmtDiffMinutes(entry.diffMinutes)}
+                  </span>
+                )}
+                {entry.status === "UNSCHEDULED" && (
+                  <span className="shrink-0 italic text-purple-600 dark:text-purple-400">Unsched</span>
+                )}
+                <span className="text-foreground min-w-0">"{entry.actual!.reason}"</span>
+              </div>
+            ))}
+        </div>
+      )}
+
+      {/* A shift that ran over roster with nothing written is the case worth
+          chasing — the portal requires a reason, but a manager editing the times
+          afterwards (PUT /api/admin/approvals/:id/update-times) does not. */}
+      {dayEntries.some(({ entry }) => entry.status === "DIFF" && entry.diffMinutes > 0 && !entry.actual?.reason) && (
+        <div className="border-t border-border/30 px-3 py-2 flex items-start gap-2" data-testid="timeline-missing-reasons">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+          <p className="text-xs text-muted-foreground">
+            <span className="font-semibold text-foreground">No reason recorded</span>
+            {" — "}
+            {dayEntries
+              .filter(({ entry }) => entry.status === "DIFF" && entry.diffMinutes > 0 && !entry.actual?.reason)
+              .map(({ row, entry }) => `${row.displayName} ${fmtDiffMinutes(entry.diffMinutes)}`)
+              .join(", ")}
+          </p>
         </div>
       )}
     </div>
