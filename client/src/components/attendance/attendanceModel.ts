@@ -81,6 +81,10 @@ export function fmtDiffMinutes(diffMin: number): string {
   return `${sign}${hh}h ${mm}m`;
 }
 
+export function fmtMoney(n: number): string {
+  return `$${n.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 // ── Types ────────────────────────────────────────────────────────────────────

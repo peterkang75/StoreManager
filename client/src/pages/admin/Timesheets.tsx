@@ -22,8 +22,9 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { getPayrollCycleStart, getPayrollCycleEnd } from "@shared/payrollCycle";
-import type { Employee, Payroll, Roster, Store } from "@shared/schema";
+import type { DailyClosing, Employee, Payroll, Roster, Store } from "@shared/schema";
 import { useAdminRole } from "@/contexts/AdminRoleContext";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   addDays,
   buildAttendanceModel,
@@ -32,6 +33,7 @@ import {
   fmtDate,
   fmtDiffMinutes,
   fmtHours,
+  fmtMoney,
   fmtTime,
   type EnrichedTimesheet,
 } from "@/components/attendance/attendanceModel";
@@ -468,6 +470,17 @@ export function AdminTimesheets() {
 
   const { data: stores = [] } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
 
+  // Daily takings for the cycle — same source and formula as the Cash & Close
+  // screen's "Total Income" column: POS sales plus the delivery platforms
+  // (Cash.tsx:505). Fetched unfiltered by store so switching the store buttons
+  // stays instant; the filter is applied client-side.
+  const { data: cycleClosings = [] } = useQuery<DailyClosing[]>({
+    queryKey: ["/api/daily-closings", "cycle", cycleStart, cycleEnd],
+    queryFn: () =>
+      fetch(`/api/daily-closings?start_date=${cycleStart}&end_date=${cycleEnd}`).then(r => r.json()),
+    staleTime: 30_000,
+  });
+
   // Names for employees who have a roster but no timesheet in this cycle.
   const { data: allEmployees = [] } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
 
@@ -542,6 +555,52 @@ export function AdminTimesheets() {
     groups.reduce((s, g) => s + g.totalActualHours, 0),
     [groups]
   );
+
+  // ── Revenue card ───────────────────────────────────────────────────────────
+  // Scope follows what the screen is actually showing: the Timeline and the
+  // mobile Grid display one day, so the card reports that day; the List view and
+  // the desktop Grid span the fortnight, so it reports the cycle. Mixing the two
+  // silently — a one-day figure beside a 14-day hours total — is what makes this
+  // kind of card misread, so the label always names its own range.
+  const isMobile = useIsMobile();
+  const revenueIsDaily = viewMode === "timeline" || (viewMode === "grid" && isMobile);
+
+  const revenue = useMemo(() => {
+    const inScope = cycleClosings.filter(c =>
+      (storeFilter === "ALL" || c.storeId === storeFilter) &&
+      (revenueIsDaily ? c.date === selectedDay : c.date >= cycleStart && c.date <= cycleEnd)
+    );
+    // Cash.tsx:505 — Total Income = POS sales + Uber Eats + DoorDash.
+    const total = inScope.reduce(
+      (s, c) => s + c.salesTotal + c.ubereatsAmount + c.doordashAmount, 0
+    );
+    return { total, days: inScope.length };
+  }, [cycleClosings, storeFilter, revenueIsDaily, selectedDay, cycleStart, cycleEnd]);
+
+  // Labour cost for the same scope. Mirrors GET /api/admin/weekly-payroll
+  // (routes.ts:6081): hourly rate × actual hours worked. Two active staff also
+  // carry a fixed salary, so for them this is a notional hourly cost rather than
+  // what they are actually paid — the same simplification the weekly payroll
+  // screen already makes, kept identical so the two screens never disagree.
+  const labour = useMemo(() => {
+    const rows = revenueIsDaily
+      ? approvedInCycle.filter(t => t.date === selectedDay)
+      : approvedInCycle;
+    let cost = 0, hours = 0;
+    rows.forEach(t => {
+      const h = calcHours(t.actualStartTime, t.actualEndTime);
+      hours += h;
+      cost += h * (parseFloat(employeesById.get(t.employeeId)?.rate ?? "0") || 0);
+    });
+    return { cost, hours };
+  }, [approvedInCycle, employeesById, revenueIsDaily, selectedDay]);
+
+  const labourPct = revenue.total > 0 ? (labour.cost / revenue.total) * 100 : null;
+
+  const revenueScopeLabel = revenueIsDaily
+    ? fmtDate(selectedDay)
+    : `${fmtCycleDate(cycleStart)} – ${fmtCycleDate(cycleEnd)}`;
+
   const paidCount = useMemo(() =>
     groups.filter(g => paidEmployeeIds.has(g.employeeId)).length,
     [groups, paidEmployeeIds]
@@ -665,8 +724,24 @@ export function AdminTimesheets() {
         ) : (
           <div className="grid grid-cols-3 gap-3">
             {[
-              { label: "Employees", value: groups.length, color: "text-foreground", sub: null as React.ReactNode },
               {
+                testId: "stat-revenue",
+                label: `Revenue — ${revenueScopeLabel}`,
+                value: revenue.days === 0 ? "—" : fmtMoney(revenue.total),
+                color: "text-foreground",
+                sub: revenue.days === 0 ? (
+                  <span className="italic">No Cash &amp; Close record</span>
+                ) : labourPct !== null ? (
+                  <>
+                    Labour {fmtMoney(labour.cost)}
+                    <span className={`ml-1.5 font-semibold ${labourPct > 35 ? "text-orange-600 dark:text-orange-400" : "text-foreground"}`}>
+                      {labourPct.toFixed(1)}% of revenue
+                    </span>
+                  </>
+                ) : null,
+              },
+              {
+                testId: "stat-total-hours",
                 label: "Total Hours",
                 value: fmtHours(totalHours),
                 color: "text-foreground",
@@ -683,17 +758,17 @@ export function AdminTimesheets() {
                   </>
                 ) : null,
               },
-              { label: "Payroll Paid", value: paidCount, color: "text-green-600 dark:text-green-400", sub: null as React.ReactNode },
+              { testId: "stat-payroll-paid", label: "Payroll Paid", value: paidCount, color: "text-green-600 dark:text-green-400", sub: null as React.ReactNode },
             ].map(item => (
               <div
-                key={item.label}
+                key={item.testId}
                 className="rounded-lg border border-border/30 bg-card px-4 py-2.5"
-                data-testid={`stat-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+                data-testid={item.testId}
               >
-                <p className="text-[11px] text-muted-foreground">{item.label}</p>
+                <p className="text-[11px] text-muted-foreground truncate">{item.label}</p>
                 <p className={`text-2xl font-black leading-tight ${item.color}`}>{item.value}</p>
                 {item.sub && (
-                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight" data-testid="stat-roster-comparison">
+                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight" data-testid={`${item.testId}-sub`}>
                     {item.sub}
                   </p>
                 )}
