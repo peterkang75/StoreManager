@@ -2819,6 +2819,34 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/daily-sales — the unified per-store-per-day sales ledger.
+  //
+  // Prefer this over /api/daily-closings for any AGGREGATE revenue figure.
+  // `daily_closings` is append-only with no uniqueness on (store, date), so a
+  // re-submitted close form leaves two rows and summing them double-counts the
+  // day. `daily_sales` carries a unique index on (store_id, date) and is upserted
+  // by mirrorClosingToDailySales, so last-submission-wins is applied for you.
+  // It also covers POSnet-imported days that never had a close form.
+  // The P&L (/api/reports/pnl) already reads from here.
+  app.get("/api/daily-sales", async (req: Request, res: Response) => {
+    try {
+      const filters: { storeId?: string; startDate?: string; endDate?: string } = {};
+      if (typeof req.query.store_id === "string" && req.query.store_id && req.query.store_id !== "ALL") {
+        filters.storeId = req.query.store_id;
+      }
+      if (typeof req.query.start_date === "string" && req.query.start_date) {
+        filters.startDate = req.query.start_date;
+      }
+      if (typeof req.query.end_date === "string" && req.query.end_date) {
+        filters.endDate = req.query.end_date;
+      }
+      res.json(await storage.getDailySales(filters));
+    } catch (error) {
+      console.error("Error fetching daily sales:", error);
+      res.status(500).json({ error: "Failed to fetch daily sales" });
+    }
+  });
+
   app.post("/api/daily-closings", async (req: Request, res: Response) => {
     try {
       const parsed = insertDailyClosingSchema.safeParse(req.body);

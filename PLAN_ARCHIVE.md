@@ -846,7 +846,8 @@ Turns interview capture + hiring + onboarding into one flow so anyone conducting
 | PUT | `/api/cash-sales/:id` | Update cash sale |
 | GET | `/api/cash-sales/latest-date` | Latest date with data |
 | DELETE | `/api/cash-sales/void-day` | Void all entries for a date |
-| GET | `/api/daily-closings` | List daily closings |
+| GET | `/api/daily-closings` | List daily closings (raw, append-only — may hold >1 row per store+date) |
+| GET | `/api/daily-sales` | Per-store-per-day sales ledger, unique on (store, date). **Use this for any aggregate revenue figure** |
 | POST | `/api/daily-closings` | Create daily closing |
 | PUT | `/api/daily-closings/:id` | Update daily closing |
 | GET | `/api/daily-close-forms` | List employee close forms |

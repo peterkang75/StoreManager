@@ -22,7 +22,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { getPayrollCycleStart, getPayrollCycleEnd } from "@shared/payrollCycle";
-import type { DailyClosing, Employee, Payroll, Roster, Store } from "@shared/schema";
+import type { DailySales, Employee, Payroll, Roster, Store } from "@shared/schema";
 import { useAdminRole } from "@/contexts/AdminRoleContext";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
@@ -470,14 +470,21 @@ export function AdminTimesheets() {
 
   const { data: stores = [] } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
 
-  // Daily takings for the cycle — same source and formula as the Cash & Close
-  // screen's "Total Income" column: POS sales plus the delivery platforms
-  // (Cash.tsx:505). Fetched unfiltered by store so switching the store buttons
-  // stays instant; the filter is applied client-side.
-  const { data: cycleClosings = [] } = useQuery<DailyClosing[]>({
-    queryKey: ["/api/daily-closings", "cycle", cycleStart, cycleEnd],
+  // Daily takings for the cycle. `daily_sales.total` is POS sales plus the
+  // delivery platforms — the same figure the Cash & Close screen labels
+  // "Total Income" (Cash.tsx:505) — but read from the deduplicated ledger.
+  //
+  // NOT /api/daily-closings: that table is append-only with no uniqueness on
+  // (store, date), so a re-submitted close form leaves two rows and any sum
+  // double-counts the day. That is exactly what happened on 2026-07-30 at
+  // Sandwich, where this card first reported $4,973.02 for a $2,486.51 day.
+  // `daily_sales` has a unique index on (store_id, date) and is upserted, so the
+  // last submission wins. Fetched unfiltered by store so the store buttons stay
+  // instant; the filter is applied client-side.
+  const { data: cycleSales = [] } = useQuery<DailySales[]>({
+    queryKey: ["/api/daily-sales", "cycle", cycleStart, cycleEnd],
     queryFn: () =>
-      fetch(`/api/daily-closings?start_date=${cycleStart}&end_date=${cycleEnd}`).then(r => r.json()),
+      fetch(`/api/daily-sales?start_date=${cycleStart}&end_date=${cycleEnd}`).then(r => r.json()),
     staleTime: 30_000,
   });
 
@@ -566,16 +573,12 @@ export function AdminTimesheets() {
   const revenueIsDaily = viewMode === "timeline" || (viewMode === "grid" && isMobile);
 
   const revenue = useMemo(() => {
-    const inScope = cycleClosings.filter(c =>
-      (storeFilter === "ALL" || c.storeId === storeFilter) &&
-      (revenueIsDaily ? c.date === selectedDay : c.date >= cycleStart && c.date <= cycleEnd)
+    const inScope = cycleSales.filter(s =>
+      (storeFilter === "ALL" || s.storeId === storeFilter) &&
+      (revenueIsDaily ? s.date === selectedDay : s.date >= cycleStart && s.date <= cycleEnd)
     );
-    // Cash.tsx:505 — Total Income = POS sales + Uber Eats + DoorDash.
-    const total = inScope.reduce(
-      (s, c) => s + c.salesTotal + c.ubereatsAmount + c.doordashAmount, 0
-    );
-    return { total, days: inScope.length };
-  }, [cycleClosings, storeFilter, revenueIsDaily, selectedDay, cycleStart, cycleEnd]);
+    return { total: inScope.reduce((sum, s) => sum + s.total, 0), days: inScope.length };
+  }, [cycleSales, storeFilter, revenueIsDaily, selectedDay, cycleStart, cycleEnd]);
 
   // Labour cost for the same scope. Mirrors GET /api/admin/weekly-payroll
   // (routes.ts:6081): hourly rate × actual hours worked. Two active staff also
