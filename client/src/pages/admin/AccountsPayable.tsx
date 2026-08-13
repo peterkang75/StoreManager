@@ -1518,7 +1518,14 @@ export function AdminAccountsPayable() {
             when the page scrolls so the running pay batch is always in
             sight. The store filter row + Add Invoice sit just below this and
             scroll normally with the content. */}
-        <div className="sticky top-0 z-20 bg-muted/30 pt-1 -mt-1 pb-2 space-y-3 sm:space-y-4">
+        {/* Background must be FULLY opaque. It was bg-muted/30, which let the
+            invoice rows scroll visibly through the tab strip. bg-background is
+            #fff over the page's own muted/30 (#fafafa) — a difference you can't
+            see — so the bar reads as part of the page until content slides
+            under it, where the border + shadow draw the edge. The negative
+            margins bleed it into the page gutters so nothing shows at the
+            sides. */}
+        <div className="sticky top-0 z-20 bg-background border-b border-border shadow-sm pt-1 -mt-1 pb-2 -mx-3 px-3 sm:-mx-6 sm:px-6 space-y-3 sm:space-y-4">
 
           {/* Summary cards — always rendered */}
           <div className="grid grid-cols-2 gap-2 sm:gap-4">
@@ -1594,7 +1601,7 @@ export function AdminAccountsPayable() {
               On mobile the tab strip wraps to a second line and tab labels
               shrink so all options stay reachable without horizontal scroll. */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-            <div className="flex items-center gap-0.5 sm:gap-1 bg-muted/50 p-0.5 sm:p-1 rounded-lg flex-wrap">
+            <div className="flex items-center gap-0.5 sm:gap-1 bg-muted p-0.5 sm:p-1 rounded-lg flex-wrap">
               {tabs.map(tab => (
                 <button
                   key={tab.key}
