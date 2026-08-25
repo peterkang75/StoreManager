@@ -817,7 +817,7 @@ export function AdminEmployeeDetail() {
           </div>
           <Button
             variant="outline"
-            onClick={() => copyToClipboard(`${window.location.origin}/m/portal`, "portalLink")}
+            onClick={() => copyToClipboard(`${window.location.origin}/m/portal?dest=edit-profile`, "portalLink")}
             data-testid="button-copy-portal-link"
           >
             {copiedField === "portalLink" ? (

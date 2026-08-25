@@ -208,6 +208,18 @@ function saveSession(s: Session | null) {
   else localStorage.removeItem(SESSION_KEY);
 }
 
+// A link sent to an employee (e.g. "Copy Portal Link" on the admin Employee
+// Detail page) can carry ?dest=edit-profile so that, whether they're already
+// logged in or have to PIN in first, they land on that screen instead of Home.
+type Dest = { activeTab: Tab; subView: "edit-profile" | null } | null;
+function readDest(): Dest {
+  let raw: string | null = null;
+  try { raw = new URLSearchParams(window.location.search).get("dest"); } catch { return null; }
+  if (raw === "edit-profile") return { activeTab: "settings", subView: "edit-profile" };
+  if (raw === "schedule" || raw === "timesheets" || raw === "settings") return { activeTab: raw, subView: null };
+  return null;
+}
+
 // ── Status styles ─────────────────────────────────────────────────────────────
 
 const STATUS_STYLE: Record<string, { bg: string; text: string; label: string }> = {
@@ -3842,8 +3854,10 @@ export function EmployeePortal() {
   const [session, setSession] = useState<Session | null>(() => loadSession());
   useEffect(() => { saveSession(session); }, [session]);
 
-  const [activeTab, setActiveTab] = useState<Tab>("home");
-  const [subView, setSubView] = useState<"edit-profile" | null>(null);
+  // Captured once on mount so it survives the PIN-login round trip below.
+  const [dest] = useState<Dest>(() => readDest());
+  const [activeTab, setActiveTab] = useState<Tab>(() => dest?.activeTab ?? "home");
+  const [subView, setSubView] = useState<"edit-profile" | null>(() => dest?.subView ?? null);
 
   const handleLogout = () => {
     // Best-effort: invalidate the bearer token server-side, then clear local
@@ -3862,8 +3876,8 @@ export function EmployeePortal() {
   const handleLogin  = (s: Session) => {
     saveSession(s);
     setSession(s);
-    setActiveTab("home");
-    setSubView(null);
+    setActiveTab(dest?.activeTab ?? "home");
+    setSubView(dest?.subView ?? null);
   };
   const handlePinChanged = () => setSession(s => s ? { ...s, isFirstLogin: false } : s);
   const showBack = !!session && (subView !== null || activeTab !== "home");

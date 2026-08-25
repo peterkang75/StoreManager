@@ -46,7 +46,9 @@ function handle401(url: string) {
       const hadSession = localStorage.getItem(PORTAL_SESSION_KEY) !== null;
       localStorage.removeItem(PORTAL_SESSION_KEY);
       if (hadSession) {
-        window.location.href = "/m/portal";
+        // Preserve ?dest=... (e.g. a link sent to re-enter visa info) so the
+        // forced re-login still lands the user back where they were headed.
+        window.location.href = "/m/portal" + window.location.search;
       }
       return;
     }
