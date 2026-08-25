@@ -123,6 +123,13 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
 
   // Fixed 14-day blocks anchored to 2026-03-10 (Tuesday, confirmed period start)
   // Block 0: 2026-03-10 ~ 2026-03-23, Block -1: 2026-02-24 ~ 2026-03-09, etc.
+  //
+  // Default to the block immediately BEFORE the one containing today, not the
+  // one containing today. This work is always done in arrears — a batch of 14
+  // days' cash is entered once that period has closed out, so whatever block
+  // "today" falls in hasn't been counted yet. Regardless of where in the
+  // current block today lands, the block that actually needs entering is the
+  // one that just ended.
   useEffect(() => {
     if (!storeId) return;
     const anchor = new Date("2026-03-10T00:00:00");
@@ -130,7 +137,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     today.setHours(0, 0, 0, 0);
     const diffDays = Math.floor((today.getTime() - anchor.getTime()) / (24 * 60 * 60 * 1000));
     const blockOffset = Math.floor(diffDays / 14);
-    setPeriodStart(addDays(anchor, blockOffset * 14));
+    setPeriodStart(addDays(anchor, (blockOffset - 1) * 14));
   }, [storeId]);
 
   const startDate = periodStart ? formatDateStr(periodStart) : "";
