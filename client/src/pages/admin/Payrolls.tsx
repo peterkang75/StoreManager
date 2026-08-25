@@ -7,13 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -47,6 +40,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { CashBalances } from "@/components/CashBalances";
 import { ConvertForm } from "@/components/ConvertForm";
 import type { Store, Employee, Payroll } from "@shared/schema";
+import { storeColorFor } from "@shared/storeColors";
 import { Calculator } from "lucide-react";
 
 const CASH_DENOMINATIONS = [100, 50, 20, 10, 5] as const;
@@ -1117,25 +1111,34 @@ export function AdminPayrolls() {
           </Card>
 
           <div className="flex flex-wrap items-end gap-2">
-            <div className="space-y-1 min-w-[140px]">
+            <div className="space-y-1">
               <Label className="text-xs">Store</Label>
-              <Select value={selectedStoreId} onValueChange={handleStoreChange}>
-                <SelectTrigger
-                  className="h-8 text-sm"
-                  data-testid="select-payroll-store"
-                >
-                  <SelectValue placeholder="Select store" />
-                </SelectTrigger>
-                <SelectContent>
-                  {activeInternalStores.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
+              <div className="flex gap-1.5">
+                {activeInternalStores.map((s) => {
+                  const isSelected = s.id === selectedStoreId;
+                  const color = storeColorFor(s.name);
+                  return (
+                    <Button
+                      key={s.id}
+                      type="button"
+                      size="sm"
+                      className="h-8"
+                      style={
+                        isSelected
+                          ? { backgroundColor: color, borderColor: color, color: "#ffffff" }
+                          : { borderColor: color, color, backgroundColor: "transparent" }
+                      }
+                      variant={isSelected ? "default" : "outline"}
+                      onClick={() => handleStoreChange(s.id)}
+                      data-testid={`button-payroll-store-${s.name.toLowerCase()}`}
+                    >
                       {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                    </Button>
+                  );
+                })}
+              </div>
             </div>
-            <div className="flex items-end gap-0.5">
+            <div className="flex items-end gap-0.5 ml-auto">
               <Button
                 size="icon"
                 variant="ghost"
