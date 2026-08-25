@@ -350,6 +350,7 @@ export function MobileDailyClose() {
       };
       const closeFormData = {
         storeId, date,
+        submittedBy: portalSession?.id ?? null,
         submitterName: displayName,
         envelopeAmount: expectedCredit,
         totalCalculated: totalCounted,
