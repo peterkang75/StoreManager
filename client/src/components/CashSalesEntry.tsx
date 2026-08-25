@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -265,19 +266,45 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     return m;
   }, [closeFormsData]);
 
-  // Phone-per-row for the "text this employee" column — resolved via the
-  // close form's submittedBy employee id, not the free-text submitterName.
+  // Employee id per row for the Staff name — both the profile link and the
+  // text button resolve off this. Prefers the accurate submittedBy id;
+  // older rows submitted before that field existed fall back to a
+  // best-effort name match against nickname/firstName.
   const { data: employees } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
-  const phoneByDate = useMemo(() => {
+  const employeeIdByDate = useMemo(() => {
     const m = new Map<string, string>();
     if (!employees) return m;
-    const phoneByEmployeeId = new Map(employees.map((e) => [e.id, e.phone]));
+    const byId = new Set(employees.map((e) => e.id));
+    const byName = new Map<string, string>();
+    for (const e of employees) {
+      for (const key of [e.nickname, e.firstName]) {
+        const k = key?.trim().toLowerCase();
+        if (k && !byName.has(k)) byName.set(k, e.id);
+      }
+    }
     for (const cf of closeFormsData ?? []) {
-      const phone = cf.submittedBy ? phoneByEmployeeId.get(cf.submittedBy) : null;
-      if (phone) m.set(cf.date, phone);
+      if (cf.submittedBy && byId.has(cf.submittedBy)) {
+        m.set(cf.date, cf.submittedBy);
+      } else if (cf.submitterName) {
+        const id = byName.get(cf.submitterName.trim().toLowerCase());
+        if (id) m.set(cf.date, id);
+      }
     }
     return m;
   }, [closeFormsData, employees]);
+
+  // Phone per row, resolved from the same employee id — so the text button
+  // works for every row the name link works for, not just submittedBy rows.
+  const phoneByDate = useMemo(() => {
+    const m = new Map<string, string>();
+    if (!employees) return m;
+    const phoneById = new Map(employees.map((e) => [e.id, e.phone]));
+    employeeIdByDate.forEach((employeeId, date) => {
+      const phone = phoneById.get(employeeId);
+      if (phone) m.set(date, phone);
+    });
+    return m;
+  }, [employeeIdByDate, employees]);
 
   const updateRow = useCallback(
     (index: number, field: string, value: number) => {
@@ -657,7 +684,6 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
               <col style={{ width: "7%" }} />
               <col style={{ width: "13%" }} />
               <col style={{ width: "4%" }} />
-              <col style={{ width: "4%" }} />
             </colgroup>
             <thead>
               <tr className="bg-muted/50">
@@ -672,7 +698,6 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                 ))}
                 <th className="px-1 py-1 text-right font-medium border-b border-r">Diff</th>
                 <th className="px-1 py-1 text-left font-medium border-b border-r">Memo</th>
-                <th className="px-0.5 py-1 text-center font-medium border-b border-r"></th>
                 <th className="px-0.5 py-1 text-center font-medium border-b"></th>
               </tr>
             </thead>
@@ -729,7 +754,26 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                           ) : confirmedDateSet.has(row.date) ? (
                             <span className="h-1.5 w-1.5 rounded-full bg-green-500 shrink-0" />
                           ) : null}
-                          <span className="truncate">{submitterByDate.get(row.date) ?? "—"}</span>
+                          {row.date && employeeIdByDate.get(row.date) ? (
+                            <Link
+                              href={`/admin/employees/${employeeIdByDate.get(row.date)}`}
+                              className="truncate hover:underline hover:text-primary"
+                            >
+                              {submitterByDate.get(row.date) ?? "—"}
+                            </Link>
+                          ) : (
+                            <span className="truncate">{submitterByDate.get(row.date) ?? "—"}</span>
+                          )}
+                          {phoneByDate.get(row.date) && (
+                            <a
+                              href={`sms:${phoneByDate.get(row.date)!.replace(/\s+/g, "")}`}
+                              className="inline-flex items-center justify-center rounded text-muted-foreground/60 hover:text-primary hover:bg-primary/10 p-0.5 shrink-0"
+                              data-testid={`link-text-staff-${idx}`}
+                              title={`Text ${submitterByDate.get(row.date) ?? "staff"}`}
+                            >
+                              <MessageSquare className="h-3 w-3" />
+                            </a>
+                          )}
                         </div>
                       ) : "—"}
                     </td>
@@ -839,7 +883,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                       )}
                     </td>
                     {/* Delete / void column */}
-                    <td className="px-0.5 py-0.5 border-b border-r text-center">
+                    <td className="px-0.5 py-0.5 border-b text-center">
                       {row.date && dbDates.has(row.date) && (
                         deleteConfirmDate === row.date ? (
                           <div className="flex items-center justify-center gap-0.5">
@@ -875,20 +919,6 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         )
-                      )}
-                    </td>
-                    {/* Text this row's staff — opens the Messages app with their
-                        number ready, no message composed for them. */}
-                    <td className="px-0.5 py-0.5 border-b text-center">
-                      {row.date && phoneByDate.get(row.date) && (
-                        <a
-                          href={`sms:${phoneByDate.get(row.date)!.replace(/\s+/g, "")}`}
-                          className="inline-flex items-center justify-center rounded text-muted-foreground/60 hover:text-primary hover:bg-primary/10 p-0.5"
-                          data-testid={`link-text-staff-${idx}`}
-                          title={`Text ${submitterByDate.get(row.date) ?? "staff"}`}
-                        >
-                          <MessageSquare className="h-3.5 w-3.5" />
-                        </a>
                       )}
                     </td>
                   </tr>
@@ -929,7 +959,6 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                     ? `${totalDifference > 0 ? "+" : "-"}$${Math.abs(totalDifference).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
                     : "—"}
                 </td>
-                <td className="px-1 py-1.5 border-t-2 border-r"></td>
                 <td className="px-1 py-1.5 border-t-2 border-r"></td>
                 <td className="px-1 py-1.5 border-t-2"></td>
               </tr>

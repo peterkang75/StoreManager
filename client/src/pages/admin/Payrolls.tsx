@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Button } from "@/components/ui/button";
@@ -1455,12 +1456,14 @@ export function AdminPayrolls() {
                               >
                                 <div className="flex items-center gap-2 min-w-0">
                                   <User className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                                  <span
-                                    className="text-sm font-medium truncate"
+                                  <Link
+                                    href={`/admin/employees/${row.employeeId}`}
+                                    className="text-sm font-medium truncate hover:underline hover:text-primary"
+                                    onClick={(e) => e.stopPropagation()}
                                     data-testid={`text-employee-name-${row.employeeId}`}
                                   >
                                     {row.employeeName}
-                                  </span>
+                                  </Link>
                                   {row.isCover && (
                                     <span
                                       className="text-[10px] italic text-muted-foreground flex-shrink-0"
