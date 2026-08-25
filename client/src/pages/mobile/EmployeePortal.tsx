@@ -2535,6 +2535,12 @@ interface ProfileFormData {
   suburb: string;
   state: string;
   postCode: string;
+  visaType: string;
+  visaSubclass: string;
+  visaExpiry: string;
+  workEntitlements: string;
+  passportNo: string;
+  nationality: string;
   selfieUrl: string;
   passportUrl: string;
   fhc: string;
@@ -2720,6 +2726,7 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
   const DRAFT_KEY = `ep_profile_draft_${session.id}`;
   const [form, setForm] = useState<ProfileFormData>({
     email: "", streetAddress: "", streetAddress2: "", suburb: "", state: "", postCode: "",
+    visaType: "", visaSubclass: "", visaExpiry: "", workEntitlements: "", passportNo: "", nationality: "",
     selfieUrl: "", passportUrl: "", fhc: "", tfn: "", accountName: "", bsb: "", accountNo: "",
     superCompany: "", superMembershipNo: "",
   });
@@ -2738,6 +2745,12 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
       suburb: employee.suburb ?? "",
       state: employee.state ?? "",
       postCode: employee.postCode ?? "",
+      visaType: employee.visaType ?? "",
+      visaSubclass: employee.visaSubclass ?? "",
+      visaExpiry: employee.visaExpiry ?? "",
+      workEntitlements: employee.workEntitlements ?? "",
+      passportNo: employee.passportNo ?? "",
+      nationality: employee.nationality ?? "",
       selfieUrl: employee.selfieUrl ?? "",
       passportUrl: employee.passportUrl ?? "",
       fhc: employee.fhc ?? "",
@@ -2860,6 +2873,7 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
     // fields (e.g., firstName) are validated on the admin page, not here.
     const portalFieldNames = new Set([
       "email", "streetAddress", "streetAddress2", "suburb", "state", "postCode",
+      "visaType", "visaSubclass", "visaExpiry", "workEntitlements", "passportNo", "nationality",
       "selfieUrl", "passportUrl", "fhc",
       "tfn", "accountName", "bsb", "accountNo",
       "superCompany", "superMembershipNo",
@@ -2903,6 +2917,11 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
       setHasDraft(true);
     },
   });
+
+  // Once a VEVO result document is on file, per-field values it populated are
+  // locked here too — self-reported edits should never silently overwrite a
+  // government-verified value. Matches the same rule on the admin page.
+  const isVevoLocked = (key: keyof ProfileFormData) => !!employee?.vevoUrl && !!form[key];
 
   if (isLoading) {
     return (
@@ -3049,6 +3068,60 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
                 <Label className="text-xs text-muted-foreground">Post Code <Req name="postCode" /></Label>
                 <Input placeholder="e.g. 2000" {...field("postCode")} data-testid="input-post-code" className="h-11 text-base" inputMode="numeric" />
               </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* ── Visa & Compliance ─────────────────────────────────── */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+              <Shield className="h-4 w-4 text-primary" />
+            </div>
+            <h3 className="font-semibold text-sm">Visa &amp; Compliance</h3>
+          </div>
+          <Card>
+            <CardContent className="pt-4 pb-4 flex flex-col gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Visa Type <Req name="visaType" /></Label>
+                  <Input placeholder="e.g. Student, WHM, PR" {...field("visaType")} data-testid="input-visa-type" className="h-11 text-base" disabled={isVevoLocked("visaType")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Visa Subclass <Req name="visaSubclass" /></Label>
+                  <Input placeholder="e.g. 500, 417, 485" {...field("visaSubclass")} data-testid="input-visa-subclass" className="h-11 text-base" disabled={isVevoLocked("visaSubclass")} />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Visa Expiry Date <Req name="visaExpiry" /></Label>
+                <Input type="date" {...field("visaExpiry")} data-testid="input-visa-expiry" className="h-11 text-base" disabled={isVevoLocked("visaExpiry")} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Work Entitlements <Req name="workEntitlements" /></Label>
+                <Select value={form.workEntitlements} onValueChange={v => { setForm(f => ({ ...f, workEntitlements: v })); setHasDraft(true); }} disabled={isVevoLocked("workEntitlements")}>
+                  <SelectTrigger className="h-11 text-base" data-testid="select-work-entitlements">
+                    <SelectValue placeholder="Select..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Full Work Rights">Full Work Rights</SelectItem>
+                    <SelectItem value="Restricted">Restricted</SelectItem>
+                    <SelectItem value="No Work Rights">No Work Rights</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Passport No <Req name="passportNo" /></Label>
+                  <Input placeholder="Passport number" {...field("passportNo")} data-testid="input-passport-no" className="h-11 text-base" disabled={isVevoLocked("passportNo")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Country of Passport <Req name="nationality" /></Label>
+                  <Input placeholder="e.g. Nepal, India" {...field("nationality")} data-testid="input-nationality" className="h-11 text-base" disabled={isVevoLocked("nationality")} />
+                </div>
+              </div>
+              {employee?.vevoUrl && (
+                <p className="text-xs text-muted-foreground pt-1">Fields verified via VEVO are locked. Contact your manager to update them.</p>
+              )}
             </CardContent>
           </Card>
         </section>

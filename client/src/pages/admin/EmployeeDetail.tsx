@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Loader2, Save, User, ExternalLink, Camera, FileImage, Upload, X, ShieldCheck, AlertTriangle, ClipboardCopy, CheckCircle2, Shield, FileText, Download, Lock } from "lucide-react";
+import { ArrowLeft, Loader2, Save, User, ExternalLink, Camera, FileImage, Upload, X, ShieldCheck, AlertTriangle, ClipboardCopy, CheckCircle2, Shield, FileText, Download, Lock, Link2 } from "lucide-react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -815,6 +815,18 @@ export function AdminEmployeeDetail() {
               </p>
             </div>
           </div>
+          <Button
+            variant="outline"
+            onClick={() => copyToClipboard(`${window.location.origin}/m/portal`, "portalLink")}
+            data-testid="button-copy-portal-link"
+          >
+            {copiedField === "portalLink" ? (
+              <CheckCircle2 className="w-4 h-4 mr-2 text-green-600" />
+            ) : (
+              <Link2 className="w-4 h-4 mr-2" />
+            )}
+            {copiedField === "portalLink" ? "Copied!" : "Copy Portal Link"}
+          </Button>
           <Button
             onClick={handleSave}
             disabled={!hasChanges || isSaving}
