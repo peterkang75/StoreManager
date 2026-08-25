@@ -18,10 +18,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Save, ChevronLeft, ChevronRight, ClipboardCheck, Trash2, X, Check } from "lucide-react";
+import { Save, ChevronLeft, ChevronRight, ClipboardCheck, Trash2, X, Check, MessageSquare } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Store, CashSalesDetail, DailyCloseForm } from "@shared/schema";
+import type { Store, CashSalesDetail, DailyCloseForm, Employee } from "@shared/schema";
 
 const ALL_DENOMINATIONS = [
   { key: "note100Count", label: "$100", value: 100 },
@@ -264,6 +264,20 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     }
     return m;
   }, [closeFormsData]);
+
+  // Phone-per-row for the "text this employee" column — resolved via the
+  // close form's submittedBy employee id, not the free-text submitterName.
+  const { data: employees } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
+  const phoneByDate = useMemo(() => {
+    const m = new Map<string, string>();
+    if (!employees) return m;
+    const phoneByEmployeeId = new Map(employees.map((e) => [e.id, e.phone]));
+    for (const cf of closeFormsData ?? []) {
+      const phone = cf.submittedBy ? phoneByEmployeeId.get(cf.submittedBy) : null;
+      if (phone) m.set(cf.date, phone);
+    }
+    return m;
+  }, [closeFormsData, employees]);
 
   const updateRow = useCallback(
     (index: number, field: string, value: number) => {
@@ -643,6 +657,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
               <col style={{ width: "7%" }} />
               <col style={{ width: "13%" }} />
               <col style={{ width: "4%" }} />
+              <col style={{ width: "4%" }} />
             </colgroup>
             <thead>
               <tr className="bg-muted/50">
@@ -657,6 +672,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                 ))}
                 <th className="px-1 py-1 text-right font-medium border-b border-r">Diff</th>
                 <th className="px-1 py-1 text-left font-medium border-b border-r">Memo</th>
+                <th className="px-0.5 py-1 text-center font-medium border-b border-r"></th>
                 <th className="px-0.5 py-1 text-center font-medium border-b"></th>
               </tr>
             </thead>
@@ -823,7 +839,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                       )}
                     </td>
                     {/* Delete / void column */}
-                    <td className="px-0.5 py-0.5 border-b text-center">
+                    <td className="px-0.5 py-0.5 border-b border-r text-center">
                       {row.date && dbDates.has(row.date) && (
                         deleteConfirmDate === row.date ? (
                           <div className="flex items-center justify-center gap-0.5">
@@ -859,6 +875,20 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         )
+                      )}
+                    </td>
+                    {/* Text this row's staff — opens the Messages app with their
+                        number ready, no message composed for them. */}
+                    <td className="px-0.5 py-0.5 border-b text-center">
+                      {row.date && phoneByDate.get(row.date) && (
+                        <a
+                          href={`sms:${phoneByDate.get(row.date)!.replace(/\s+/g, "")}`}
+                          className="inline-flex items-center justify-center rounded text-muted-foreground/60 hover:text-primary hover:bg-primary/10 p-0.5"
+                          data-testid={`link-text-staff-${idx}`}
+                          title={`Text ${submitterByDate.get(row.date) ?? "staff"}`}
+                        >
+                          <MessageSquare className="h-3.5 w-3.5" />
+                        </a>
                       )}
                     </td>
                   </tr>
@@ -899,6 +929,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                     ? `${totalDifference > 0 ? "+" : "-"}$${Math.abs(totalDifference).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
                     : "—"}
                 </td>
+                <td className="px-1 py-1.5 border-t-2 border-r"></td>
                 <td className="px-1 py-1.5 border-t-2 border-r"></td>
                 <td className="px-1 py-1.5 border-t-2"></td>
               </tr>
