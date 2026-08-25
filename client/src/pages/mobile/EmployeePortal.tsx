@@ -2895,7 +2895,10 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
       // Scroll to first invalid (kebab-case data-testid pattern)
       const kebab = missing[0].replace(/([A-Z])/g, "-$1").toLowerCase();
       const el = document.querySelector<HTMLElement>(`[data-testid="input-${kebab}"]`)
-              ?? document.querySelector<HTMLElement>(`[data-testid="select-${kebab}"]`);
+              ?? document.querySelector<HTMLElement>(`[data-testid="select-${kebab}"]`)
+              // Upload fields (selfieUrl, passportUrl, fhc) have no single input/select —
+              // their whole section carries this testid instead.
+              ?? document.querySelector<HTMLElement>(`[data-testid="section-${kebab}"]`);
       el?.scrollIntoView({ behavior: "smooth", block: "center" });
       el?.focus?.();
       return;
@@ -3127,12 +3130,12 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
         </section>
 
         {/* ── Selfie ───────────────────────────────────────────── */}
-        <section>
+        <section data-testid="section-selfie-url">
           <div className="flex items-center gap-2 mb-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
               <User className="h-4 w-4 text-primary" />
             </div>
-            <h3 className="font-semibold text-sm">Profile Photo (Selfie)</h3>
+            <h3 className="font-semibold text-sm">Profile Photo (Selfie) <Req name="selfieUrl" /></h3>
           </div>
           <Card>
             <CardContent className="pt-4 pb-4 flex flex-col gap-3">
@@ -3191,12 +3194,12 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
         </section>
 
         {/* ── Passport ─────────────────────────────────────────── */}
-        <section>
+        <section data-testid="section-passport-url">
           <div className="flex items-center gap-2 mb-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
               <Shield className="h-4 w-4 text-primary" />
             </div>
-            <h3 className="font-semibold text-sm">Passport / ID Document</h3>
+            <h3 className="font-semibold text-sm">Passport / ID Document <Req name="passportUrl" /></h3>
           </div>
           <Card>
             <CardContent className="pt-4 pb-4 flex flex-col gap-3">
@@ -3252,12 +3255,12 @@ function EditProfileView({ session, onBack }: { session: Session; onBack: () => 
         </section>
 
         {/* ── Food Handler Certificate ─────────────────────────── */}
-        <section>
+        <section data-testid="section-fhc">
           <div className="flex items-center gap-2 mb-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
               <FileText className="h-4 w-4 text-primary" />
             </div>
-            <h3 className="font-semibold text-sm">Food Handler Certificate (FHC)</h3>
+            <h3 className="font-semibold text-sm">Food Handler Certificate (FHC) <Req name="fhc" /></h3>
           </div>
           <Card>
             <CardContent className="pt-4 pb-4 flex flex-col gap-3">

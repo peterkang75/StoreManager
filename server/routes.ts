@@ -5746,6 +5746,9 @@ export async function registerRoutes(
   // PUT { requiredFields: string[] } — replaces the list wholesale.
   app.put("/api/admin/employee-field-requirements", async (req: Request, res: Response) => {
     try {
+      if ((req.user?.role ?? "").toUpperCase() !== "ADMIN") {
+        return res.status(403).json({ error: "FORBIDDEN_ADMIN_ONLY", message: "Admin role required" });
+      }
       const { requiredFields } = req.body as { requiredFields?: unknown };
       if (!Array.isArray(requiredFields) || !requiredFields.every((s) => typeof s === "string")) {
         return res.status(400).json({ error: "requiredFields must be a string array" });
