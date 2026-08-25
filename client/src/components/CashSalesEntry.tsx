@@ -5,13 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -23,6 +16,7 @@ import { Save, ChevronLeft, ChevronRight, ClipboardCheck, Trash2, X, Check, Mess
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Store, CashSalesDetail, DailyCloseForm, Employee } from "@shared/schema";
+import { storeColorFor } from "@shared/storeColors";
 
 const ALL_DENOMINATIONS = [
   { key: "note100Count", label: "$100", value: 100 },
@@ -121,6 +115,13 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
       const bi = cashSalesStoreOrder.indexOf(b.name.toLowerCase());
       return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
     });
+
+  // Default to Sushi on first load.
+  useEffect(() => {
+    if (storeId || activeStores.length === 0) return;
+    const sushi = activeStores.find((s) => s.name.toLowerCase() === "sushi");
+    setStoreId((sushi ?? activeStores[0]).id);
+  }, [activeStores, storeId]);
 
   // Fixed 14-day blocks anchored to 2026-03-10 (Tuesday, confirmed period start)
   // Block 0: 2026-03-10 ~ 2026-03-23, Block -1: 2026-02-24 ~ 2026-03-09, etc.
@@ -590,18 +591,31 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
       </p>
 
       <div className="flex items-end gap-4 flex-wrap">
-        <div className="space-y-1.5 min-w-[180px]">
+        <div className="space-y-1.5">
           <Label>Store</Label>
-          <Select value={storeId} onValueChange={setStoreId}>
-            <SelectTrigger data-testid="select-cashsales-store">
-              <SelectValue placeholder="Select store" />
-            </SelectTrigger>
-            <SelectContent>
-              {activeStores.map((s) => (
-                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex gap-1.5">
+            {activeStores.map((s) => {
+              const isSelected = s.id === storeId;
+              const color = storeColorFor(s.name);
+              return (
+                <Button
+                  key={s.id}
+                  type="button"
+                  size="sm"
+                  style={
+                    isSelected
+                      ? { backgroundColor: color, borderColor: color, color: "#ffffff" }
+                      : { borderColor: color, color, backgroundColor: "transparent" }
+                  }
+                  variant={isSelected ? "default" : "outline"}
+                  onClick={() => setStoreId(s.id)}
+                  data-testid={`button-cashsales-store-${s.name.toLowerCase()}`}
+                >
+                  {s.name}
+                </Button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="space-y-1.5">
