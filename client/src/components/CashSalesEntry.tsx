@@ -69,6 +69,12 @@ function addDays(d: Date, n: number): Date {
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+// How long typing has to pause before an autosave fires.
+const AUTOSAVE_MS = 1000;
+
+// Window after our own save during which a refetch must not rebuild the grid.
+const SKIP_REBUILD_MS = 5000;
+
 function getDayLabel(dateStr: string): string {
   const d = new Date(dateStr + "T00:00:00");
   const dow = d.getDay();
@@ -82,6 +88,15 @@ function calcCounted(row: RowData): number {
     total += count * denom.value;
   }
   return Math.round(total * 100) / 100;
+}
+
+// A row with data but no date is dropped by the save payload, so the grid
+// flags it instead of letting it disappear on the next reload.
+function rowNeedsDate(row: RowData): boolean {
+  if (row.date) return false;
+  if ((Number(row.envelopeAmount) || 0) > 0) return true;
+  if (ALL_DENOMINATIONS.some((d) => (Number(row[d.key]) || 0) > 0)) return true;
+  return !!String(row.memo ?? "").trim();
 }
 
 function createEmptyRow(date: string): RowData {
@@ -106,6 +121,19 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
   const [isDirty, setIsDirty] = useState(false);
   const [autoFilledDates, setAutoFilledDates] = useState<Set<string>>(new Set());
   const gridRef = useRef<HTMLDivElement>(null);
+
+  // --- Autosave ----------------------------------------------------------
+  // Edits persist on their own ~1s after typing stops, and immediately when a
+  // cell loses focus, so a refresh never loses work. The Save button stays as
+  // a manual "save now"; both go through the same bulk endpoint, which wipes
+  // and rewrites the whole period.
+  const [saveState, setSaveState] = useState<"idle" | "saved">("idle");
+  const skipRowResetUntilRef = useRef(0); // our own refetch must not clobber typing
+  const dirtyCtxRef = useRef(""); // store|period the pending edits belong to
+  const lastCtxRef = useRef("");
+  const editSeqRef = useRef(0); // bumped on every edit
+  const savingSeqRef = useRef(-1); // editSeq captured when a save started
+  const ctxKeyRef = useRef("");
 
   const cashSalesStoreOrder = ["sushi", "sandwich", "trading"];
   const activeStores = stores
@@ -144,6 +172,18 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
 
   const startDate = periodStart ? formatDateStr(periodStart) : "";
   const endDate = periodStart ? formatDateStr(addDays(periodStart, 13)) : "";
+
+  // Identity of what is currently on screen. An autosave scheduled before a
+  // store/period switch must never land on the store/period switched to.
+  const ctxKey = storeId && startDate ? `${storeId}|${startDate}` : "";
+  ctxKeyRef.current = ctxKey;
+
+  const markDirty = useCallback(() => {
+    editSeqRef.current += 1;
+    dirtyCtxRef.current = ctxKeyRef.current;
+    setSaveState("idle");
+    setIsDirty(true);
+  }, []);
 
   const { data: existingData, isLoading: loadingData } = useQuery<CashSalesDetail[]>({
     queryKey: ["/api/cash-sales", storeId, startDate, endDate],
@@ -188,7 +228,10 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
       const env = typeof rec.envelopeAmount === "string" ? parseFloat(rec.envelopeAmount) : (rec.envelopeAmount ?? 0);
       const cnt = typeof rec.countedAmount === "string" ? parseFloat(rec.countedAmount) : (rec.countedAmount ?? 0);
       const anyDenom = ALL_DENOMINATIONS.some((d) => ((rec as any)[d.key] ?? 0) !== 0);
-      return env !== 0 || cnt !== 0 || anyDenom;
+      // A memo alone counts: an owner note on an otherwise-zero day is real
+      // data, and dropping the record here would lose it on the next reload.
+      const hasMemo = !!String((rec as any).memo ?? "").trim();
+      return env !== 0 || cnt !== 0 || anyDenom || hasMemo;
     };
 
     // First: saved cash-sales records (only meaningful ones — skip pure-zero records)
@@ -239,14 +282,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
       newRows.push(i < populated.length ? populated[i] : createEmptyRow(""));
     }
 
-    setRows(newRows);
     setAutoFilledDates(newAutoFilled);
-    setIsDirty(false);
-
-    // Mark rows that have a date as confirmed (shows formatted date label)
-    const confirmed: Record<number, boolean> = {};
-    newRows.forEach((r, i) => { if (r.date) confirmed[i] = true; });
-    setConfirmedDates(confirmed);
 
     // Track all dates that exist in the DB (used to show/hide delete button)
     const dbDateSet = new Set<string>();
@@ -254,7 +290,28 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     closeFormsData?.forEach((r) => dbDateSet.add(r.date));
     setDbDates(dbDateSet);
     setDeleteConfirmDate(null);
-  }, [existingData, closeFormsData, periodStart]);
+
+    // A refetch caused by our own autosave must not rebuild the grid —
+    // anything typed while that request was in flight would be thrown away.
+    // Only honoured for the same store/period; switching either always
+    // rebuilds, so a stale flag can never wedge the grid.
+    const sameCtx = lastCtxRef.current === ctxKey;
+    lastCtxRef.current = ctxKey;
+    if (sameCtx && Date.now() < skipRowResetUntilRef.current) {
+      skipRowResetUntilRef.current = 0;
+      return;
+    }
+    skipRowResetUntilRef.current = 0;
+
+    setRows(newRows);
+    setIsDirty(false);
+    setSaveState("idle");
+
+    // Mark rows that have a date as confirmed (shows formatted date label)
+    const confirmed: Record<number, boolean> = {};
+    newRows.forEach((r, i) => { if (r.date) confirmed[i] = true; });
+    setConfirmedDates(confirmed);
+  }, [existingData, closeFormsData, periodStart, ctxKey]);
 
   // Map of close-form submitter name by date — drives the Staff column so
   // the owner can see who submitted the matching mobile close form for
@@ -321,9 +378,9 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
         next[index] = row;
         return next;
       });
-      setIsDirty(true);
+      markDirty();
     },
-    []
+    [markDirty]
   );
 
   const grandTotal = useMemo(() => {
@@ -364,7 +421,8 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
   );
 
   const saveMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (_opts: { silent?: boolean }) => {
+      savingSeqRef.current = editSeqRef.current;
       const res = await apiRequest("POST", "/api/cash-sales/bulk", {
         storeId,
         startDate,
@@ -390,9 +448,21 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
       });
       return res.json();
     },
-    onSuccess: (data) => {
-      toast({ title: "Cash sales saved", description: `${data.saved} record(s) saved. Total $${data.totalCounted.toLocaleString()}` });
-      setIsDirty(false);
+    onSuccess: (data, opts) => {
+      if (!opts?.silent) {
+        toast({ title: "Cash sales saved", description: `${data.saved} record(s) saved. Total $${data.totalCounted.toLocaleString()}` });
+      }
+      // Keystrokes that landed while the save was in flight keep the grid
+      // dirty, so the debounce fires again for them instead of them being
+      // silently marked as saved.
+      if (editSeqRef.current === savingSeqRef.current) {
+        setIsDirty(false);
+        setSaveState("saved");
+      }
+      // Time-boxed: if react-query's structural sharing decides the refetched
+      // data is identical, the effect above never runs and the flag would
+      // otherwise sit there and eat the next legitimate rebuild.
+      skipRowResetUntilRef.current = Date.now() + SKIP_REBUILD_MS;
       queryClient.invalidateQueries({ queryKey: ["/api/cash-sales"] });
       queryClient.invalidateQueries({ queryKey: ["/api/cash-sales/latest-date"] });
       queryClient.invalidateQueries({ queryKey: ["/api/finance/transactions"] });
@@ -414,6 +484,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
       return res.json();
     },
     onSuccess: (_data, { date }) => {
+      skipRowResetUntilRef.current = 0; // a delete must always rebuild the grid
       toast({ title: "Entry voided", description: `Record for ${date} has been permanently deleted.` });
       setDeleteConfirmDate(null);
       queryClient.invalidateQueries({ queryKey: ["/api/cash-sales"] });
@@ -426,7 +497,62 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
     },
   });
 
+  const canSave = !!storeId && !!periodStart && validRowCount > 0;
+
+  // Debounced autosave. Never starts while a save is in flight — the bulk
+  // endpoint deletes the period before re-inserting it, so overlapping writes
+  // could interleave; the effect re-runs once the in-flight save settles.
+  useEffect(() => {
+    if (!isDirty || !canSave || saveMutation.isPending) return;
+    const ctx = ctxKey;
+    const timer = setTimeout(() => {
+      if (dirtyCtxRef.current !== ctx) return; // store/period changed meanwhile
+      saveMutation.mutate({ silent: true });
+    }, AUTOSAVE_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, isDirty, canSave, ctxKey, saveMutation.isPending]);
+
+  // Write immediately instead of waiting out the debounce: when focus leaves
+  // the grid, and before switching store or period.
+  const flushSave = useCallback(() => {
+    if (!isDirty || !canSave || saveMutation.isPending) return;
+    if (dirtyCtxRef.current !== ctxKey) return;
+    saveMutation.mutate({ silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty, canSave, ctxKey, saveMutation]);
+
+  // Only a blur that leaves the table flushes — Tab/Enter between cells is
+  // normal data entry and must not trigger a write per cell.
+  const handleCellBlur = useCallback(
+    (e: React.FocusEvent<HTMLElement>) => {
+      const next = e.relatedTarget as Node | null;
+      if (next && gridRef.current?.contains(next)) return;
+      flushSave();
+    },
+    [flushSave]
+  );
+
+  // Warn on tab close/reload while anything is still unwritten.
+  useEffect(() => {
+    if (!isDirty && !saveMutation.isPending) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty, saveMutation.isPending]);
+
+  // Rows carrying data but no date are dropped by the save (the bulk payload
+  // filters on date), so they must be called out rather than silently lost.
+  const missingDateCount = useMemo(
+    () => rows.filter(rowNeedsDate).length,
+    [rows]
+  );
+
   const shiftPeriod = (direction: number) => {
+    flushSave();
     setPeriodStart((prev) => prev ? addDays(prev, direction * 14) : prev);
     setDateEditValues({});
     setExpandedMemoIdx(null);
@@ -519,7 +645,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
         return next;
       });
       setConfirmedDates((prev) => ({ ...prev, [rowIdx]: true }));
-      setIsDirty(true);
+      markDirty();
       if (moveFocus) {
         setTimeout(() => {
           const input = gridRef.current?.querySelector(
@@ -529,7 +655,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
         }, 50);
       }
     }
-  }, [dateEditValues, resolveDateInput]);
+  }, [dateEditValues, resolveDateInput, markDirty]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>, rowIdx: number, colKey: string) => {
@@ -608,7 +734,10 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                       : { borderColor: color, color, backgroundColor: "transparent" }
                   }
                   variant={isSelected ? "default" : "outline"}
-                  onClick={() => setStoreId(s.id)}
+                  onClick={() => {
+                    flushSave();
+                    setStoreId(s.id);
+                  }}
                   data-testid={`button-cashsales-store-${s.name.toLowerCase()}`}
                 >
                   {s.name}
@@ -644,7 +773,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
         </div>
 
         <Button
-          onClick={() => saveMutation.mutate()}
+          onClick={() => saveMutation.mutate({})}
           disabled={!storeId || saveMutation.isPending || validRowCount === 0}
           className="gap-1"
           data-testid="button-save-cashsales"
@@ -655,10 +784,20 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
 
         {storeId && validRowCount > 0 && (
           <div className="text-xs flex items-center gap-2" data-testid="text-save-status">
-            {isDirty ? (
+            {saveMutation.isPending ? (
+              <span className="inline-flex items-center gap-1 text-muted-foreground font-medium">
+                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-pulse" />
+                Saving...
+              </span>
+            ) : isDirty ? (
               <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium">
                 <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                Unsaved changes
+                Saving automatically...
+              </span>
+            ) : saveState === "saved" ? (
+              <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 font-medium">
+                <Check className="h-3 w-3" />
+                Saved
               </span>
             ) : pendingCount > 0 ? (
               <span className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 font-medium">
@@ -671,6 +810,15 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                 All {confirmedCount} entries confirmed
               </span>
             )}
+          </div>
+        )}
+
+        {missingDateCount > 0 && (
+          <div
+            className="text-xs font-medium text-red-600 dark:text-red-400"
+            data-testid="text-missing-date-warning"
+          >
+            {missingDateCount} row(s) need a date before they can be saved
           </div>
         )}
       </div>
@@ -723,6 +871,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                 const diff = row.differenceAmount as number;
                 const hasDiff = Math.abs(diff) >= 0.01;
                 const isAutoFilled = row.date ? autoFilledDates.has(row.date) : false;
+                const needsDate = rowNeedsDate(row);
 
                 return (
                   <tr
@@ -739,8 +888,11 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                       <Input
                         type="text"
                         inputMode="numeric"
-                        className="h-6 text-xs px-1 tabular-nums font-mono text-center"
+                        className={`h-6 text-xs px-1 tabular-nums font-mono text-center ${
+                          needsDate ? "border-red-500 bg-red-50 dark:bg-red-950/30" : ""
+                        }`}
                         placeholder=""
+                        title={needsDate ? "This row has data but no date - it will not be saved until a date is entered." : undefined}
                         value={dateEditValues[idx] !== undefined ? dateEditValues[idx] : (confirmedDates[idx] ? `${dayLabel} ${formatDateDisplay(row.date)}` : "")}
                         onChange={(e) => {
                           setDateEditValues((prev) => ({ ...prev, [idx]: e.target.value }));
@@ -816,6 +968,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                         value={row.envelopeAmount || ""}
                         onChange={(e) => updateRow(idx, "envelopeAmount", parseFloat(e.target.value) || 0)}
                         onFocus={(e) => e.target.select()}
+                        onBlur={handleCellBlur}
                         onKeyDown={(e) => handleKeyDown(e, idx, "envelopeAmount")}
                         data-row={idx}
                         data-col="envelopeAmount"
@@ -832,6 +985,7 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                           value={(row[denom.key] as number) || ""}
                           onChange={(e) => updateRow(idx, denom.key, parseInt(e.target.value) || 0)}
                           onFocus={(e) => e.target.select()}
+                          onBlur={handleCellBlur}
                           onKeyDown={(e) => handleKeyDown(e, idx, denom.key)}
                           data-row={idx}
                           data-col={denom.key}
@@ -864,9 +1018,12 @@ export function CashSalesEntry({ stores }: { stores: Store[] }) {
                                 next[idx] = { ...next[idx], memo: e.target.value };
                                 return next;
                               });
-                              setIsDirty(true);
+                              markDirty();
                             }}
-                            onBlur={() => setExpandedMemoIdx(null)}
+                            onBlur={(e) => {
+                              setExpandedMemoIdx(null);
+                              handleCellBlur(e);
+                            }}
                             onKeyDown={(e) => {
                               if (e.key === "Escape") {
                                 setExpandedMemoIdx(null);

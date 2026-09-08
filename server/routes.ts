@@ -3013,6 +3013,7 @@ export async function registerRoutes(
           coin010Count: row.coin010Count ?? 0,
           coin005Count: row.coin005Count ?? 0,
           differenceAmount: row.differenceAmount ?? 0,
+          memo: row.memo ?? null,
         });
         savedRows.push(detail);
       }

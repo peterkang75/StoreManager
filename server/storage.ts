@@ -1125,6 +1125,7 @@ export class MemStorage implements IStorage {
       coin010Count: insertDetail.coin010Count ?? 0,
       coin005Count: insertDetail.coin005Count ?? 0,
       differenceAmount: insertDetail.differenceAmount ?? 0,
+      memo: insertDetail.memo ?? null,
       createdAt: now,
       updatedAt: now,
     };
