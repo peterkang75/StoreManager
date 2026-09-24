@@ -896,6 +896,16 @@ export function AdminPayrolls() {
     enabled: bankTrackerOpen,
   });
 
+  // Rows currently on screen in the tracker. The TOTAL line and the all-done
+  // indicator must read from this same list as the rows themselves — summing
+  // every store while showing only one store’s rows makes the total look wrong.
+  const visibleBankDeposits = useMemo(() => {
+    const all = bankDeposits ?? [];
+    return trackerStoreFilter
+      ? all.filter((e) => e.storeName === trackerStoreFilter)
+      : all;
+  }, [bankDeposits, trackerStoreFilter]);
+
   const bankTransferMutation = useMutation({
     mutationFn: async ({
       payrollId,
@@ -2198,10 +2208,7 @@ export function AdminPayrolls() {
                   <span className="text-right">Bank Deposit</span>
                   <span className="text-center">Done</span>
                 </div>
-                {(trackerStoreFilter
-                  ? bankDeposits.filter((e) => e.storeName === trackerStoreFilter)
-                  : bankDeposits
-                ).map((entry) => {
+                {visibleBankDeposits.map((entry) => {
                   const isPending =
                     bankTransferMutation.isPending ||
                     settlementTransferMutation.isPending;
@@ -2338,16 +2345,16 @@ export function AdminPayrolls() {
                 })}
                 <div className="grid grid-cols-[1fr_1fr_110px_64px] gap-0 px-4 py-2.5 bg-muted/50 items-center border-t">
                   <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground col-span-2">
-                    Total
+                    {trackerStoreFilter ? `Total · ${trackerStoreFilter}` : "Total"}
                   </span>
                   <span
                     className="font-mono text-right font-semibold text-sm"
                     data-testid="text-bank-total"
                   >
-                    {`$${(bankDeposits || []).reduce((s, e) => s + e.bankDepositAmount, 0).toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    {`$${visibleBankDeposits.reduce((s, e) => s + e.bankDepositAmount, 0).toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   </span>
                   <div className="flex items-center justify-center">
-                    {(bankDeposits || []).every((e) => e.isBankTransferDone) ? (
+                    {visibleBankDeposits.length > 0 && visibleBankDeposits.every((e) => e.isBankTransferDone) ? (
                       <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
                     ) : (
                       <Circle className="h-4 w-4 text-muted-foreground" />
