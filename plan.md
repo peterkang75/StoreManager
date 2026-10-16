@@ -305,7 +305,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 **덩어리 1 — 원본 보관 · 품목 · 교차검증**
 - [x] 1-1a 중복 번호일 때 원본 인보이스 PDF를 버리지 않고 기존 기록에 붙임 (2026-10-16). `server/originalInvoice.ts` `attachOriginalInvoicePdf` — 기존 기록에 서류가 없거나 명세서뿐일 때만 붙이고, 명세서는 `_statementPdfBase64`로 보존, 금액 불일치는 notes에 기록(amount/status는 안 바꿈). 호출: webhook / triage(known supplier) / triage(name match) / reparse-pdf 4곳. 명세서 판별 `looksLikeStatement`는 저장 PDF 848장으로 검증(8월 조사와 일치, `pdftotext -layout`과 운영 `extractPdfText` 결과 차이 0건). 로컬 DB 자체검사 4케이스 통과.
 - [x] 1-1c 인보이스 번호 비교를 영문·숫자 키로 통일 (2026-10-16). 발견: pdf-parse가 Pearl의 `INV-72329`를 `INV72329`(하이픈이 사설영역 글리프 U+E088)로, Xero PDF는 `I​NV-…`로 읽어 정확 일치 비교가 깨짐 → 이미 지급된 인보이스가 미지급 새 건으로 재생성될 위험. `invoiceKey()`(originalInvoice.ts)를 routes.ts 중복검사 전 지점(webhook/body-parse/triage×2/reparse×2/bulk-reclassify/approve-group)에 적용. 텍스트 전체에서는 zero-width 문자만 제거(`stripInvisible`), 사설영역 문자는 번호에서만 제거(`cleanInvoiceNumber`) — 본문에선 마이너스 기호일 수 있음. 검증: 거절함 Pearl PDF 113장 키 일치 113/113, 운영 장부 키 충돌 0건.
-- [ ] 1-1b Pearl `daniel@pearlseafoods.com.au`를 contactEmails에 추가 — 2026-10-16 사장님 승인. 1-1a/1-1c는 a3c2b1d로 운영 배포 완료(SUCCESS). 직접 SQL UPDATE는 안전장치에 막혀 사장님이 /admin/suppliers → Pearl Seafoods → Whitelisted Emails에서 직접 추가하기로 함. 추가 후 읽기 조회로 확인.
+- [x] 1-1b Pearl `daniel@pearlseafoods.com.au` 등록 (2026-10-16, 사장님이 /admin/suppliers에서 직접 저장 — 확인: contact_emails = {accounts@, daniel@}). accounts@ = 명세서, daniel@ = 개별 인보이스. 1-1a/1-1c는 a3c2b1d로 배포. 메일은 Google Group 경유("via Accounts")지만 실제 발신자(reply-to)로 인식됨.
 - [ ] 1-2 거절함의 Pearl 인보이스 PDF 회수 → 같은 번호 기록에 부착 (111개 번호 중 109개는 이미 장부에 있음, 2개 신규)
 - [ ] 1-3 명세서 별도 보관(명세서 줄: 번호·날짜·금액)
 - [ ] 1-4 기록별 원본 상태 표시(원본 있음 / 명세서로만 확인 / 근거 없음) — 5년 보관 의무
