@@ -11,7 +11,7 @@ import { NSW_SCHOOL_HOLIDAYS } from "../shared/nswSchoolHolidays";
 import { storeColorFor } from "../shared/storeColors";
 import { extractPdfText, parseInvoiceWithAI, parseUploadedFile, parseInvoiceFromUnknownSender, triageEmail, summarizeTaskFromEmail, translateSummarizeEmail, classifyDocumentForAP } from "./invoiceParser";
 import { parseApDocument, type ApParseResult, type ApStoreProfile } from "./apDocumentParser";
-import { attachOriginalInvoicePdf, invoiceKey } from "./originalInvoice";
+import { attachOriginalInvoicePdf, invoiceKey, recoverRejectedOriginals } from "./originalInvoice";
 import {
   insertStoreSchema,
   insertCandidateSchema,
@@ -4237,6 +4237,23 @@ export async function registerRoutes(
     } catch (err) {
       console.error("Error promoting rejected email:", err);
       res.status(500).json({ error: "Failed to promote rejected email" });
+    }
+  });
+
+  // Recover invoice originals that were rejected because the sender wasn't
+  // whitelisted yet (e.g. Pearl's daniel@ address, May–Oct 2026). Only emails
+  // from senders that NOW match a supplier, with an invoice-like subject and a
+  // TAX INVOICE PDF. Number must appear in both subject and PDF. Existing record
+  // → attach original (amount/status untouched); no record → new PENDING invoice.
+  // apply=false is a read-only preview; the UI shows it and asks to confirm.
+  // Rejected inbox → recover originals (see recoverRejectedOriginals). The UI
+  // always calls apply=false first, shows the numbers, then apply=true on confirm.
+  app.post("/api/invoices/recover-rejected-originals", async (req: Request, res: Response) => {
+    try {
+      res.json(await recoverRejectedOriginals(req.body?.apply === true, resolveStoreIdForInvoice));
+    } catch (err: any) {
+      console.error("Error recovering rejected originals:", err);
+      res.status(500).json({ error: err?.message ?? "Failed to recover rejected originals" });
     }
   });
 

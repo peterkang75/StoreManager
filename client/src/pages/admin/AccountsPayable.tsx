@@ -2867,6 +2867,7 @@ export function AdminAccountsPayable() {
             </div>
           ) : (
             <div className="space-y-3">
+              <RecoverOriginalsPanel />
               <div className="rounded-md border border-amber-300/50 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-800 dark:text-amber-200">
                 <p className="font-semibold">What is this?</p>
                 <p className="mt-0.5 opacity-90">
@@ -3528,5 +3529,97 @@ export function AdminAccountsPayable() {
         }}
       />
     </AdminLayout>
+  );
+}
+
+type RecoverRow = { rejectedId: string; supplier: string; number?: string; action: string; amount?: number | null; status?: string; store?: string | null; dueDate?: string | null };
+type RecoverResult = { apply: boolean; rows: RecoverRow[]; summary: Record<string, { count: number; amount: number }> };
+
+// Rejected inbox → recover invoice originals from senders that are whitelisted now.
+// Always previews first (read-only); nothing is written until the owner confirms.
+function RecoverOriginalsPanel() {
+  const { toast } = useToast();
+  const [preview, setPreview] = useState<RecoverResult | null>(null);
+  const [busy, setBusy] = useState<"preview" | "apply" | null>(null);
+  const run = async (apply: boolean): Promise<RecoverResult> => {
+    const res = await apiRequest("POST", "/api/invoices/recover-rejected-originals", { apply });
+    return res.json();
+  };
+  const s = preview?.summary ?? {};
+  const attach = s.attach ?? { count: 0, amount: 0 };
+  const create = s.create ?? { count: 0, amount: 0 };
+  const skipped = Object.entries(s).filter(([k]) => k !== "attach" && k !== "create");
+  const creates = preview?.rows.filter(r => r.action === "create") ?? [];
+  const attachNoAmount = preview?.rows.filter(r => r.action === "attach" && !(r as any).amountInPdf).length ?? 0;
+
+  return (
+    <div className="rounded-md border border-blue-300/50 bg-blue-50 dark:bg-blue-950/20 p-3 flex items-center justify-between gap-3">
+      <div className="text-xs text-blue-800 dark:text-blue-200 min-w-0">
+        <strong>Recover originals</strong> — invoices that landed here before their sender was added to a supplier.
+        Attaches the original PDF to the matching record (amount and status unchanged), and adds invoices not yet in the ledger as To Pay. You see the numbers first.
+      </div>
+      <Button
+        size="sm"
+        variant="outline"
+        className="gap-1.5 shrink-0"
+        disabled={busy !== null}
+        onClick={async () => {
+          setBusy("preview");
+          try { setPreview(await run(false)); }
+          catch (e: any) { toast({ title: "Preview failed", description: e?.message ?? "Try again.", variant: "destructive" }); }
+          finally { setBusy(null); }
+        }}
+        data-testid="button-recover-originals"
+      >
+        {busy === "preview" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+        Recover originals…
+      </Button>
+
+      <AlertDialog open={preview !== null} onOpenChange={(o) => { if (!o && busy === null) setPreview(null); }}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Recover invoice originals</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p><strong>{attach.count}</strong> existing records get their original PDF ({fmtAUD(attach.amount)}). Amount and paid status stay as they are.</p>
+                {attachNoAmount > 0 && <p className="text-amber-700 dark:text-amber-300">{attachNoAmount} of these: recorded amount not found on the PDF — check after.</p>}
+                <p><strong>{create.count}</strong> new invoices added to To Pay ({fmtAUD(create.amount)}):</p>
+                {creates.length > 0 && (
+                  <ul className="list-disc list-inside text-xs">
+                    {creates.map(r => <li key={r.rejectedId}>{r.supplier} · {r.number} · {fmtAUD(r.amount ?? 0)}{r.dueDate ? ` · due ${fmt(r.dueDate)}` : ""}{r.store ? ` · ${r.store}` : " · store not set"}</li>)}
+                  </ul>
+                )}
+                {skipped.length > 0 && (
+                  <p className="text-xs text-muted-foreground">Skipped: {skipped.map(([k, v]) => `${k.replace(/^skip_/, "").replace(/_/g, " ")} ${v.count}`).join(" · ")}</p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy !== null}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy !== null || attach.count + create.count === 0}
+              onClick={async (e) => {
+                e.preventDefault();
+                setBusy("apply");
+                try {
+                  const done = await run(true);
+                  queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+                  queryClient.invalidateQueries({ queryKey: ["/api/rejected-emails", "unreviewed"] });
+                  toast({ title: "Originals recovered", description: `${done.summary.attach?.count ?? 0} attached · ${done.summary.create?.count ?? 0} added to To Pay.` });
+                  setPreview(null);
+                } catch (err: any) {
+                  toast({ title: "Recovery failed", description: err?.message ?? "Try again.", variant: "destructive" });
+                } finally { setBusy(null); }
+              }}
+              data-testid="button-recover-originals-confirm"
+            >
+              {busy === "apply" ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+              Attach {attach.count} · add {create.count}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   );
 }

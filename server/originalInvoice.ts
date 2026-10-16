@@ -1,5 +1,7 @@
 import { storage } from "./storage";
-import { extractPdfText, cleanInvoiceNumber } from "./invoiceParser";
+import { sql } from "drizzle-orm";
+import { db } from "./db";
+import { extractPdfText, cleanInvoiceNumber, parseInvoiceWithAI } from "./invoiceParser";
 import type { SupplierInvoice } from "@shared/schema";
 
 /**
@@ -30,10 +32,7 @@ export async function attachOriginalInvoicePdf(
   const raw = (existing.rawExtractedData ?? {}) as Record<string, any>;
   const current: string | undefined = raw.pdfBase64 || undefined;
   if (current === incoming.pdfBase64) return false;
-  if (current && raw._isStatement !== true) {
-    const currentText = await extractPdfText(Buffer.from(current, "base64"));
-    if (!looksLikeStatement(currentText)) return false; // already holds a real invoice
-  }
+  if (!(await lacksOriginal(existing))) return false;
 
   let notes = existing.notes ?? "";
   if (incoming.amount != null && Math.abs((existing.amount ?? 0) - incoming.amount) > 0.05) {
@@ -55,6 +54,14 @@ export async function attachOriginalInvoicePdf(
   return true;
 }
 
+/** True when the record holds no document, or only a statement (read-only check). */
+export async function lacksOriginal(existing: SupplierInvoice): Promise<boolean> {
+  const raw = (existing.rawExtractedData ?? {}) as Record<string, any>;
+  if (!raw.pdfBase64) return true;
+  if (raw._isStatement === true) return true;
+  return looksLikeStatement(await extractPdfText(Buffer.from(raw.pdfBase64, "base64")));
+}
+
 /**
  * Matching key for invoice numbers. Text extraction differs by tool — pdf-parse
  * reads Pearl's "INV-72329" as "INV72329" — so exact string equality would
@@ -62,4 +69,91 @@ export async function attachOriginalInvoicePdf(
  */
 export function invoiceKey(n: string | null | undefined): string {
   return cleanInvoiceNumber(n ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/**
+ * Recover invoice originals that were rejected because the sender wasn't
+ * whitelisted yet (e.g. Pearl's daniel@ address, May–Oct 2026). Only emails
+ * from senders that NOW match a supplier, with an invoice-like subject and a
+ * TAX INVOICE PDF; the number must appear in both subject and PDF. Existing
+ * record → attach original (amount/status untouched); no record → new PENDING
+ * invoice. apply=false is a read-only preview.
+ */
+export async function recoverRejectedOriginals(
+  apply: boolean,
+  resolveStore: (opts: { parsedStoreCode?: string | null; supplierId?: string | null; storesCache?: Array<{ id: string; name: string }> }) => Promise<string | null>,
+): Promise<{ apply: boolean; rows: any[]; summary: Record<string, { count: number; amount: number }> }> {
+  const supplierList = (await storage.getSuppliers()).filter(s => s.active);
+  const emails = supplierList.flatMap(s => (s.contactEmails ?? []).map(e => e.trim().toLowerCase())).filter(Boolean);
+  if (emails.length === 0) return { apply, rows: [], summary: {} };
+  const result = await db.execute(sql`
+    SELECT id, sender_email, subject, received_at, raw_payload->'attachments' AS attachments
+    FROM rejected_emails
+    WHERE lower(sender_email) IN (${sql.join(emails.map(e => sql`${e}`), sql`, `)})
+      AND raw_payload::text ILIKE '%application/pdf%'
+    ORDER BY received_at DESC`);
+  const storesCache = await storage.getStores();
+  const ledgerBySupplier = new Map<string, SupplierInvoice[]>();
+  const seen = new Set<string>();
+  const rows: any[] = [];
+
+  for (const r of (result as any).rows as any[]) {
+    const supplier = await storage.findSupplierByEmail(r.sender_email);
+    if (!supplier) continue;
+    const subject: string = r.subject ?? "";
+    const base = { rejectedId: r.id, supplier: supplier.name, subject, receivedAt: r.received_at };
+    if (!/invoice/i.test(subject) || /receipt|statement|remittance|credit/i.test(subject)) { rows.push({ ...base, action: "skip_not_invoice" }); continue; }
+    const number = subject.match(/invoice\s*#?\s*:?\s*([A-Za-z0-9][A-Za-z0-9\-\/]*\d)/i)?.[1];
+    if (!number) { rows.push({ ...base, action: "skip_no_number" }); continue; }
+    const key = `${supplier.id}|${invoiceKey(number)}`;
+    if (seen.has(key)) { await (apply ? storage.markRejectedReviewed(r.id, true) : null); rows.push({ ...base, number, action: "duplicate_email" }); continue; }
+    seen.add(key);
+
+    const att = ((r.attachments ?? []) as any[]).find(a => String(a?.content_type ?? "").includes("pdf") && typeof a?.content === "string");
+    if (!att) { rows.push({ ...base, number, action: "skip_no_pdf" }); continue; }
+    const pdfBase64: string = att.content;
+    const text = await extractPdfText(Buffer.from(pdfBase64, "base64"));
+    if (!/TAX INVOICE/i.test(text.slice(0, 1500)) || looksLikeStatement(text)) { rows.push({ ...base, number, action: "skip_not_tax_invoice" }); continue; }
+    const textKeys = new Set((text.match(/[A-Za-z]*[^\sA-Za-z0-9]?\d{3,}/g) ?? []).map(invoiceKey));
+    if (!textKeys.has(invoiceKey(number))) { rows.push({ ...base, number, action: "skip_number_not_in_pdf" }); continue; }
+
+    if (!ledgerBySupplier.has(supplier.id)) ledgerBySupplier.set(supplier.id, await storage.getSupplierInvoices({ supplierId: supplier.id }));
+    const existing = ledgerBySupplier.get(supplier.id)!.find(e => invoiceKey(e.invoiceNumber) === invoiceKey(number));
+
+    if (existing) {
+      const amountInPdf = text.includes(existing.amount.toFixed(2)) || text.includes(existing.amount.toLocaleString("en-AU", { minimumFractionDigits: 2 }));
+      if (!(await lacksOriginal(existing))) { rows.push({ ...base, number, action: "skip_has_original", amount: existing.amount, status: existing.status }); continue; }
+      if (apply) {
+        await attachOriginalInvoicePdf(existing, { pdfBase64, text, source: `rejected-recovery:${r.id}` });
+        await storage.markRejectedReviewed(r.id, true);
+      }
+      rows.push({ ...base, number, action: "attach", amount: existing.amount, status: existing.status, amountInPdf });
+      continue;
+    }
+
+    if (supplier.isAutoPay) { rows.push({ ...base, number, action: "skip_autopay" }); continue; }
+    const parsed = (await parseInvoiceWithAI(text, supplier.name, subject))?.find(p => invoiceKey(p.invoiceNumber) === invoiceKey(number));
+    const amount = parsed?.totalAmount ?? 0;
+    if (!parsed || !(amount > 0) || !text.includes(amount.toFixed(2))) { rows.push({ ...base, number, action: "skip_parse_failed", amount: amount || null }); continue; }
+    const storeId = await resolveStore({ parsedStoreCode: parsed.storeCode, supplierId: supplier.id, storesCache });
+    if (apply) {
+      await storage.createSupplierInvoice({
+        supplierId: supplier.id, storeId, invoiceNumber: number,
+        invoiceDate: parsed.issueDate || new Date(r.received_at).toISOString().slice(0, 10),
+        dueDate: parsed.dueDate ?? undefined, amount, status: "PENDING",
+        rawExtractedData: { pdfBase64, senderEmail: r.sender_email, subject, _isStatement: false, _originalSource: `rejected-recovery:${r.id}` },
+        notes: `Recovered from Rejected inbox (sender was not whitelisted when it arrived).\nFrom: ${r.sender_email}\nSubject: ${subject}`,
+      });
+      await storage.markRejectedReviewed(r.id, true);
+    }
+    rows.push({ ...base, number, action: "create", amount, issueDate: parsed.issueDate, dueDate: parsed.dueDate, store: storesCache.find(s => s.id === storeId)?.name ?? null });
+  }
+
+  const summary: Record<string, { count: number; amount: number }> = {};
+  for (const row of rows) {
+    const s = (summary[row.action] ??= { count: 0, amount: 0 });
+    s.count++; s.amount = Math.round((s.amount + (row.amount ?? 0)) * 100) / 100;
+  }
+  console.log(`[recover-rejected-originals] apply=${apply}`, JSON.stringify(summary));
+  return { apply, rows, summary };
 }
