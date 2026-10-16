@@ -3394,16 +3394,26 @@ export async function registerRoutes(
       if (typeof req.query.storeId === "string") filters.storeId = req.query.storeId;
       if (typeof req.query.status === "string" && req.query.status !== "ALL") filters.status = req.query.status;
 
-      const [invoices, allSuppliers] = await Promise.all([
+      const [invoices, allSuppliers, payments] = await Promise.all([
         storage.getSupplierInvoices(filters),
         storage.getSuppliers(),
+        storage.getSupplierPayments(),
       ]);
 
       const supplierMap = new Map(allSuppliers.map(s => [s.id, s]));
+      // Paid History groups by when the payment was recorded. updatedAt moves on
+      // any later edit (e.g. attaching an original PDF), and paymentDate is a UTC
+      // date (a Sydney-morning mark lands on the previous day), so neither is safe.
+      const paidAtByInvoice = new Map<string, Date>();
+      for (const p of payments) {
+        const prev = paidAtByInvoice.get(p.invoiceId);
+        if (!prev || p.createdAt > prev) paidAtByInvoice.set(p.invoiceId, p.createdAt);
+      }
       const enriched = invoices.map(inv => ({
         ...inv,
         supplier: supplierMap.get(inv.supplierId) ?? null,
         docStatus: getDocStatus(inv.id) ?? null,
+        paidAt: paidAtByInvoice.get(inv.id) ?? null,
       }));
 
       // Sort: PENDING first (by dueDate asc), then others

@@ -77,7 +77,9 @@ import { useToast } from "@/hooks/use-toast";
 import type { SupplierInvoice, Supplier, Store, EmailRoutingRule } from "@shared/schema";
 
 type DocStatus = "ORIGINAL" | "STATEMENT_ONLY" | "NONE";
-type EnrichedInvoice = SupplierInvoice & { supplier: Supplier | null; docStatus?: DocStatus | null };
+type EnrichedInvoice = SupplierInvoice & { supplier: Supplier | null; docStatus?: DocStatus | null; paidAt?: string | null };
+// When it was marked paid: the payment record's timestamp; updatedAt only for PAID rows with no payment record.
+const paidMoment = (inv: EnrichedInvoice) => inv.paidAt ?? (inv.updatedAt as unknown as string | null) ?? null;
 
 // ── rawExtractedData shape from webhook ──────────────────────────────────────
 interface ExtractedSupplierInfo {
@@ -1018,23 +1020,23 @@ export function AdminAccountsPayable() {
       storeFiltered
         .filter(inv => inv.status === "PAID")
         .sort((a, b) => {
-          const da = a.updatedAt?.toString() ?? a.invoiceDate ?? "";
-          const db = b.updatedAt?.toString() ?? b.invoiceDate ?? "";
+          const da = paidMoment(a) ?? a.invoiceDate ?? "";
+          const db = paidMoment(b) ?? b.invoiceDate ?? "";
           return db.localeCompare(da);
         }),
     [storeFiltered]
   );
 
   // Group paid invoices by payment date for the collapsible history view.
-  // updatedAt is a UTC timestamp — convert to Sydney-local YYYY-MM-DD so a
+  // paidMoment is a UTC timestamp — convert to Sydney-local YYYY-MM-DD so a
   // payment made at 9am AEST May 15 (UTC May 14 23:00) groups under May 15,
   // not May 14. invoiceDate is a plain YYYY-MM-DD text column with no TZ, so
   // it's used as-is.
   const historyGrouped = useMemo(() => {
     const groups = new Map<string, typeof historyInvoices>();
     for (const inv of historyInvoices) {
-      const payDate = inv.updatedAt
-        ? new Date(inv.updatedAt as unknown as string).toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" })
+      const payDate = paidMoment(inv)
+        ? new Date(paidMoment(inv)!).toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" })
         : (inv.invoiceDate ?? "");
       if (!groups.has(payDate)) groups.set(payDate, []);
       groups.get(payDate)!.push(inv);

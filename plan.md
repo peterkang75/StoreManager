@@ -312,6 +312,8 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
   - [ ] 다음: Green Star·Escalate·Nippon·Campos·Yangzi(Aged Receivables)·Cn Paultry 명세서 규칙
 - [x] 1-4 기록별 원본 상태 표시 (2026-10-16 완료 — 3b183ae 배포, 사장님 화면 확인). 저장하지 않고 계산: `server/docStatus.ts`가 10분마다(+원본 회수/명세서 보관 실행 직후) 백그라운드로 계산해 메모리에 보관, `/api/invoices` 응답에 `docStatus` 추가. ORIGINAL = PDF가 있고 보관된 명세서가 아님(ASIC/BAS 고지는 원본으로 봄) / STATEMENT_ONLY = 명세서 PDF만 붙었거나, 줄 저장된 명세서에 번호가 있음 / NONE = 서류 없음. 운영 계산 2.4초라 화면 열 때마다 계산하지 않음. 화면: To Pay(모바일·데스크톱)·Paid History 번호 옆 배지("Statement only" 주황 / "No document" 빨강, 원본은 표시 없음) + Paid History 상단 요약. 운영 읽기 전용 측정(2026-10-16): 원본 634 · 명세서만 171 · 없음 259. 없음의 대부분: Cn Paultry 206(명세서에서 만든 기록, 명세서 규칙 없음), Escalate 17, Total Equipment 11(본문 링크 — 덩어리 2), Yangzi 7, Newline 6(수동 입력).
   - 알려진 한계: 새 인보이스는 최대 10분간 배지 없음. 다른 공급처 PDF가 잘못 붙은 경우(예: Pearl 기록의 Bakery PDF)도 "원본"으로 보임 → 1-5 금액 검산에서 걸러냄.
+- [x] 버그 수정 (2026-10-16): Paid History가 `updatedAt`으로 지급일을 묶어서, 1-2에서 원본 PDF를 붙인 Pearl PAID 102건이 전부 10/16으로 모임. 수정: `/api/invoices`가 결제 기록 생성 시각(`supplier_payments.created_at`, 최신 1건)을 `paidAt`으로 내려주고, 화면은 그 값을 시드니 날짜로 묶음(결제 기록 없는 PAID만 updatedAt 사용). 운영 검증: 손대지 않은 PAID 757건 중 740건은 기존 화면과 같은 날, 17건은 지급 후 수정으로 이미 밀려 있던 것이 원래 날로 돌아감. `paymentDate`는 쓰지 않음 — 아래 참고.
+- [ ] 발견: 수동 지급 처리(`PATCH /api/invoices/:id/status`)가 `paymentDate`를 UTC 날짜(`toISOString`)로 기록 → 시드니 오전 11시 전 처리분은 전날로 저장됨(141건 확인). 지급일 기준 보고서가 하루씩 밀릴 수 있음. 시드니 날짜로 바꾸고 기존분 보정 여부 결정 필요.
 - [ ] 1-5 규칙 기반 품목 추출(8종 양식, 이중 검산: 품목합=문서합계, 문서합계=장부금액) + 보고 모드 → 승인 → 저장. 공급처는 PDF 내용으로 판별.
 - [ ] 1-6 명세서↔장부↔원본 교차검증 + AP 화면 탭
 
