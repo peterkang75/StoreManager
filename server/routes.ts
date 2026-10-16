@@ -11,6 +11,7 @@ import { NSW_SCHOOL_HOLIDAYS } from "../shared/nswSchoolHolidays";
 import { storeColorFor } from "../shared/storeColors";
 import { extractPdfText, parseInvoiceWithAI, parseUploadedFile, parseInvoiceFromUnknownSender, triageEmail, summarizeTaskFromEmail, translateSummarizeEmail, classifyDocumentForAP } from "./invoiceParser";
 import { parseApDocument, type ApParseResult, type ApStoreProfile } from "./apDocumentParser";
+import { attachOriginalInvoicePdf, invoiceKey } from "./originalInvoice";
 import {
   insertStoreSchema,
   insertCandidateSchema,
@@ -4143,10 +4144,10 @@ export async function registerRoutes(
 
           if (docType === "STATEMENT" && parsedInvoices.length > 1 && inv.supplierId) {
             const existing = await storage.getSupplierInvoices({ supplierId: inv.supplierId });
-            const existingNums = new Set(existing.map(e => e.invoiceNumber));
+            const existingNums = new Set(existing.map(e => invoiceKey(e.invoiceNumber)));
             for (let i = 1; i < parsedInvoices.length; i++) {
               const item = parsedInvoices[i];
-              if (!item.invoiceNumber || existingNums.has(item.invoiceNumber)) continue;
+              if (!item.invoiceNumber || existingNums.has(invoiceKey(item.invoiceNumber))) continue;
               const itemStoreId = await resolveStoreIdForInvoice({
                 parsedStoreCode: item.storeCode,
                 parentStoreId: inv.storeId,
@@ -4420,7 +4421,7 @@ export async function registerRoutes(
         // against ourselves (statement placeholder rows carry the first
         // item's invoice_number).
         const existing = await storage.getSupplierInvoices({ supplierId: targetSupplierId });
-        const existingNums = new Set(existing.filter(e => e.id !== id).map(e => e.invoiceNumber));
+        const existingNums = new Set(existing.filter(e => e.id !== id).map(e => invoiceKey(e.invoiceNumber)));
         const storesCache = await storage.getStores();
         let expanded = 0, skipped = 0;
         let currentRowHandled = false;
@@ -4438,9 +4439,9 @@ export async function registerRoutes(
           // promote-in-place instead of creating a new row (avoids unique
           // collision). If the item is ALSO already in another existing row
           // for this supplier, mark the current row as DELETED (dupe).
-          if (!currentRowHandled && inv.invoiceNumber === item.invoiceNumber) {
+          if (!currentRowHandled && invoiceKey(inv.invoiceNumber) === invoiceKey(item.invoiceNumber)) {
             currentRowHandled = true;
-            if (existingNums.has(item.invoiceNumber)) {
+            if (existingNums.has(invoiceKey(item.invoiceNumber))) {
               await storage.updateSupplierInvoice(id, {
                 status: "DELETED",
                 previousStatus: inv.status,
@@ -4458,14 +4459,14 @@ export async function registerRoutes(
                 notes: "Promoted in place from statement via re-parse.",
                 rawExtractedData: { ...raw, supplier: supplierExtracted, invoices, _aiParsed: true, _parserUsed: parserUsed, _promotedInPlace: true },
               } as any);
-              existingNums.add(item.invoiceNumber);
+              existingNums.add(invoiceKey(item.invoiceNumber));
               expanded++;
             }
             continue;
           }
 
           // Normal expansion for other items
-          if (existingNums.has(item.invoiceNumber)) { skipped++; continue; }
+          if (existingNums.has(invoiceKey(item.invoiceNumber))) { skipped++; continue; }
           try {
             await storage.createSupplierInvoice({
               supplierId: targetSupplierId,
@@ -4477,7 +4478,7 @@ export async function registerRoutes(
               status: "PENDING",
               notes: "Expanded from statement via re-parse.",
             } as any);
-            existingNums.add(item.invoiceNumber);
+            existingNums.add(invoiceKey(item.invoiceNumber));
             expanded++;
           } catch { skipped++; }
         }
@@ -4532,6 +4533,14 @@ export async function registerRoutes(
             previousStatus: inv.status,
             rawExtractedData: { ...raw, supplier: supplierExtracted, invoices, _aiParsed: true, _parserUsed: parserUsed, _duplicateOfExisting: true },
           });
+          const dupSupplierId = (patch.supplierId as string | undefined) ?? inv.supplierId;
+          const dupRow = dupSupplierId
+            ? (await storage.getSupplierInvoices({ supplierId: dupSupplierId })).find(e => e.id !== id && invoiceKey(e.invoiceNumber) === invoiceKey(first.invoiceNumber))
+            : undefined;
+          if (dupRow) {
+            await attachOriginalInvoicePdf(dupRow, { pdfBase64, text: pdfText, amount: first.totalAmount, source: `reparse:${id}` })
+              .catch((e: any) => console.warn(`[reparse-pdf] attach original failed for ${first.invoiceNumber}:`, e?.message ?? e));
+          }
           console.log(`[reparse-pdf] Invoice ${id}: duplicate of existing invoice (${first.invoiceNumber}) — marked DELETED`);
           return res.json({ invoiceCount: 0, duplicateOfExisting: true, invoiceNumber: first.invoiceNumber, supplier: supplierExtracted, parserUsed });
         }
@@ -6686,9 +6695,9 @@ export async function registerRoutes(
               if (first && first.totalAmount > 0 && (first.invoiceNumber || first.dueDate)) {
                 // Dedup against this supplier's existing invoices
                 const existingRows = await storage.getSupplierInvoices({ supplierId: matchedSupplier.id });
-                const existingInvNums = new Set(existingRows.map(r => r.invoiceNumber));
+                const existingInvNums = new Set(existingRows.map(r => invoiceKey(r.invoiceNumber)));
                 const invNum = first.invoiceNumber || `BODY-${Date.now()}`;
-                if (existingInvNums.has(invNum)) {
+                if (existingInvNums.has(invoiceKey(invNum))) {
                   console.log(`[Webhook] Body-parse: ${invNum} already exists for ${matchedSupplier.name} — skipping as dupe`);
                   return res.status(200).json({ received: true, action: "body_parse_duplicate", supplier: matchedSupplier.name, invoiceNumber: invNum });
                 }
@@ -6757,7 +6766,7 @@ export async function registerRoutes(
 
       // Pre-fetch existing invoice numbers for this supplier (dedup across attachments)
       const existingForSupplier = await storage.getSupplierInvoices({ supplierId: matchedSupplier.id });
-      const existingNumbers = new Set(existingForSupplier.map(inv => inv.invoiceNumber));
+      const existingNumbers = new Set(existingForSupplier.map(inv => invoiceKey(inv.invoiceNumber)));
       const isAutoPay = matchedSupplier.isAutoPay ?? false;
       const today = new Date().toISOString().split("T")[0];
 
@@ -6916,8 +6925,13 @@ export async function registerRoutes(
         }
         for (const parsed of parsedItems) {
           if (!parsed.invoiceNumber && !parsed.issueDate && !parsed.totalAmount) continue;
-          if (parsed.invoiceNumber && existingNumbers.has(parsed.invoiceNumber)) {
+          if (parsed.invoiceNumber && existingNumbers.has(invoiceKey(parsed.invoiceNumber))) {
             console.log(`[Webhook] Attachment "${attName}": duplicate invoice ${parsed.invoiceNumber} — skipping`);
+            const dupRow = existingForSupplier.find(e => invoiceKey(e.invoiceNumber) === invoiceKey(parsed.invoiceNumber));
+            if (dupRow && pdfResult && !isStatementAttachment) {
+              await attachOriginalInvoicePdf(dupRow, { pdfBase64: pdfResult.pdfBase64, text: pdfResult.text, amount: parsed.totalAmount, source: `webhook:${senderEmail}` })
+                .catch((e: any) => console.warn(`[Webhook] attach original failed for ${parsed.invoiceNumber}:`, e?.message ?? e));
+            }
             skipped.push(parsed.invoiceNumber);
             continue;
           }
@@ -6990,7 +7004,7 @@ export async function registerRoutes(
             });
           }
           created.push(newInv.id);
-          if (parsed.invoiceNumber) existingNumbers.add(parsed.invoiceNumber);
+          if (parsed.invoiceNumber) existingNumbers.add(invoiceKey(parsed.invoiceNumber));
         }
       }
       // ── End attachment loop ─────────────────────────────────────────────────
@@ -7632,7 +7646,7 @@ export async function registerRoutes(
                       );
                     } else {
                       const existing = await storage.getSupplierInvoices({ supplierId: matchedSupplier.id });
-                      const existingNumbers = new Set(existing.map(inv => inv.invoiceNumber));
+                      const existingNumbers = new Set(existing.map(inv => invoiceKey(inv.invoiceNumber)));
                       const allStores = await storage.getStores();
                       const sushiStore = allStores.find(s => s.name.toLowerCase().includes("sushi"));
                       const sandwichStore = allStores.find(s => s.name.toLowerCase().includes("sandwich"));
@@ -7645,8 +7659,13 @@ export async function registerRoutes(
                       let skippedExisting = 0;
                       for (const parsed of parsedItems) {
                         if (!parsed.invoiceNumber && !parsed.totalAmount) continue;
-                        if (parsed.invoiceNumber && existingNumbers.has(parsed.invoiceNumber)) {
+                        if (parsed.invoiceNumber && existingNumbers.has(invoiceKey(parsed.invoiceNumber))) {
                           skippedExisting++;
+                          const dupRow = existing.find(e => invoiceKey(e.invoiceNumber) === invoiceKey(parsed.invoiceNumber));
+                          if (dupRow && !isStatementDoc) {
+                            await attachOriginalInvoicePdf(dupRow, { pdfBase64: buf.toString("base64"), text: pdfText, amount: parsed.totalAmount, source: `triage:${senderEmail}` })
+                              .catch((e: any) => console.warn(`[TriageRoute/bg] attach original failed for ${parsed.invoiceNumber}:`, e?.message ?? e));
+                          }
                           continue;
                         }
                         const storeId = parsed.storeCode === "SUSHI" ? sushiStore?.id ?? null : parsed.storeCode === "SANDWICH" ? sandwichStore?.id ?? null : null;
@@ -7670,7 +7689,7 @@ export async function registerRoutes(
                               notes: `${sourceNote}\nFrom: ${senderEmail}\nSubject: ${subject}`,
                             });
                           }
-                          if (parsed.invoiceNumber) existingNumbers.add(parsed.invoiceNumber);
+                          if (parsed.invoiceNumber) existingNumbers.add(invoiceKey(parsed.invoiceNumber));
                         } catch (dupErr: any) {
                           if (dupErr?.code === "23505" || dupErr?.message?.includes("unique constraint")) {
                             console.warn(`[TriageRoute/bg] Skipping duplicate invoice ${parsed.invoiceNumber} for supplier ${matchedSupplier.id}`);
@@ -7757,7 +7776,7 @@ export async function registerRoutes(
                       const existingNums = new Set(
                         existingForSupplier
                           .filter(i => i.status !== "DELETED")
-                          .map(i => i.invoiceNumber)
+                          .map(i => invoiceKey(i.invoiceNumber))
                           .filter(Boolean)
                       );
 
@@ -7767,8 +7786,13 @@ export async function registerRoutes(
 
                       for (const parsed of unknownParsed.invoices) {
                         if (!parsed.invoiceNumber && !parsed.totalAmount) continue;
-                        if (parsed.invoiceNumber && existingNums.has(parsed.invoiceNumber)) {
+                        if (parsed.invoiceNumber && existingNums.has(invoiceKey(parsed.invoiceNumber))) {
                           console.log(`[TriageRoute/bg] Already exists (active): ${parsed.invoiceNumber} — skipping`);
+                          const dupRow = existingForSupplier.find(e => e.status !== "DELETED" && invoiceKey(e.invoiceNumber) === invoiceKey(parsed.invoiceNumber));
+                          if (dupRow && !isStatementDoc) {
+                            await attachOriginalInvoicePdf(dupRow, { pdfBase64: buf.toString("base64"), text: pdfText, amount: parsed.totalAmount, source: `triage:${senderEmail}` })
+                              .catch((e: any) => console.warn(`[TriageRoute/bg] attach original failed for ${parsed.invoiceNumber}:`, e?.message ?? e));
+                          }
                           continue;
                         }
 
@@ -7824,7 +7848,7 @@ export async function registerRoutes(
                             notes: baseNotes,
                           });
                         }
-                        if (parsed.invoiceNumber) existingNums.add(parsed.invoiceNumber);
+                        if (parsed.invoiceNumber) existingNums.add(invoiceKey(parsed.invoiceNumber));
                       }
 
                       // Bulk upsert remaining items (phases 1+2 of approve-group pattern):
@@ -8360,7 +8384,7 @@ Rules:
 
       // Build existing invoice number set once, outside any loop
       const existingNumbers = new Set<string | null>(
-        (existingInvRows as any).rows.map((r: any) => r.invoice_number as string | null)
+        (existingInvRows as any).rows.map((r: any) => invoiceKey(r.invoice_number as string | null))
       );
 
       // Fetch ONLY the specific REVIEW invoices the user is approving (by PK — instant).
@@ -8383,7 +8407,7 @@ Rules:
 
         for (const item of lineItems) {
           const invNum = item.invoiceNumber || null;
-          if (invNum && existingNumbers.has(invNum)) continue; // skip pre-existing duplicates
+          if (invNum && existingNumbers.has(invoiceKey(invNum))) continue; // skip pre-existing duplicates
           const storeId = storeIdForCode(item.storeCode ?? "UNKNOWN");
 
           if (!firstDone) {
@@ -8400,7 +8424,7 @@ Rules:
               });
               firstDone = true;
               expandedCount++;
-              if (invNum) existingNumbers.add(invNum);
+              if (invNum) existingNumbers.add(invoiceKey(invNum));
             } catch (dupErr: any) {
               if (dupErr?.code === "23505" || dupErr?.message?.includes("unique constraint")) {
                 // Ghost invoice: a row with (supplierId, invNum) already exists.
@@ -8423,7 +8447,7 @@ Rules:
                 } else {
                   console.warn(`[Review/approve-group] Skipping duplicate (placeholder update) ${invNum}`);
                 }
-                if (invNum) existingNumbers.add(invNum);
+                if (invNum) existingNumbers.add(invoiceKey(invNum));
               } else { throw dupErr; }
             }
           } else {
@@ -8438,7 +8462,7 @@ Rules:
               rawExtractedData: pdfBase64 ? { pdfBase64, senderEmail: raw?.senderEmail, subject: raw?.subject } : undefined,
               notes: baseNotes,
             });
-            if (invNum) existingNumbers.add(invNum); // track within-loop duplicates
+            if (invNum) existingNumbers.add(invoiceKey(invNum)); // track within-loop duplicates
           }
         }
 

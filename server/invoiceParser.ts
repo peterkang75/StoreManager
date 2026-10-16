@@ -62,6 +62,18 @@ export interface UnknownSenderParsedResult {
   isStatement: boolean;
 }
 
+// Xero PDFs hide zero-width characters inside numbers ("I\u200BNV-72329"), which
+// breaks invoice-number matching and would re-create already-paid invoices.
+export function stripInvisible(s: string): string {
+  return s.replace(/[\u200B-\u200D\u2060\uFEFF\u00AD]/g, "");
+}
+
+// pdf-parse also maps some glyphs (Pearl's hyphen) to private-use codepoints.
+// Stripped from invoice numbers only — in body text the same glyph may be a minus sign.
+export function cleanInvoiceNumber(s: string): string {
+  return stripInvisible(s).replace(/[\uE000-\uF8FF]/g, "").trim();
+}
+
 /**
  * Extract raw text from a PDF buffer using pdf-parse v2 (pure JS, no system deps).
  * pdf-parse v2 uses a class-based API: new PDFParse({ data: buffer }).getText()
@@ -80,7 +92,7 @@ export async function extractPdfText(buffer: Buffer): Promise<string> {
     const parser = new PDFParse({ data: buffer });
     const result = await parser.getText();
     const text = result.text ?? "";
-    if (text.trim().length > 20) return text;
+    if (text.trim().length > 20) return stripInvisible(text);
     console.warn(`[invoiceParser] pdf-parse returned ${text.length} chars — trying pdftotext fallback`);
   } catch (err) {
     console.warn("[invoiceParser] pdf-parse threw — trying pdftotext fallback:", err);
@@ -102,7 +114,7 @@ export async function extractPdfText(buffer: Buffer): Promise<string> {
         maxBuffer: 20 * 1024 * 1024,
       });
       if (result.status === 0 && typeof result.stdout === "string" && result.stdout.trim()) {
-        return result.stdout;
+        return stripInvisible(result.stdout);
       }
       console.warn(`[invoiceParser] pdftotext failed status=${result.status} stderr=${(result.stderr ?? "").toString().slice(0, 400)}`);
     } finally {
@@ -284,7 +296,7 @@ If a field cannot be found, use null for optional fields or an empty string for 
     const results: ParsedInvoice[] = items
       .filter(item => item && (item.invoiceNumber || item.issueDate || item.totalAmount))
       .map(item => ({
-        invoiceNumber: String(item.invoiceNumber ?? ""),
+        invoiceNumber: cleanInvoiceNumber(String(item.invoiceNumber ?? "")),
         issueDate: String(item.issueDate ?? ""),
         dueDate: item.dueDate ? String(item.dueDate) : null,
         totalAmount: Number(item.totalAmount ?? 0),
@@ -421,7 +433,7 @@ export async function parseUploadedFile(
       .filter(item => item && (item.invoiceNumber || item.amount))
       .map(item => ({
         supplierName: String(item.supplierName ?? ""),
-        invoiceNumber: String(item.invoiceNumber ?? ""),
+        invoiceNumber: cleanInvoiceNumber(String(item.invoiceNumber ?? "")),
         invoiceDate: item.invoiceDate ? String(item.invoiceDate) : "",
         dueDate: item.dueDate ? String(item.dueDate) : null,
         amount: Number(item.amount ?? 0),
@@ -736,7 +748,7 @@ export async function parseInvoiceFromUnknownSender(
     const invoices: UnknownSenderInvoiceItem[] = invoicesRaw
       .filter((item: any) => item && (item.invoiceNumber || item.totalAmount))
       .map((item: any) => ({
-        invoiceNumber: String(item.invoiceNumber ?? ""),
+        invoiceNumber: cleanInvoiceNumber(String(item.invoiceNumber ?? "")),
         issueDate: item.issueDate ? String(item.issueDate) : new Date().toISOString().split("T")[0],
         dueDate: item.dueDate ? String(item.dueDate) : null,
         totalAmount: Number(item.totalAmount ?? 0),

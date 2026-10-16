@@ -299,6 +299,25 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - [ ] Weekly and monthly trend charts per store.
 - [ ] Reuses existing `/api/dashboard/summary` (with the `periodStart > endDate` fix from §3.6) — extend with COGS aggregation.
 
+#### 6.2.2 인보이스 파싱 완성 — 원본 보관 · 품목 추출 · 명세서 교차검증 (2026-10-16 착수)
+> 목적: 공급처별 품목 리스트 → 가격조회 → 주문. 진단(2026-10-16, 운영 DB): `invoice_line_items` 0건(AP v2 파서는 `AP_PARSER`/`ANTHROPIC_API_KEY` 미설정으로 한 번도 안 돌았음). Pearl 개별 인보이스 메일 113통(5월~)이 `daniel@pearlseafoods.com.au` 미등록으로 전부 `rejected_emails`에 쌓임(등록 주소는 `accounts@`). Green Star는 정상(명세서 14건 전부 장부·원본 PDF 있음). 근거 문서: `docs/superpowers/specs/2026-08-06-invoice-line-item-extraction-findings.md`.
+
+**덩어리 1 — 원본 보관 · 품목 · 교차검증**
+- [x] 1-1a 중복 번호일 때 원본 인보이스 PDF를 버리지 않고 기존 기록에 붙임 (2026-10-16). `server/originalInvoice.ts` `attachOriginalInvoicePdf` — 기존 기록에 서류가 없거나 명세서뿐일 때만 붙이고, 명세서는 `_statementPdfBase64`로 보존, 금액 불일치는 notes에 기록(amount/status는 안 바꿈). 호출: webhook / triage(known supplier) / triage(name match) / reparse-pdf 4곳. 명세서 판별 `looksLikeStatement`는 저장 PDF 848장으로 검증(8월 조사와 일치, `pdftotext -layout`과 운영 `extractPdfText` 결과 차이 0건). 로컬 DB 자체검사 4케이스 통과.
+- [x] 1-1c 인보이스 번호 비교를 영문·숫자 키로 통일 (2026-10-16). 발견: pdf-parse가 Pearl의 `INV-72329`를 `INV72329`(하이픈이 사설영역 글리프 U+E088)로, Xero PDF는 `I​NV-…`로 읽어 정확 일치 비교가 깨짐 → 이미 지급된 인보이스가 미지급 새 건으로 재생성될 위험. `invoiceKey()`(originalInvoice.ts)를 routes.ts 중복검사 전 지점(webhook/body-parse/triage×2/reparse×2/bulk-reclassify/approve-group)에 적용. 텍스트 전체에서는 zero-width 문자만 제거(`stripInvisible`), 사설영역 문자는 번호에서만 제거(`cleanInvoiceNumber`) — 본문에선 마이너스 기호일 수 있음. 검증: 거절함 Pearl PDF 113장 키 일치 113/113, 운영 장부 키 충돌 0건.
+- [ ] 1-1b Pearl `daniel@pearlseafoods.com.au`를 contactEmails에 추가 (운영 데이터 변경 — 승인 대기)
+- [ ] 1-2 거절함의 Pearl 인보이스 PDF 회수 → 같은 번호 기록에 부착 (111개 번호 중 109개는 이미 장부에 있음, 2개 신규)
+- [ ] 1-3 명세서 별도 보관(명세서 줄: 번호·날짜·금액)
+- [ ] 1-4 기록별 원본 상태 표시(원본 있음 / 명세서로만 확인 / 근거 없음) — 5년 보관 의무
+- [ ] 1-5 규칙 기반 품목 추출(8종 양식, 이중 검산: 품목합=문서합계, 문서합계=장부금액) + 보고 모드 → 승인 → 저장. 공급처는 PDF 내용으로 판별.
+- [ ] 1-6 명세서↔장부↔원본 교차검증 + AP 화면 탭
+
+**덩어리 2 — 미인식 공급처**
+- [ ] Total Equipment: 본문 링크 PDF 다운로드(등록 공급처만), 파일명 `eatem`=Sandwich / `olitin`=Sushi로 가게 지정, 지난 10건 소급. 10건 $4,800 PENDING 실제 지급 여부 사장님 확인 필요.
+- [ ] NumberKeepers 가게 미지정 3건
+- [ ] 등록 공급처 도메인에서 온 메일이 거절되면 경보
+- [ ] 확인 필요: Melrina Sydney(명세서 26통, 미등록), Foodlink Payment Receipt 39통(PDF)
+
 ---
 
 ### 6.3 Deferred / Future Backlog 📋
