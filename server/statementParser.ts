@@ -99,7 +99,8 @@ export function parseXeroStatement(text: string): ParsedStatement | null {
     if (sum !== cents(closingBalance)) return null;
   }
 
-  const sd = text.match(/(?:As At|Statement Date|To Date)[\s\S]{0,120}?(\d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* (?:\d{4}|\d{2}))/i);
+  // the date sits far to the right of its label in layout text, so collapse runs of spaces first
+  const sd = text.replace(/\s+/g, " ").match(/(?:As At|Statement Date|To Date)[\s\S]{0,120}?(\d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* (?:\d{4}|\d{2}))/i);
   return {
     family: activity ? "xero-activity" : "xero-outstanding",
     statementDate: sd ? toIso(sd[1].match(DATE_RE)!) : null,

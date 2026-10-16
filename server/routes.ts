@@ -15,6 +15,8 @@ import { attachOriginalInvoicePdf, invoiceKey, recoverRejectedOriginals } from "
 import { keepStatement, backfillStatements } from "./statementStore";
 import { getDocStatus, refreshDocStatus, startDocStatusRefresh } from "./docStatus";
 import { sweepLineItems, startLineItemSweep } from "./lineItemStore";
+import { reconcileStatements, fillMissingStatementDates } from "./statementRecon";
+import { resolveStoreFromAliases } from "./storeAliases";
 import {
   insertStoreSchema,
   insertCandidateSchema,
@@ -3388,6 +3390,7 @@ export async function registerRoutes(
   // ── AP: Invoices with enriched supplier data ─────────────────────────────────
   startDocStatusRefresh();
   startLineItemSweep();
+  fillMissingStatementDates().catch(err => console.warn("[statementRecon] date fill failed:", err?.message ?? err));
 
   app.get("/api/invoices", async (req: Request, res: Response) => {
     try {
@@ -4298,6 +4301,31 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("Error extracting line items:", err);
       res.status(500).json({ error: err?.message ?? "Failed to extract line items" });
+    }
+  });
+
+  // PLAN 1-6: statement ↔ ledger cross-check (read-only)
+  app.get("/api/statements/reconciliation", async (_req: Request, res: Response) => {
+    try {
+      res.json(await reconcileStatements());
+    } catch (err: any) {
+      console.error("Error reconciling statements:", err);
+      res.status(500).json({ error: err?.message ?? "Failed to reconcile statements" });
+    }
+  });
+
+  app.get("/api/statements/:id/pdf", async (req: Request, res: Response) => {
+    try {
+      const r = ((await db.execute(sql`SELECT pdf_base64 FROM supplier_statements WHERE id = ${req.params.id}`)) as any).rows[0];
+      if (!r) return res.status(404).json({ error: "Statement not found" });
+      const buf = Buffer.from(r.pdf_base64, "base64");
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="statement-${req.params.id}.pdf"`);
+      res.setHeader("Content-Length", buf.length);
+      return res.send(buf);
+    } catch (err) {
+      console.error("Error serving statement PDF:", err);
+      return res.status(500).json({ error: "Failed to serve PDF" });
     }
   });
 
@@ -6621,20 +6649,7 @@ export async function registerRoutes(
       // an alias is collapsed before matching so "7092 888 010" still hits
       // "7092 888  010" or "7092888010" in the source text.
       function resolveStoreFromBodyAliases(haystack: string | null | undefined): string | null {
-        if (!haystack) return null;
-        const hayLow = haystack.toLowerCase();
-        const hayCompact = hayLow.replace(/\s+/g, "");
-        for (const store of allStores) {
-          const aliases = ((store as any).bodyAliases as string[] | null | undefined) ?? [];
-          for (const alias of aliases) {
-            const a = (alias ?? "").trim().toLowerCase();
-            if (a.length < 3) continue;
-            if (hayLow.includes(a)) return store.id;
-            const aCompact = a.replace(/\s+/g, "");
-            if (aCompact.length >= 4 && hayCompact.includes(aCompact)) return store.id;
-          }
-        }
-        return null;
+        return resolveStoreFromAliases(haystack, allStores as any);
       }
 
       // ══════════════════════════════════════════════════════════════════════════

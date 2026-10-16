@@ -868,7 +868,7 @@ function ReassignSupplierDialog({ invoice, onClose, onSuccess }: ReassignSupplie
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-type TabKey = "topay" | "review" | "history" | "cashexpense" | "rejected" | "emailrules" | "quarantine" | "trash";
+type TabKey = "topay" | "review" | "history" | "statements" | "cashexpense" | "rejected" | "emailrules" | "quarantine" | "trash";
 
 export function AdminAccountsPayable() {
   const { toast } = useToast();
@@ -1478,6 +1478,11 @@ export function AdminAccountsPayable() {
       label: "Paid History",
       badge: historyInvoices.length > 0 ? historyInvoices.length : undefined,
       badgeColor: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400",
+    },
+    {
+      key: "statements",
+      label: "Statements",
+      badgeColor: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-400",
     },
     {
       key: "cashexpense",
@@ -2577,8 +2582,7 @@ export function AdminAccountsPayable() {
 
         {/* ── PAID HISTORY ── */}
         {activeTab === "history" && <DocStatusSummary invoices={allInvoices} />}
-        {activeTab === "history" && <StatementBackfillPanel />}
-        {activeTab === "history" && <LineItemBackfillPanel />}
+        {activeTab === "statements" && <StatementsTab />}
         {activeTab === "history" && (
           isLoading ? (
             <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
@@ -3631,89 +3635,6 @@ function RecoverOriginalsPanel() {
   );
 }
 
-type StatementBackfillResult = {
-  apply: boolean;
-  alreadyStored: number;
-  byStatus: Record<string, number>;
-  bySupplier: Record<string, { statements: number; parsed: number; lines: number }>;
-};
-
-// One-off: copy statement PDFs already attached to invoice records into the
-// statements store. Preview first (read-only); writes only on confirm.
-function StatementBackfillPanel() {
-  const { toast } = useToast();
-  const [preview, setPreview] = useState<StatementBackfillResult | null>(null);
-  const [busy, setBusy] = useState<"preview" | "apply" | null>(null);
-  const run = async (apply: boolean): Promise<StatementBackfillResult> =>
-    (await apiRequest("POST", "/api/statements/backfill", { apply })).json();
-  const total = Object.values(preview?.byStatus ?? {}).reduce((a, b) => a + b, 0);
-
-  return (
-    <div className="mb-3 rounded-md border border-blue-300/50 bg-blue-50 dark:bg-blue-950/20 p-3 flex items-center justify-between gap-3">
-      <div className="text-xs text-blue-800 dark:text-blue-200 min-w-0">
-        <strong>Keep statements separately</strong> — copies statement PDFs already attached to invoices into their own store, with the supplier read from the printed ABN.
-        Invoice lines are kept only when they add up to the printed balance. Invoices are not changed.
-      </div>
-      <Button
-        size="sm" variant="outline" className="gap-1.5 shrink-0" disabled={busy !== null}
-        onClick={async () => {
-          setBusy("preview");
-          try { setPreview(await run(false)); }
-          catch (e: any) { toast({ title: "Preview failed", description: e?.message ?? "Try again.", variant: "destructive" }); }
-          finally { setBusy(null); }
-        }}
-        data-testid="button-statement-backfill"
-      >
-        {busy === "preview" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
-        Keep statements…
-      </Button>
-
-      <AlertDialog open={preview !== null} onOpenChange={(o) => { if (!o && busy === null) setPreview(null); }}>
-        <AlertDialogContent className="max-w-lg">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Keep statements separately</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2 text-sm">
-                <p><strong>{total}</strong> statements to keep{preview?.alreadyStored ? ` (${preview.alreadyStored} already kept)` : ""}.</p>
-                <table className="w-full text-xs">
-                  <thead><tr className="text-left text-muted-foreground"><th>Supplier</th><th className="text-right">Statements</th><th className="text-right">Itemised</th><th className="text-right">Lines</th></tr></thead>
-                  <tbody>
-                    {Object.entries(preview?.bySupplier ?? {}).sort((a, b) => b[1].statements - a[1].statements).map(([name, v]) => (
-                      <tr key={name}><td>{name}</td><td className="text-right">{v.statements}</td><td className="text-right">{v.parsed}</td><td className="text-right">{v.lines}</td></tr>
-                    ))}
-                  </tbody>
-                </table>
-                <p className="text-xs text-muted-foreground">Statements not itemised are still kept as PDFs.</p>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy !== null}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={busy !== null || total === 0}
-              onClick={async (e) => {
-                e.preventDefault();
-                setBusy("apply");
-                try {
-                  const done = await run(true);
-                  const kept = Object.values(done.byStatus).reduce((a, b) => a + b, 0);
-                  toast({ title: "Statements kept", description: `${kept} statements stored.` });
-                  setPreview(null);
-                } catch (err: any) {
-                  toast({ title: "Failed", description: err?.message ?? "Try again.", variant: "destructive" });
-                } finally { setBusy(null); }
-              }}
-              data-testid="button-statement-backfill-confirm"
-            >
-              {busy === "apply" ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
-              Keep {total} statements
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
-}
 
 // PLAN 1-4: records without their own invoice document (tax records are kept 5 years).
 // ORIGINAL shows nothing; only the gaps are flagged.
@@ -3741,88 +3662,122 @@ function DocStatusSummary({ invoices }: { invoices: EnrichedInvoice[] }) {
   );
 }
 
-type LineItemBackfillResult = {
-  apply: boolean;
-  byStatus: Record<string, number>;
-  bySupplier: Record<string, { invoices: number; ok: number; lines: number; failed: Record<string, number> }>;
+
+type ReconIssue = {
+  type: "AMOUNT_DIFF" | "MISSING_IN_LEDGER" | "LEDGER_ONLY" | "PAID_BEFORE_STATEMENT" | "STATEMENT_SHOWS_PAID";
+  supplierId: string; invoiceNumber: string; invoiceId: string | null; statementId: string; statementDate: string | null;
+  statementAmount: number | null; ledgerAmount: number | null; ledgerStatus: string | null; paidOn: string | null;
+};
+type ReconSupplier = {
+  supplierId: string; supplierName: string; statements: number; latestStatementId: string; latestStatementDate: string | null;
+  closingBalance: number | null; storeName: string | null; storeUnknown: boolean; ledgerUnpaidAsOf: number | null;
+  invoicesOnStatements: number; matched: number;
 };
 
-// PLAN 1-5: one-off reviewed run; afterwards new invoices are itemised automatically.
-function LineItemBackfillPanel() {
+const RECON_LABEL: Record<ReconIssue["type"], { label: string; hint: string }> = {
+  STATEMENT_SHOWS_PAID: { label: "Supplier shows paid", hint: "The statement records a payment, but Crew still has it unpaid — mark it paid if the money went out." },
+  PAID_BEFORE_STATEMENT: { label: "Paid, still owing", hint: "Marked paid in Crew before the statement date, yet the statement still lists it — check the payment reached the supplier." },
+  MISSING_IN_LEDGER: { label: "Not in Crew", hint: "The supplier billed it and Crew has no record — the invoice may never have arrived." },
+  AMOUNT_DIFF: { label: "Amount differs", hint: "Statement and Crew disagree on the amount — a credit, or an entry error." },
+  LEDGER_ONLY: { label: "Only in Crew", hint: "Recorded in Crew but missing from the supplier's full statement for that period — a duplicate, or the wrong supplier or store." },
+};
+
+// PLAN 1-6: statements ↔ ledger. Read-only: nothing here changes an invoice.
+function StatementsTab() {
   const { toast } = useToast();
-  const [preview, setPreview] = useState<LineItemBackfillResult | null>(null);
-  const [busy, setBusy] = useState<"preview" | "apply" | null>(null);
-  const run = async (apply: boolean): Promise<LineItemBackfillResult> =>
-    (await apiRequest("POST", "/api/invoices/line-items/backfill", { apply })).json();
-  const rows = Object.entries(preview?.bySupplier ?? {}).sort((a, b) => b[1].invoices - a[1].invoices);
-  const ok = rows.reduce((a, [, v]) => a + v.ok, 0);
-  const lines = rows.reduce((a, [, v]) => a + v.lines, 0);
+  const { data, isLoading, error } = useQuery<{ suppliers: ReconSupplier[]; issues: ReconIssue[] }>({
+    queryKey: ["/api/statements/reconciliation"],
+  });
+  const openPdf = async (url: string) => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blobUrl = URL.createObjectURL(await res.blob());
+      window.open(blobUrl, "_blank");
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    } catch (e: any) {
+      toast({ title: "Couldn't open PDF", description: e?.message ?? "Network error", variant: "destructive" });
+    }
+  };
+  if (isLoading) return <div className="flex items-center justify-center h-48 text-muted-foreground gap-2"><Loader2 className="h-4 w-4 animate-spin" /><span className="text-sm">Checking statements…</span></div>;
+  if (error || !data) return <p className="text-sm text-destructive">Couldn't load the statement check.</p>;
+  const name = new Map(data.suppliers.map(s => [s.supplierId, s.supplierName]));
+  const types = (Object.keys(RECON_LABEL) as ReconIssue["type"][]).filter(t => data.issues.some(i => i.type === t));
 
   return (
-    <div className="mb-3 rounded-md border border-blue-300/50 bg-blue-50 dark:bg-blue-950/20 p-3 flex items-center justify-between gap-3">
-      <div className="text-xs text-blue-800 dark:text-blue-200 min-w-0">
-        <strong>Extract invoice items</strong> — reads product, quantity and price from each original invoice.
-        Kept only when the items add up to the invoice total, that total matches the recorded amount, and the printed ABN is the supplier's.
+    <div className="space-y-4">
+      <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+        Each supplier statement is checked against Crew. Nothing here changes an invoice — fix what's flagged from To Pay or Paid History.
+        Only statements whose lines add up to their printed balance are checked; other suppliers need a statement rule first.
       </div>
-      <Button
-        size="sm" variant="outline" className="gap-1.5 shrink-0" disabled={busy !== null}
-        onClick={async () => {
-          setBusy("preview");
-          try { setPreview(await run(false)); }
-          catch (e: any) { toast({ title: "Preview failed", description: e?.message ?? "Try again.", variant: "destructive" }); }
-          finally { setBusy(null); }
-        }}
-        data-testid="button-line-item-backfill"
-      >
-        {busy === "preview" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
-        Extract items…
-      </Button>
 
-      <AlertDialog open={preview !== null} onOpenChange={(o) => { if (!o && busy === null) setPreview(null); }}>
-        <AlertDialogContent className="max-w-lg">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Extract invoice items</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2 text-sm">
-                <p><strong>{ok}</strong> invoices pass all checks — <strong>{lines}</strong> item lines.</p>
-                <table className="w-full text-xs">
-                  <thead><tr className="text-left text-muted-foreground"><th>Supplier</th><th className="text-right">Invoices</th><th className="text-right">Passed</th><th className="text-right">Lines</th><th className="text-right">Not kept</th></tr></thead>
-                  <tbody>
-                    {rows.map(([name, v]) => (
-                      <tr key={name}>
-                        <td>{name}</td><td className="text-right">{v.invoices}</td><td className="text-right">{v.ok}</td><td className="text-right">{v.lines}</td>
-                        <td className="text-right" title={Object.entries(v.failed).map(([k, n]) => `${k} ${n}`).join(", ")}>{v.invoices - v.ok || ""}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <p className="text-xs text-muted-foreground">Invoices that don't pass are left without items; nothing else changes.</p>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy !== null}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={busy !== null || ok === 0}
-              onClick={async (e) => {
-                e.preventDefault();
-                setBusy("apply");
-                try {
-                  const done = await run(true);
-                  toast({ title: "Items extracted", description: `${done.byStatus.OK ?? 0} invoices itemised.` });
-                  setPreview(null);
-                } catch (err: any) {
-                  toast({ title: "Failed", description: err?.message ?? "Try again.", variant: "destructive" });
-                } finally { setBusy(null); }
-              }}
-              data-testid="button-line-item-backfill-confirm"
-            >
-              {busy === "apply" ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
-              Keep items for {ok} invoices
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <div className="rounded-md border overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/40 text-xs text-muted-foreground">
+            <tr className="text-left">
+              <th className="py-2 px-3">Supplier</th><th className="py-2 px-3">Latest statement</th>
+              <th className="py-2 px-3 text-right">Statement balance</th><th className="py-2 px-3 text-right">Unpaid in Crew then</th>
+              <th className="py-2 px-3 text-right">Invoices matched</th><th className="py-2 px-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.suppliers.map(s => (
+              <tr key={s.supplierId} className="border-t">
+                <td className="py-2 px-3">{s.supplierName}{s.storeName ? <span className="text-muted-foreground"> · {s.storeName}</span> : null}</td>
+                <td className="py-2 px-3 whitespace-nowrap">{s.latestStatementDate ? fmt(s.latestStatementDate) : "—"} <span className="text-xs text-muted-foreground">({s.statements})</span></td>
+                <td className="py-2 px-3 text-right font-mono">{s.closingBalance != null ? fmtAUD(s.closingBalance) : "—"}</td>
+                <td className="py-2 px-3 text-right font-mono" title="Invoices dated on or before the statement and not yet marked paid in Crew by then. Payments marked late in Crew make this higher.">
+                  {s.storeUnknown ? <span className="text-xs text-amber-700 dark:text-amber-300 font-sans">Add store aliases to compare</span> : s.ledgerUnpaidAsOf != null ? fmtAUD(s.ledgerUnpaidAsOf) : "—"}
+                </td>
+                <td className="py-2 px-3 text-right">{s.matched}/{s.invoicesOnStatements}</td>
+                <td className="py-2 px-3 text-right">
+                  <Button size="sm" variant="ghost" className="gap-1" onClick={() => openPdf(`/api/statements/${s.latestStatementId}/pdf`)} data-testid={`button-statement-pdf-${s.supplierId}`}>
+                    <FileText className="h-3.5 w-3.5" /> PDF
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {types.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No differences found.</p>
+      ) : types.map(t => {
+        const rows = data.issues.filter(i => i.type === t);
+        return (
+          <div key={t} className="rounded-md border">
+            <div className="px-3 py-2 border-b bg-muted/30">
+              <p className="text-sm font-medium">{RECON_LABEL[t].label} <span className="text-muted-foreground">({rows.length})</span></p>
+              <p className="text-xs text-muted-foreground">{RECON_LABEL[t].hint}</p>
+            </div>
+            <table className="w-full text-sm">
+              <thead className="text-xs text-muted-foreground">
+                <tr className="text-left">
+                  <th className="py-1.5 px-3">Supplier</th><th className="py-1.5 px-3">Invoice #</th><th className="py-1.5 px-3">Statement</th>
+                  <th className="py-1.5 px-3 text-right">On statement</th><th className="py-1.5 px-3 text-right">In Crew</th><th className="py-1.5 px-3">Crew status</th><th className="py-1.5 px-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((i, n) => (
+                  <tr key={`${i.statementId}-${i.invoiceNumber}-${n}`} className="border-t">
+                    <td className="py-1.5 px-3">{name.get(i.supplierId) ?? "—"}</td>
+                    <td className="py-1.5 px-3 font-mono text-xs">{displayInvNumber(i.invoiceNumber)}</td>
+                    <td className="py-1.5 px-3 whitespace-nowrap">{i.statementDate ? fmt(i.statementDate) : "—"}</td>
+                    <td className="py-1.5 px-3 text-right font-mono">{i.statementAmount != null ? fmtAUD(i.statementAmount) : "—"}</td>
+                    <td className="py-1.5 px-3 text-right font-mono">{i.ledgerAmount != null ? fmtAUD(i.ledgerAmount) : "—"}</td>
+                    <td className="py-1.5 px-3 text-xs">{i.ledgerStatus ? `${i.ledgerStatus}${i.paidOn ? ` · ${fmt(i.paidOn)}` : ""}` : "—"}</td>
+                    <td className="py-1.5 px-3 text-right whitespace-nowrap">
+                      <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => openPdf(`/api/statements/${i.statementId}/pdf`)}>Statement</Button>
+                      {i.invoiceId && <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => openPdf(`/api/supplier-invoices/${i.invoiceId}/pdf`)}>Invoice</Button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
     </div>
   );
 }
