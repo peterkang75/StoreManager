@@ -2572,6 +2572,7 @@ export function AdminAccountsPayable() {
         )}
 
         {/* ── PAID HISTORY ── */}
+        {activeTab === "history" && <StatementBackfillPanel />}
         {activeTab === "history" && (
           isLoading ? (
             <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
@@ -3616,6 +3617,90 @@ function RecoverOriginalsPanel() {
             >
               {busy === "apply" ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
               Attach {attach.count} · add {create.count}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+type StatementBackfillResult = {
+  apply: boolean;
+  alreadyStored: number;
+  byStatus: Record<string, number>;
+  bySupplier: Record<string, { statements: number; parsed: number; lines: number }>;
+};
+
+// One-off: copy statement PDFs already attached to invoice records into the
+// statements store. Preview first (read-only); writes only on confirm.
+function StatementBackfillPanel() {
+  const { toast } = useToast();
+  const [preview, setPreview] = useState<StatementBackfillResult | null>(null);
+  const [busy, setBusy] = useState<"preview" | "apply" | null>(null);
+  const run = async (apply: boolean): Promise<StatementBackfillResult> =>
+    (await apiRequest("POST", "/api/statements/backfill", { apply })).json();
+  const total = Object.values(preview?.byStatus ?? {}).reduce((a, b) => a + b, 0);
+
+  return (
+    <div className="mb-3 rounded-md border border-blue-300/50 bg-blue-50 dark:bg-blue-950/20 p-3 flex items-center justify-between gap-3">
+      <div className="text-xs text-blue-800 dark:text-blue-200 min-w-0">
+        <strong>Keep statements separately</strong> — copies statement PDFs already attached to invoices into their own store, with the supplier read from the printed ABN.
+        Invoice lines are kept only when they add up to the printed balance. Invoices are not changed.
+      </div>
+      <Button
+        size="sm" variant="outline" className="gap-1.5 shrink-0" disabled={busy !== null}
+        onClick={async () => {
+          setBusy("preview");
+          try { setPreview(await run(false)); }
+          catch (e: any) { toast({ title: "Preview failed", description: e?.message ?? "Try again.", variant: "destructive" }); }
+          finally { setBusy(null); }
+        }}
+        data-testid="button-statement-backfill"
+      >
+        {busy === "preview" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+        Keep statements…
+      </Button>
+
+      <AlertDialog open={preview !== null} onOpenChange={(o) => { if (!o && busy === null) setPreview(null); }}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Keep statements separately</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p><strong>{total}</strong> statements to keep{preview?.alreadyStored ? ` (${preview.alreadyStored} already kept)` : ""}.</p>
+                <table className="w-full text-xs">
+                  <thead><tr className="text-left text-muted-foreground"><th>Supplier</th><th className="text-right">Statements</th><th className="text-right">Itemised</th><th className="text-right">Lines</th></tr></thead>
+                  <tbody>
+                    {Object.entries(preview?.bySupplier ?? {}).sort((a, b) => b[1].statements - a[1].statements).map(([name, v]) => (
+                      <tr key={name}><td>{name}</td><td className="text-right">{v.statements}</td><td className="text-right">{v.parsed}</td><td className="text-right">{v.lines}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="text-xs text-muted-foreground">Statements not itemised are still kept as PDFs.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy !== null}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy !== null || total === 0}
+              onClick={async (e) => {
+                e.preventDefault();
+                setBusy("apply");
+                try {
+                  const done = await run(true);
+                  const kept = Object.values(done.byStatus).reduce((a, b) => a + b, 0);
+                  toast({ title: "Statements kept", description: `${kept} statements stored.` });
+                  setPreview(null);
+                } catch (err: any) {
+                  toast({ title: "Failed", description: err?.message ?? "Try again.", variant: "destructive" });
+                } finally { setBusy(null); }
+              }}
+              data-testid="button-statement-backfill-confirm"
+            >
+              {busy === "apply" ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+              Keep {total} statements
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

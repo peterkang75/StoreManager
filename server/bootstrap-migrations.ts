@@ -193,6 +193,33 @@ const STATEMENTS: string[] = [
   `INSERT INTO store_hour_caps (store_id, season, weekly_total_hours)
      SELECT store_id, 'HOLIDAY', holiday_weekly_hours FROM store_recommended_hours
    ON CONFLICT (store_id, season) DO NOTHING`,
+
+  // PLAN 6.2.2 1-3: statements kept apart from invoices. One row per distinct PDF
+  // (pdf_hash UNIQUE); lines only when the arithmetic reconciled to the printed balance.
+  `CREATE TABLE IF NOT EXISTS supplier_statements (
+     id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+     supplier_id varchar REFERENCES suppliers(id),
+     pdf_hash text NOT NULL UNIQUE,
+     pdf_base64 text NOT NULL,
+     statement_date text,
+     closing_balance real,
+     family text,
+     parse_status text NOT NULL,
+     source text,
+     received_at timestamp,
+     created_at timestamp NOT NULL DEFAULT now()
+   )`,
+  `CREATE TABLE IF NOT EXISTS supplier_statement_lines (
+     id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+     statement_id varchar NOT NULL REFERENCES supplier_statements(id) ON DELETE CASCADE,
+     line_type text NOT NULL,
+     invoice_number text,
+     line_date text,
+     due_date text,
+     amount real NOT NULL DEFAULT 0,
+     balance real
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_statement_lines_statement ON supplier_statement_lines (statement_id)`,
 ];
 
 // Phase B: seed the OWNER's password from environment variables on first deploy.

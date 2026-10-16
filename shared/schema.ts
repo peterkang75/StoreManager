@@ -548,6 +548,35 @@ export const insertInvoiceLineItemSchema = createInsertSchema(invoiceLineItems).
 export type InsertInvoiceLineItem = z.infer<typeof insertInvoiceLineItemSchema>;
 export type InvoiceLineItem = typeof invoiceLineItems.$inferSelect;
 
+// PLAN 6.2.2 1-3: supplier statements stored apart from invoices (created in
+// bootstrap-migrations). parse_status: PARSED | NO_RULE | UNASSIGNED | GOVERNMENT.
+export const supplierStatements = pgTable("supplier_statements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  supplierId: varchar("supplier_id").references(() => suppliers.id),
+  pdfHash: text("pdf_hash").notNull().unique(),
+  pdfBase64: text("pdf_base64").notNull(),
+  statementDate: text("statement_date"),     // printed date (can be in the future — Xero "As At")
+  closingBalance: real("closing_balance"),
+  family: text("family"),
+  parseStatus: text("parse_status").notNull(),
+  source: text("source"),
+  receivedAt: timestamp("received_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type SupplierStatement = typeof supplierStatements.$inferSelect;
+
+export const supplierStatementLines = pgTable("supplier_statement_lines", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  statementId: varchar("statement_id").references(() => supplierStatements.id, { onDelete: "cascade" }).notNull(),
+  lineType: text("line_type").notNull(),      // INVOICE | PAYMENT | CREDIT | OPENING
+  invoiceNumber: text("invoice_number"),
+  lineDate: text("line_date"),
+  dueDate: text("due_date"),
+  amount: real("amount").default(0).notNull(),
+  balance: real("balance"),
+});
+export type SupplierStatementLine = typeof supplierStatementLines.$inferSelect;
+
 // §7 Wave 1: Cash expense ledger. Employees enter what they bought with petty cash;
 // owner reviews and approves. GST snapshot is frozen at entry — supplier rate edits don't rewrite history (D10).
 // supplier_id is always set; the D14 "Other / Unknown" flow points at a sentinel supplier seeded in bootstrap-migrations,

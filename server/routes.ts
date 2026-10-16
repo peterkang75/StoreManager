@@ -12,6 +12,7 @@ import { storeColorFor } from "../shared/storeColors";
 import { extractPdfText, parseInvoiceWithAI, parseUploadedFile, parseInvoiceFromUnknownSender, triageEmail, summarizeTaskFromEmail, translateSummarizeEmail, classifyDocumentForAP } from "./invoiceParser";
 import { parseApDocument, type ApParseResult, type ApStoreProfile } from "./apDocumentParser";
 import { attachOriginalInvoicePdf, invoiceKey, recoverRejectedOriginals } from "./originalInvoice";
+import { keepStatement, backfillStatements } from "./statementStore";
 import {
   insertStoreSchema,
   insertCandidateSchema,
@@ -4257,6 +4258,17 @@ export async function registerRoutes(
     }
   });
 
+  // PLAN 1-3: copy existing statement PDFs into supplier_statements. The UI
+  // previews (apply=false) and writes only after the owner confirms.
+  app.post("/api/statements/backfill", async (req: Request, res: Response) => {
+    try {
+      res.json(await backfillStatements(req.body?.apply === true));
+    } catch (err: any) {
+      console.error("Error backfilling statements:", err);
+      res.status(500).json({ error: err?.message ?? "Failed to backfill statements" });
+    }
+  });
+
   app.delete("/api/rejected-emails/:id", async (req: Request, res: Response) => {
     try {
       const ok = await storage.deleteRejectedEmail(req.params.id);
@@ -6918,6 +6930,7 @@ export async function registerRoutes(
         // the grand total was likely grabbed by mistake. Force REVIEW to avoid
         // double-counting the entire statement balance as a single invoice.
         const isStatementAttachment = parsedItems[0]?.isStatement === true;
+        if (isStatementAttachment) keepStatement(pdfResult?.pdfBase64, `webhook:${senderEmail}`);
         if (isStatementAttachment) {
           console.log(`[Webhook] Attachment "${attName}": STATEMENT detected (${parsedItems.length} row(s))`);
           if (parsedItems.length === 1) {
@@ -7649,6 +7662,7 @@ export async function registerRoutes(
                   const parsedItems = await parseInvoiceWithAI(pdfText, matchedSupplier.name, subject);
                   if (parsedItems?.length) {
                     const isStatementDoc = parsedItems[0]?.isStatement === true;
+                    if (isStatementDoc) keepStatement(buf.toString("base64"), `triage:${senderEmail}`);
 
                     // Safety guard: if classified as a Statement but only 1 item came back,
                     // the AI likely grabbed the grand total by mistake. Force REVIEW so a
@@ -7741,6 +7755,7 @@ export async function registerRoutes(
                   const unknownParsed = await parseInvoiceFromUnknownSender(pdfText, subject);
                   if (unknownParsed?.invoices?.length) {
                     const isStatementDoc = unknownParsed.isStatement;
+                    if (isStatementDoc) keepStatement(buf.toString("base64"), `triage:${senderEmail}`);
 
                     // Safety guard: Statement with only 1 row almost certainly grabbed the grand total
                     if (isStatementDoc && unknownParsed.invoices.length === 1) {
