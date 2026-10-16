@@ -220,6 +220,18 @@ const STATEMENTS: string[] = [
      balance real
    )`,
   `CREATE INDEX IF NOT EXISTS idx_statement_lines_statement ON supplier_statement_lines (statement_id)`,
+
+  // PLAN 1-5: one row per invoice the line-item extractor has looked at, kept
+  // apart from supplier_invoices so a run never bumps the invoice's updated_at.
+  `CREATE TABLE IF NOT EXISTS invoice_line_item_runs (
+     invoice_id varchar PRIMARY KEY REFERENCES supplier_invoices(id) ON DELETE CASCADE,
+     pdf_md5 text NOT NULL,
+     status text NOT NULL,
+     family text,
+     line_count integer NOT NULL DEFAULT 0,
+     parser_version integer NOT NULL,
+     created_at timestamp NOT NULL DEFAULT now()
+   )`,
 ];
 
 // Phase B: seed the OWNER's password from environment variables on first deploy.

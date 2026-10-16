@@ -14,6 +14,7 @@ import { parseApDocument, type ApParseResult, type ApStoreProfile } from "./apDo
 import { attachOriginalInvoicePdf, invoiceKey, recoverRejectedOriginals } from "./originalInvoice";
 import { keepStatement, backfillStatements } from "./statementStore";
 import { getDocStatus, refreshDocStatus, startDocStatusRefresh } from "./docStatus";
+import { sweepLineItems, startLineItemSweep } from "./lineItemStore";
 import {
   insertStoreSchema,
   insertCandidateSchema,
@@ -3386,6 +3387,7 @@ export async function registerRoutes(
 
   // ── AP: Invoices with enriched supplier data ─────────────────────────────────
   startDocStatusRefresh();
+  startLineItemSweep();
 
   app.get("/api/invoices", async (req: Request, res: Response) => {
     try {
@@ -4284,6 +4286,18 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("Error backfilling statements:", err);
       res.status(500).json({ error: err?.message ?? "Failed to backfill statements" });
+    }
+  });
+
+  // PLAN 1-5: extract invoice line items. The UI previews (apply=false) and
+  // writes only after the owner confirms; after that first run the 15-minute
+  // sweep keeps new invoices up to date on its own.
+  app.post("/api/invoices/line-items/backfill", async (req: Request, res: Response) => {
+    try {
+      res.json(await sweepLineItems(req.body?.apply === true));
+    } catch (err: any) {
+      console.error("Error extracting line items:", err);
+      res.status(500).json({ error: err?.message ?? "Failed to extract line items" });
     }
   });
 

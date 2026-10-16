@@ -548,6 +548,18 @@ export const insertInvoiceLineItemSchema = createInsertSchema(invoiceLineItems).
 export type InsertInvoiceLineItem = z.infer<typeof insertInvoiceLineItemSchema>;
 export type InvoiceLineItem = typeof invoiceLineItems.$inferSelect;
 
+// PLAN 1-5: extractor bookkeeping (created in bootstrap-migrations). status: OK |
+// NO_RULE | UNPARSED | ITEMS_MISMATCH | LEDGER_MISMATCH | ABN_OTHER_SUPPLIER | ABN_MISSING | NO_TEXT
+export const invoiceLineItemRuns = pgTable("invoice_line_item_runs", {
+  invoiceId: varchar("invoice_id").primaryKey().references(() => supplierInvoices.id, { onDelete: "cascade" }),
+  pdfMd5: text("pdf_md5").notNull(),
+  status: text("status").notNull(),
+  family: text("family"),
+  lineCount: integer("line_count").default(0).notNull(),
+  parserVersion: integer("parser_version").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // PLAN 6.2.2 1-3: supplier statements stored apart from invoices (created in
 // bootstrap-migrations). parse_status: PARSED | NO_RULE | UNASSIGNED | GOVERNMENT.
 export const supplierStatements = pgTable("supplier_statements", {

@@ -2578,6 +2578,7 @@ export function AdminAccountsPayable() {
         {/* ── PAID HISTORY ── */}
         {activeTab === "history" && <DocStatusSummary invoices={allInvoices} />}
         {activeTab === "history" && <StatementBackfillPanel />}
+        {activeTab === "history" && <LineItemBackfillPanel />}
         {activeTab === "history" && (
           isLoading ? (
             <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
@@ -3736,6 +3737,92 @@ function DocStatusSummary({ invoices }: { invoices: EnrichedInvoice[] }) {
       {" · "}<span className="text-amber-700 dark:text-amber-300">{n("STATEMENT_ONLY")} statement only</span>
       {" · "}<span className="text-red-700 dark:text-red-300">{n("NONE")} no document</span>
       <span className="opacity-80"> — tax records must be kept for 5 years; ask the supplier for copies of the flagged ones.</span>
+    </div>
+  );
+}
+
+type LineItemBackfillResult = {
+  apply: boolean;
+  byStatus: Record<string, number>;
+  bySupplier: Record<string, { invoices: number; ok: number; lines: number; failed: Record<string, number> }>;
+};
+
+// PLAN 1-5: one-off reviewed run; afterwards new invoices are itemised automatically.
+function LineItemBackfillPanel() {
+  const { toast } = useToast();
+  const [preview, setPreview] = useState<LineItemBackfillResult | null>(null);
+  const [busy, setBusy] = useState<"preview" | "apply" | null>(null);
+  const run = async (apply: boolean): Promise<LineItemBackfillResult> =>
+    (await apiRequest("POST", "/api/invoices/line-items/backfill", { apply })).json();
+  const rows = Object.entries(preview?.bySupplier ?? {}).sort((a, b) => b[1].invoices - a[1].invoices);
+  const ok = rows.reduce((a, [, v]) => a + v.ok, 0);
+  const lines = rows.reduce((a, [, v]) => a + v.lines, 0);
+
+  return (
+    <div className="mb-3 rounded-md border border-blue-300/50 bg-blue-50 dark:bg-blue-950/20 p-3 flex items-center justify-between gap-3">
+      <div className="text-xs text-blue-800 dark:text-blue-200 min-w-0">
+        <strong>Extract invoice items</strong> — reads product, quantity and price from each original invoice.
+        Kept only when the items add up to the invoice total, that total matches the recorded amount, and the printed ABN is the supplier's.
+      </div>
+      <Button
+        size="sm" variant="outline" className="gap-1.5 shrink-0" disabled={busy !== null}
+        onClick={async () => {
+          setBusy("preview");
+          try { setPreview(await run(false)); }
+          catch (e: any) { toast({ title: "Preview failed", description: e?.message ?? "Try again.", variant: "destructive" }); }
+          finally { setBusy(null); }
+        }}
+        data-testid="button-line-item-backfill"
+      >
+        {busy === "preview" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+        Extract items…
+      </Button>
+
+      <AlertDialog open={preview !== null} onOpenChange={(o) => { if (!o && busy === null) setPreview(null); }}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Extract invoice items</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p><strong>{ok}</strong> invoices pass all checks — <strong>{lines}</strong> item lines.</p>
+                <table className="w-full text-xs">
+                  <thead><tr className="text-left text-muted-foreground"><th>Supplier</th><th className="text-right">Invoices</th><th className="text-right">Passed</th><th className="text-right">Lines</th><th className="text-right">Not kept</th></tr></thead>
+                  <tbody>
+                    {rows.map(([name, v]) => (
+                      <tr key={name}>
+                        <td>{name}</td><td className="text-right">{v.invoices}</td><td className="text-right">{v.ok}</td><td className="text-right">{v.lines}</td>
+                        <td className="text-right" title={Object.entries(v.failed).map(([k, n]) => `${k} ${n}`).join(", ")}>{v.invoices - v.ok || ""}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="text-xs text-muted-foreground">Invoices that don't pass are left without items; nothing else changes.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy !== null}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy !== null || ok === 0}
+              onClick={async (e) => {
+                e.preventDefault();
+                setBusy("apply");
+                try {
+                  const done = await run(true);
+                  toast({ title: "Items extracted", description: `${done.byStatus.OK ?? 0} invoices itemised.` });
+                  setPreview(null);
+                } catch (err: any) {
+                  toast({ title: "Failed", description: err?.message ?? "Try again.", variant: "destructive" });
+                } finally { setBusy(null); }
+              }}
+              data-testid="button-line-item-backfill-confirm"
+            >
+              {busy === "apply" ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+              Keep items for {ok} invoices
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
