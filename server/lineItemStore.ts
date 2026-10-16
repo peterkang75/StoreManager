@@ -7,7 +7,7 @@ import { pdfToRawText, parseInvoiceLines, type ParsedLine } from "./lineItemPars
 import { detectSupplierByAbn } from "./statementParser";
 
 // Bump when rules change so earlier NO_RULE / failed invoices are looked at again.
-export const PARSER_VERSION = 2; // 2: Campos header read by production poppler 22.12; failure detail recorded
+export const PARSER_VERSION = 3; // 2: Campos header on poppler 22.12, failure detail; 3: Campos rows wrapped over lines
 
 export type RunStatus = "OK" | "NO_RULE" | "UNPARSED" | "ITEMS_MISMATCH" | "LEDGER_MISMATCH" | "ABN_OTHER_SUPPLIER" | "ABN_MISSING" | "NO_TEXT";
 export interface RunOutcome { invoiceId: string; supplierName: string; status: RunStatus; family: string | null; lines: number; amount: number }

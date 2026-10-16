@@ -50,7 +50,7 @@ interface Family {
   itemsTotal: (t: string) => number | null;
   docTotal: (t: string) => number | null;
   gstPerLine?: boolean;    // gst group is an amount, not a rate
-  singleLine?: boolean;    // items never wrap: parse the closing line alone (page headers can sit in between)
+  endOnJoined?: boolean;   // test rowEnd on the gathered item, not the last line (the closing numbers can themselves wrap)
   skip?: RegExp;           // lines that are never part of an item (barcodes, category headings)
   rowStart?: RegExp;       // a line that begins an item: drop whatever was buffered before it
 }
@@ -118,7 +118,9 @@ const FAMILIES: Family[] = [
     // production poppler (22.12) does not read the header line exactly like 26.x, so match only its start
     header: /^ITEM NO\.(?:\s|$)/m,
     end: /^Total Ex GST/,
-    singleLine: true,
+    // poppler 22 (production) wraps one row over several lines; poppler 26 prints it on one
+    rowStart: /^\d{6,8}\s/,
+    endOnJoined: true,
     rowEnd: new RegExp(String.raw`\bAUG[A-Z]{1,3}\s+${M}\s+${M}`),
     row: new RegExp(String.raw`^(?<sku>\d{6,8})\s+(?<desc>.+?)\s+(?<lineTotal>${M})\s+(?<unit>[A-Za-z0-9]{2,4})\s+(?<qty>-?[\d.]+)\s+AUG[A-Z]{1,3}\s+(?<gst>${M})\s+(?<unitPrice>${M})`),
     gstPerLine: true,
@@ -156,8 +158,8 @@ export function parseInvoiceLines(text: string): { ok: true; result: ParsedInvoi
     if (!l || fam.skip?.test(l)) continue;
     if (fam.rowStart?.test(l)) buf = [];
     buf.push(l);
-    if (!fam.rowEnd.test(l)) continue;
-    const joined = fam.singleLine ? l : buf.join(" ");
+    const joined = buf.join(" ");
+    if (!fam.rowEnd.test(fam.endOnJoined ? joined : l)) continue;
     buf = [];
     const g = joined.match(fam.row)?.groups;
     if (!g) return { ok: false, reason: "unparsed_row", family: fam.name, detail: joined.slice(0, 200) };
@@ -171,7 +173,7 @@ export function parseInvoiceLines(text: string): { ok: true; result: ParsedInvoi
       lineTotal: num(g.lineTotal)!, gstAmount: fam.gstPerLine ? num(g.gst) : null,
     });
   }
-  if (lines.length === 0) return { ok: false, reason: "no_lines", family: fam.name, detail: all.slice(start + 1, start + 5).join(" | ").slice(0, 300) };
+  if (lines.length === 0) return { ok: false, reason: "no_lines", family: fam.name, detail: all.slice(start + 1, start + 13).join(" | ").slice(0, 600) };
   const itemsTotal = fam.itemsTotal(text);
   const docTotal = fam.docTotal(text);
   if (itemsTotal == null || docTotal == null) return { ok: false, reason: "no_totals", family: fam.name, detail: `items=${itemsTotal} doc=${docTotal}` };
