@@ -76,7 +76,8 @@ import { CashExpenseReview } from "@/components/CashExpenseReview";
 import { useToast } from "@/hooks/use-toast";
 import type { SupplierInvoice, Supplier, Store, EmailRoutingRule } from "@shared/schema";
 
-type EnrichedInvoice = SupplierInvoice & { supplier: Supplier | null };
+type DocStatus = "ORIGINAL" | "STATEMENT_ONLY" | "NONE";
+type EnrichedInvoice = SupplierInvoice & { supplier: Supplier | null; docStatus?: DocStatus | null };
 
 // ── rawExtractedData shape from webhook ──────────────────────────────────────
 interface ExtractedSupplierInfo {
@@ -1955,6 +1956,7 @@ export function AdminAccountsPayable() {
                                         <span className="font-mono text-[11px] text-muted-foreground truncate">
                                           {displayInvNumber(inv.invoiceNumber)}
                                         </span>
+                                        <DocBadge status={inv.docStatus} />
                                       </div>
 
                                       {/* Bottom row: store select + actions */}
@@ -2138,7 +2140,7 @@ export function AdminAccountsPayable() {
                                         )}
                                       </td>
                                       <td className="py-2.5 px-3 font-mono text-xs text-muted-foreground">
-                                        {displayInvNumber(inv.invoiceNumber)}
+                                        {displayInvNumber(inv.invoiceNumber)} <DocBadge status={inv.docStatus} />
                                       </td>
                                       <td className="py-2.5 px-3 text-xs whitespace-nowrap">
                                         {/* Always a select so the owner can correct
@@ -2572,6 +2574,7 @@ export function AdminAccountsPayable() {
         )}
 
         {/* ── PAID HISTORY ── */}
+        {activeTab === "history" && <DocStatusSummary invoices={allInvoices} />}
         {activeTab === "history" && <StatementBackfillPanel />}
         {activeTab === "history" && (
           isLoading ? (
@@ -2701,7 +2704,7 @@ export function AdminAccountsPayable() {
                                                 );
                                               })()}
                                             </td>
-                                            <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground">{displayInvNumber(inv.invoiceNumber)}</td>
+                                            <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground">{displayInvNumber(inv.invoiceNumber)} <DocBadge status={inv.docStatus} /></td>
                                             <td className="py-2.5 px-4 text-xs text-muted-foreground">{store?.name ?? "—"}</td>
                                             <td className="py-2.5 px-4">
                                               {isAutoDebit ? (
@@ -3705,6 +3708,32 @@ function StatementBackfillPanel() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+// PLAN 1-4: records without their own invoice document (tax records are kept 5 years).
+// ORIGINAL shows nothing; only the gaps are flagged.
+function DocBadge({ status }: { status?: DocStatus | null }) {
+  if (status === "STATEMENT_ONLY") return (
+    <span title="No original invoice on file — only a supplier statement backs this record." className="ml-1 inline-block rounded px-1 py-px text-[10px] font-sans font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">Statement only</span>
+  );
+  if (status === "NONE") return (
+    <span title="No document on file for this record." className="ml-1 inline-block rounded px-1 py-px text-[10px] font-sans font-medium bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200">No document</span>
+  );
+  return null;
+}
+
+function DocStatusSummary({ invoices }: { invoices: EnrichedInvoice[] }) {
+  const live = invoices.filter(i => i.status !== "DELETED" && i.docStatus);
+  if (live.length === 0) return null;
+  const n = (k: DocStatus) => live.filter(i => i.docStatus === k).length;
+  return (
+    <div className="mb-3 rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+      <strong className="text-foreground">Invoice documents</strong> — {n("ORIGINAL")} with original
+      {" · "}<span className="text-amber-700 dark:text-amber-300">{n("STATEMENT_ONLY")} statement only</span>
+      {" · "}<span className="text-red-700 dark:text-red-300">{n("NONE")} no document</span>
+      <span className="opacity-80"> — tax records must be kept for 5 years; ask the supplier for copies of the flagged ones.</span>
     </div>
   );
 }

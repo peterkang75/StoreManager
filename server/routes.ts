@@ -13,6 +13,7 @@ import { extractPdfText, parseInvoiceWithAI, parseUploadedFile, parseInvoiceFrom
 import { parseApDocument, type ApParseResult, type ApStoreProfile } from "./apDocumentParser";
 import { attachOriginalInvoicePdf, invoiceKey, recoverRejectedOriginals } from "./originalInvoice";
 import { keepStatement, backfillStatements } from "./statementStore";
+import { getDocStatus, refreshDocStatus, startDocStatusRefresh } from "./docStatus";
 import {
   insertStoreSchema,
   insertCandidateSchema,
@@ -3384,6 +3385,8 @@ export async function registerRoutes(
   });
 
   // ── AP: Invoices with enriched supplier data ─────────────────────────────────
+  startDocStatusRefresh();
+
   app.get("/api/invoices", async (req: Request, res: Response) => {
     try {
       const filters: { supplierId?: string; storeId?: string; status?: string } = {};
@@ -3400,6 +3403,7 @@ export async function registerRoutes(
       const enriched = invoices.map(inv => ({
         ...inv,
         supplier: supplierMap.get(inv.supplierId) ?? null,
+        docStatus: getDocStatus(inv.id) ?? null,
       }));
 
       // Sort: PENDING first (by dueDate asc), then others
@@ -4251,7 +4255,9 @@ export async function registerRoutes(
   // always calls apply=false first, shows the numbers, then apply=true on confirm.
   app.post("/api/invoices/recover-rejected-originals", async (req: Request, res: Response) => {
     try {
-      res.json(await recoverRejectedOriginals(req.body?.apply === true, resolveStoreIdForInvoice));
+      const result = await recoverRejectedOriginals(req.body?.apply === true, resolveStoreIdForInvoice);
+      if (result.apply) void refreshDocStatus();
+      res.json(result);
     } catch (err: any) {
       console.error("Error recovering rejected originals:", err);
       res.status(500).json({ error: err?.message ?? "Failed to recover rejected originals" });
@@ -4262,7 +4268,9 @@ export async function registerRoutes(
   // previews (apply=false) and writes only after the owner confirms.
   app.post("/api/statements/backfill", async (req: Request, res: Response) => {
     try {
-      res.json(await backfillStatements(req.body?.apply === true));
+      const result = await backfillStatements(req.body?.apply === true);
+      if (result.apply) void refreshDocStatus();
+      res.json(result);
     } catch (err: any) {
       console.error("Error backfilling statements:", err);
       res.status(500).json({ error: err?.message ?? "Failed to backfill statements" });
