@@ -557,6 +557,7 @@ export const invoiceLineItemRuns = pgTable("invoice_line_item_runs", {
   family: text("family"),
   lineCount: integer("line_count").default(0).notNull(),
   parserVersion: integer("parser_version").notNull(),
+  detail: text("detail"),                    // failure context: the line the parser stopped on
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

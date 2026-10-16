@@ -7,7 +7,7 @@ import { pdfToRawText, parseInvoiceLines, type ParsedLine } from "./lineItemPars
 import { detectSupplierByAbn } from "./statementParser";
 
 // Bump when rules change so earlier NO_RULE / failed invoices are looked at again.
-export const PARSER_VERSION = 1;
+export const PARSER_VERSION = 2; // 2: Campos header read by production poppler 22.12; failure detail recorded
 
 export type RunStatus = "OK" | "NO_RULE" | "UNPARSED" | "ITEMS_MISMATCH" | "LEDGER_MISMATCH" | "ABN_OTHER_SUPPLIER" | "ABN_MISSING" | "NO_TEXT";
 export interface RunOutcome { invoiceId: string; supplierName: string; status: RunStatus; family: string | null; lines: number; amount: number }
@@ -31,15 +31,15 @@ export async function extractLineItems(
   const base = { invoiceId: inv.id, supplierName: supplier?.name ?? "(no supplier)", amount: inv.amount };
   const text = pdfToRawText(Buffer.from(inv.pdfBase64, "base64"));
 
-  let status: RunStatus; let family: string | null = null; let lines: ParsedLine[] = [];
+  let status: RunStatus; let family: string | null = null; let lines: ParsedLine[] = []; let detail: string | null = null;
   const p = text.trim() ? parseInvoiceLines(text) : null;
   if (!p) status = "NO_TEXT";
-  else if (!p.ok) { status = FAILURE[p.reason]; family = p.family ?? null; }
+  else if (!p.ok) { status = FAILURE[p.reason]; family = p.family ?? null; detail = p.detail ?? null; }
   else {
     family = p.result.family;
     const abnSupplier = detectSupplierByAbn(text, suppliers);
-    if (Math.abs(p.result.docTotal - inv.amount) > 0.05) status = "LEDGER_MISMATCH";
-    else if (abnSupplier && abnSupplier.id !== inv.supplierId) status = "ABN_OTHER_SUPPLIER";
+    if (Math.abs(p.result.docTotal - inv.amount) > 0.05) { status = "LEDGER_MISMATCH"; detail = `printed=${p.result.docTotal} ledger=${inv.amount}`; }
+    else if (abnSupplier && abnSupplier.id !== inv.supplierId) { status = "ABN_OTHER_SUPPLIER"; detail = `printed ABN is ${abnSupplier.name}`; }
     else if (!abnSupplier && supplier?.abn) status = "ABN_MISSING";
     else { status = "OK"; lines = p.result.lines; }
   }
@@ -53,7 +53,7 @@ export async function extractLineItems(
           unitPrice: l.unitPrice, lineTotal: l.lineTotal, gstAmount: l.gstAmount,
         })));
       }
-      const row = { pdfMd5, status, family, lineCount: lines.length, parserVersion: PARSER_VERSION, createdAt: new Date() };
+      const row = { pdfMd5, status, family, lineCount: lines.length, parserVersion: PARSER_VERSION, detail, createdAt: new Date() };
       await tx.insert(invoiceLineItemRuns).values({ invoiceId: inv.id, ...row })
         .onConflictDoUpdate({ target: invoiceLineItemRuns.invoiceId, set: row });
     });

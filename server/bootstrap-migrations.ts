@@ -232,6 +232,8 @@ const STATEMENTS: string[] = [
      parser_version integer NOT NULL,
      created_at timestamp NOT NULL DEFAULT now()
    )`,
+  // why a run failed (the line it stopped on), readable with a plain DB query
+  `ALTER TABLE invoice_line_item_runs ADD COLUMN IF NOT EXISTS detail text`,
 ];
 
 // Phase B: seed the OWNER's password from environment variables on first deploy.

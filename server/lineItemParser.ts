@@ -58,7 +58,7 @@ interface Family {
 // Campos (Sage) prints its totals as bare figures above their labels.
 function camposTotals(t: string): [number, number] | null {
   const ls = t.split("\n").map(l => l.trim());
-  const at = ls.findIndex(l => l === "Total Ex GST");
+  const at = ls.findIndex(l => l.startsWith("Total Ex GST"));
   if (at < 0) return null;
   const nums = ls.slice(0, at).filter(l => /^[\d,]+\.\d{2}$/.test(l)).slice(-3).map(l => Number(l.replace(/,/g, "")));
   return nums.length === 3 ? [nums[0], nums[2]] : null;
@@ -115,8 +115,9 @@ const FAMILIES: Family[] = [
     // Campos (Sage): code, description, AMOUNT EX GST, UOM, QTY, tax code, GST, UNIT PRICE —
     // not the printed header order (verified: 24 x 10.19 = 244.56)
     name: "campos",
-    header: /^ITEM NO\. QUANTITY UNIT PRICE DESCRIPTION UOM AMOUNT EX GST$/m,
-    end: /^Total Ex GST$/,
+    // production poppler (22.12) does not read the header line exactly like 26.x, so match only its start
+    header: /^ITEM NO\.(?:\s|$)/m,
+    end: /^Total Ex GST/,
     singleLine: true,
     rowEnd: new RegExp(String.raw`\bAUG[A-Z]{1,3}\s+${M}\s+${M}`),
     row: new RegExp(String.raw`^(?<sku>\d{6,8})\s+(?<desc>.+?)\s+(?<lineTotal>${M})\s+(?<unit>[A-Za-z0-9]{2,4})\s+(?<qty>-?[\d.]+)\s+AUG[A-Z]{1,3}\s+(?<gst>${M})\s+(?<unitPrice>${M})`),
@@ -140,7 +141,11 @@ export type ParseFailure = "no_rule" | "no_lines" | "unparsed_row" | "no_totals"
 
 export function parseInvoiceLines(text: string): { ok: true; result: ParsedInvoice } | { ok: false; reason: ParseFailure; family?: string; detail?: string } {
   const fam = FAMILIES.find(f => f.header.test(text));
-  if (!fam) return { ok: false, reason: "no_rule" };
+  if (!fam) {
+    // header-looking lines, so a layout that reads differently on another poppler build can be seen in the DB
+    const heads = text.split(/[\n\f]/).map(l => l.replace(/\s+/g, " ").trim()).filter(l => /\b(?:ITEM|DESCRIPTION|QUANTITY|QTY|PRODUCT)\b/i.test(l));
+    return { ok: false, reason: "no_rule", detail: heads.slice(0, 4).join(" | ").slice(0, 300) || undefined };
+  }
   // a form feed (page break) can sit mid-line, gluing the last row to the next page header
   const all = text.split(/[\n\f]/).map(l => l.replace(/\s+/g, " ").trim());
   const start = all.findIndex(l => fam.header.test(l));
@@ -166,11 +171,11 @@ export function parseInvoiceLines(text: string): { ok: true; result: ParsedInvoi
       lineTotal: num(g.lineTotal)!, gstAmount: fam.gstPerLine ? num(g.gst) : null,
     });
   }
-  if (lines.length === 0) return { ok: false, reason: "no_lines", family: fam.name };
+  if (lines.length === 0) return { ok: false, reason: "no_lines", family: fam.name, detail: all.slice(start + 1, start + 5).join(" | ").slice(0, 300) };
   const itemsTotal = fam.itemsTotal(text);
   const docTotal = fam.docTotal(text);
-  if (itemsTotal == null || docTotal == null) return { ok: false, reason: "no_totals", family: fam.name };
+  if (itemsTotal == null || docTotal == null) return { ok: false, reason: "no_totals", family: fam.name, detail: `items=${itemsTotal} doc=${docTotal}` };
   const sum = lines.reduce((a, l) => a + cents(l.lineTotal), 0);
-  if (sum !== cents(itemsTotal)) return { ok: false, reason: "items_mismatch", family: fam.name };
+  if (sum !== cents(itemsTotal)) return { ok: false, reason: "items_mismatch", family: fam.name, detail: `lines=${lines.length} sum=${(sum / 100).toFixed(2)} printed=${itemsTotal}` };
   return { ok: true, result: { family: fam.name, lines, itemsTotal, docTotal } };
 }
