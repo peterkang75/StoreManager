@@ -1740,6 +1740,7 @@ export function AdminAccountsPayable() {
         {/* ── Content Area ───────────────────────────────────────────────── */}
 
         {/* ── TO PAY ── */}
+        {activeTab === "topay" && <AutoPaySettlePanel />}
         {activeTab === "topay" && (
           isLoading ? (
             <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
@@ -3778,6 +3779,85 @@ function StatementsTab() {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+type AutoPayCandidate = { id: string; supplierId: string; supplierName: string; invoiceNumber: string; invoiceDate: string; dueDate: string | null; amount: number };
+
+// Direct-debit suppliers whose invoices are still unpaid in Crew. Nothing is
+// settled unless the owner ticks the supplier and confirms.
+function AutoPaySettlePanel() {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const { data, refetch } = useQuery<{ candidates: AutoPayCandidate[] }>({
+    queryKey: ["/api/invoices/auto-pay/settle", "preview"],
+    queryFn: async () => (await apiRequest("POST", "/api/invoices/auto-pay/settle", { apply: false })).json(),
+  });
+  const cands = data?.candidates ?? [];
+  if (cands.length === 0) return null;
+  const groups = Array.from(cands.reduce((m, c) => {
+    const g = m.get(c.supplierId) ?? { name: c.supplierName, items: [] as AutoPayCandidate[] };
+    g.items.push(c); return m.set(c.supplierId, g);
+  }, new Map<string, { name: string; items: AutoPayCandidate[] }>()));
+  const total = (xs: AutoPayCandidate[]) => xs.reduce((a, c) => a + c.amount, 0);
+  const chosen = cands.filter(c => picked.has(c.supplierId));
+
+  return (
+    <div className="mb-3 rounded-md border border-amber-300/50 bg-amber-50 dark:bg-amber-950/20 p-3 flex items-center justify-between gap-3">
+      <div className="text-xs text-amber-800 dark:text-amber-200 min-w-0">
+        <strong>{cands.length} direct-debit invoices still unpaid in Crew ({fmtAUD(total(cands))})</strong> — these suppliers take payment automatically,
+        but these records were created from statements or the review inbox, which didn't mark them paid. Check your bank, then settle them.
+      </div>
+      <Button size="sm" variant="outline" className="shrink-0" onClick={() => { setPicked(new Set()); setOpen(true); }} data-testid="button-auto-pay-review">
+        Review…
+      </Button>
+      <AlertDialog open={open} onOpenChange={(o) => { if (!busy) setOpen(o); }}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Settle direct debits</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>Tick only suppliers whose debits you've seen leave the bank. Each invoice is marked paid on its due date.</p>
+                {groups.map(([sid, g]) => (
+                  <label key={sid} className="flex items-start gap-2 rounded border p-2 cursor-pointer">
+                    <Checkbox checked={picked.has(sid)} onCheckedChange={(v) => setPicked(prev => { const n = new Set(prev); v ? n.add(sid) : n.delete(sid); return n; })} data-testid={`checkbox-auto-pay-${sid}`} />
+                    <span className="min-w-0">
+                      <span className="font-medium text-foreground">{g.name}</span> — {g.items.length} invoices, {fmtAUD(total(g.items))}
+                      <span className="block text-xs text-muted-foreground">{fmt(g.items[0].invoiceDate)} – {fmt(g.items[g.items.length - 1].invoiceDate)}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy || chosen.length === 0}
+              onClick={async (e) => {
+                e.preventDefault();
+                setBusy(true);
+                try {
+                  const r = await (await apiRequest("POST", "/api/invoices/auto-pay/settle", { apply: true, supplierIds: Array.from(picked) })).json();
+                  queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+                  await refetch();
+                  toast({ title: "Direct debits settled", description: `${r.settled} invoices marked paid.` });
+                  setOpen(false);
+                } catch (err: any) {
+                  toast({ title: "Failed", description: err?.message ?? "Try again.", variant: "destructive" });
+                } finally { setBusy(false); }
+              }}
+              data-testid="button-auto-pay-confirm"
+            >
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+              Mark {chosen.length} paid ({fmtAUD(total(chosen))})
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
