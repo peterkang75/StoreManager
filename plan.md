@@ -326,6 +326,8 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 
 **덩어리 2 — 미인식 공급처**
 - [~] Total Equipment (2026-10-19 구현, 배포 승인 대기): `server/linkedPdf.ts` — 첨부가 없는 등록 공급처 메일이면 본문의 PDF 링크를 받아 첨부처럼 기존 흐름에 넣음(웹훅). 안전장치: https만, IP·localhost·내부 도메인 거부(리다이렉트 후에도), 15초, 10MB, `%PDF-` 확인. 과거분: 본문만 저장된 기록에서 링크를 다시 받아 PDF 부착 + 매장 비어 있으면 PDF "Bill To"를 매장 별칭으로 판별, 장부 금액이 PDF에 있어야만 사용 — To Pay 탭 "Fetch PDFs…"(버튼 누를 때만 다운로드, 확인 시 저장). 운영 대상 8건. 매장 지정은 별칭 저장이 전제(Bill To: Olitin Pty Ltd = Sushi). 10건 $4,800 PENDING 실제 지급 여부는 여전히 사장님 확인 필요. 시험: 링크 찾기·거부 규칙·PDF 판별·크기 제한·내부 리다이렉트 거부 통과(가짜 응답, 외부 다운로드 없음).
+  - 59df4b2 배포(2026-10-19) 후 "Fetch PDFs…" 미리보기에서 8건 모두 "link no longer works" → 증거: 링크는 살아 있음(HEAD 200, application/pdf), 크기 10,703,259바이트 > 한도 10MB. 수정(배포 승인 대기): 한도 25MB.
+  - 함께 발견·수정: `/api/invoices`가 목록마다 PDF base64 전체를 내려보내 AP 화면 1회 로딩이 약 153MB(기존 문제, 1-2/1-3에서 더 커짐). 목록 응답에서 `pdfBase64`를 `true` 표시로 바꾸고 `_statementPdfBase64`는 제외 — 화면은 존재 여부만 쓰고 PDF는 `/api/supplier-invoices/:id/pdf`로 따로 받음. 화면이 기록을 통째로 되돌려 보내는 수정 요청이 없음을 확인(덮어쓰기 위험 없음).
 - [ ] NumberKeepers 가게 미지정 3건
 - [~] 등록 공급처 도메인 경보 (구현, 배포 승인 대기): `GET /api/rejected-emails/supplier-domain-alerts` + Rejected 탭 상단 빨간 안내 — 미검토 거절 메일 중 등록 공급처의 회사 도메인(무료 메일 도메인 제외)에서 온 PDF 첨부 메일. 운영 현재: Foodlink `noreply3@` 39통, Escalate `salesnsw@` 4통.
 - [x] 확인: Foodlink Payment Receipt — `noreply3@foodlinkaustralia.com.au`가 영수증 19통과 **Tax Invoice 19통**(제목 "FOODLINK Inv SI… Cust No …", 4/22~10/8), 크레딧 노트 1통을 보냄. 등록 주소는 `orders@`뿐이라 6개월간 전부 거절됨(Pearl과 같은 문제). 원본 회수 제목 규칙에 "Inv" 추가(영수증·크레딧은 계속 제외). 사장님이 `noreply3@`를 Foodlink에 추가 후 "Recover originals…" 실행 필요. Foodlink는 자동이체 공급처라 새로 생긴 기록은 15분 자동이체 처리로 PAID(영수증이 결제 증거).

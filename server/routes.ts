@@ -3417,8 +3417,17 @@ export async function registerRoutes(
         const prev = paidAtByInvoice.get(p.invoiceId);
         if (!prev || p.createdAt > prev) paidAtByInvoice.set(p.invoiceId, p.createdAt);
       }
+      // The list only needs to know a PDF exists (the viewer fetches it from
+      // /api/supplier-invoices/:id/pdf). Shipping the base64 made every AP load
+      // ~150 MB; replace it with a flag and drop the kept statement copy.
+      const slim = (raw: any) => {
+        if (!raw || typeof raw !== "object") return raw;
+        const { pdfBase64, _statementPdfBase64, ...rest } = raw;
+        return pdfBase64 ? { ...rest, pdfBase64: true } : rest;
+      };
       const enriched = invoices.map(inv => ({
         ...inv,
+        rawExtractedData: slim(inv.rawExtractedData),
         supplier: supplierMap.get(inv.supplierId) ?? null,
         docStatus: getDocStatus(inv.id) ?? null,
         paidAt: paidAtByInvoice.get(inv.id) ?? null,

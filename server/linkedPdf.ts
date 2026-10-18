@@ -3,7 +3,7 @@
 // Fetch such PDFs so they go through the normal attachment pipeline.
 // Callers only pass bodies from whitelisted supplier senders; this still refuses
 // anything that isn't a public https URL returning a real PDF of sane size.
-const MAX_BYTES = 10 * 1024 * 1024;
+const MAX_BYTES = 25 * 1024 * 1024; // Total Equipment's monthly PDFs are ~10.2 MB
 const PDF_LINK = /https:\/\/[^\s"'<>()]+?\.pdf(?=[\s"'<>()?#]|$)/gi;
 
 function isPublicHttps(raw: string): boolean {
