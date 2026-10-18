@@ -1741,6 +1741,7 @@ export function AdminAccountsPayable() {
 
         {/* ── TO PAY ── */}
         {activeTab === "topay" && <AutoPaySettlePanel />}
+        {activeTab === "topay" && <LinkedPdfPanel />}
         {activeTab === "topay" && (
           isLoading ? (
             <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
@@ -2865,6 +2866,7 @@ export function AdminAccountsPayable() {
         )}
 
         {/* ── REJECTED (whitelist misses) ── */}
+        {activeTab === "rejected" && <SupplierDomainAlerts />}
         {activeTab === "rejected" && (
           rejectedLoading ? (
             <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
@@ -3858,6 +3860,97 @@ function AutoPaySettlePanel() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+type LinkedPdfRow = { id: string; supplier: string; invoiceNumber: string; amount: number; action: string; store?: string | null; hadStore?: boolean };
+
+// Invoices that arrived as a download link in the email body (no PDF kept).
+function LinkedPdfPanel() {
+  const { toast } = useToast();
+  const [preview, setPreview] = useState<LinkedPdfRow[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const { data, refetch } = useQuery<{ count: number }>({ queryKey: ["/api/invoices/linked-pdf/backfill"] });
+  if (!data?.count) return null;
+  const run = async (apply: boolean) => (await apiRequest("POST", "/api/invoices/linked-pdf/backfill", { apply })).json();
+  const ok = preview?.filter(r => r.action === "attach") ?? [];
+  return (
+    <div className="mb-3 rounded-md border border-blue-300/50 bg-blue-50 dark:bg-blue-950/20 p-3 flex items-center justify-between gap-3">
+      <div className="text-xs text-blue-800 dark:text-blue-200 min-w-0">
+        <strong>{data.count} invoices came as a download link</strong> — the PDF was never kept. Fetch them so the original is on file and the store is read from "Bill To".
+      </div>
+      <Button size="sm" variant="outline" className="gap-1.5 shrink-0" disabled={busy}
+        onClick={async () => { setBusy(true); try { setPreview((await run(false)).rows); } catch (e: any) { toast({ title: "Preview failed", description: e?.message ?? "Try again.", variant: "destructive" }); } finally { setBusy(false); } }}
+        data-testid="button-linked-pdf-preview">
+        {busy && !preview ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+        Fetch PDFs…
+      </Button>
+      <AlertDialog open={preview !== null} onOpenChange={(o) => { if (!o && !busy) setPreview(null); }}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Fetch linked invoice PDFs</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p><strong>{ok.length}</strong> of {preview?.length ?? 0} PDFs fetched and their amounts match. Amount and paid status don't change.</p>
+                <table className="w-full text-xs">
+                  <thead><tr className="text-left text-muted-foreground"><th>Supplier</th><th>Invoice #</th><th className="text-right">Amount</th><th>Result</th></tr></thead>
+                  <tbody>
+                    {(preview ?? []).map(r => (
+                      <tr key={r.id}>
+                        <td>{r.supplier}</td><td className="font-mono">{r.invoiceNumber}</td><td className="text-right">{fmtAUD(r.amount)}</td>
+                        <td>{r.action === "attach" ? (r.store ? `attach · store → ${r.store}` : r.hadStore ? "attach" : "attach · store not found") : r.action === "link_unavailable" ? "link no longer works" : "amount not on PDF"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={busy || ok.length === 0}
+              onClick={async (e) => {
+                e.preventDefault(); setBusy(true);
+                try {
+                  const r = await run(true);
+                  queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+                  await refetch();
+                  toast({ title: "PDFs attached", description: `${r.rows.filter((x: LinkedPdfRow) => x.action === "attach").length} invoices now have their PDF.` });
+                  setPreview(null);
+                } catch (err: any) {
+                  toast({ title: "Failed", description: err?.message ?? "Try again.", variant: "destructive" });
+                } finally { setBusy(false); }
+              }}
+              data-testid="button-linked-pdf-confirm">
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+              Attach {ok.length} PDFs
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+type DomainAlert = { supplier_id: string; supplier_name: string; sender_email: string; n: number; last_at: string; last_subject: string | null };
+
+// A known supplier's company address sending PDFs that the whitelist blocked.
+function SupplierDomainAlerts() {
+  const { data } = useQuery<DomainAlert[]>({ queryKey: ["/api/rejected-emails/supplier-domain-alerts"] });
+  if (!data?.length) return null;
+  return (
+    <div className="mb-3 rounded-md border border-red-300/60 bg-red-50 dark:bg-red-950/20 p-3 text-xs text-red-800 dark:text-red-200 space-y-1.5">
+      <p className="font-semibold">Possible invoices blocked — sender works at a supplier you already have</p>
+      <ul className="space-y-1">
+        {data.map(a => (
+          <li key={a.sender_email}>
+            <span className="font-mono">{a.sender_email}</span> → <strong>{a.supplier_name}</strong>: {a.n} email{a.n > 1 ? "s" : ""} with a PDF, last {fmtReceived(a.last_at)}
+            {a.last_subject ? <span className="opacity-80"> — “{a.last_subject.slice(0, 80)}”</span> : null}
+          </li>
+        ))}
+      </ul>
+      <p className="opacity-90">If these are invoices: use <strong>"Add to supplier…"</strong> on one of the emails below, then <strong>"Recover originals…"</strong> to bring the blocked ones in.</p>
     </div>
   );
 }

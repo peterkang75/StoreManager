@@ -325,10 +325,11 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
   - [~] 발견·수정 (2026-10-16, 배포 승인 대기): 자동이체 공급처인데 Crew에 미지급으로 남은 인보이스 — 인보이스 생성 13곳 중 자동이체 처리는 웹훅·수동 등록 2곳뿐이라, 명세서 가져오기·검토 승인·재분석·분류함 경로로 만든 기록이 PENDING으로 남음(Bakery 23건 전부 해당, 명세서상 결제 확인). `server/autoPay.ts`: 대상 = 자동이체 공급처 + PENDING/OVERDUE + 금액 > 0 + 메모에 credit 없음 + 결제 기록 없음. 처리 = AUTO_DEBIT 결제 기록(지급일 = 만기일, 없으면 인보이스일; 결제 기록 시각도 그날 → Paid History가 그 날짜로 묶음) + PAID. 15분 자동 처리는 최근 24시간에 생긴 인보이스만(과거분은 건드리지 않음). 과거분은 To Pay 탭 "Review…" 확인창에서 사장님이 공급처를 체크해야만 처리(`POST /api/invoices/auto-pay/settle`). 운영 대상(읽기 전용): 40건 $17,107.38 — Bakery 23 $4,756.26 · Campos 4 $8,728.24 · Riverina 11 $2,859.88 · Foodlink 2 $763.00. 제외: Foodlink 크레딧 메모 SC333504(-$87.50), Campos $0 기록 TSBCN-SIN-0340974(확인 필요). 로컬 검증: Bakery만 체크 → 23건 처리, 지급일 = 만기일, 재실행 0건, 24시간 자동 처리 대상 0건.
 
 **덩어리 2 — 미인식 공급처**
-- [ ] Total Equipment: 본문 링크 PDF 다운로드(등록 공급처만), 파일명 `eatem`=Sandwich / `olitin`=Sushi로 가게 지정, 지난 10건 소급. 10건 $4,800 PENDING 실제 지급 여부 사장님 확인 필요.
+- [~] Total Equipment (2026-10-19 구현, 배포 승인 대기): `server/linkedPdf.ts` — 첨부가 없는 등록 공급처 메일이면 본문의 PDF 링크를 받아 첨부처럼 기존 흐름에 넣음(웹훅). 안전장치: https만, IP·localhost·내부 도메인 거부(리다이렉트 후에도), 15초, 10MB, `%PDF-` 확인. 과거분: 본문만 저장된 기록에서 링크를 다시 받아 PDF 부착 + 매장 비어 있으면 PDF "Bill To"를 매장 별칭으로 판별, 장부 금액이 PDF에 있어야만 사용 — To Pay 탭 "Fetch PDFs…"(버튼 누를 때만 다운로드, 확인 시 저장). 운영 대상 8건. 매장 지정은 별칭 저장이 전제(Bill To: Olitin Pty Ltd = Sushi). 10건 $4,800 PENDING 실제 지급 여부는 여전히 사장님 확인 필요. 시험: 링크 찾기·거부 규칙·PDF 판별·크기 제한·내부 리다이렉트 거부 통과(가짜 응답, 외부 다운로드 없음).
 - [ ] NumberKeepers 가게 미지정 3건
-- [ ] 등록 공급처 도메인에서 온 메일이 거절되면 경보
-- [ ] 확인 필요: Melrina Sydney(명세서 26통, 미등록), Foodlink Payment Receipt 39통(PDF)
+- [~] 등록 공급처 도메인 경보 (구현, 배포 승인 대기): `GET /api/rejected-emails/supplier-domain-alerts` + Rejected 탭 상단 빨간 안내 — 미검토 거절 메일 중 등록 공급처의 회사 도메인(무료 메일 도메인 제외)에서 온 PDF 첨부 메일. 운영 현재: Foodlink `noreply3@` 39통, Escalate `salesnsw@` 4통.
+- [x] 확인: Foodlink Payment Receipt — `noreply3@foodlinkaustralia.com.au`가 영수증 19통과 **Tax Invoice 19통**(제목 "FOODLINK Inv SI… Cust No …", 4/22~10/8), 크레딧 노트 1통을 보냄. 등록 주소는 `orders@`뿐이라 6개월간 전부 거절됨(Pearl과 같은 문제). 원본 회수 제목 규칙에 "Inv" 추가(영수증·크레딧은 계속 제외). 사장님이 `noreply3@`를 Foodlink에 추가 후 "Recover originals…" 실행 필요. Foodlink는 자동이체 공급처라 새로 생긴 기록은 15분 자동이체 처리로 PAID(영수증이 결제 증거).
+- [ ] 확인 필요: Melrina Sydney(명세서 26통, 미등록)
 
 ---
 

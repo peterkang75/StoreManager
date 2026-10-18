@@ -102,8 +102,9 @@ export async function recoverRejectedOriginals(
     if (!supplier) continue;
     const subject: string = r.subject ?? "";
     const base = { rejectedId: r.id, supplier: supplier.name, subject, receivedAt: r.received_at };
-    if (!/invoice/i.test(subject) || /receipt|statement|remittance|credit/i.test(subject)) { rows.push({ ...base, action: "skip_not_invoice" }); continue; }
-    const number = subject.match(/invoice\s*#?\s*:?\s*([A-Za-z0-9][A-Za-z0-9\-\/]*\d)/i)?.[1];
+    // "Inv" too: Foodlink's subjects read "FOODLINK Inv SI4631694 Cust No …"
+    if (!/\b(?:invoice|inv)\b/i.test(subject) || /receipt|statement|remittance|credit/i.test(subject)) { rows.push({ ...base, action: "skip_not_invoice" }); continue; }
+    const number = subject.match(/\b(?:invoice|inv)\s*#?\s*:?\s*([A-Za-z0-9][A-Za-z0-9\-\/]*\d)/i)?.[1];
     if (!number) { rows.push({ ...base, action: "skip_no_number" }); continue; }
     const key = `${supplier.id}|${invoiceKey(number)}`;
     if (seen.has(key)) { await (apply ? storage.markRejectedReviewed(r.id, true) : null); rows.push({ ...base, number, action: "duplicate_email" }); continue; }

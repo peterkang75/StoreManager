@@ -18,6 +18,7 @@ import { sweepLineItems, startLineItemSweep } from "./lineItemStore";
 import { reconcileStatements, fillMissingStatementDates } from "./statementRecon";
 import { resolveStoreFromAliases } from "./storeAliases";
 import { findAutoPayCandidates, settleAutoPay, startAutoPaySweep } from "./autoPay";
+import { fetchLinkedPdfs, backfillLinkedPdfs } from "./linkedPdf";
 import {
   insertStoreSchema,
   insertCandidateSchema,
@@ -4347,6 +4348,57 @@ export async function registerRoutes(
     }
   });
 
+  // Invoices that arrived as a body link only (Total Equipment): fetch the PDF,
+  // attach it, set the store from "Bill To". GET counts (no download); POST
+  // previews (apply=false, downloads) or applies after the owner confirms.
+  app.get("/api/invoices/linked-pdf/backfill", async (_req: Request, res: Response) => {
+    try {
+      const r = await db.execute(sql`SELECT count(*)::int n FROM supplier_invoices
+        WHERE status <> 'DELETED' AND coalesce(length(raw_extracted_data->>'pdfBase64'), 0) < 100
+          AND raw_extracted_data->>'body' ~* 'https://[^[:space:]]+\.pdf'`);
+      res.json({ count: (r as any).rows[0].n });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? "Failed" });
+    }
+  });
+  app.post("/api/invoices/linked-pdf/backfill", async (req: Request, res: Response) => {
+    try {
+      const stores = await storage.getStores();
+      res.json(await backfillLinkedPdfs(req.body?.apply === true, {
+        db, sql, extractText: extractPdfText,
+        resolveStore: (t) => resolveStoreFromAliases(t, stores as any),
+        storeName: (id) => stores.find(s => s.id === id)?.name ?? null,
+        update: (id, patch) => storage.updateSupplierInvoice(id, patch),
+      }));
+    } catch (err: any) {
+      console.error("Error backfilling linked PDFs:", err);
+      res.status(500).json({ error: err?.message ?? "Failed to fetch linked PDFs" });
+    }
+  });
+
+  // Rejected mail with a PDF from a known supplier's company domain — the Pearl
+  // case (invoices from daniel@ while only accounts@ was whitelisted, unseen for
+  // five months). Free-mail domains are ignored: they say nothing about the company.
+  app.get("/api/rejected-emails/supplier-domain-alerts", async (_req: Request, res: Response) => {
+    try {
+      const r = await db.execute(sql`
+        WITH dom AS (
+          SELECT DISTINCT s.id, s.name, lower(split_part(e, '@', 2)) d
+          FROM suppliers s, unnest(s.contact_emails) e
+          WHERE s.active AND split_part(e, '@', 2) <> ''
+            AND lower(split_part(e, '@', 2)) NOT IN ('gmail.com','hotmail.com','outlook.com','yahoo.com','icloud.com','live.com','bigpond.com','xero.com','post.xero.com'))
+        SELECT dom.id AS supplier_id, dom.name AS supplier_name, r.sender_email, count(*)::int n,
+               max(r.received_at) last_at, (array_agg(r.subject ORDER BY r.received_at DESC))[1] last_subject
+        FROM rejected_emails r JOIN dom ON lower(split_part(r.sender_email, '@', 2)) = dom.d
+        WHERE NOT r.reviewed AND r.raw_payload::text ILIKE '%application/pdf%'
+        GROUP BY 1, 2, 3 ORDER BY n DESC`);
+      res.json((r as any).rows);
+    } catch (err: any) {
+      console.error("Error building supplier-domain alerts:", err);
+      res.status(500).json({ error: err?.message ?? "Failed" });
+    }
+  });
+
   app.delete("/api/rejected-emails/:id", async (req: Request, res: Response) => {
     try {
       const ok = await storage.deleteRejectedEmail(req.params.id);
@@ -6736,6 +6788,16 @@ export async function registerRoutes(
         return name.endsWith(".pdf") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png")
           || type.includes("pdf") || type.includes("jpeg") || type.includes("png");
       });
+
+      // No attachment: the invoice may be a download link in the body (Total
+      // Equipment). Fetched PDFs then run through the normal attachment loop.
+      if (validInvoiceAttachments.length === 0) {
+        const linked = await fetchLinkedPdfs(`${emailBody}\n${payload?.html ?? ""}`);
+        if (linked.length > 0) {
+          console.log(`[Webhook] ${linked.length} linked PDF(s) fetched from the body for "${matchedSupplier.name}"`);
+          validInvoiceAttachments.push(...linked);
+        }
+      }
 
       if (validInvoiceAttachments.length === 0) {
         // ── Body-text fallback ─────────────────────────────────────────────
