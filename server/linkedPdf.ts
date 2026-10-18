@@ -75,18 +75,25 @@ export async function backfillLinkedPdfs(
     const att = (await Promise.all(findPdfLinks(r.raw?.body).map(fetchLinkedPdf))).find(Boolean);
     if (!att) { rows.push({ ...base, action: "link_unavailable" }); continue; }
     const text = await deps.extractText(Buffer.from(att.content, "base64"));
-    const amt = Number(r.amount).toFixed(2);
-    if (!text.includes(amt) && !text.includes(Number(r.amount).toLocaleString("en-AU", { minimumFractionDigits: 2 }))) {
-      rows.push({ ...base, action: "amount_not_on_pdf" }); continue;
-    }
-    const storeId = r.store_id ? null : deps.resolveStore(text);
+    const amounts = [Number(r.amount).toFixed(2), Number(r.amount).toLocaleString("en-AU", { minimumFractionDigits: 2 })];
+    const imageOnly = text.trim() === "";
+    // Total Equipment's PDFs are a single picture (jsPDF, no text layer). Then the
+    // email that carried the link has to name both this record's number and amount.
+    const body: string = r.raw?.body ?? "";
+    const verified = imageOnly
+      ? body.toLowerCase().includes(String(r.invoice_number).toLowerCase()) && amounts.some(a => body.includes(a))
+      : amounts.some(a => text.includes(a));
+    if (!verified) { rows.push({ ...base, action: imageOnly ? "image_pdf_body_mismatch" : "amount_not_on_pdf" }); continue; }
+    // store: from the PDF text, or for a picture-only PDF from its file name
+    // ("…Generated_olitin_…"); the body itself is skipped — it can quote other entities
+    const storeId = r.store_id ? null : deps.resolveStore(imageOnly ? att.file_name : text);
     if (apply) {
       await deps.update(r.id, {
         rawExtractedData: { ...r.raw, pdfBase64: att.content, _originalSource: `linked-pdf:${att.file_name}`, _originalAttachedAt: new Date().toISOString() },
         ...(storeId ? { storeId } : {}),
       });
     }
-    rows.push({ ...base, action: "attach", fileName: att.file_name, store: storeId ? deps.storeName(storeId) : null, hadStore: !!r.store_id });
+    rows.push({ ...base, action: "attach", checkedBy: imageOnly ? "email" : "pdf", fileName: att.file_name, store: storeId ? deps.storeName(storeId) : null, hadStore: !!r.store_id });
   }
   return { apply, rows };
 }

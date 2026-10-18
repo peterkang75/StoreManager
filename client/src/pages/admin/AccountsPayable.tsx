@@ -3864,7 +3864,7 @@ function AutoPaySettlePanel() {
   );
 }
 
-type LinkedPdfRow = { id: string; supplier: string; invoiceNumber: string; amount: number; action: string; store?: string | null; hadStore?: boolean };
+type LinkedPdfRow = { id: string; supplier: string; invoiceNumber: string; amount: number; action: string; checkedBy?: "pdf" | "email"; store?: string | null; hadStore?: boolean };
 
 // Invoices that arrived as a download link in the email body (no PDF kept).
 function LinkedPdfPanel() {
@@ -3892,14 +3892,17 @@ function LinkedPdfPanel() {
             <AlertDialogTitle>Fetch linked invoice PDFs</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-sm">
-                <p><strong>{ok.length}</strong> of {preview?.length ?? 0} PDFs fetched and their amounts match. Amount and paid status don't change.</p>
+                <p><strong>{ok.length}</strong> of {preview?.length ?? 0} PDFs fetched and matched to their record (by the amount on the PDF, or for picture-only PDFs by the number and amount in the email). Amount and paid status don't change.</p>
                 <table className="w-full text-xs">
                   <thead><tr className="text-left text-muted-foreground"><th>Supplier</th><th>Invoice #</th><th className="text-right">Amount</th><th>Result</th></tr></thead>
                   <tbody>
                     {(preview ?? []).map(r => (
                       <tr key={r.id}>
                         <td>{r.supplier}</td><td className="font-mono">{r.invoiceNumber}</td><td className="text-right">{fmtAUD(r.amount)}</td>
-                        <td>{r.action === "attach" ? (r.store ? `attach · store → ${r.store}` : r.hadStore ? "attach" : "attach · store not found") : r.action === "link_unavailable" ? "link no longer works" : "amount not on PDF"}</td>
+                        <td>{r.action === "attach"
+                          ? `attach${r.checkedBy === "email" ? " (picture PDF, checked by email)" : ""}${r.store ? ` · store → ${r.store}` : r.hadStore ? "" : " · set store yourself"}`
+                          : r.action === "link_unavailable" ? "link no longer works"
+                          : r.action === "image_pdf_body_mismatch" ? "picture PDF, email doesn't match" : "amount not on PDF"}</td>
                       </tr>
                     ))}
                   </tbody>
