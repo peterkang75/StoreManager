@@ -1,0 +1,319 @@
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
+import { AdminLayout } from "@/components/layouts/AdminLayout";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Loader2, Plus, Search, TrendingDown, TrendingUp } from "lucide-react";
+import type { Supplier } from "@shared/schema";
+
+type ProductRow = {
+  id: string; supplierId: string; supplierName: string; name: string; brand: string | null; sku: string | null;
+  unit: string | null; kind: "goods" | "fee"; hidden: boolean; source: "invoice" | "manual";
+  lastPrice: number | null; lastDate: string | null; prevPrice: number | null; buyCount: number; avgQty: number | null;
+};
+type PriceRow = {
+  id: string; date: string; unitPrice: number | null; qty: number | null; unit: string | null; lineTotal: number | null;
+  source: "invoice" | "manual"; note: string | null; invoiceNumber: string | null; store: string | null;
+};
+
+const aud = (n: number | null | undefined) => (n == null ? "—" : `$${n.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+const day = (d: string | null | undefined) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString("ko-KR", { year: "numeric", month: "short", day: "numeric" }) : "—");
+const pct = (last: number | null, prev: number | null) => (last == null || prev == null || prev === 0 ? null : ((last - prev) / prev) * 100);
+
+function Change({ last, prev }: { last: number | null; prev: number | null }) {
+  const p = pct(last, prev);
+  if (p == null) return <span className="text-muted-foreground">—</span>;
+  const up = p > 0;
+  const Icon = up ? TrendingUp : TrendingDown;
+  return (
+    <span className={`inline-flex items-center gap-1 ${up ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300"}`}
+      title={`이전 단가 ${aud(prev)} → 지금 ${aud(last)}`}>
+      <Icon className="h-3.5 w-3.5" aria-hidden />{up ? "인상" : "인하"} {Math.abs(p).toFixed(1)}%
+    </span>
+  );
+}
+
+export function AdminProducts() {
+  const [q, setQ] = useState("");
+  const [supplierId, setSupplierId] = useState("all");
+  const [includeFees, setIncludeFees] = useState(false);
+  const [includeHidden, setIncludeHidden] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+
+  const params = new URLSearchParams();
+  if (supplierId !== "all") params.set("supplierId", supplierId);
+  if (q.trim()) params.set("q", q.trim());
+  if (includeFees) params.set("includeFees", "true");
+  if (includeHidden) params.set("includeHidden", "true");
+  const { data: products = [], isLoading } = useQuery<ProductRow[]>({ queryKey: [`/api/products?${params.toString()}`] });
+  const { data: suppliers = [] } = useQuery<Supplier[]>({ queryKey: ["/api/suppliers"] });
+  const activeSuppliers = suppliers.filter(s => s.active).sort((a, b) => a.name.localeCompare(b.name));
+  const filtersOff = !q.trim() && supplierId === "all" && !includeHidden;
+
+  return (
+    <AdminLayout title="Products">
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden />
+            <Input className="pl-8" placeholder="상품 검색 (예: 연어, milk, 마요네즈)" value={q} onChange={e => setQ(e.target.value)} data-testid="input-product-search" />
+          </div>
+          <Select value={supplierId} onValueChange={setSupplierId}>
+            <SelectTrigger className="w-[220px]" data-testid="select-product-supplier"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">모든 공급처</SelectItem>
+              {activeSuppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <label className="flex items-center gap-2 text-sm"><Switch checked={includeFees} onCheckedChange={setIncludeFees} />비용 항목 포함</label>
+          <label className="flex items-center gap-2 text-sm"><Switch checked={includeHidden} onCheckedChange={setIncludeHidden} />숨긴 상품 포함</label>
+          <Button size="sm" className="gap-1.5" onClick={() => setAdding(true)} data-testid="button-product-add"><Plus className="h-4 w-4" />상품 추가</Button>
+        </div>
+
+        {!isLoading && products.length === 0 && filtersOff && <FirstFillPanel />}
+
+        <div className="rounded-md border overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/40 text-xs text-muted-foreground">
+              <tr className="text-left">
+                <th className="py-2 px-3">상품</th><th className="py-2 px-3">공급처</th><th className="py-2 px-3">단위</th>
+                <th className="py-2 px-3 text-right">최근 단가</th><th className="py-2 px-3">이전 대비</th>
+                <th className="py-2 px-3">최근 구매</th><th className="py-2 px-3 text-right">구매 횟수</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <tr><td colSpan={7} className="py-10 text-center text-muted-foreground"><Loader2 className="inline h-4 w-4 animate-spin mr-2" />불러오는 중…</td></tr>
+              ) : products.length === 0 ? (
+                <tr><td colSpan={7} className="py-10 text-center text-muted-foreground">조건에 맞는 상품이 없습니다.</td></tr>
+              ) : products.map(p => (
+                <tr key={p.id} className={`border-t cursor-pointer hover:bg-muted/30 ${p.hidden ? "opacity-50" : ""}`} onClick={() => setOpenId(p.id)} data-testid={`row-product-${p.id}`}>
+                  <td className="py-2 px-3">
+                    <div className="font-medium">{p.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {[p.brand, p.sku && `코드 ${p.sku}`, p.source === "manual" && "직접 등록", p.kind === "fee" && "비용 항목", p.hidden && "숨김"].filter(Boolean).join(" · ")}
+                    </div>
+                  </td>
+                  <td className="py-2 px-3">{p.supplierName}</td>
+                  <td className="py-2 px-3">{p.unit ?? "—"}</td>
+                  <td className="py-2 px-3 text-right font-mono">{aud(p.lastPrice)}</td>
+                  <td className="py-2 px-3 text-xs"><Change last={p.lastPrice} prev={p.prevPrice} /></td>
+                  <td className="py-2 px-3 whitespace-nowrap">{day(p.lastDate)}</td>
+                  <td className="py-2 px-3 text-right">{p.buyCount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {openId && <ProductDialog id={openId} row={products.find(p => p.id === openId) ?? null} onClose={() => setOpenId(null)} />}
+      {adding && <AddProductDialog suppliers={activeSuppliers} onClose={() => setAdding(false)} />}
+    </AdminLayout>
+  );
+}
+
+const invalidateProducts = () => queryClient.invalidateQueries({ predicate: q => String(q.queryKey[0]).startsWith("/api/products") });
+
+// First fill of the catalogue from invoice items: preview, then the owner confirms.
+function FirstFillPanel() {
+  const { toast } = useToast();
+  const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<{ invoices: number; prices: number; newProducts: number; bySupplier: Record<string, { invoices: number; prices: number; newProducts: number }> } | null>(null);
+  const run = async (apply: boolean) => (await apiRequest("POST", "/api/products/sync", { apply })).json();
+  return (
+    <div className="rounded-md border border-blue-300/50 bg-blue-50 dark:bg-blue-950/20 p-3 flex items-center justify-between gap-3">
+      <div className="text-xs text-blue-800 dark:text-blue-200">
+        <strong>상품 장부가 비어 있습니다.</strong> 지금까지 인보이스에서 읽은 품목으로 상품 카드와 가격 기록을 만듭니다. 숫자를 먼저 보여 드리고, 확인을 누르면 저장합니다. 그다음부터는 자동으로 채워집니다.
+      </div>
+      <Button size="sm" variant="outline" className="shrink-0" disabled={busy}
+        onClick={async () => { setBusy(true); try { setPreview(await run(false)); } catch (e: any) { toast({ title: "미리보기에 실패했습니다", description: e?.message, variant: "destructive" }); } finally { setBusy(false); } }}
+        data-testid="button-products-fill-preview">
+        {busy && !preview ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}상품 장부 채우기…
+      </Button>
+      <Dialog open={preview !== null} onOpenChange={o => { if (!o && !busy) setPreview(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>상품 장부 채우기</DialogTitle></DialogHeader>
+          {preview && (
+            <div className="space-y-2 text-sm">
+              <p>상품 카드 <strong>{preview.newProducts}</strong>개, 가격 기록 <strong>{preview.prices}</strong>줄을 만듭니다(인보이스 {preview.invoices}장).</p>
+              <table className="w-full text-xs">
+                <thead><tr className="text-left text-muted-foreground"><th>공급처</th><th className="text-right">인보이스</th><th className="text-right">상품</th><th className="text-right">가격 기록</th></tr></thead>
+                <tbody>{Object.entries(preview.bySupplier).sort((a, b) => b[1].prices - a[1].prices).map(([n, v]) => (
+                  <tr key={n}><td>{n}</td><td className="text-right">{v.invoices}</td><td className="text-right">{v.newProducts}</td><td className="text-right">{v.prices}</td></tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" disabled={busy} onClick={() => setPreview(null)}>취소</Button>
+            <Button disabled={busy || !preview?.prices}
+              onClick={async () => {
+                setBusy(true);
+                try { const r = await run(true); invalidateProducts(); toast({ title: "상품 장부를 채웠습니다", description: `상품 ${r.newProducts}개, 가격 기록 ${r.prices}줄` }); setPreview(null); }
+                catch (e: any) { toast({ title: "저장에 실패했습니다", description: e?.message, variant: "destructive" }); }
+                finally { setBusy(false); }
+              }}
+              data-testid="button-products-fill-confirm">
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}채우기
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+const chartConfig = { unitPrice: { label: "단가", color: "hsl(var(--chart-2))" } } satisfies ChartConfig;
+
+function ProductDialog({ id, row, onClose }: { id: string; row: ProductRow | null; onClose: () => void }) {
+  const { toast } = useToast();
+  const { data: history = [], isLoading } = useQuery<PriceRow[]>({ queryKey: [`/api/products/${id}/prices`] });
+  const [name, setName] = useState(row?.name ?? "");
+  const [brand, setBrand] = useState(row?.brand ?? "");
+  const [unit, setUnit] = useState(row?.unit ?? "");
+  const [hidden, setHidden] = useState(row?.hidden ?? false);
+  const [fee, setFee] = useState(row?.kind === "fee");
+  const [price, setPrice] = useState(""); const [date, setDate] = useState(""); const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const points = useMemo(() => history.filter(h => h.unitPrice != null).map(h => ({ date: h.date, unitPrice: h.unitPrice })), [history]);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await apiRequest("PATCH", `/api/products/${id}`, { name, brand, unit, hidden, kind: fee ? "fee" : "goods" });
+      invalidateProducts(); toast({ title: "저장했습니다" }); onClose();
+    } catch (e: any) { toast({ title: "저장에 실패했습니다", description: e?.message, variant: "destructive" }); }
+    finally { setBusy(false); }
+  };
+  const addPrice = async () => {
+    if (!(Number(price) >= 0) || price === "") { toast({ title: "단가를 숫자로 넣어 주세요", variant: "destructive" }); return; }
+    setBusy(true);
+    try {
+      await apiRequest("POST", `/api/products/${id}/prices`, { price: Number(price), date: date || null, unit: unit || null, note: note || null });
+      setPrice(""); setNote(""); invalidateProducts(); toast({ title: "가격을 기록했습니다" });
+    } catch (e: any) { toast({ title: "기록에 실패했습니다", description: e?.message, variant: "destructive" }); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Dialog open onOpenChange={o => { if (!o && !busy) onClose(); }}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader><DialogTitle>{row?.name ?? "상품"} <span className="text-sm font-normal text-muted-foreground">· {row?.supplierName}</span></DialogTitle></DialogHeader>
+
+        <div className="space-y-1">
+          <p className="text-sm font-medium">단가 변화{row?.unit ? ` (${row.unit}당)` : ""}</p>
+          {isLoading ? <p className="text-sm text-muted-foreground">불러오는 중…</p>
+            : points.length < 2 ? <p className="text-sm text-muted-foreground">가격 기록이 {points.length}건이라 그래프를 그릴 수 없습니다.</p>
+            : (
+              <ChartContainer config={chartConfig} className="h-[220px] w-full">
+                <LineChart data={points} margin={{ left: 8, right: 16, top: 8, bottom: 0 }}>
+                  <CartesianGrid vertical={false} strokeOpacity={0.4} />
+                  <XAxis dataKey="date" tickLine={false} axisLine={false} minTickGap={32} tickFormatter={d => new Date(`${d}T00:00:00`).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" })} />
+                  <YAxis tickLine={false} axisLine={false} width={56} domain={["auto", "auto"]} tickFormatter={v => `$${Number(v).toFixed(2)}`} />
+                  <ChartTooltip content={<ChartTooltipContent labelFormatter={(_, p) => day(p?.[0]?.payload?.date)} formatter={v => aud(Number(v))} />} />
+                  <Line dataKey="unitPrice" type="monotone" stroke="var(--color-unitPrice)" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                </LineChart>
+              </ChartContainer>
+            )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div><Label>상품명</Label><Input value={name} onChange={e => setName(e.target.value)} /></div>
+          <div><Label>브랜드</Label><Input value={brand} onChange={e => setBrand(e.target.value)} placeholder="예: Birch & Waite" /></div>
+          <div><Label>단위</Label><Input value={unit} onChange={e => setUnit(e.target.value)} placeholder="예: EA, KG, CTN" /></div>
+          <div className="flex items-end gap-4 text-sm">
+            <label className="flex items-center gap-2"><Switch checked={hidden} onCheckedChange={setHidden} />숨기기</label>
+            <label className="flex items-center gap-2"><Switch checked={fee} onCheckedChange={setFee} />비용 항목(상품 아님)</label>
+          </div>
+        </div>
+
+        <div className="rounded-md border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/40 text-xs text-muted-foreground">
+              <tr className="text-left"><th className="py-1.5 px-3">날짜</th><th className="py-1.5 px-3 text-right">단가</th><th className="py-1.5 px-3 text-right">수량</th><th className="py-1.5 px-3">매장</th><th className="py-1.5 px-3">출처</th></tr>
+            </thead>
+            <tbody>
+              {[...history].reverse().map(h => (
+                <tr key={h.id} className="border-t">
+                  <td className="py-1.5 px-3 whitespace-nowrap">{day(h.date)}</td>
+                  <td className="py-1.5 px-3 text-right font-mono">{aud(h.unitPrice)}</td>
+                  <td className="py-1.5 px-3 text-right">{h.qty ?? "—"} {h.unit ?? ""}</td>
+                  <td className="py-1.5 px-3">{h.store ?? "—"}</td>
+                  <td className="py-1.5 px-3 text-xs text-muted-foreground">{h.source === "manual" ? `직접 입력${h.note ? ` · ${h.note}` : ""}` : `인보이스 ${h.invoiceNumber ?? ""}`}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-2">
+          <div><Label>단가 직접 기록</Label><Input className="w-28" inputMode="decimal" value={price} onChange={e => setPrice(e.target.value)} placeholder="예: 12.50" /></div>
+          <div><Label>날짜</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
+          <div className="flex-1 min-w-[160px]"><Label>메모</Label><Input value={note} onChange={e => setNote(e.target.value)} placeholder="예: 전화 견적" /></div>
+          <Button variant="outline" disabled={busy} onClick={addPrice}>기록 추가</Button>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" disabled={busy} onClick={onClose}>닫기</Button>
+          <Button disabled={busy} onClick={save} data-testid="button-product-save">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}저장</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AddProductDialog({ suppliers, onClose }: { suppliers: Supplier[]; onClose: () => void }) {
+  const { toast } = useToast();
+  const [supplierId, setSupplierId] = useState("");
+  const [name, setName] = useState(""); const [brand, setBrand] = useState(""); const [unit, setUnit] = useState("");
+  const [price, setPrice] = useState(""); const [date, setDate] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!supplierId || !name.trim()) { toast({ title: "공급처와 상품명을 넣어 주세요", variant: "destructive" }); return; }
+    setBusy(true);
+    try {
+      await apiRequest("POST", "/api/products", { supplierId, name, brand, unit, price: price === "" ? null : Number(price), priceDate: date || null });
+      invalidateProducts(); toast({ title: "상품을 추가했습니다" }); onClose();
+    } catch (e: any) { toast({ title: "추가에 실패했습니다", description: e?.message, variant: "destructive" }); }
+    finally { setBusy(false); }
+  };
+  return (
+    <Dialog open onOpenChange={o => { if (!o && !busy) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>상품 직접 추가</DialogTitle></DialogHeader>
+        <p className="text-xs text-muted-foreground">인보이스가 오지 않는 공급처(예: Yangzi River, Cn Paultry)의 상품을 등록합니다. 나중에 인보이스가 오면 그 가격도 함께 쌓입니다.</p>
+        <div className="space-y-3">
+          <div>
+            <Label>공급처</Label>
+            <Select value={supplierId} onValueChange={setSupplierId}>
+              <SelectTrigger data-testid="select-add-product-supplier"><SelectValue placeholder="공급처 선택" /></SelectTrigger>
+              <SelectContent>{suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div><Label>상품명</Label><Input value={name} onChange={e => setName(e.target.value)} placeholder="예: 간장 1.8L" /></div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><Label>브랜드</Label><Input value={brand} onChange={e => setBrand(e.target.value)} /></div>
+            <div><Label>단위</Label><Input value={unit} onChange={e => setUnit(e.target.value)} placeholder="예: EA, CTN" /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><Label>단가 (선택)</Label><Input inputMode="decimal" value={price} onChange={e => setPrice(e.target.value)} /></div>
+            <div><Label>날짜</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" disabled={busy} onClick={onClose}>취소</Button>
+          <Button disabled={busy} onClick={submit} data-testid="button-add-product-confirm">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}추가</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

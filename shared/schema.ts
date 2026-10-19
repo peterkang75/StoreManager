@@ -561,6 +561,45 @@ export const invoiceLineItemRuns = pgTable("invoice_line_item_runs", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Product catalogue (created in bootstrap-migrations). product_key identifies a
+// supplier's product across invoices: "SKU:<code>" or "DESC:<letters+digits>".
+// kind: goods | fee (surcharges, freight, rent…). source: invoice | manual.
+export const supplierProducts = pgTable("supplier_products", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  supplierId: varchar("supplier_id").references(() => suppliers.id).notNull(),
+  productKey: text("product_key").notNull(),
+  name: text("name").notNull(),
+  nameEdited: boolean("name_edited").default(false).notNull(), // owner renamed it: invoices no longer overwrite
+  rawDescription: text("raw_description"),
+  sku: text("sku"),
+  brand: text("brand"),
+  unit: text("unit"),
+  kind: text("kind").default("goods").notNull(),
+  hidden: boolean("hidden").default(false).notNull(),
+  source: text("source").default("invoice").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type SupplierProduct = typeof supplierProducts.$inferSelect;
+
+// Price history per product: one row per invoice line (source=invoice) or a
+// price the owner entered (source=manual).
+export const productPrices = pgTable("product_prices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  productId: varchar("product_id").references(() => supplierProducts.id, { onDelete: "cascade" }).notNull(),
+  priceDate: text("price_date").notNull(),
+  unitPrice: real("unit_price"),
+  qty: real("qty"),
+  unit: text("unit"),
+  lineTotal: real("line_total"),
+  invoiceId: varchar("invoice_id").references(() => supplierInvoices.id, { onDelete: "set null" }),
+  storeId: varchar("store_id").references(() => stores.id),
+  source: text("source").default("invoice").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type ProductPrice = typeof productPrices.$inferSelect;
+
 // PLAN 6.2.2 1-3: supplier statements stored apart from invoices (created in
 // bootstrap-migrations). parse_status: PARSED | NO_RULE | UNASSIGNED | GOVERNMENT.
 export const supplierStatements = pgTable("supplier_statements", {

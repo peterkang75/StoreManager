@@ -18,6 +18,7 @@ import { sweepLineItems, startLineItemSweep } from "./lineItemStore";
 import { reconcileStatements, fillMissingStatementDates } from "./statementRecon";
 import { resolveStoreFromAliases } from "./storeAliases";
 import { startAutoPaySweep } from "./autoPay";
+import { syncProducts, startProductSync, listProducts, productHistory, createManualProduct, addManualPrice, updateProduct } from "./productStore";
 import { fetchLinkedPdfs, backfillLinkedPdfs } from "./linkedPdf";
 import {
   insertStoreSchema,
@@ -3393,6 +3394,7 @@ export async function registerRoutes(
   startDocStatusRefresh();
   startLineItemSweep();
   startAutoPaySweep();
+  startProductSync();
   fillMissingStatementDates().catch(err => console.warn("[statementRecon] date fill failed:", err?.message ?? err));
 
   app.get("/api/invoices", async (req: Request, res: Response) => {
@@ -4390,6 +4392,60 @@ export async function registerRoutes(
       console.error("Error building supplier-domain alerts:", err);
       res.status(500).json({ error: err?.message ?? "Failed" });
     }
+  });
+
+  // ── Product catalogue (stage A) — ADMIN-only by default (no route-key mapping) ──
+  app.get("/api/products", async (req: Request, res: Response) => {
+    try {
+      res.json(await listProducts({
+        supplierId: typeof req.query.supplierId === "string" && req.query.supplierId ? req.query.supplierId : undefined,
+        q: typeof req.query.q === "string" ? req.query.q : undefined,
+        includeHidden: req.query.includeHidden === "true",
+        includeFees: req.query.includeFees === "true",
+      }));
+    } catch (err: any) { console.error("Error listing products:", err); res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.get("/api/products/:id/prices", async (req: Request, res: Response) => {
+    try { res.json(await productHistory(req.params.id)); }
+    catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
+  // first fill is previewed (apply=false) and confirmed by the owner; afterwards the 15-min sync keeps it current
+  app.post("/api/products/sync", async (req: Request, res: Response) => {
+    try { res.json(await syncProducts(req.body?.apply === true)); }
+    catch (err: any) { console.error("Error syncing products:", err); res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.post("/api/products", async (req: Request, res: Response) => {
+    try {
+      const b = req.body ?? {};
+      if (typeof b.supplierId !== "string" || typeof b.name !== "string" || !b.name.trim()) return res.status(400).json({ error: "supplierId and name are required" });
+      const price = b.price === "" || b.price == null ? null : Number(b.price);
+      if (price != null && !(price >= 0)) return res.status(400).json({ error: "price must be a number ≥ 0" });
+      const id = await createManualProduct({ supplierId: b.supplierId, name: b.name.trim(), unit: b.unit || null, brand: b.brand || null, price, priceDate: b.priceDate || null, note: b.note || null });
+      res.json({ id });
+    } catch (err: any) { res.status(400).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.patch("/api/products/:id", async (req: Request, res: Response) => {
+    try {
+      const b = req.body ?? {};
+      if (b.kind !== undefined && b.kind !== "goods" && b.kind !== "fee") return res.status(400).json({ error: "kind must be goods or fee" });
+      await updateProduct(req.params.id, {
+        name: typeof b.name === "string" && b.name.trim() ? b.name.trim() : undefined,
+        brand: b.brand === undefined ? undefined : (b.brand || null),
+        unit: b.unit === undefined ? undefined : (b.unit || null),
+        hidden: typeof b.hidden === "boolean" ? b.hidden : undefined,
+        kind: b.kind,
+      });
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.post("/api/products/:id/prices", async (req: Request, res: Response) => {
+    try {
+      const price = Number(req.body?.price);
+      if (!(price >= 0)) return res.status(400).json({ error: "price must be a number ≥ 0" });
+      const qty = req.body?.qty === "" || req.body?.qty == null ? null : Number(req.body.qty);
+      await addManualPrice(req.params.id, { price, date: req.body?.date || null, qty, unit: req.body?.unit || null, note: req.body?.note || null });
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
   });
 
   app.delete("/api/rejected-emails/:id", async (req: Request, res: Response) => {

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { 
+  Boxes,
   Store, 
   Users, 
   UserCheck, 
@@ -72,6 +73,7 @@ const financeNavItems = [
   { title: "Cash Flow",        url: "/admin/finance",              icon: ArrowLeftRight },
   { title: "Cash & Close",     url: "/admin/cash",                 icon: Wallet },
   { title: "Suppliers",        url: "/admin/suppliers",            icon: Truck },
+  { title: "Products",         url: "/admin/products",             icon: Boxes },
   { title: "Invoices",         url: "/admin/suppliers/invoices",   icon: FileText },
 ];
 

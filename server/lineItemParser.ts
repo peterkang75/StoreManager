@@ -55,6 +55,16 @@ interface Family {
   rowStart?: RegExp;       // a line that begins an item: drop whatever was buffered before it
 }
 
+// Foodlink prints its three totals as bare figures after their labels:
+// "Total AUD Excl. GST / GST Amount / Total AUD Incl. GST" then "470.20 / 0.30 / 470.50".
+function foodlinkTotals(t: string): [number, number] | null {
+  const ls = t.split(/[\n\f]/).map(l => l.trim());
+  const at = ls.findIndex(l => l === "Total AUD Incl. GST");
+  if (at < 0) return null;
+  const nums = ls.slice(at + 1).filter(l => /^-?[\d,]+\.\d{2}$/.test(l)).slice(0, 3).map(l => Number(l.replace(/,/g, "")));
+  return nums.length === 3 ? [nums[0], nums[2]] : null;
+}
+
 // Campos (Sage) prints its totals as bare figures above their labels.
 function camposTotals(t: string): [number, number] | null {
   const ls = t.split("\n").map(l => l.trim());
@@ -126,6 +136,20 @@ const FAMILIES: Family[] = [
     gstPerLine: true,
     itemsTotal: t => camposTotals(t)?.[0] ?? null,
     docTotal: t => camposTotals(t)?.[1] ?? null,
+  },
+  {
+    // Foodlink (NAV): "code name" / brand on the next line / "[origin] qty UOM price [disc] [GST] amount".
+    // A line with a single figure (an item not supplied) never closes a row; the next code resets it.
+    name: "foodlink",
+    header: /^No\. Description\b/m,
+    // multi-page invoices repeat the footer and header, so the items end at the totals
+    end: /^Total AUD Excl\. GST$/,
+    skip: /^(?:No\. Description\b.*|Country of|Origin|Qty\.? UOM Weight|Unit Price|Price Excl\.|GST|Disc % GST|Total Amount|Amount|Excl\. GST|Property of these goods.*|Any claims must.*|Payment Details.*|no\.|MSC Certification.*|Due Date|Terms .*|\d{2}\/\d{2}\/\d{4}(?: Continued \.\.\.)?|Phone No\.|Page \d+ of \d+|\(02\) .*|Kingsgrove, \d+|3 The Crescent.*|Foodlink Australia Pty Ltd|Tax Invoice .*|Website|E-Mail|www\..*|orders@.*|\d{11}|Australia|ABN|KOGARAH NSW \d+|K2, KOGARAH.*|PETER KANG|EATEM PTY LTD|EATEM SANDWICHES KOGARAH|TO: .*|Date: .*|Contact:.*|Your Ref:.*|Sales:.*|Int\. Info:.*)$/,
+    rowStart: /^\d{6}\s/,
+    rowEnd: new RegExp(String.raw`(?:^|\s)-?[\d.]+\s+(?:[A-Z]+(?:-\d+)?\s+)?(?:[\d.]+\s+)?${M}\s+(?:[\d.]+\s+)?(?:GST\s+)?${M}$`),
+    row: new RegExp(String.raw`^(?:(?<sku>\d{6})\s+)?(?<desc>.+?)\s+(?:[A-Z]{2}\s+)?(?<qty>-?[\d.]+)\s+(?:(?<unit>[A-Z]+(?:-\d+)?)\s+)?(?:[\d.]+\s+)?(?<unitPrice>${M})\s+(?:[\d.]+\s+)?(?:GST\s+)?(?<lineTotal>${M})$`),
+    itemsTotal: t => foodlinkTotals(t)?.[0] ?? null,
+    docTotal: t => foodlinkTotals(t)?.[1] ?? null,
   },
   {
     name: "riverina",

@@ -234,6 +234,42 @@ const STATEMENTS: string[] = [
    )`,
   // why a run failed (the line it stopped on), readable with a plain DB query
   `ALTER TABLE invoice_line_item_runs ADD COLUMN IF NOT EXISTS detail text`,
+
+  // Product catalogue (stage A): one card per supplier product, plus its price
+  // history. Filled from invoice line items; the owner can add, rename, hide.
+  `CREATE TABLE IF NOT EXISTS supplier_products (
+     id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+     supplier_id varchar NOT NULL REFERENCES suppliers(id),
+     product_key text NOT NULL,
+     name text NOT NULL,
+     name_edited boolean NOT NULL DEFAULT false,
+     raw_description text,
+     sku text,
+     brand text,
+     unit text,
+     kind text NOT NULL DEFAULT 'goods',
+     hidden boolean NOT NULL DEFAULT false,
+     source text NOT NULL DEFAULT 'invoice',
+     created_at timestamp NOT NULL DEFAULT now(),
+     updated_at timestamp NOT NULL DEFAULT now()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS supplier_products_key_uniq ON supplier_products (supplier_id, product_key)`,
+  `CREATE TABLE IF NOT EXISTS product_prices (
+     id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+     product_id varchar NOT NULL REFERENCES supplier_products(id) ON DELETE CASCADE,
+     price_date text NOT NULL,
+     unit_price real,
+     qty real,
+     unit text,
+     line_total real,
+     invoice_id varchar REFERENCES supplier_invoices(id) ON DELETE SET NULL,
+     store_id varchar REFERENCES stores(id),
+     source text NOT NULL DEFAULT 'invoice',
+     note text,
+     created_at timestamp NOT NULL DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_product_prices_product ON product_prices (product_id, price_date)`,
+  `CREATE INDEX IF NOT EXISTS idx_product_prices_invoice ON product_prices (invoice_id)`,
 ];
 
 // Phase B: seed the OWNER's password from environment variables on first deploy.
