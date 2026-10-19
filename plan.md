@@ -346,7 +346,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
     - 회색 힌트: 지난 1년 이 매장 구매량의 시즌별 주 평균(저장 안 함)
     - 권한: `/api/ordering*` → 라우트 키 `/admin/ordering`, admin_permissions에 ADMIN/MANAGER 허용·STAFF 불가 행 자동 추가. 매니저는 자기 매장만(allowedStoreIds). 가격은 이 화면에 안 보임
     - 미완: 재고는 아직 저장 안 됨(C-3에서 주문과 함께 저장) · 기존 Storage 화면(12개 품목)과는 별개
-  - [~] C-3 주문 보내기 — 이메일 먼저 (2026-10-19 구현·로컬 검증, 배포 승인 대기). 원래 메모: 이메일(server/mailer.ts, 공급처 주문 메일 주소 필요) / 문자 — 사장님 의견: 매니저 폰 말고 **하나의 고정 번호** → 유료 문자 서비스(Twilio 등) 가입·번호 대여 필요(사장님이 직접 가입), 공급처 답장 받는 곳도 필요 / Ordermentum은 목록 보여주기
+  - [x] C-3 주문 보내기 — 이메일 먼저 (2026-10-19 배포). 원래 메모: 이메일(server/mailer.ts, 공급처 주문 메일 주소 필요) / 문자 — 사장님 의견: 매니저 폰 말고 **하나의 고정 번호** → 유료 문자 서비스(Twilio 등) 가입·번호 대여 필요(사장님이 직접 가입), 공급처 답장 받는 곳도 필요 / Ordermentum은 목록 보여주기
     - 공급처별 `suppliers.order_email`(인보이스 발신 주소와 별개, 사장님만 Ordering 화면에서 입력) · "주문서 만들기" → 수량 고치기·메모 → 미리보기 → 메일 보내기(회사 Gmail SMTP_USER에서, 답장도 그 메일함)
     - "복사해서 직접 보내기": Ordermentum·문자용. 복사 후 확인하면 channel=manual로 기록
     - `purchase_orders`(sent/failed, email/manual) + `purchase_order_lines`(수량·당시 재고) — 메일 실패해도 기록 남김. 화면 아래 "최근 보낸 주문"
@@ -354,7 +354,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
     - 보내는 주소 = SMTP_USER = 사장님 개인 업무 메일(peter.kang@…) → 답장도 사장님 메일함. 공용 답장함을 쓰려면 Railway에 ORDER_REPLY_TO 설정(선택). 사장님 메일함이 Cloudmailin(인보이스 수집)으로 전달되는지 확인 필요
     - 미확인: 운영 SMTP로 실제 발송은 아직 안 해 봄 → 배포 후 사장님 본인 메일을 한 공급처 주문 메일로 넣고 시험 발송 권장
     - 미완: 고정 번호 문자(유료 서비스) · 실패 주문 다시 보내기 버튼 없음(새로 보내면 됨)
-  - [~] 직원 포털 주문 (2026-10-19 구현·로컬 검증, 배포 승인 대기) — 사장님 요청: 주문은 매장 직원이 모바일로
+  - [x] 직원 포털 주문 (2026-10-19 배포) — 사장님 요청: 주문은 매장 직원이 모바일로
     - 포털 홈에 "Order" 탭(영어): Count stock / Order / Weekly usage. 사장님 Ordering 화면과 같은 부품(OrderingPanel, ko/en)
     - 직원 카드 Portal Access에 체크 2개: Can send orders(`employees.can_order`) · Can set weekly usage(`can_set_order_usage`). 기본 꺼짐, ADMIN만 바꿀 수 있음(PUT /api/employees/:id에서 비ADMIN이 보내면 버림)
     - 재고는 매장 배정 직원 누구나, 즉시 저장(`ordering_stock`: 마지막 값·센 사람·시각). 주문 추천은 마지막으로 센 재고 사용
