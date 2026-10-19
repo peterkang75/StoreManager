@@ -335,6 +335,8 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - [~] 등록 공급처 도메인 경보 (구현, 배포 승인 대기): `GET /api/rejected-emails/supplier-domain-alerts` + Rejected 탭 상단 빨간 안내 — 미검토 거절 메일 중 등록 공급처의 회사 도메인(무료 메일 도메인 제외)에서 온 PDF 첨부 메일. 운영 현재: Foodlink `noreply3@` 39통, Escalate `salesnsw@` 4통.
 - [x] 확인: Foodlink Payment Receipt — `noreply3@foodlinkaustralia.com.au`가 영수증 19통과 **Tax Invoice 19통**(제목 "FOODLINK Inv SI… Cust No …", 4/22~10/8), 크레딧 노트 1통을 보냄. 등록 주소는 `orders@`뿐이라 6개월간 전부 거절됨(Pearl과 같은 문제). 원본 회수 제목 규칙에 "Inv" 추가(영수증·크레딧은 계속 제외). 사장님이 `noreply3@`를 Foodlink에 추가 후 "Recover originals…" 실행 필요. Foodlink는 자동이체 공급처라 새로 생긴 기록은 15분 자동이체 처리로 PAID(영수증이 결제 증거).
 - [ ] 확인 필요: Melrina Sydney(명세서 26통, 미등록)
+- [~] AP 화면 안내 문구 한국어화 (2026-10-19, 배포 승인 대기): `AccountsPayable.tsx` 약 260개 문구(안내 상자·확인창·알림·빈 화면·툴팁·상태 표시·안내문이 가리키는 버튼) 번역. 탭 이름·표 열 제목·요약 카드·매장 필터·"Add Invoice"·공급처 승인 창의 입력칸 이름은 그대로. 동작에 쓰이는 문자열("Unknown Supplier", NEW:, 상태 코드, API·키)은 유지 확인. 함께 수정: `Badge` import 누락(원래 있던 버그 — 검토함에서 명세서 표시가 나오면 화면이 멈출 수 있었음). 타입 검사 새 오류 없음, vite 빌드 통과.
+- [ ] 후속: Rejected 탭 로딩 17.8초(거절 메일 2,653통을 첨부까지 통째로 받음) — 목록 응답 경량화 필요
 
 ---
 

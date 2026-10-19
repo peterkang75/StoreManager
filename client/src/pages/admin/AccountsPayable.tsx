@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -188,12 +189,12 @@ function fmtReceived(date: Date | string | null | undefined): string {
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffMins < 1) return "방금";
+  if (diffMins < 60) return `${diffMins}분 전`;
   const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffHours < 24) return `${diffHours}시간 전`;
   const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays < 7) return `${diffDays}일 전`;
   return d.toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
@@ -486,14 +487,14 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
     },
     onSuccess: (result: any) => {
       const count = result?.sweptCount ?? invoices.length;
-      const action = mode === "link" ? "linked to existing supplier" : "created";
+      const action = mode === "link" ? "기존 공급처에 연결했습니다" : "공급처를 만들었습니다";
       if (result?.allDuplicates) {
         toast({
-          title: `Supplier ${action}`,
-          description: "All invoices from this statement already exist in the system. This review entry has been archived.",
+          title: `${action}`,
+          description: "이 명세서의 인보이스는 모두 이미 Crew에 있습니다. 이 검토 항목은 정리(보관)했습니다.",
         });
       } else {
-        toast({ title: `Supplier ${action} — ${count} invoice${count !== 1 ? "s" : ""} moved to Pending` });
+        toast({ title: `${action} — 인보이스 ${count}건을 To Pay로 옮겼습니다` });
       }
       queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
@@ -502,13 +503,13 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
       onSuccess();
     },
     onError: (err: any) => {
-      toast({ title: "Failed to approve supplier", description: err?.message, variant: "destructive" });
+      toast({ title: "공급처 승인에 실패했습니다", description: err?.message, variant: "destructive" });
     },
   });
 
   function onSubmit(data: SupplierFormValues) {
     if (mode === "link" && !linkedSupplierId) {
-      toast({ title: "Select a supplier to link to", variant: "destructive" });
+      toast({ title: "연결할 공급처를 선택하세요", variant: "destructive" });
       return;
     }
     approveMutation.mutate(data);
@@ -518,10 +519,10 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
     <Dialog open={invoices.length > 0} onOpenChange={open => !open && onClose()}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="dialog-approve-supplier">
         <DialogHeader>
-          <DialogTitle>Approve Invoices</DialogTitle>
+          <DialogTitle>인보이스 승인</DialogTitle>
           <p className="text-sm text-muted-foreground">
             {invoices.length > 1 && (
-              <span>All {invoices.length} invoices from this sender will move to Pending.</span>
+              <span>이 보낸 사람의 인보이스 {invoices.length}건이 모두 To Pay로 옮겨집니다.</span>
             )}
           </p>
         </DialogHeader>
@@ -531,8 +532,8 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
           <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 px-3 py-2.5 text-xs text-amber-800 dark:text-amber-300">
             <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
             <span>
-              <strong>Statement of Account detected.</strong> This document may contain a grand total instead of individual invoice rows.
-              Please verify the amount before approving — only approve if you are sure this is a valid invoice, not a statement summary.
+              <strong>명세서(Statement of Account)로 보입니다.</strong> 인보이스 한 건씩이 아니라 전체 합계만 들어 있을 수 있습니다.
+              승인하기 전에 금액을 꼭 확인하세요 — 명세서 요약이 아니라 진짜 인보이스가 확실할 때만 승인하세요.
             </span>
           </div>
         )}
@@ -550,7 +551,7 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
             data-testid="button-mode-create"
           >
             <UserPlus className="h-3.5 w-3.5" />
-            Create New Supplier
+            새 공급처 만들기
           </button>
           <button
             type="button"
@@ -563,14 +564,14 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
             data-testid="button-mode-link"
           >
             <Link2 className="h-3.5 w-3.5" />
-            Link to Existing
+            기존 공급처에 연결
           </button>
         </div>
 
         {/* Supplier search — shown only in link mode */}
         {mode === "link" && (
           <div className="space-y-1.5">
-            <Label>Select Existing Supplier</Label>
+            <Label>기존 공급처 선택</Label>
             <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
               <PopoverTrigger asChild>
                 <Button
@@ -581,15 +582,15 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
                   className="w-full justify-between"
                   data-testid="button-supplier-picker"
                 >
-                  {linkedSupplier ? linkedSupplier.name : "Search suppliers…"}
+                  {linkedSupplier ? linkedSupplier.name : "공급처 검색…"}
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-full p-0" style={{ width: "var(--radix-popover-trigger-width)" }}>
                 <Command>
-                  <CommandInput placeholder="Type to search…" data-testid="input-supplier-search" />
+                  <CommandInput placeholder="검색어 입력…" data-testid="input-supplier-search" />
                   <CommandList>
-                    <CommandEmpty>No supplier found.</CommandEmpty>
+                    <CommandEmpty>찾는 공급처가 없습니다.</CommandEmpty>
                     <CommandGroup>
                       {allSuppliers
                         .filter(s => s.active !== false && s.name !== "Other / Unknown")
@@ -605,7 +606,7 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
                             />
                             <span>{s.name}</span>
                             {(!s.contactEmails || s.contactEmails.length === 0) && (
-                              <span className="ml-auto text-xs text-amber-600 font-medium">No email</span>
+                              <span className="ml-auto text-xs text-amber-600 font-medium">이메일 없음</span>
                             )}
                           </CommandItem>
                         ))}
@@ -617,7 +618,7 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
             {linkedSupplier && (!linkedSupplier.contactEmails || linkedSupplier.contactEmails.length === 0) && (
               <p className="text-xs text-amber-600 flex items-center gap-1">
                 <AlertCircle className="h-3 w-3" />
-                This supplier has no email on file — the incoming email will be saved automatically.
+                이 공급처는 등록된 이메일이 없습니다 — 이번에 들어온 이메일 주소가 자동으로 저장됩니다.
               </p>
             )}
           </div>
@@ -625,10 +626,10 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {mode === "create" && (
-            <p className="text-xs text-muted-foreground">Review and confirm the AI-extracted supplier details before creating.</p>
+            <p className="text-xs text-muted-foreground">만들기 전에 AI가 읽어 온 공급처 정보를 확인하세요.</p>
           )}
           {mode === "link" && linkedSupplier && (
-            <p className="text-xs text-muted-foreground">Fields below show the existing supplier's data. Fill in any blanks to update missing info.</p>
+            <p className="text-xs text-muted-foreground">아래 칸에는 기존 공급처 정보가 들어 있습니다. 비어 있는 칸을 채우면 빠진 정보가 업데이트됩니다.</p>
           )}
 
           <div className="grid grid-cols-1 gap-3">
@@ -663,7 +664,7 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
                 placeholder="email@example.com, email2@example.com"
                 data-testid="input-supplier-emails"
               />
-              <p className="text-xs text-muted-foreground">Comma-separated. These will be whitelisted for future auto-import.</p>
+              <p className="text-xs text-muted-foreground">여러 개는 쉼표로 구분하세요. 이 주소에서 오는 메일은 앞으로 자동으로 가져옵니다.</p>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -692,8 +693,8 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
             <div className="flex items-center gap-2">
               <Zap className="h-4 w-4 text-amber-500" />
               <div>
-                <Label htmlFor="approve-autopay" className="cursor-pointer font-medium">Auto-Pay (Direct Debit)</Label>
-                <p className="text-xs text-muted-foreground mt-0.5">This supplier auto-debits — invoices will be recorded as PAID immediately.</p>
+                <Label htmlFor="approve-autopay" className="cursor-pointer font-medium">자동이체 (Auto-Pay)</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">이 공급처는 자동이체로 빠져나갑니다 — 인보이스가 바로 지급 완료로 기록됩니다.</p>
               </div>
             </div>
             <Switch
@@ -706,12 +707,12 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
 
           <div className="flex items-center gap-2">
             <Checkbox id="multi-store" checked={isMultiStore} onCheckedChange={(v) => setIsMultiStore(v === true)} data-testid="checkbox-multi-store" />
-            <Label htmlFor="multi-store" className="text-sm">Multi-store supplier (store must come from the invoice itself)</Label>
+            <Label htmlFor="multi-store" className="text-sm">여러 매장 공급처 (매장은 인보이스에 적힌 내용으로 정해집니다)</Label>
           </div>
 
           <DialogFooter className="gap-2 pt-2">
             <Button type="button" variant="outline" onClick={onClose} disabled={approveMutation.isPending}>
-              Cancel
+              취소
             </Button>
             <Button
               type="submit"
@@ -719,11 +720,11 @@ function ApproveSupplierModal({ invoices, onClose, onSuccess }: ApproveSupplierM
               data-testid="button-confirm-approve-supplier"
             >
               {approveMutation.isPending ? (
-                <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />{mode === "link" ? "Linking…" : "Creating…"}</>
+                <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />{mode === "link" ? "연결 중…" : "만드는 중…"}</>
               ) : mode === "link" ? (
-                <><Link2 className="h-3.5 w-3.5 mr-1.5" />Link Supplier & Approve</>
+                <><Link2 className="h-3.5 w-3.5 mr-1.5" />공급처 연결 후 승인</>
               ) : (
-                <><UserPlus className="h-3.5 w-3.5 mr-1.5" />Create Supplier & Approve</>
+                <><UserPlus className="h-3.5 w-3.5 mr-1.5" />공급처 만들고 승인</>
               )}
             </Button>
           </DialogFooter>
@@ -766,33 +767,33 @@ function ReassignSupplierDialog({ invoice, onClose, onSuccess }: ReassignSupplie
     },
     onSuccess: () => {
       toast({
-        title: `Invoice reassigned to ${selectedSupplier?.name ?? "supplier"}`,
+        title: `인보이스를 ${selectedSupplier?.name ?? "공급처"}(으)로 옮겼습니다`,
       });
       onSuccess();
     },
     onError: (err: any) => {
-      toast({ title: "Failed to reassign invoice", description: err?.message, variant: "destructive" });
+      toast({ title: "공급처 변경에 실패했습니다", description: err?.message, variant: "destructive" });
     },
   });
 
   if (!invoice) return null;
 
   const currentSupplierName = invoice.supplier?.name ?? "Unknown Supplier";
-  const invNum = invoice.invoiceNumber ? `#${invoice.invoiceNumber}` : "invoice";
+  const invNum = invoice.invoiceNumber ? `#${invoice.invoiceNumber}` : "이 인보이스";
 
   return (
     <Dialog open={!!invoice} onOpenChange={open => !open && onClose()}>
       <DialogContent className="max-w-md" data-testid="dialog-reassign-supplier">
         <DialogHeader>
-          <DialogTitle>Change Supplier</DialogTitle>
+          <DialogTitle>공급처 변경</DialogTitle>
           <p className="text-sm text-muted-foreground">
-            Reassign {invNum} from <strong>{currentSupplierName}</strong> to the correct supplier.
+            {invNum}을(를) <strong>{currentSupplierName}</strong>에서 올바른 공급처로 옮깁니다.
           </p>
         </DialogHeader>
 
         <div className="space-y-3 py-2">
           <div className="space-y-1.5">
-            <Label>Select correct supplier</Label>
+            <Label>올바른 공급처 선택</Label>
             <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
               <PopoverTrigger asChild>
                 <Button
@@ -802,15 +803,15 @@ function ReassignSupplierDialog({ invoice, onClose, onSuccess }: ReassignSupplie
                   className="w-full justify-between"
                   data-testid="button-reassign-supplier-picker"
                 >
-                  {selectedSupplier ? selectedSupplier.name : "Search suppliers…"}
+                  {selectedSupplier ? selectedSupplier.name : "공급처 검색…"}
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-full p-0" style={{ width: "var(--radix-popover-trigger-width)" }}>
                 <Command>
-                  <CommandInput placeholder="Type to search…" data-testid="input-reassign-supplier-search" />
+                  <CommandInput placeholder="검색어 입력…" data-testid="input-reassign-supplier-search" />
                   <CommandList>
-                    <CommandEmpty>No supplier found.</CommandEmpty>
+                    <CommandEmpty>찾는 공급처가 없습니다.</CommandEmpty>
                     <CommandGroup>
                       {allSuppliers
                         .filter(s => s.active !== false && s.id !== invoice.supplierId && s.name !== "Other / Unknown")
@@ -847,7 +848,7 @@ function ReassignSupplierDialog({ invoice, onClose, onSuccess }: ReassignSupplie
 
         <DialogFooter className="gap-2">
           <Button type="button" variant="outline" onClick={onClose} disabled={reassignMutation.isPending}>
-            Cancel
+            취소
           </Button>
           <Button
             type="button"
@@ -856,8 +857,8 @@ function ReassignSupplierDialog({ invoice, onClose, onSuccess }: ReassignSupplie
             data-testid="button-confirm-reassign"
           >
             {reassignMutation.isPending
-              ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Reassigning…</>
-              : <><Link2 className="h-3.5 w-3.5 mr-1.5" />Reassign</>
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />옮기는 중…</>
+              : <><Link2 className="h-3.5 w-3.5 mr-1.5" />옮기기</>
             }
           </Button>
         </DialogFooter>
@@ -1110,9 +1111,9 @@ export function AdminAccountsPayable() {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       const n = selected.size;
       setSelected(new Set());
-      toast({ title: `${n} invoice${n !== 1 ? "s" : ""} marked as paid` });
+      toast({ title: `인보이스 ${n}건을 지급 완료로 표시했습니다` });
     },
-    onError: () => toast({ title: "Failed to update invoices", variant: "destructive" }),
+    onError: () => toast({ title: "인보이스 업데이트에 실패했습니다", variant: "destructive" }),
   });
 
   const revertMutation = useMutation({
@@ -1121,11 +1122,11 @@ export function AdminAccountsPayable() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-      toast({ title: "Invoice reverted to To Pay" });
+      toast({ title: "인보이스를 To Pay로 되돌렸습니다" });
       setRevertInvoice(null);
     },
     onError: () => {
-      toast({ title: "Failed to revert invoice", variant: "destructive" });
+      toast({ title: "되돌리기에 실패했습니다", variant: "destructive" });
       setRevertInvoice(null);
     },
   });
@@ -1149,9 +1150,9 @@ export function AdminAccountsPayable() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
       queryClient.invalidateQueries({ queryKey: ["/api/email-routing-rules"] });
-      toast({ title: "Supplier ignored", description: "All pending invoices from this supplier have been discarded." });
+      toast({ title: "공급처를 무시하도록 설정했습니다", description: "이 공급처에서 온 대기 중인 인보이스를 모두 치웠습니다." });
     },
-    onError: () => toast({ title: "Failed to ignore supplier", variant: "destructive" }),
+    onError: () => toast({ title: "공급처 무시 설정에 실패했습니다", variant: "destructive" }),
   });
 
   const deleteInvoiceMutation = useMutation({
@@ -1160,9 +1161,9 @@ export function AdminAccountsPayable() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
-      toast({ title: "Invoice deleted", description: "The invoice has been removed." });
+      toast({ title: "인보이스를 삭제했습니다", description: "인보이스가 지워졌습니다." });
     },
-    onError: () => toast({ title: "Failed to delete invoice", variant: "destructive" }),
+    onError: () => toast({ title: "인보이스 삭제에 실패했습니다", variant: "destructive" }),
   });
 
   const softDeleteMutation = useMutation({
@@ -1173,9 +1174,9 @@ export function AdminAccountsPayable() {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/deleted"] });
-      toast({ title: "Invoice moved to Trash", description: "You can restore it from the Trash tab." });
+      toast({ title: "인보이스를 휴지통으로 옮겼습니다", description: "Trash 탭(휴지통)에서 되살릴 수 있습니다." });
     },
-    onError: () => toast({ title: "Failed to delete invoice", variant: "destructive" }),
+    onError: () => toast({ title: "인보이스 삭제에 실패했습니다", variant: "destructive" }),
   });
 
   const bulkSoftDeleteMutation = useMutation({
@@ -1188,10 +1189,10 @@ export function AdminAccountsPayable() {
       setBulkDeleteConfirmOpen(false);
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/deleted"] });
-      toast({ title: `${n} invoice${n !== 1 ? "s" : ""} moved to Trash`, description: "Restore them from the Trash tab if needed." });
+      toast({ title: `인보이스 ${n}건을 휴지통으로 옮겼습니다`, description: "필요하면 Trash 탭(휴지통)에서 되살리세요." });
     },
     onError: () => {
-      toast({ title: "Failed to delete invoices", variant: "destructive" });
+      toast({ title: "인보이스 삭제에 실패했습니다", variant: "destructive" });
       setBulkDeleteConfirmOpen(false);
     },
   });
@@ -1204,9 +1205,9 @@ export function AdminAccountsPayable() {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/deleted"] });
-      toast({ title: "Invoice restored", description: "The invoice has been moved back." });
+      toast({ title: "인보이스를 되살렸습니다", description: "원래 자리로 돌아갔습니다." });
     },
-    onError: () => toast({ title: "Failed to restore invoice", variant: "destructive" }),
+    onError: () => toast({ title: "되살리기에 실패했습니다", variant: "destructive" }),
   });
 
   const permanentDeleteMutation = useMutation({
@@ -1215,9 +1216,9 @@ export function AdminAccountsPayable() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/deleted"] });
-      toast({ title: "Permanently deleted", description: "The invoice has been permanently removed." });
+      toast({ title: "영구 삭제했습니다", description: "인보이스가 완전히 지워졌습니다." });
     },
-    onError: () => toast({ title: "Failed to permanently delete", variant: "destructive" }),
+    onError: () => toast({ title: "영구 삭제에 실패했습니다", variant: "destructive" }),
   });
 
   // Open the stored invoice PDF in a new tab. window.open() can't carry the
@@ -1230,7 +1231,7 @@ export function AdminAccountsPayable() {
       const res = await fetch(`/api/supplier-invoices/${invoiceId}/pdf`);
       if (!res.ok) {
         const msg = await res.text().catch(() => "");
-        toast({ title: "Couldn't open PDF", description: msg.slice(0, 200) || `HTTP ${res.status}`, variant: "destructive" });
+        toast({ title: "PDF를 열 수 없습니다", description: msg.slice(0, 200) || `HTTP ${res.status}`, variant: "destructive" });
         return;
       }
       const blob = await res.blob();
@@ -1238,7 +1239,7 @@ export function AdminAccountsPayable() {
       window.open(url, "_blank");
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (e: any) {
-      toast({ title: "Couldn't open PDF", description: e?.message ?? "Network error", variant: "destructive" });
+      toast({ title: "PDF를 열 수 없습니다", description: e?.message ?? "네트워크 오류", variant: "destructive" });
     }
   };
 
@@ -1248,9 +1249,9 @@ export function AdminAccountsPayable() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/email-routing-rules"] });
-      toast({ title: "Routing rule deleted", description: "Future emails from this address will be processed as unknown." });
+      toast({ title: "메일 규칙을 삭제했습니다", description: "앞으로 이 주소에서 오는 메일은 모르는 보낸 사람으로 처리됩니다." });
     },
-    onError: () => toast({ title: "Failed to delete rule", variant: "destructive" }),
+    onError: () => toast({ title: "규칙 삭제에 실패했습니다", variant: "destructive" }),
   });
 
   const reparsePdfMutation = useMutation({
@@ -1263,15 +1264,15 @@ export function AdminAccountsPayable() {
       const body = await res.json().catch(() => ({}));
       let description: string;
       if (body?.duplicateOfExisting) {
-        description = `Already exists: invoice #${body.invoiceNumber}. This row has been removed as a duplicate.`;
+        description = `이미 있는 인보이스입니다: #${body.invoiceNumber}. 중복이라 이 줄은 지웠습니다.`;
       } else if (body?.needsSupplierAssignment) {
-        description = `Statement with ${body.invoiceCount} line items. Manually assign the supplier first — then re-parse will expand to To Pay.`;
+        description = `인보이스 ${body.invoiceCount}건이 담긴 명세서입니다. 먼저 공급처를 직접 지정하세요 — 그다음 다시 읽기를 하면 To Pay로 펼쳐집니다.`;
       } else if (body?.isStatement) {
-        description = `Statement expanded → ${body.expanded} new To Pay invoices, ${body.skippedDupes} duplicates skipped.`;
+        description = `명세서를 펼쳤습니다 → To Pay에 새 인보이스 ${body.expanded}건, 중복 ${body.skippedDupes}건은 건너뜀.`;
       } else {
-        description = `${body?.invoiceCount ?? 0} invoice rows extracted${body?.parserUsed ? ` (${body.parserUsed})` : ""}. Approve to send to To Pay.`;
+        description = `인보이스 ${body?.invoiceCount ?? 0}건을 읽었습니다${body?.parserUsed ? ` (${body.parserUsed})` : ""}. 승인하면 To Pay로 갑니다.`;
       }
-      toast({ title: "PDF re-parsed", description });
+      toast({ title: "PDF를 다시 읽었습니다", description });
     },
     onError: (err: any) => {
       // err.message is like '422: {"error":"AI parser returned no invoice items..."}'
@@ -1283,8 +1284,8 @@ export function AdminAccountsPayable() {
         if (parsed?.error) detail = parsed.error;
       } catch { /* keep raw */ }
       toast({
-        title: "Re-parse failed",
-        description: detail || "Could not re-extract from the stored PDF.",
+        title: "다시 읽기에 실패했습니다",
+        description: detail || "저장된 PDF에서 내용을 다시 읽지 못했습니다.",
         variant: "destructive",
       });
     },
@@ -1579,15 +1580,15 @@ export function AdminAccountsPayable() {
                                   e.stopPropagation();
                                   try {
                                     await navigator.clipboard.writeText(s.total.toFixed(2));
-                                    toast({ title: "Copied", description: `${s.name} $${s.total.toFixed(2)} copied` });
+                                    toast({ title: "복사했습니다", description: `${s.name} $${s.total.toFixed(2)} 복사됨` });
                                   } catch {
-                                    toast({ title: "Copy failed", variant: "destructive" });
+                                    toast({ title: "복사에 실패했습니다", variant: "destructive" });
                                   }
                                 }}
                                 data-testid={`button-copy-supplier-total-${s.name.replace(/\s+/g, "-").toLowerCase()}`}
                                 className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-colors"
-                                title={`Copy ${s.name} total`}
-                                aria-label={`Copy ${s.name} total`}
+                                title={`${s.name} 합계 복사`}
+                                aria-label={`${s.name} 합계 복사`}
                               >
                                 <Copy className="h-3 w-3" />
                               </button>
@@ -1596,7 +1597,7 @@ export function AdminAccountsPayable() {
                         ))}
                       </div>
                     ) : (
-                      <p className="text-xs text-muted-foreground mt-0.5">None selected</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">선택 없음</p>
                     )}
                   </div>
                   <CheckCircle className={`h-4 w-4 shrink-0 mt-0.5 transition-colors ${selected.size > 0 ? "text-primary" : "text-muted-foreground"}`} />
@@ -1647,7 +1648,7 @@ export function AdminAccountsPayable() {
                   onClick={clearSelection}
                   data-testid="button-clear-selection"
                 >
-                  Clear
+                  선택 해제
                 </Button>
                 <Button
                   variant="outline"
@@ -1658,7 +1659,7 @@ export function AdminAccountsPayable() {
                   className="h-8 sm:h-9 px-2.5 text-xs sm:text-sm gap-1 sm:gap-1.5 whitespace-nowrap text-destructive border-destructive/40 hover:bg-destructive/5"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
-                  Delete ({selected.size})
+                  삭제 ({selected.size})
                 </Button>
                 <Button
                   size="sm"
@@ -1668,9 +1669,9 @@ export function AdminAccountsPayable() {
                   className="h-8 sm:h-9 px-2.5 text-xs sm:text-sm gap-1 sm:gap-1.5 whitespace-nowrap flex-1 sm:flex-initial"
                 >
                   {bulkMarkPaidMutation.isPending ? (
-                    <><Loader2 className="h-3.5 w-3.5 animate-spin" />Paying…</>
+                    <><Loader2 className="h-3.5 w-3.5 animate-spin" />지급 처리 중…</>
                   ) : (
-                    <><CheckCircle className="h-3.5 w-3.5" />Pay Selected ({selected.size})</>
+                    <><CheckCircle className="h-3.5 w-3.5" />선택 항목 지급 ({selected.size})</>
                   )}
                 </Button>
               </div>
@@ -1746,13 +1747,13 @@ export function AdminAccountsPayable() {
           isLoading ? (
             <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm">Loading invoices…</span>
+              <span className="text-sm">인보이스 불러오는 중…</span>
             </div>
           ) : toPayInvoices.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
               <CheckCircle className="h-10 w-10 opacity-20" />
-              <p className="text-sm font-medium">All invoices are paid</p>
-              <p className="text-xs">Nothing outstanding for this store filter.</p>
+              <p className="text-sm font-medium">모든 인보이스가 지급 완료되었습니다</p>
+              <p className="text-xs">이 매장 필터에는 남은 미지급 건이 없습니다.</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -1760,13 +1761,13 @@ export function AdminAccountsPayable() {
                 <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-sm">
                   <AlertCircle className="h-4 w-4 shrink-0" />
                   <span>
-                    {unassignedToPayCount} unassigned invoice{unassignedToPayCount !== 1 ? "s" : ""} not shown here.
+                    매장이 지정되지 않은 인보이스 {unassignedToPayCount}건은 여기에 보이지 않습니다.
                   </span>
                   <button
                     className="ml-auto underline underline-offset-2 font-medium hover:opacity-80 whitespace-nowrap"
                     onClick={() => setStoreFilter("ALL")}
                   >
-                    View in All Stores
+                    All Stores에서 보기
                   </button>
                 </div>
               )}
@@ -1804,7 +1805,7 @@ export function AdminAccountsPayable() {
                             checked={allGroupSelected}
                             data-state={someGroupSelected && !allGroupSelected ? "indeterminate" : undefined}
                             onCheckedChange={() => toggleSupplier(group)}
-                            aria-label={`Select all invoices for ${group.supplierName}`}
+                            aria-label={`${group.supplierName} 인보이스 모두 선택`}
                             data-testid={`checkbox-supplier-${group.supplierId}`}
                             className="mr-2 sm:mr-3 shrink-0 mt-0.5 sm:mt-0"
                           />
@@ -1817,12 +1818,12 @@ export function AdminAccountsPayable() {
                             {group.isAutoPay && (
                               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300 whitespace-nowrap shrink-0" data-testid={`badge-autopay-${group.supplierId}`}>
                                 <Zap className="h-2.5 w-2.5" />
-                                <span className="hidden sm:inline">Direct Debit</span>
+                                <span className="hidden sm:inline">자동이체</span>
                                 <span className="sm:hidden">DD</span>
                               </span>
                             )}
                             <span className="text-[10px] sm:text-xs text-muted-foreground shrink-0">
-                              {group.invoices.length} inv{group.invoices.length !== 1 ? "s" : ""}
+                              {group.invoices.length}건
                             </span>
                           </div>
 
@@ -1854,7 +1855,7 @@ export function AdminAccountsPayable() {
                             {group.overdueAmount > 0 && (
                               <span className="text-[10px] sm:text-xs font-bold text-red-600 dark:text-red-400 flex items-center gap-1">
                                 <AlertCircle className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-                                <span className="hidden sm:inline">Overdue: </span>{fmtAUD(group.overdueAmount)}
+                                <span className="hidden sm:inline">연체: </span>{fmtAUD(group.overdueAmount)}
                               </span>
                             )}
                           </div>
@@ -1916,7 +1917,7 @@ export function AdminAccountsPayable() {
                                             checked={isChecked}
                                             onClick={(e) => { shiftKeyPressedRef.current = (e as React.MouseEvent).shiftKey; }}
                                             onCheckedChange={() => handleRowCheckbox(inv.id, group)}
-                                            aria-label={`Select invoice ${inv.invoiceNumber}`}
+                                            aria-label={`인보이스 ${inv.invoiceNumber} 선택`}
                                             data-testid={`checkbox-invoice-mobile-${inv.id}`}
                                             className="shrink-0"
                                           />
@@ -1936,7 +1937,7 @@ export function AdminAccountsPayable() {
                                             )}
                                           </div>
                                           {gstEst !== null && (
-                                            <span className="text-[10px] text-muted-foreground/80 tabular-nums" title={`Supplier defaults to ${rate}% GST applicable`}>
+                                            <span className="text-[10px] text-muted-foreground/80 tabular-nums" title={`이 공급처는 기본으로 ${rate}%에 GST가 붙습니다`}>
                                               GST ~{fmtAUD(gstEst)}
                                             </span>
                                           )}
@@ -1983,15 +1984,15 @@ export function AdminAccountsPayable() {
                                             try {
                                               await apiRequest("PATCH", `/api/invoices/${inv.id}/store`, { storeId: v });
                                               queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-                                              toast({ title: "Store updated" });
+                                              toast({ title: "매장을 바꿨습니다" });
                                             } catch (err: any) {
-                                              toast({ title: "Failed to update store", description: err?.message, variant: "destructive" });
+                                              toast({ title: "매장 변경에 실패했습니다", description: err?.message, variant: "destructive" });
                                             }
                                           }}
                                           onClick={(e) => e.stopPropagation()}
                                           data-testid={`select-store-mobile-${inv.id}`}
                                         >
-                                          {!store && <option value="">⚠ Assign…</option>}
+                                          {!store && <option value="">⚠ 매장 지정…</option>}
                                           {filteredStores.map(s => (
                                             <option key={s.id} value={s.id}>{s.name}</option>
                                           ))}
@@ -1999,7 +2000,7 @@ export function AdminAccountsPayable() {
                                         {((inv.rawExtractedData as any)?.pdfBase64 || inv.notes || (inv.rawExtractedData as any)?.body) && (
                                           <button
                                             type="button"
-                                            title={(inv.rawExtractedData as any)?.pdfBase64 ? "View PDF Invoice" : "View source email / notes"}
+                                            title={(inv.rawExtractedData as any)?.pdfBase64 ? "PDF 인보이스 보기" : "원본 이메일 / 메모 보기"}
                                             className={`h-8 w-8 flex items-center justify-center rounded transition-colors ${(inv.rawExtractedData as any)?.pdfBase64 ? "text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300" : "text-muted-foreground hover:text-foreground"}`}
                                             data-testid={`button-notes-mobile-${inv.id}`}
                                             onClick={(e) => {
@@ -2016,7 +2017,7 @@ export function AdminAccountsPayable() {
                                         )}
                                         <button
                                           type="button"
-                                          title="Change Supplier"
+                                          title="공급처 변경"
                                           className="h-8 w-8 flex items-center justify-center rounded text-muted-foreground/60 hover:text-primary transition-colors"
                                           data-testid={`button-reassign-invoice-mobile-${inv.id}`}
                                           onClick={(e) => {
@@ -2028,7 +2029,7 @@ export function AdminAccountsPayable() {
                                         </button>
                                         <button
                                           type="button"
-                                          title="Move to Trash"
+                                          title="휴지통으로 이동"
                                           className="h-8 w-8 flex items-center justify-center rounded text-muted-foreground/60 hover:text-destructive transition-colors"
                                           data-testid={`button-softdelete-invoice-mobile-${inv.id}`}
                                           onClick={(e) => {
@@ -2096,7 +2097,7 @@ export function AdminAccountsPayable() {
                                             checked={isChecked}
                                             onClick={(e) => { shiftKeyPressedRef.current = (e as React.MouseEvent).shiftKey; }}
                                             onCheckedChange={() => handleRowCheckbox(inv.id, group)}
-                                            aria-label={`Select invoice ${inv.invoiceNumber}`}
+                                            aria-label={`인보이스 ${inv.invoiceNumber} 선택`}
                                             data-testid={`checkbox-invoice-${inv.id}`}
                                           />
                                         )}
@@ -2123,7 +2124,7 @@ export function AdminAccountsPayable() {
                                           return (
                                             <div
                                               className="text-[10px] font-normal text-muted-foreground/80 mt-0.5"
-                                              title={`Supplier defaults to ${rate}% GST applicable. Override on Wave 3+.`}
+                                              title={`이 공급처는 기본으로 ${rate}%에 GST가 붙습니다 (추정치).`}
                                               data-testid={`text-gst-estimate-${inv.id}`}
                                             >
                                               GST ~{fmtAUD(est)} ({rate}%)
@@ -2170,15 +2171,15 @@ export function AdminAccountsPayable() {
                                             try {
                                               await apiRequest("PATCH", `/api/invoices/${inv.id}/store`, { storeId: v });
                                               queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-                                              toast({ title: "Store updated" });
+                                              toast({ title: "매장을 바꿨습니다" });
                                             } catch (err: any) {
-                                              toast({ title: "Failed to update store", description: err?.message, variant: "destructive" });
+                                              toast({ title: "매장 변경에 실패했습니다", description: err?.message, variant: "destructive" });
                                             }
                                           }}
                                           onClick={(e) => e.stopPropagation()}
                                           data-testid={`select-store-${inv.id}`}
                                         >
-                                          {!store && <option value="">⚠ Assign…</option>}
+                                          {!store && <option value="">⚠ 매장 지정…</option>}
                                           {filteredStores.map(s => (
                                             <option key={s.id} value={s.id}>{s.name}</option>
                                           ))}
@@ -2189,7 +2190,7 @@ export function AdminAccountsPayable() {
                                           {((inv.rawExtractedData as any)?.pdfBase64 || inv.notes || (inv.rawExtractedData as any)?.body) && (
                                             <button
                                               type="button"
-                                              title={(inv.rawExtractedData as any)?.pdfBase64 ? "View PDF Invoice" : "View source email / notes"}
+                                              title={(inv.rawExtractedData as any)?.pdfBase64 ? "PDF 인보이스 보기" : "원본 이메일 / 메모 보기"}
                                               className={`h-6 w-6 flex items-center justify-center rounded transition-colors ${(inv.rawExtractedData as any)?.pdfBase64 ? "text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300" : "text-muted-foreground hover:text-foreground"}`}
                                               data-testid={`button-notes-${inv.id}`}
                                               onClick={(e) => {
@@ -2210,7 +2211,7 @@ export function AdminAccountsPayable() {
                                           )}
                                           <button
                                             type="button"
-                                            title="Change Supplier"
+                                            title="공급처 변경"
                                             className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/30 hover:text-primary transition-colors"
                                             data-testid={`button-reassign-invoice-${inv.id}`}
                                             onClick={(e) => {
@@ -2222,7 +2223,7 @@ export function AdminAccountsPayable() {
                                           </button>
                                           <button
                                             type="button"
-                                            title="Move to Trash"
+                                            title="휴지통으로 이동"
                                             className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/30 hover:text-destructive transition-colors"
                                             data-testid={`button-softdelete-invoice-${inv.id}`}
                                             onClick={(e) => {
@@ -2259,13 +2260,13 @@ export function AdminAccountsPayable() {
           reviewLoading ? (
             <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm">Loading review inbox…</span>
+              <span className="text-sm">검토함 불러오는 중…</span>
             </div>
           ) : reviewGroups.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
               <Inbox className="h-10 w-10 opacity-20" />
-              <p className="text-sm font-medium">Review inbox is empty</p>
-              <p className="text-xs">New invoices from unknown senders will appear here for review.</p>
+              <p className="text-sm font-medium">검토할 항목이 없습니다</p>
+              <p className="text-xs">모르는 보낸 사람에게서 온 새 인보이스가 여기에 나타납니다.</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -2275,35 +2276,35 @@ export function AdminAccountsPayable() {
                   backlog is most visible. */}
               <div className="rounded-md border border-blue-300/50 bg-blue-50 dark:bg-blue-950/20 p-3 flex items-center justify-between gap-3">
                 <div className="text-xs text-blue-800 dark:text-blue-200 min-w-0">
-                  <strong>Backfill</strong> — re-classify every stuck REVIEW + QUARANTINE row at once. Auto-links suppliers by AI-extracted name/email so previously orphaned invoices move to To Pay where possible.
+                  <strong>일괄 재분류</strong> — 검토함(Review Inbox)과 격리함(Quarantine)에 멈춰 있는 건을 한 번에 다시 분류합니다. AI가 읽은 이름·이메일로 공급처를 자동 연결해서, 가능한 건은 To Pay로 옮깁니다.
                 </div>
                 <Button
                   size="sm"
                   variant="outline"
                   className="gap-1.5 shrink-0"
                   onClick={async () => {
-                    if (!window.confirm("Run bulk reclassify on ALL stuck REVIEW + QUARANTINE invoices? This will promote invoices with PDFs to To Pay and soft-delete remittances. You can review the summary after.")) return;
+                    if (!window.confirm("검토함·격리함에 멈춰 있는 인보이스를 모두 다시 분류할까요? PDF가 있는 인보이스는 To Pay로 옮기고, 송금 확인서(remittance)는 휴지통으로 보냅니다. 끝나면 결과 요약을 볼 수 있습니다.")) return;
                     try {
                       const res = await apiRequest("POST", "/api/invoices/bulk-reclassify", {});
                       const s = await res.json();
                       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
                       queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
                       queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
-                      const reasons = s.reasons ? ` (no PDF: ${s.reasons.noPdf ?? 0}, blank text: ${s.reasons.pdfTextEmpty ?? 0}, AI blank: ${s.reasons.aiReturnedNothing ?? 0}, parsed empty: ${s.reasons.parsedButEmpty ?? 0}, no supplier match: ${s.reasons.noSupplierMatch ?? 0})` : "";
+                      const reasons = s.reasons ? ` (PDF 없음: ${s.reasons.noPdf ?? 0}, 글자 없음: ${s.reasons.pdfTextEmpty ?? 0}, AI 결과 없음: ${s.reasons.aiReturnedNothing ?? 0}, 읽었지만 비어 있음: ${s.reasons.parsedButEmpty ?? 0}, 공급처 못 찾음: ${s.reasons.noSupplierMatch ?? 0})` : "";
                       const linked = (s.linkedByName ?? 0) + (s.linkedByEmail ?? 0);
-                      const linkedDetail = linked > 0 ? ` · ${linked} auto-linked supplier (${s.linkedByName ?? 0} by name, ${s.linkedByEmail ?? 0} by email)` : "";
+                      const linkedDetail = linked > 0 ? ` · 공급처 자동 연결 ${linked}건 (이름으로 ${s.linkedByName ?? 0}, 이메일로 ${s.linkedByEmail ?? 0})` : "";
                       toast({
-                        title: "Reclassify complete",
-                        description: `${s.promoted} → To Pay · ${s.statementExpanded} from statements · ${s.dropped} dropped · ${s.needsManual} manual${linkedDetail}${reasons} · ${s.errors} errors.`,
+                        title: "재분류를 마쳤습니다",
+                        description: `To Pay로 ${s.promoted}건 · 명세서에서 ${s.statementExpanded}건 · 버림 ${s.dropped}건 · 직접 처리 필요 ${s.needsManual}건${linkedDetail}${reasons} · 오류 ${s.errors}건.`,
                       });
                     } catch (e: any) {
-                      toast({ title: "Reclassify failed", description: e?.message ?? "Try again.", variant: "destructive" });
+                      toast({ title: "재분류에 실패했습니다", description: e?.message ?? "다시 시도하세요.", variant: "destructive" });
                     }
                   }}
                   data-testid="button-bulk-reclassify-review"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
-                  Reclassify all stuck invoices
+                  멈춘 인보이스 모두 재분류
                 </Button>
               </div>
 
@@ -2341,21 +2342,21 @@ export function AdminAccountsPayable() {
                               {isRulePlaceholder && (
                                 <span
                                   className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-destructive/10 text-destructive border border-destructive/30"
-                                  title="A Payables rule routed this email automatically but no supplier was matched. Approve below to create/link the supplier."
+                                  title="메일 규칙에 따라 자동으로 들어왔지만 맞는 공급처를 찾지 못했습니다. 아래에서 승인하면서 공급처를 만들거나 연결하세요."
                                   data-testid={`badge-rule-placeholder-${groupKey}`}
                                 >
                                   <AlertCircle className="h-3 w-3" />
-                                  Supplier needed (rule match)
+                                  공급처 지정 필요 (규칙으로 들어옴)
                                 </span>
                               )}
                               {hasUnparsed && (
                                 <span
                                   className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-700"
-                                  title="AI has not parsed these invoices yet. If you approve now they will be quarantined as $0 placeholders. Use Re-parse PDF or wait, or enter the amount manually first."
+                                  title="AI가 아직 이 인보이스들을 읽지 못했습니다. 지금 승인하면 $0짜리로 격리됩니다. ‘PDF 다시 읽기’를 누르거나 잠시 기다리세요. 아니면 먼저 금액을 직접 입력하세요."
                                   data-testid={`badge-unparsed-${groupKey}`}
                                 >
                                   <AlertCircle className="h-3 w-3" />
-                                  {unparsedCount} not parsed — approving now will quarantine
+                                  {unparsedCount}건 아직 못 읽음 — 지금 승인하면 격리됩니다
                                 </span>
                               )}
                             </div>
@@ -2366,12 +2367,12 @@ export function AdminAccountsPayable() {
                             )}
                             <p className="text-xs text-muted-foreground" data-testid={`text-review-count-${groupKey}`}>
                               {group.invoices.length === 1
-                                ? "1 pending invoice"
-                                : `${group.invoices.length} pending invoices`}
+                                ? "대기 중인 인보이스 1건"
+                                : `대기 중인 인보이스 ${group.invoices.length}건`}
                             </p>
                             {group.senderEmail && (
                               <p className="text-xs text-muted-foreground/70 truncate mt-0.5">
-                                via {group.senderEmail}
+                                보낸 곳: {group.senderEmail}
                               </p>
                             )}
                           </div>
@@ -2382,7 +2383,7 @@ export function AdminAccountsPayable() {
                               {fmtAUD(group.totalAmount)}
                             </p>
                           )}
-                          <p className="text-xs text-muted-foreground">total</p>
+                          <p className="text-xs text-muted-foreground">합계</p>
                         </div>
                       </div>
 
@@ -2402,13 +2403,13 @@ export function AdminAccountsPayable() {
                         )}
                         {raw?.supplier?.accountNumber && (
                           <div className="flex gap-2">
-                            <span className="text-muted-foreground shrink-0 w-20">Account</span>
+                            <span className="text-muted-foreground shrink-0 w-20">계좌번호</span>
                             <span className="font-medium font-mono">{raw.supplier.accountNumber}</span>
                           </div>
                         )}
                         {(raw?.supplier?.supplierAddress ?? raw?.supplier?.address) && (
                           <div className="flex gap-2 col-span-2">
-                            <span className="text-muted-foreground shrink-0 w-20">Address</span>
+                            <span className="text-muted-foreground shrink-0 w-20">주소</span>
                             <span className="font-medium">{raw!.supplier.supplierAddress ?? raw!.supplier.address}</span>
                           </div>
                         )}
@@ -2429,7 +2430,7 @@ export function AdminAccountsPayable() {
                                     {/* Invoice # + amount + received time */}
                                     <div className="flex items-center gap-3 flex-wrap">
                                       <span className="text-muted-foreground font-mono text-xs">
-                                        {displayInvNumber(ir?.invoiceNumber) !== "—" ? `#${ir?.invoiceNumber}` : "No invoice #"}
+                                        {displayInvNumber(ir?.invoiceNumber) !== "—" ? `#${ir?.invoiceNumber}` : "인보이스 번호 없음"}
                                       </span>
                                       {ir?.issueDate && <span className="text-muted-foreground text-xs">{fmt(ir.issueDate)}</span>}
                                       {ir?.totalAmount !== undefined && ir.totalAmount > 0 && (
@@ -2437,12 +2438,12 @@ export function AdminAccountsPayable() {
                                       )}
                                       {(ir as any)?._isStatement && (
                                         <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 text-amber-700 border-amber-400 bg-amber-50 dark:text-amber-300 dark:border-amber-700 dark:bg-amber-950/30 shrink-0">
-                                          Statement
+                                          명세서
                                         </Badge>
                                       )}
                                       {inv.createdAt && (
                                         <span className="text-muted-foreground/60 text-xs ml-auto">
-                                          Received {fmtReceived(inv.createdAt)}
+                                          받음 {fmtReceived(inv.createdAt)}
                                         </span>
                                       )}
                                     </div>
@@ -2455,7 +2456,7 @@ export function AdminAccountsPayable() {
                                     {/* Sender */}
                                     {emailInfo.from && (
                                       <p className="text-xs text-muted-foreground truncate">
-                                        From: {emailInfo.from}
+                                        보낸 사람: {emailInfo.from}
                                       </p>
                                     )}
                                     {/* Notes fallback when no structured data at all */}
@@ -2469,7 +2470,7 @@ export function AdminAccountsPayable() {
                                       <p className="text-xs text-muted-foreground italic mt-1" data-testid={`text-parser-reasoning-${inv.id}`}>
                                         AI: {(inv.rawExtractedData as any)._reasoning}
                                         {(inv.rawExtractedData as any)?._confidence
-                                          ? ` (doc ${Math.round(((inv.rawExtractedData as any)._confidence.docType ?? 0) * 100)}% / store ${Math.round(((inv.rawExtractedData as any)._confidence.store ?? 0) * 100)}%)`
+                                          ? ` (문서 ${Math.round(((inv.rawExtractedData as any)._confidence.docType ?? 0) * 100)}% / 매장 ${Math.round(((inv.rawExtractedData as any)._confidence.store ?? 0) * 100)}%)`
                                           : ""}
                                       </p>
                                     )}
@@ -2481,7 +2482,7 @@ export function AdminAccountsPayable() {
                                       className="h-6 w-6 text-muted-foreground/50 hover:text-foreground"
                                       onClick={() => setViewEmailInvoice(inv)}
                                       data-testid={`button-view-email-${inv.id}`}
-                                      title="View full email"
+                                      title="이메일 전체 보기"
                                     >
                                       <ExternalLink className="h-3 w-3" />
                                     </Button>
@@ -2492,7 +2493,7 @@ export function AdminAccountsPayable() {
                                       disabled={isDeleting}
                                       onClick={() => deleteInvoiceMutation.mutate(inv.id)}
                                       data-testid={`button-delete-invoice-${inv.id}`}
-                                      title="Delete invoice"
+                                      title="인보이스 삭제"
                                     >
                                       {isDeleting ? (
                                         <Loader2 className="h-3 w-3 animate-spin" />
@@ -2529,7 +2530,7 @@ export function AdminAccountsPayable() {
                           ) : (
                             <Ban className="h-3.5 w-3.5" />
                           )}
-                          Ignore Supplier
+                          공급처 무시
                         </Button>
                         {/* Re-parse PDF button — only for groups that have a stored PDF */}
                         {group.invoices.some(i => (i.rawExtractedData as any)?.pdfBase64) && (
@@ -2549,7 +2550,7 @@ export function AdminAccountsPayable() {
                             ) : (
                               <RefreshCw className="h-3.5 w-3.5" />
                             )}
-                            Re-parse PDF
+                            PDF 다시 읽기
                           </Button>
                         )}
                         <Button
@@ -2557,11 +2558,11 @@ export function AdminAccountsPayable() {
                           onClick={() => {
                             if (hasUnparsed) {
                               const ok = window.confirm(
-                                `${unparsedCount} of these invoices haven't been parsed yet (amount = $0).\n\n` +
-                                `If you approve now, those rows will be moved to Quarantine (the $0 junk guard). ` +
-                                `The real invoices with a parsed amount will still go to To Pay.\n\n` +
-                                `Recommended: use "Re-parse PDF" first, or edit the amount inline, then approve.\n\n` +
-                                `Continue anyway?`
+                                `이 중 ${unparsedCount}건은 아직 AI가 읽지 못했습니다 (금액 = $0).\n\n` +
+                                `지금 승인하면 그 건들은 Quarantine(격리함)으로 갑니다 ($0짜리 잘못된 건을 막는 장치). ` +
+                                `금액을 제대로 읽은 인보이스는 그대로 To Pay로 갑니다.\n\n` +
+                                `추천: 먼저 "PDF 다시 읽기"를 누르거나 금액을 직접 고친 뒤 승인하세요.\n\n` +
+                                `그래도 계속할까요?`
                               );
                               if (!ok) return;
                             }
@@ -2571,7 +2572,7 @@ export function AdminAccountsPayable() {
                           className="gap-1.5"
                         >
                           <UserPlus className="h-3.5 w-3.5" />
-                          Approve & Add Supplier
+                          승인하고 공급처 추가
                         </Button>
                       </div>
                     </CardContent>
@@ -2589,13 +2590,13 @@ export function AdminAccountsPayable() {
           isLoading ? (
             <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm">Loading history…</span>
+              <span className="text-sm">지급 내역 불러오는 중…</span>
             </div>
           ) : historyInvoices.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
               <Receipt className="h-10 w-10 opacity-20" />
-              <p className="text-sm font-medium">No paid invoices</p>
-              <p className="text-xs">Paid invoices will appear here.</p>
+              <p className="text-sm font-medium">지급 완료된 인보이스가 없습니다</p>
+              <p className="text-xs">지급 완료된 인보이스가 여기에 나타납니다.</p>
             </div>
           ) : (
             <div className="flex flex-col gap-1.5">
@@ -2604,7 +2605,7 @@ export function AdminAccountsPayable() {
                 const groupTotal = invoices.reduce((s, inv) => s + (inv.amount ?? 0), 0);
                 const displayDate = dateKey
                   ? new Date(dateKey + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" })
-                  : "Unknown Date";
+                  : "날짜 모름";
                 return (
                   <Card key={dateKey} className="overflow-hidden">
                     {/* ── Group header (always visible) ── */}
@@ -2620,7 +2621,7 @@ export function AdminAccountsPayable() {
                       }
                       <span className="font-semibold text-sm flex-1">{displayDate}</span>
                       <span className="text-xs text-muted-foreground mr-3">
-                        {invoices.length} invoice{invoices.length !== 1 ? "s" : ""}
+                        인보이스 {invoices.length}건
                       </span>
                       <span className="font-semibold tabular-nums text-sm">{fmtAUD(groupTotal)}</span>
                     </button>
@@ -2661,7 +2662,7 @@ export function AdminAccountsPayable() {
                                   }
                                   <span className="font-semibold text-sm flex-1 truncate">{suppName}</span>
                                   <span className="text-xs text-muted-foreground mr-3 shrink-0">
-                                    {suppInvoices.length} invoice{suppInvoices.length !== 1 ? "s" : ""}
+                                    인보이스 {suppInvoices.length}건
                                   </span>
                                   <span className="font-semibold tabular-nums text-sm shrink-0">{fmtAUD(suppTotal)}</span>
                                 </button>
@@ -2706,7 +2707,7 @@ export function AdminAccountsPayable() {
                                                 return (
                                                   <div
                                                     className="text-[10px] font-normal text-muted-foreground/80"
-                                                    title={`Supplier defaults to ${rate}% GST applicable. Override on Wave 3+.`}
+                                                    title={`이 공급처는 기본으로 ${rate}%에 GST가 붙습니다 (추정치).`}
                                                   >
                                                     GST ~{fmtAUD(est)} ({rate}%)
                                                   </div>
@@ -2722,10 +2723,10 @@ export function AdminAccountsPayable() {
                                                   data-testid={`badge-autopaid-${inv.id}`}
                                                 >
                                                   <Zap className="h-2.5 w-2.5" />
-                                                  Auto-Paid
+                                                  자동이체로 지급
                                                 </span>
                                               ) : (
-                                                <span className="text-xs text-muted-foreground">Manual</span>
+                                                <span className="text-xs text-muted-foreground">직접 지급</span>
                                               )}
                                             </td>
                                             <td className="py-2.5 pr-3 w-16">
@@ -2733,7 +2734,7 @@ export function AdminAccountsPayable() {
                                                 {((inv.rawExtractedData as any)?.pdfBase64 || inv.notes) && (
                                                   <button
                                                     type="button"
-                                                    title={(inv.rawExtractedData as any)?.pdfBase64 ? "View PDF Invoice" : inv.notes}
+                                                    title={(inv.rawExtractedData as any)?.pdfBase64 ? "PDF 인보이스 보기" : inv.notes}
                                                     className={`h-7 w-7 flex items-center justify-center rounded transition-colors ${(inv.rawExtractedData as any)?.pdfBase64 ? "text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300" : "text-muted-foreground/40 hover:text-muted-foreground"}`}
                                                     data-testid={`button-notes-${inv.id}`}
                                                     onClick={(inv.rawExtractedData as any)?.pdfBase64 ? () => openInvoicePdf(inv.id) : undefined}
@@ -2743,7 +2744,7 @@ export function AdminAccountsPayable() {
                                                 )}
                                                 <button
                                                   type="button"
-                                                  title="Revert to Pending (e.g. bounced direct debit)"
+                                                  title="미지급으로 되돌리기 (예: 자동이체가 실패했을 때)"
                                                   onClick={() => setRevertInvoice(inv)}
                                                   className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground/40 hover:text-orange-600 dark:hover:text-orange-400 transition-colors"
                                                   data-testid={`button-revert-${inv.id}`}
@@ -2782,13 +2783,13 @@ export function AdminAccountsPayable() {
           rulesLoading ? (
             <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm">Loading email rules…</span>
+              <span className="text-sm">메일 규칙 불러오는 중…</span>
             </div>
           ) : emailRules.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
               <Mail className="h-10 w-10 opacity-20" />
-              <p className="text-sm font-medium">No email routing rules</p>
-              <p className="text-xs">Rules are created when you approve or ignore senders from the Review Inbox.</p>
+              <p className="text-sm font-medium">메일 규칙이 없습니다</p>
+              <p className="text-xs">Review Inbox에서 보낸 사람을 승인하거나 무시하면 규칙이 만들어집니다.</p>
             </div>
           ) : (
             <Card>
@@ -2834,10 +2835,10 @@ export function AdminAccountsPayable() {
                             ) : (
                               <Ban className="h-3 w-3" />
                             )}
-                            {rule.action === "ROUTE_TO_AP" ? "Payables"
-                              : rule.action === "ROUTE_TO_TODO" ? "To-Do"
-                              : rule.action === "FYI_ARCHIVE" ? "FYI"
-                              : rule.action === "SPAM_DROP" ? "Spam"
+                            {rule.action === "ROUTE_TO_AP" ? "인보이스로 처리"
+                              : rule.action === "ROUTE_TO_TODO" ? "할 일로"
+                              : rule.action === "FYI_ARCHIVE" ? "참고용 보관"
+                              : rule.action === "SPAM_DROP" ? "스팸"
                               : rule.action}
                           </span>
                         </td>
@@ -2851,7 +2852,7 @@ export function AdminAccountsPayable() {
                             onClick={() => deleteRuleMutation.mutate(rule.email)}
                             disabled={deleteRuleMutation.isPending}
                             data-testid={`button-delete-rule-${rule.email}`}
-                            title="Delete rule"
+                            title="규칙 삭제"
                           >
                             <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
                           </Button>
@@ -2871,24 +2872,23 @@ export function AdminAccountsPayable() {
           rejectedLoading ? (
             <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm">Loading rejected emails…</span>
+              <span className="text-sm">거부된 메일 불러오는 중…</span>
             </div>
           ) : rejectedEmails.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
               <Mail className="h-10 w-10 opacity-20" />
-              <p className="text-sm font-medium">No rejected emails</p>
-              <p className="text-xs">Emails from senders not on any supplier's contact list appear here.</p>
+              <p className="text-sm font-medium">거부된 메일이 없습니다</p>
+              <p className="text-xs">어느 공급처 연락처에도 없는 주소에서 온 메일이 여기에 나타납니다.</p>
             </div>
           ) : (
             <div className="space-y-3">
               <RecoverOriginalsPanel />
               <div className="rounded-md border border-amber-300/50 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-800 dark:text-amber-200">
-                <p className="font-semibold">What is this?</p>
+                <p className="font-semibold">이게 뭔가요?</p>
                 <p className="mt-0.5 opacity-90">
-                  These emails were blocked at the whitelist gate — their sender isn't on any
-                  supplier's contact list. If a row is a legitimate supplier you forgot to add,
-                  click <strong>"Add to supplier…"</strong> and future emails from that sender
-                  will pass automatically. Otherwise <strong>Delete</strong>.
+                  보낸 사람이 어느 공급처 연락처에도 없어서 입구에서 막힌 메일입니다.
+                  진짜 공급처인데 등록을 깜빡한 경우라면 <strong>‘공급처에 추가…’</strong>를 누르세요.
+                  그러면 앞으로 그 주소에서 오는 메일은 자동으로 통과합니다. 아니면 <strong>‘삭제’</strong>를 누르세요.
                 </p>
               </div>
               <div className="space-y-2">
@@ -2909,13 +2909,13 @@ export function AdminAccountsPayable() {
                             </span>
                             {rej.hasAttachment && (
                               <span className="text-[10px] rounded border border-blue-300/50 bg-blue-50 dark:bg-blue-950/30 px-1.5 py-0.5 text-blue-700 dark:text-blue-300">
-                                has attachment
+                                첨부 있음
                               </span>
                             )}
                           </div>
                           {rej.subject && (
                             <div className="text-xs text-muted-foreground truncate" title={rej.subject}>
-                              <span className="opacity-70">Subject:</span> {rej.subject}
+                              <span className="opacity-70">제목:</span> {rej.subject}
                             </div>
                           )}
                         </div>
@@ -2925,9 +2925,9 @@ export function AdminAccountsPayable() {
                             variant="default"
                             onClick={async () => {
                               const choice = window.prompt(
-                                `Add "${rej.senderEmail}" to which supplier?\n\n` +
-                                `Type part of an existing supplier name, or type NEW: followed by the supplier name to create a new one.\n\n` +
-                                `Existing suppliers: ${allSuppliersForPicker.map((s: any) => s.name).join(", ").slice(0, 400)}`
+                                `"${rej.senderEmail}" 주소를 어느 공급처에 추가할까요?\n\n` +
+                                `기존 공급처 이름의 일부를 입력하세요. 새 공급처를 만들려면 NEW: 뒤에 이름을 붙여 입력하세요 (예: NEW:공급처이름).\n\n` +
+                                `기존 공급처: ${allSuppliersForPicker.map((s: any) => s.name).join(", ").slice(0, 400)}`
                               );
                               if (!choice) return;
                               let body: any;
@@ -2937,7 +2937,7 @@ export function AdminAccountsPayable() {
                                 const needle = choice.trim().toLowerCase();
                                 const match = allSuppliersForPicker.find((s: any) => s.name.toLowerCase().includes(needle));
                                 if (!match) {
-                                  toast({ title: "No matching supplier", description: `Type NEW:${choice} to create a new supplier instead.`, variant: "destructive" });
+                                  toast({ title: "맞는 공급처가 없습니다", description: `새 공급처를 만들려면 NEW:${choice} 라고 입력하세요.`, variant: "destructive" });
                                   return;
                                 }
                                 body = { existingSupplierId: match.id };
@@ -2947,16 +2947,16 @@ export function AdminAccountsPayable() {
                                 const data = await res.json();
                                 queryClient.invalidateQueries({ queryKey: ["/api/rejected-emails", "unreviewed"] });
                                 queryClient.invalidateQueries({ queryKey: ["/api/suppliers"] });
-                                toast({ title: "Added to supplier", description: `Future emails from ${rej.senderEmail} will route to ${data.supplier?.name ?? "the supplier"}.` });
+                                toast({ title: "공급처에 추가했습니다", description: `앞으로 ${rej.senderEmail}에서 오는 메일은 ${data.supplier?.name ?? "해당 공급처"}(으)로 들어갑니다.` });
                               } catch (e: any) {
-                                toast({ title: "Failed", description: e?.message ?? "Try again.", variant: "destructive" });
+                                toast({ title: "실패했습니다", description: e?.message ?? "다시 시도하세요.", variant: "destructive" });
                               }
                             }}
                             data-testid={`button-promote-${rej.id}`}
                             className="gap-1.5"
                           >
                             <UserPlus className="h-3.5 w-3.5" />
-                            Add to supplier…
+                            공급처에 추가…
                           </Button>
                           <Button
                             size="sm"
@@ -2964,13 +2964,13 @@ export function AdminAccountsPayable() {
                             onClick={async () => {
                               await apiRequest("DELETE", `/api/rejected-emails/${rej.id}`);
                               queryClient.invalidateQueries({ queryKey: ["/api/rejected-emails", "unreviewed"] });
-                              toast({ title: "Deleted" });
+                              toast({ title: "삭제했습니다" });
                             }}
                             data-testid={`button-delete-rejected-${rej.id}`}
                             className="gap-1.5 text-destructive hover:text-destructive"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
-                            Delete
+                            삭제
                           </Button>
                         </div>
                       </div>
@@ -2987,13 +2987,13 @@ export function AdminAccountsPayable() {
           quarantineLoading ? (
             <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm">Loading quarantine…</span>
+              <span className="text-sm">격리함 불러오는 중…</span>
             </div>
           ) : quarantinedInvoices.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
               <AlertCircle className="h-10 w-10 opacity-20" />
-              <p className="text-sm font-medium">No quarantined invoices</p>
-              <p className="text-xs">Placeholder or duplicate rows that couldn't be auto-approved will appear here.</p>
+              <p className="text-sm font-medium">격리된 인보이스가 없습니다</p>
+              <p className="text-xs">자동으로 승인하지 못한 빈 건이나 중복 건이 여기에 나타납니다.</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -3005,68 +3005,68 @@ export function AdminAccountsPayable() {
                   <div className="space-y-2">
                     <div className="rounded-md border border-blue-300/50 bg-blue-50 dark:bg-blue-950/20 p-3 flex items-center justify-between gap-3">
                       <div className="text-xs text-blue-800 dark:text-blue-200 min-w-0">
-                        <strong>Backfill</strong> — run the new 4-way classifier (INVOICE / STATEMENT / REMITTANCE / OTHER) on every stuck REVIEW + QUARANTINE row at once. Invoices with parseable PDFs move to To Pay, remittance/other rows are dropped.
+                        <strong>일괄 재분류</strong> — 검토함과 격리함에 멈춰 있는 건을 한 번에 4가지(인보이스 / 명세서 / 송금 확인서 / 기타)로 다시 나눕니다. PDF를 읽을 수 있는 인보이스는 To Pay로 옮기고, 송금 확인서·기타는 치웁니다.
                       </div>
                       <Button
                         size="sm"
                         variant="outline"
                         className="gap-1.5 shrink-0"
                         onClick={async () => {
-                          if (!window.confirm("Run bulk reclassify on ALL stuck REVIEW + QUARANTINE invoices? This will promote invoices with PDFs to To Pay and soft-delete remittances. You can review the summary after.")) return;
+                          if (!window.confirm("검토함·격리함에 멈춰 있는 인보이스를 모두 다시 분류할까요? PDF가 있는 인보이스는 To Pay로 옮기고, 송금 확인서(remittance)는 휴지통으로 보냅니다. 끝나면 결과 요약을 볼 수 있습니다.")) return;
                           try {
                             const res = await apiRequest("POST", "/api/invoices/bulk-reclassify", {});
                             const s = await res.json();
                             queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
                             queryClient.invalidateQueries({ queryKey: ["/api/invoices/review"] });
                             queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
-                            const reasons = s.reasons ? ` (no PDF: ${s.reasons.noPdf ?? 0}, blank text: ${s.reasons.pdfTextEmpty ?? 0}, AI blank: ${s.reasons.aiReturnedNothing ?? 0}, parsed empty: ${s.reasons.parsedButEmpty ?? 0}, no supplier match: ${s.reasons.noSupplierMatch ?? 0})` : "";
+                            const reasons = s.reasons ? ` (PDF 없음: ${s.reasons.noPdf ?? 0}, 글자 없음: ${s.reasons.pdfTextEmpty ?? 0}, AI 결과 없음: ${s.reasons.aiReturnedNothing ?? 0}, 읽었지만 비어 있음: ${s.reasons.parsedButEmpty ?? 0}, 공급처 못 찾음: ${s.reasons.noSupplierMatch ?? 0})` : "";
                             const linked = (s.linkedByName ?? 0) + (s.linkedByEmail ?? 0);
-                            const linkedDetail = linked > 0 ? ` · ${linked} auto-linked supplier (${s.linkedByName ?? 0} by name, ${s.linkedByEmail ?? 0} by email)` : "";
-                            const dupDetail = s.duplicates > 0 ? ` · ${s.duplicates} duplicates auto-removed` : "";
+                            const linkedDetail = linked > 0 ? ` · 공급처 자동 연결 ${linked}건 (이름으로 ${s.linkedByName ?? 0}, 이메일로 ${s.linkedByEmail ?? 0})` : "";
+                            const dupDetail = s.duplicates > 0 ? ` · 중복 ${s.duplicates}건 자동 삭제` : "";
                             toast({
-                              title: "Reclassify complete",
-                              description: `${s.promoted} → To Pay · ${s.statementExpanded} from statements · ${s.dropped} dropped${dupDetail} · ${s.needsManual} manual${linkedDetail}${reasons} · ${s.errors} errors.`,
+                              title: "재분류를 마쳤습니다",
+                              description: `To Pay로 ${s.promoted}건 · 명세서에서 ${s.statementExpanded}건 · 버림 ${s.dropped}건${dupDetail} · 직접 처리 필요 ${s.needsManual}건${linkedDetail}${reasons} · 오류 ${s.errors}건.`,
                             });
                           } catch (e: any) {
-                            toast({ title: "Reclassify failed", description: e?.message ?? "Try again.", variant: "destructive" });
+                            toast({ title: "재분류에 실패했습니다", description: e?.message ?? "다시 시도하세요.", variant: "destructive" });
                           }
                         }}
                         data-testid="button-bulk-reclassify"
                       >
                         <RefreshCw className="h-3.5 w-3.5" />
-                        Reclassify all stuck invoices
+                        멈춘 인보이스 모두 재분류
                       </Button>
                     </div>
                     <div className="rounded-md border border-amber-300/50 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-800 dark:text-amber-200 space-y-1">
-                      <p className="font-semibold">How to clear these:</p>
+                      <p className="font-semibold">정리하는 방법:</p>
                       <ul className="list-disc list-inside space-y-0.5 opacity-90">
-                        <li><strong>Green "Delete — already handled" row</strong> → just Delete. The individual invoices are already in the system; this row is a leftover statement/duplicate.</li>
-                        <li><strong>Has PDF with clear amount</strong> → click "Re-parse". If it fails (scanned PDF, statement, or similar), open the PDF, then "Approve" and enter the amount manually.</li>
-                        <li><strong>No PDF, or not a real invoice</strong> → Delete.</li>
+                        <li><strong>‘이미 처리됨 → 삭제’ 표시가 붙은 줄</strong> → 그냥 ‘삭제’를 누르세요. 인보이스는 이미 Crew에 들어 있고, 이 줄은 남은 명세서나 중복입니다.</li>
+                        <li><strong>PDF가 있고 금액이 분명한 줄</strong> → ‘다시 읽기’를 누르세요. 안 되면 (스캔한 PDF, 명세서 등) ‘PDF’로 열어 보고 ‘승인’을 눌러 금액을 직접 입력하세요.</li>
+                        <li><strong>PDF가 없거나 진짜 인보이스가 아닌 줄</strong> → ‘삭제’.</li>
                       </ul>
                     </div>
                     {alreadyHandled.length > 0 && (
                       <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 flex items-center justify-between gap-3">
                         <div className="text-xs text-destructive min-w-0">
-                          <strong>{alreadyHandled.length}</strong> row{alreadyHandled.length === 1 ? "" : "s"} already handled upstream (statement/duplicate) — safe to delete in bulk.
+                          <strong>{alreadyHandled.length}</strong>건은 이미 다른 곳에서 처리되었습니다 (명세서/중복) — 한꺼번에 지워도 안전합니다.
                         </div>
                         <Button
                           size="sm"
                           variant="outline"
                           className="gap-1.5 text-destructive hover:text-destructive shrink-0"
                           onClick={async () => {
-                            if (!window.confirm(`Delete ${alreadyHandled.length} already-handled quarantine row${alreadyHandled.length === 1 ? "" : "s"}? They move to Trash and can be restored.`)) return;
+                            if (!window.confirm(`이미 처리된 격리 건 ${alreadyHandled.length}건을 삭제할까요? 휴지통으로 옮겨지며 다시 되살릴 수 있습니다.`)) return;
                             await Promise.all(alreadyHandled.map(inv =>
                               apiRequest("PATCH", `/api/supplier-invoices/${inv.id}/soft-delete`, {})
                             ));
                             queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
                             queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/deleted"] });
-                            toast({ title: `${alreadyHandled.length} row${alreadyHandled.length === 1 ? "" : "s"} moved to Trash` });
+                            toast({ title: `${alreadyHandled.length}건을 휴지통으로 옮겼습니다` });
                           }}
                           data-testid="button-bulk-delete-handled"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
-                          Delete all {alreadyHandled.length}
+                          {alreadyHandled.length}건 모두 삭제
                         </Button>
                       </div>
                     )}
@@ -3094,7 +3094,7 @@ export function AdminAccountsPayable() {
                     const m = hay.match(/\b(?:INV[- ]?|Invoice[- #]?)(\d{3,10})\b/i);
                     return m ? `INV-${m[1]}` : null;
                   })();
-                  const supplierLabel = enrichedInv.supplier?.name ?? (senderEmail ? senderEmail.split("@")[1] ?? senderEmail : "Unknown supplier");
+                  const supplierLabel = enrichedInv.supplier?.name ?? (senderEmail ? senderEmail.split("@")[1] ?? senderEmail : "모르는 공급처");
 
                   return (
                     <Card key={inv.id} className={`overflow-hidden ${alreadyHandled ? "border-destructive/30 bg-destructive/[0.02]" : ""}`} data-testid={`row-quarantine-${inv.id}`}>
@@ -3115,28 +3115,28 @@ export function AdminAccountsPayable() {
                               </span>
                               {alreadyHandled && (
                                 <span className="text-[10px] rounded border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-destructive font-semibold">
-                                  Already handled → Delete
+                                  이미 처리됨 → 삭제
                                 </span>
                               )}
                               {!alreadyHandled && !hasAmount && (
                                 <span className="text-[10px] rounded border border-amber-300/50 bg-amber-50 dark:bg-amber-950/30 px-1.5 py-0.5 text-amber-800 dark:text-amber-300">
-                                  AI couldn't read amount
+                                  AI가 금액을 못 읽음
                                 </span>
                               )}
                               {!hasPdf && (
                                 <span className="text-[10px] rounded border border-destructive/30 bg-destructive/5 px-1.5 py-0.5 text-destructive">
-                                  No PDF
+                                  PDF 없음
                                 </span>
                               )}
                             </div>
                             {senderEmail && enrichedInv.supplier?.name && (
                               <div className="text-[11px] text-muted-foreground truncate" title={senderEmail}>
-                                from {senderEmail}
+                                보낸 곳: {senderEmail}
                               </div>
                             )}
                             {subject && (
                               <div className="text-xs text-muted-foreground truncate" title={subject}>
-                                <span className="opacity-70">Subject:</span> {subject}
+                                <span className="opacity-70">제목:</span> {subject}
                               </div>
                             )}
                             {inv.notes && (
@@ -3169,15 +3169,15 @@ export function AdminAccountsPayable() {
                                     const res = await apiRequest("POST", `/api/supplier-invoices/${inv.id}/reparse-pdf`, {});
                                     const body = await res.json().catch(() => ({}));
                                     queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
-                                    toast({ title: "Re-parsed from PDF", description: body?.supplier?.supplierName ? `Supplier: ${body.supplier.supplierName}. Review the amount, then Approve.` : "Review the amount, then Approve." });
+                                    toast({ title: "PDF를 다시 읽었습니다", description: body?.supplier?.supplierName ? `공급처: ${body.supplier.supplierName}. 금액을 확인한 뒤 ‘승인’을 누르세요.` : "금액을 확인한 뒤 ‘승인’을 누르세요." });
                                   } catch (e: any) {
                                     const errMsg = String(e?.message ?? "");
                                     const is422 = errMsg.includes("422") || /no invoices/i.test(errMsg);
                                     toast({
-                                      title: "Re-parse failed",
+                                      title: "다시 읽기에 실패했습니다",
                                       description: is422
-                                        ? "This PDF has no individual invoices (probably a statement of account). Delete — the real invoices are already in the system."
-                                        : "Text extraction failed (scanned/image PDF). Open the PDF and enter the amount manually.",
+                                        ? "이 PDF에는 인보이스가 한 건씩 들어 있지 않습니다 (아마 명세서). ‘삭제’하세요 — 진짜 인보이스는 이미 Crew에 있습니다."
+                                        : "글자를 읽지 못했습니다 (스캔한/사진 PDF). PDF를 열어 보고 금액을 직접 입력하세요.",
                                       variant: "destructive",
                                     });
                                   }
@@ -3186,7 +3186,7 @@ export function AdminAccountsPayable() {
                                 className="gap-1.5"
                               >
                                 <RefreshCw className="h-3.5 w-3.5" />
-                                Re-parse
+                                다시 읽기
                               </Button>
                             )}
                             {!alreadyHandled && (
@@ -3195,7 +3195,7 @@ export function AdminAccountsPayable() {
                                 variant={hasAmount ? "default" : "outline"}
                                 onClick={async () => {
                                   if (!inv.amount || inv.amount <= 0) {
-                                    const raw = window.prompt("Enter invoice amount (AUD) — check the PDF first:");
+                                    const raw = window.prompt("인보이스 금액(AUD)을 입력하세요 — 먼저 PDF를 확인하세요:");
                                     const amt = raw ? Number(raw) : NaN;
                                     if (!raw || isNaN(amt) || amt <= 0) return;
                                     await apiRequest("PATCH", `/api/supplier-invoices/${inv.id}`, { amount: amt });
@@ -3203,13 +3203,13 @@ export function AdminAccountsPayable() {
                                   await apiRequest("PATCH", `/api/invoices/${inv.id}/status`, { status: "PENDING" });
                                   queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
                                   queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
-                                  toast({ title: "Moved to To Pay" });
+                                  toast({ title: "To Pay로 옮겼습니다" });
                                 }}
                                 data-testid={`button-approve-quarantine-${inv.id}`}
                                 className="gap-1.5"
                               >
                                 <CheckCircle className="h-3.5 w-3.5" />
-                                Approve
+                                승인
                               </Button>
                             )}
                             <Button
@@ -3219,13 +3219,13 @@ export function AdminAccountsPayable() {
                                 await apiRequest("PATCH", `/api/supplier-invoices/${inv.id}/soft-delete`, {});
                                 queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/quarantined"] });
                                 queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/deleted"] });
-                                toast({ title: "Moved to Trash" });
+                                toast({ title: "휴지통으로 옮겼습니다" });
                               }}
                               data-testid={`button-delete-quarantine-${inv.id}`}
                               className={alreadyHandled ? "gap-1.5" : "gap-1.5 text-destructive hover:text-destructive"}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
-                              Delete
+                              삭제
                             </Button>
                           </div>
                         </div>
@@ -3243,13 +3243,13 @@ export function AdminAccountsPayable() {
           trashLoading ? (
             <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm">Loading trash…</span>
+              <span className="text-sm">휴지통 불러오는 중…</span>
             </div>
           ) : deletedInvoices.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
               <Trash2 className="h-10 w-10 opacity-20" />
-              <p className="text-sm font-medium">Trash is empty</p>
-              <p className="text-xs">Deleted invoices will appear here and can be restored.</p>
+              <p className="text-sm font-medium">휴지통이 비어 있습니다</p>
+              <p className="text-xs">삭제한 인보이스가 여기에 나타나며, 다시 되살릴 수 있습니다.</p>
             </div>
           ) : (
             <Card>
@@ -3300,7 +3300,7 @@ export function AdminAccountsPayable() {
                                 className="gap-1.5"
                               >
                                 {isRestoring ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />}
-                                Restore
+                                되살리기
                               </Button>
                               <Button
                                 size="sm"
@@ -3311,7 +3311,7 @@ export function AdminAccountsPayable() {
                                 className="gap-1.5 text-destructive hover:text-destructive"
                               >
                                 {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                                Delete Forever
+                                영구 삭제
                               </Button>
                             </div>
                           </td>
@@ -3330,21 +3330,20 @@ export function AdminAccountsPayable() {
       <AlertDialog open={!!revertInvoice} onOpenChange={open => !open && setRevertInvoice(null)}>
         <AlertDialogContent data-testid="dialog-revert-confirm">
           <AlertDialogHeader>
-            <AlertDialogTitle>Revert Invoice to Pending?</AlertDialogTitle>
+            <AlertDialogTitle>인보이스를 미지급으로 되돌릴까요?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will move{" "}
-              <strong>{revertInvoice?.supplier?.name ?? "this invoice"}</strong>{" "}
-              {displayInvNumber(revertInvoice?.invoiceNumber) !== "—" ? `(#${revertInvoice?.invoiceNumber})` : ""} back to the{" "}
-              <strong>To Pay</strong> list and permanently remove its payment record.
+              <strong>{revertInvoice?.supplier?.name ?? "이 인보이스"}</strong>{" "}
+              {displayInvNumber(revertInvoice?.invoiceNumber) !== "—" ? `(#${revertInvoice?.invoiceNumber})` : ""}을(를){" "}
+              <strong>To Pay</strong> 목록으로 되돌리고, 지급 기록은 완전히 지웁니다.
               {revertInvoice?.supplier?.isAutoPay && (
                 <span className="block mt-2 text-amber-600 dark:text-amber-400">
-                  This supplier uses Auto-Pay (Direct Debit). Only revert if the debit has bounced or failed.
+                  이 공급처는 자동이체를 씁니다. 자동이체가 실패했거나 반송됐을 때만 되돌리세요.
                 </span>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-revert-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogCancel data-testid="button-revert-cancel">취소</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => revertInvoice && revertMutation.mutate(revertInvoice.id)}
               disabled={revertMutation.isPending}
@@ -3352,9 +3351,9 @@ export function AdminAccountsPayable() {
               data-testid="button-revert-confirm"
             >
               {revertMutation.isPending ? (
-                <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Reverting…</>
+                <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />되돌리는 중…</>
               ) : (
-                <><Undo2 className="h-3.5 w-3.5 mr-1.5" />Revert to Pending</>
+                <><Undo2 className="h-3.5 w-3.5 mr-1.5" />미지급으로 되돌리기</>
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -3383,12 +3382,12 @@ export function AdminAccountsPayable() {
                   <div className="min-w-0 flex-1 space-y-1.5">
                     <DialogTitle className="text-base leading-snug">{subject}</DialogTitle>
                     <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
-                      <span><span className="text-foreground/50 w-14 inline-block">From:</span> {from}</span>
+                      <span><span className="text-foreground/50 w-14 inline-block">보낸 사람:</span> {from}</span>
                       {displayInvNumber(viewEmailInvoice.invoiceNumber) !== "—" && (
-                        <span><span className="text-foreground/50 w-14 inline-block">Invoice:</span> {viewEmailInvoice.invoiceNumber}</span>
+                        <span><span className="text-foreground/50 w-14 inline-block">인보이스:</span> {viewEmailInvoice.invoiceNumber}</span>
                       )}
                       {viewEmailInvoice.createdAt && (
-                        <span><span className="text-foreground/50 w-14 inline-block">Received:</span> {new Date(viewEmailInvoice.createdAt).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" })}</span>
+                        <span><span className="text-foreground/50 w-14 inline-block">받은 시각:</span> {new Date(viewEmailInvoice.createdAt).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" })}</span>
                       )}
                     </div>
                   </div>
@@ -3405,7 +3404,7 @@ export function AdminAccountsPayable() {
                       <iframe
                         srcDoc={emailBody}
                         sandbox="allow-same-origin"
-                        title="Email content"
+                        title="이메일 내용"
                         className="w-full border-0"
                         style={{ minHeight: "300px", height: "300px" }}
                         onLoad={e => {
@@ -3430,14 +3429,14 @@ export function AdminAccountsPayable() {
                   );
                 })() : (
                   <div className="px-5 py-4">
-                    <p className="text-sm text-muted-foreground italic">No email body stored for this invoice.</p>
+                    <p className="text-sm text-muted-foreground italic">이 인보이스에는 저장된 이메일 본문이 없습니다.</p>
                   </div>
                 )}
 
                 {/* System notes — always shown separately */}
                 {systemNotes && (
                   <div className={`px-5 py-3 bg-muted/20 ${emailBody ? "border-t border-border/30" : ""}`}>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">System Notes</p>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">시스템 메모</p>
                     <pre className="text-xs text-foreground/70 whitespace-pre-wrap font-sans leading-relaxed break-words">
                       {systemNotes}
                     </pre>
@@ -3457,7 +3456,7 @@ export function AdminAccountsPayable() {
                       className="gap-1.5"
                     >
                       <FileText className="h-3.5 w-3.5" />
-                      View PDF
+                      PDF 보기
                     </Button>
                   )}
                 </div>
@@ -3468,7 +3467,7 @@ export function AdminAccountsPayable() {
                     onClick={() => setViewEmailInvoice(null)}
                     data-testid="button-close-view-email"
                   >
-                    Close
+                    닫기
                   </Button>
                   <Button
                     size="sm"
@@ -3480,7 +3479,7 @@ export function AdminAccountsPayable() {
                     className="gap-1.5"
                   >
                     <UserPlus className="h-3.5 w-3.5" />
-                    Approve & Add Supplier
+                    승인하고 공급처 추가
                   </Button>
                 </div>
               </div>
@@ -3493,10 +3492,10 @@ export function AdminAccountsPayable() {
       <AlertDialog open={bulkDeleteConfirmOpen} onOpenChange={open => !open && setBulkDeleteConfirmOpen(false)}>
         <AlertDialogContent data-testid="dialog-bulk-delete-confirm">
           <AlertDialogHeader>
-            <AlertDialogTitle>Move to Trash?</AlertDialogTitle>
+            <AlertDialogTitle>휴지통으로 옮길까요?</AlertDialogTitle>
             <AlertDialogDescription>
-              {selected.size} invoice{selected.size !== 1 ? "s" : ""} will be moved to the Trash.
-              You can restore them from the <strong>Trash</strong> tab if needed.
+              인보이스 {selected.size}건을 휴지통으로 옮깁니다.
+              필요하면 <strong>Trash</strong> 탭(휴지통)에서 되살릴 수 있습니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -3504,7 +3503,7 @@ export function AdminAccountsPayable() {
               disabled={bulkSoftDeleteMutation.isPending}
               data-testid="button-bulk-delete-cancel"
             >
-              Cancel
+              취소
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => bulkSoftDeleteMutation.mutate(Array.from(selected))}
@@ -3513,9 +3512,9 @@ export function AdminAccountsPayable() {
               data-testid="button-bulk-delete-confirm"
             >
               {bulkSoftDeleteMutation.isPending ? (
-                <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Deleting…</>
+                <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />삭제 중…</>
               ) : (
-                <><Trash2 className="h-3.5 w-3.5 mr-1.5" />Move to Trash</>
+                <><Trash2 className="h-3.5 w-3.5 mr-1.5" />휴지통으로 이동</>
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -3569,8 +3568,8 @@ function RecoverOriginalsPanel() {
   return (
     <div className="rounded-md border border-blue-300/50 bg-blue-50 dark:bg-blue-950/20 p-3 flex items-center justify-between gap-3">
       <div className="text-xs text-blue-800 dark:text-blue-200 min-w-0">
-        <strong>Recover originals</strong> — invoices that landed here before their sender was added to a supplier.
-        Attaches the original PDF to the matching record (amount and status unchanged), and adds invoices not yet in the ledger as To Pay. You see the numbers first.
+        <strong>원본 회수</strong> — 보낸 사람이 공급처에 등록되기 전에 여기로 들어온 인보이스입니다.
+        원본 PDF를 맞는 기록에 붙이고 (금액·지급 상태는 그대로), 아직 장부에 없는 인보이스는 To Pay에 추가합니다. 실행 전에 숫자를 먼저 보여 드립니다.
       </div>
       <Button
         size="sm"
@@ -3580,37 +3579,37 @@ function RecoverOriginalsPanel() {
         onClick={async () => {
           setBusy("preview");
           try { setPreview(await run(false)); }
-          catch (e: any) { toast({ title: "Preview failed", description: e?.message ?? "Try again.", variant: "destructive" }); }
+          catch (e: any) { toast({ title: "미리보기에 실패했습니다", description: e?.message ?? "다시 시도하세요.", variant: "destructive" }); }
           finally { setBusy(null); }
         }}
         data-testid="button-recover-originals"
       >
         {busy === "preview" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
-        Recover originals…
+        원본 회수…
       </Button>
 
       <AlertDialog open={preview !== null} onOpenChange={(o) => { if (!o && busy === null) setPreview(null); }}>
         <AlertDialogContent className="max-w-lg">
           <AlertDialogHeader>
-            <AlertDialogTitle>Recover invoice originals</AlertDialogTitle>
+            <AlertDialogTitle>인보이스 원본 회수</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-sm">
-                <p><strong>{attach.count}</strong> existing records get their original PDF ({fmtAUD(attach.amount)}). Amount and paid status stay as they are.</p>
-                {attachNoAmount > 0 && <p className="text-amber-700 dark:text-amber-300">{attachNoAmount} of these: recorded amount not found on the PDF — check after.</p>}
-                <p><strong>{create.count}</strong> new invoices added to To Pay ({fmtAUD(create.amount)}):</p>
+                <p>기존 기록 <strong>{attach.count}</strong>건에 원본 PDF를 붙입니다 ({fmtAUD(attach.amount)}). 금액과 지급 상태는 그대로입니다.</p>
+                {attachNoAmount > 0 && <p className="text-amber-700 dark:text-amber-300">이 중 {attachNoAmount}건은 기록된 금액이 PDF에 보이지 않습니다 — 나중에 확인하세요.</p>}
+                <p>새 인보이스 <strong>{create.count}</strong>건을 To Pay에 추가합니다 ({fmtAUD(create.amount)}):</p>
                 {creates.length > 0 && (
                   <ul className="list-disc list-inside text-xs">
-                    {creates.map(r => <li key={r.rejectedId}>{r.supplier} · {r.number} · {fmtAUD(r.amount ?? 0)}{r.dueDate ? ` · due ${fmt(r.dueDate)}` : ""}{r.store ? ` · ${r.store}` : " · store not set"}</li>)}
+                    {creates.map(r => <li key={r.rejectedId}>{r.supplier} · {r.number} · {fmtAUD(r.amount ?? 0)}{r.dueDate ? ` · 기한 ${fmt(r.dueDate)}` : ""}{r.store ? ` · ${r.store}` : " · 매장 미지정"}</li>)}
                   </ul>
                 )}
                 {skipped.length > 0 && (
-                  <p className="text-xs text-muted-foreground">Skipped: {skipped.map(([k, v]) => `${k.replace(/^skip_/, "").replace(/_/g, " ")} ${v.count}`).join(" · ")}</p>
+                  <p className="text-xs text-muted-foreground">건너뜀: {skipped.map(([k, v]) => `${k.replace(/^skip_/, "").replace(/_/g, " ")} ${v.count}`).join(" · ")}</p>
                 )}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy !== null}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={busy !== null}>취소</AlertDialogCancel>
             <AlertDialogAction
               disabled={busy !== null || attach.count + create.count === 0}
               onClick={async (e) => {
@@ -3620,16 +3619,16 @@ function RecoverOriginalsPanel() {
                   const done = await run(true);
                   queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
                   queryClient.invalidateQueries({ queryKey: ["/api/rejected-emails", "unreviewed"] });
-                  toast({ title: "Originals recovered", description: `${done.summary.attach?.count ?? 0} attached · ${done.summary.create?.count ?? 0} added to To Pay.` });
+                  toast({ title: "원본을 회수했습니다", description: `PDF 붙임 ${done.summary.attach?.count ?? 0}건 · To Pay에 추가 ${done.summary.create?.count ?? 0}건.` });
                   setPreview(null);
                 } catch (err: any) {
-                  toast({ title: "Recovery failed", description: err?.message ?? "Try again.", variant: "destructive" });
+                  toast({ title: "원본 회수에 실패했습니다", description: err?.message ?? "다시 시도하세요.", variant: "destructive" });
                 } finally { setBusy(null); }
               }}
               data-testid="button-recover-originals-confirm"
             >
               {busy === "apply" ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
-              Attach {attach.count} · add {create.count}
+              {attach.count}건 붙이기 · {create.count}건 추가
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -3643,10 +3642,10 @@ function RecoverOriginalsPanel() {
 // ORIGINAL shows nothing; only the gaps are flagged.
 function DocBadge({ status }: { status?: DocStatus | null }) {
   if (status === "STATEMENT_ONLY") return (
-    <span title="No original invoice on file — only a supplier statement backs this record." className="ml-1 inline-block rounded px-1 py-px text-[10px] font-sans font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">Statement only</span>
+    <span title="원본 인보이스가 없습니다 — 공급처 명세서만 이 기록의 근거입니다." className="ml-1 inline-block rounded px-1 py-px text-[10px] font-sans font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">명세서만</span>
   );
   if (status === "NONE") return (
-    <span title="No document on file for this record." className="ml-1 inline-block rounded px-1 py-px text-[10px] font-sans font-medium bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200">No document</span>
+    <span title="이 기록에는 보관된 서류가 없습니다." className="ml-1 inline-block rounded px-1 py-px text-[10px] font-sans font-medium bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200">서류 없음</span>
   );
   return null;
 }
@@ -3657,10 +3656,10 @@ function DocStatusSummary({ invoices }: { invoices: EnrichedInvoice[] }) {
   const n = (k: DocStatus) => live.filter(i => i.docStatus === k).length;
   return (
     <div className="mb-3 rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-      <strong className="text-foreground">Invoice documents</strong> — {n("ORIGINAL")} with original
-      {" · "}<span className="text-amber-700 dark:text-amber-300">{n("STATEMENT_ONLY")} statement only</span>
-      {" · "}<span className="text-red-700 dark:text-red-300">{n("NONE")} no document</span>
-      <span className="opacity-80"> — tax records must be kept for 5 years; ask the supplier for copies of the flagged ones.</span>
+      <strong className="text-foreground">인보이스 서류</strong> — 원본 있음 {n("ORIGINAL")}건
+      {" · "}<span className="text-amber-700 dark:text-amber-300">명세서만 {n("STATEMENT_ONLY")}건</span>
+      {" · "}<span className="text-red-700 dark:text-red-300">서류 없음 {n("NONE")}건</span>
+      <span className="opacity-80"> — 세금 관련 서류는 5년간 보관해야 합니다. 표시된 건은 공급처에 사본을 요청하세요.</span>
     </div>
   );
 }
@@ -3678,11 +3677,11 @@ type ReconSupplier = {
 };
 
 const RECON_LABEL: Record<ReconIssue["type"], { label: string; hint: string }> = {
-  STATEMENT_SHOWS_PAID: { label: "Supplier shows paid", hint: "The statement records a payment, but Crew still has it unpaid — mark it paid if the money went out." },
-  PAID_BEFORE_STATEMENT: { label: "Paid, still owing", hint: "Marked paid in Crew before the statement date, yet the statement still lists it — check the payment reached the supplier." },
-  MISSING_IN_LEDGER: { label: "Not in Crew", hint: "The supplier billed it and Crew has no record — the invoice may never have arrived." },
-  AMOUNT_DIFF: { label: "Amount differs", hint: "Statement and Crew disagree on the amount — a credit, or an entry error." },
-  LEDGER_ONLY: { label: "Only in Crew", hint: "Recorded in Crew but missing from the supplier's full statement for that period — a duplicate, or the wrong supplier or store." },
+  STATEMENT_SHOWS_PAID: { label: "공급처는 지급 완료로 표시", hint: "명세서에는 지급된 것으로 나오는데 Crew에는 아직 미지급입니다 — 실제로 돈이 나갔다면 지급 완료로 표시하세요." },
+  PAID_BEFORE_STATEMENT: { label: "지급했는데 아직 미납으로 나옴", hint: "명세서 날짜 전에 Crew에서 지급 완료로 표시했는데, 명세서에는 아직 남아 있습니다 — 돈이 공급처에 잘 들어갔는지 확인하세요." },
+  MISSING_IN_LEDGER: { label: "Crew에 없음", hint: "공급처는 청구했는데 Crew에는 기록이 없습니다 — 인보이스가 아예 안 들어왔을 수 있습니다." },
+  AMOUNT_DIFF: { label: "금액이 다름", hint: "명세서와 Crew의 금액이 다릅니다 — 크레딧(차감)이 있었거나 입력 실수일 수 있습니다." },
+  LEDGER_ONLY: { label: "Crew에만 있음", hint: "Crew에는 기록됐는데 그 기간의 공급처 명세서에는 없습니다 — 중복이거나, 공급처나 매장이 잘못 지정됐을 수 있습니다." },
 };
 
 // PLAN 1-6: statements ↔ ledger. Read-only: nothing here changes an invoice.
@@ -3699,19 +3698,19 @@ function StatementsTab() {
       window.open(blobUrl, "_blank");
       setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
     } catch (e: any) {
-      toast({ title: "Couldn't open PDF", description: e?.message ?? "Network error", variant: "destructive" });
+      toast({ title: "PDF를 열 수 없습니다", description: e?.message ?? "네트워크 오류", variant: "destructive" });
     }
   };
-  if (isLoading) return <div className="flex items-center justify-center h-48 text-muted-foreground gap-2"><Loader2 className="h-4 w-4 animate-spin" /><span className="text-sm">Checking statements…</span></div>;
-  if (error || !data) return <p className="text-sm text-destructive">Couldn't load the statement check.</p>;
+  if (isLoading) return <div className="flex items-center justify-center h-48 text-muted-foreground gap-2"><Loader2 className="h-4 w-4 animate-spin" /><span className="text-sm">명세서 확인 중…</span></div>;
+  if (error || !data) return <p className="text-sm text-destructive">명세서 확인 결과를 불러오지 못했습니다.</p>;
   const name = new Map(data.suppliers.map(s => [s.supplierId, s.supplierName]));
   const types = (Object.keys(RECON_LABEL) as ReconIssue["type"][]).filter(t => data.issues.some(i => i.type === t));
 
   return (
     <div className="space-y-4">
       <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-        Each supplier statement is checked against Crew. Nothing here changes an invoice — fix what's flagged from To Pay or Paid History.
-        Only statements whose lines add up to their printed balance are checked; other suppliers need a statement rule first.
+        공급처 명세서를 하나씩 Crew 기록과 비교합니다. 여기서는 인보이스가 바뀌지 않습니다 — 표시된 건은 To Pay나 Paid History에서 고치세요.
+        줄별 금액의 합이 명세서에 적힌 잔액과 맞는 명세서만 비교합니다. 다른 공급처는 먼저 명세서 규칙이 필요합니다.
       </div>
 
       <div className="rounded-md border overflow-x-auto">
@@ -3729,8 +3728,8 @@ function StatementsTab() {
                 <td className="py-2 px-3">{s.supplierName}{s.storeName ? <span className="text-muted-foreground"> · {s.storeName}</span> : null}</td>
                 <td className="py-2 px-3 whitespace-nowrap">{s.latestStatementDate ? fmt(s.latestStatementDate) : "—"} <span className="text-xs text-muted-foreground">({s.statements})</span></td>
                 <td className="py-2 px-3 text-right font-mono">{s.closingBalance != null ? fmtAUD(s.closingBalance) : "—"}</td>
-                <td className="py-2 px-3 text-right font-mono" title="Invoices dated on or before the statement and not yet marked paid in Crew by then. Payments marked late in Crew make this higher.">
-                  {s.storeUnknown ? <span className="text-xs text-amber-700 dark:text-amber-300 font-sans">Add store aliases to compare</span> : s.ledgerUnpaidAsOf != null ? fmtAUD(s.ledgerUnpaidAsOf) : "—"}
+                <td className="py-2 px-3 text-right font-mono" title="명세서 날짜까지의 인보이스 중, 그때까지 Crew에서 지급 완료로 표시하지 않은 금액입니다. Crew에 지급 표시를 늦게 하면 이 금액이 커집니다.">
+                  {s.storeUnknown ? <span className="text-xs text-amber-700 dark:text-amber-300 font-sans">비교하려면 매장 별칭을 추가하세요</span> : s.ledgerUnpaidAsOf != null ? fmtAUD(s.ledgerUnpaidAsOf) : "—"}
                 </td>
                 <td className="py-2 px-3 text-right">{s.matched}/{s.invoicesOnStatements}</td>
                 <td className="py-2 px-3 text-right">
@@ -3745,7 +3744,7 @@ function StatementsTab() {
       </div>
 
       {types.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No differences found.</p>
+        <p className="text-sm text-muted-foreground">다른 점이 없습니다.</p>
       ) : types.map(t => {
         const rows = data.issues.filter(i => i.type === t);
         return (
@@ -3771,8 +3770,8 @@ function StatementsTab() {
                     <td className="py-1.5 px-3 text-right font-mono">{i.ledgerAmount != null ? fmtAUD(i.ledgerAmount) : "—"}</td>
                     <td className="py-1.5 px-3 text-xs">{i.ledgerStatus ? `${i.ledgerStatus}${i.paidOn ? ` · ${fmt(i.paidOn)}` : ""}` : "—"}</td>
                     <td className="py-1.5 px-3 text-right whitespace-nowrap">
-                      <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => openPdf(`/api/statements/${i.statementId}/pdf`)}>Statement</Button>
-                      {i.invoiceId && <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => openPdf(`/api/supplier-invoices/${i.invoiceId}/pdf`)}>Invoice</Button>}
+                      <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => openPdf(`/api/statements/${i.statementId}/pdf`)}>명세서</Button>
+                      {i.invoiceId && <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => openPdf(`/api/supplier-invoices/${i.invoiceId}/pdf`)}>인보이스</Button>}
                     </td>
                   </tr>
                 ))}
@@ -3810,24 +3809,24 @@ function AutoPaySettlePanel() {
   return (
     <div className="mb-3 rounded-md border border-amber-300/50 bg-amber-50 dark:bg-amber-950/20 p-3 flex items-center justify-between gap-3">
       <div className="text-xs text-amber-800 dark:text-amber-200 min-w-0">
-        <strong>{cands.length} direct-debit invoices still unpaid in Crew ({fmtAUD(total(cands))})</strong> — these suppliers take payment automatically,
-        but these records were created from statements or the review inbox, which didn't mark them paid. Check your bank, then settle them.
+        <strong>자동이체 인보이스 {cands.length}건이 Crew에서 아직 미지급입니다 ({fmtAUD(total(cands))})</strong> — 이 공급처들은 자동이체로 돈을 가져가지만,
+        이 기록들은 명세서나 검토함에서 만들어져서 지급 완료로 표시되지 않았습니다. 은행 내역을 확인한 뒤 정리하세요.
       </div>
       <Button size="sm" variant="outline" className="shrink-0" onClick={() => { setPicked(new Set()); setOpen(true); }} data-testid="button-auto-pay-review">
-        Review…
+        검토…
       </Button>
       <AlertDialog open={open} onOpenChange={(o) => { if (!busy) setOpen(o); }}>
         <AlertDialogContent className="max-w-lg">
           <AlertDialogHeader>
-            <AlertDialogTitle>Settle direct debits</AlertDialogTitle>
+            <AlertDialogTitle>자동이체 정리</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-sm">
-                <p>Tick only suppliers whose debits you've seen leave the bank. Each invoice is marked paid on its due date.</p>
+                <p>은행에서 실제로 돈이 빠져나간 것을 확인한 공급처만 체크하세요. 각 인보이스는 기한 날짜에 지급 완료로 표시됩니다.</p>
                 {groups.map(([sid, g]) => (
                   <label key={sid} className="flex items-start gap-2 rounded border p-2 cursor-pointer">
                     <Checkbox checked={picked.has(sid)} onCheckedChange={(v) => setPicked(prev => { const n = new Set(prev); v ? n.add(sid) : n.delete(sid); return n; })} data-testid={`checkbox-auto-pay-${sid}`} />
                     <span className="min-w-0">
-                      <span className="font-medium text-foreground">{g.name}</span> — {g.items.length} invoices, {fmtAUD(total(g.items))}
+                      <span className="font-medium text-foreground">{g.name}</span> — 인보이스 {g.items.length}건, {fmtAUD(total(g.items))}
                       <span className="block text-xs text-muted-foreground">{fmt(g.items[0].invoiceDate)} – {fmt(g.items[g.items.length - 1].invoiceDate)}</span>
                     </span>
                   </label>
@@ -3836,7 +3835,7 @@ function AutoPaySettlePanel() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={busy}>취소</AlertDialogCancel>
             <AlertDialogAction
               disabled={busy || chosen.length === 0}
               onClick={async (e) => {
@@ -3846,16 +3845,16 @@ function AutoPaySettlePanel() {
                   const r = await (await apiRequest("POST", "/api/invoices/auto-pay/settle", { apply: true, supplierIds: Array.from(picked) })).json();
                   queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
                   await refetch();
-                  toast({ title: "Direct debits settled", description: `${r.settled} invoices marked paid.` });
+                  toast({ title: "자동이체를 정리했습니다", description: `인보이스 ${r.settled}건을 지급 완료로 표시했습니다.` });
                   setOpen(false);
                 } catch (err: any) {
-                  toast({ title: "Failed", description: err?.message ?? "Try again.", variant: "destructive" });
+                  toast({ title: "실패했습니다", description: err?.message ?? "다시 시도하세요.", variant: "destructive" });
                 } finally { setBusy(false); }
               }}
               data-testid="button-auto-pay-confirm"
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
-              Mark {chosen.length} paid ({fmtAUD(total(chosen))})
+              {chosen.length}건 지급 완료로 표시 ({fmtAUD(total(chosen))})
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -3878,21 +3877,21 @@ function LinkedPdfPanel() {
   return (
     <div className="mb-3 rounded-md border border-blue-300/50 bg-blue-50 dark:bg-blue-950/20 p-3 flex items-center justify-between gap-3">
       <div className="text-xs text-blue-800 dark:text-blue-200 min-w-0">
-        <strong>{data.count} invoices came as a download link</strong> — the PDF was never kept. Fetch them so the original is on file and the store is read from "Bill To".
+        <strong>인보이스 {data.count}건이 다운로드 링크로만 왔습니다</strong> — PDF가 저장되지 않았습니다. 받아 두면 원본이 보관되고, 매장도 PDF의 ‘Bill To’(청구처)에서 읽어 옵니다.
       </div>
       <Button size="sm" variant="outline" className="gap-1.5 shrink-0" disabled={busy}
-        onClick={async () => { setBusy(true); try { setPreview((await run(false)).rows); } catch (e: any) { toast({ title: "Preview failed", description: e?.message ?? "Try again.", variant: "destructive" }); } finally { setBusy(false); } }}
+        onClick={async () => { setBusy(true); try { setPreview((await run(false)).rows); } catch (e: any) { toast({ title: "미리보기에 실패했습니다", description: e?.message ?? "다시 시도하세요.", variant: "destructive" }); } finally { setBusy(false); } }}
         data-testid="button-linked-pdf-preview">
         {busy && !preview ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
-        Fetch PDFs…
+        PDF 받기…
       </Button>
       <AlertDialog open={preview !== null} onOpenChange={(o) => { if (!o && !busy) setPreview(null); }}>
         <AlertDialogContent className="max-w-lg">
           <AlertDialogHeader>
-            <AlertDialogTitle>Fetch linked invoice PDFs</AlertDialogTitle>
+            <AlertDialogTitle>링크로 온 인보이스 PDF 받기</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-sm">
-                <p><strong>{ok.length}</strong> of {preview?.length ?? 0} PDFs fetched and matched to their record (by the amount on the PDF, or for picture-only PDFs by the number and amount in the email). Amount and paid status don't change.</p>
+                <p>PDF {preview?.length ?? 0}건 중 <strong>{ok.length}</strong>건을 받아서 맞는 기록에 연결했습니다 (PDF의 금액으로 확인, 사진으로만 된 PDF는 이메일에 적힌 번호와 금액으로 확인). 금액과 지급 상태는 바뀌지 않습니다.</p>
                 <table className="w-full text-xs">
                   <thead><tr className="text-left text-muted-foreground"><th>Supplier</th><th>Invoice #</th><th className="text-right">Amount</th><th>Result</th></tr></thead>
                   <tbody>
@@ -3900,9 +3899,9 @@ function LinkedPdfPanel() {
                       <tr key={r.id}>
                         <td>{r.supplier}</td><td className="font-mono">{r.invoiceNumber}</td><td className="text-right">{fmtAUD(r.amount)}</td>
                         <td>{r.action === "attach"
-                          ? `attach${r.checkedBy === "email" ? " (picture PDF, checked by email)" : ""}${r.store ? ` · store → ${r.store}` : r.hadStore ? "" : " · set store yourself"}`
-                          : r.action === "link_unavailable" ? "link no longer works"
-                          : r.action === "image_pdf_body_mismatch" ? "picture PDF, email doesn't match" : "amount not on PDF"}</td>
+                          ? `붙이기${r.checkedBy === "email" ? " (사진 PDF, 이메일로 확인)" : ""}${r.store ? ` · 매장 → ${r.store}` : r.hadStore ? "" : " · 매장은 직접 지정하세요"}`
+                          : r.action === "link_unavailable" ? "링크가 더 이상 열리지 않음"
+                          : r.action === "image_pdf_body_mismatch" ? "사진 PDF, 이메일 내용과 안 맞음" : "PDF에 금액이 없음"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -3911,7 +3910,7 @@ function LinkedPdfPanel() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={busy}>취소</AlertDialogCancel>
             <AlertDialogAction disabled={busy || ok.length === 0}
               onClick={async (e) => {
                 e.preventDefault(); setBusy(true);
@@ -3919,15 +3918,15 @@ function LinkedPdfPanel() {
                   const r = await run(true);
                   queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
                   await refetch();
-                  toast({ title: "PDFs attached", description: `${r.rows.filter((x: LinkedPdfRow) => x.action === "attach").length} invoices now have their PDF.` });
+                  toast({ title: "PDF를 붙였습니다", description: `인보이스 ${r.rows.filter((x: LinkedPdfRow) => x.action === "attach").length}건에 PDF가 생겼습니다.` });
                   setPreview(null);
                 } catch (err: any) {
-                  toast({ title: "Failed", description: err?.message ?? "Try again.", variant: "destructive" });
+                  toast({ title: "실패했습니다", description: err?.message ?? "다시 시도하세요.", variant: "destructive" });
                 } finally { setBusy(false); }
               }}
               data-testid="button-linked-pdf-confirm">
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
-              Attach {ok.length} PDFs
+              PDF {ok.length}건 붙이기
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -3944,16 +3943,16 @@ function SupplierDomainAlerts() {
   if (!data?.length) return null;
   return (
     <div className="mb-3 rounded-md border border-red-300/60 bg-red-50 dark:bg-red-950/20 p-3 text-xs text-red-800 dark:text-red-200 space-y-1.5">
-      <p className="font-semibold">Possible invoices blocked — sender works at a supplier you already have</p>
+      <p className="font-semibold">막힌 인보이스가 있을 수 있습니다 — 이미 등록된 공급처 회사의 다른 주소에서 온 메일입니다</p>
       <ul className="space-y-1">
         {data.map(a => (
           <li key={a.sender_email}>
-            <span className="font-mono">{a.sender_email}</span> → <strong>{a.supplier_name}</strong>: {a.n} email{a.n > 1 ? "s" : ""} with a PDF, last {fmtReceived(a.last_at)}
+            <span className="font-mono">{a.sender_email}</span> → <strong>{a.supplier_name}</strong>: PDF가 붙은 메일 {a.n}통, 마지막 {fmtReceived(a.last_at)}
             {a.last_subject ? <span className="opacity-80"> — “{a.last_subject.slice(0, 80)}”</span> : null}
           </li>
         ))}
       </ul>
-      <p className="opacity-90">If these are invoices: use <strong>"Add to supplier…"</strong> on one of the emails below, then <strong>"Recover originals…"</strong> to bring the blocked ones in.</p>
+      <p className="opacity-90">인보이스가 맞다면: 아래 메일 중 하나에서 <strong>‘공급처에 추가…’</strong>를 누른 다음, <strong>‘원본 회수…’</strong>를 눌러 막힌 메일을 가져오세요.</p>
     </div>
   );
 }
