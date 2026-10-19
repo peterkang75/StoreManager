@@ -102,6 +102,9 @@ const FAMILIES: Family[] = [
     end: /^Subtotal\b/,
     rowEnd: new RegExp(String.raw`[\d,]+(?:\.\d+)?\s+[\d,]+\.\d+\s+(?:GST Free|BAS Excluded|Tax Exempt|GST on \w+|\d+(?:\.\d+)?%)\s+${M}$`),
     row: new RegExp(String.raw`^(?<desc>.*?)\s*(?<qty>-?[\d,]+(?:\.\d+)?)\s+(?<unitPrice>-?[\d,]+\.\d+)\s+(?<gst>GST Free|BAS Excluded|Tax Exempt|GST on \w+|\d+(?:\.\d+)?%)\s+(?<lineTotal>${M})$`),
+    // Maru starts every item with its code ("FH45110,"): drop what came before it — a $0 note line
+    // ("AE10040, KOSHIHIKARI 20KG 3.00 0.00 0.00") has no GST column and would glue onto the next item
+    rowStart: /^[A-Z]{2}\d{5},/,
     // Maru sometimes prints the footer straight after the figure ("1,296.75ABN: …")
     itemsTotal: t => grab(t, new RegExp(String.raw`^Subtotal\s+(${M})`, "m")),
     docTotal: t => grab(t, new RegExp(String.raw`^(?:TOTAL AUD|Invoice Total AUD|Total AUD|Total)\s+(${M})$`, "m")),
