@@ -18,7 +18,7 @@ import { sweepLineItems, startLineItemSweep } from "./lineItemStore";
 import { reconcileStatements, fillMissingStatementDates } from "./statementRecon";
 import { resolveStoreFromAliases } from "./storeAliases";
 import { startAutoPaySweep } from "./autoPay";
-import { syncProducts, startProductSync, listProducts, productHistory, createManualProduct, addManualPrice, updateProduct, listGroups, createGroup, renameGroup, deleteGroup, suggestGroups } from "./productStore";
+import { syncProducts, startProductSync, listProducts, productHistory, createManualProduct, addManualPrice, updateProduct, listGroups, createGroup, renameGroup, deleteGroup, suggestGroups, hiddenSuggestions, setSuggestionHidden } from "./productStore";
 import { fetchLinkedPdfs, backfillLinkedPdfs } from "./linkedPdf";
 import {
   insertStoreSchema,
@@ -4449,6 +4449,16 @@ export async function registerRoutes(
   });
   app.get("/api/product-groups/suggestions", async (req: Request, res: Response) => {
     try { res.json(await suggestGroups(typeof req.query.storeId === "string" && req.query.storeId ? req.query.storeId : undefined)); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.get("/api/product-groups/suggestions/hidden", async (_req: Request, res: Response) => {
+    try { res.json(await hiddenSuggestions()); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.post("/api/product-groups/suggestions/hidden", async (req: Request, res: Response) => {
+    try {
+      const word = typeof req.body?.word === "string" ? req.body.word.trim().toUpperCase() : "";
+      if (!word) return res.status(400).json({ error: "word is required" });
+      await setSuggestionHidden(word, req.body?.hidden !== false); res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
   });
   app.post("/api/product-groups", async (req: Request, res: Response) => {
     try {

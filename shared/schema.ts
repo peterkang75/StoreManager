@@ -571,6 +571,11 @@ export const itemGroups = pgTable("item_groups", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 export type ItemGroup = typeof itemGroups.$inferSelect;
+// Suggested-group words the owner dismissed.
+export const hiddenGroupSuggestions = pgTable("hidden_group_suggestions", {
+  word: text("word").primaryKey(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 
 export const supplierProducts = pgTable("supplier_products", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

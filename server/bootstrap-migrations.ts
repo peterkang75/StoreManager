@@ -281,6 +281,11 @@ const STATEMENTS: string[] = [
   `ALTER TABLE supplier_products ADD COLUMN IF NOT EXISTS group_id varchar REFERENCES item_groups(id) ON DELETE SET NULL`,
   `ALTER TABLE supplier_products ADD COLUMN IF NOT EXISTS pack_qty real`,
   `ALTER TABLE supplier_products ADD COLUMN IF NOT EXISTS pack_unit text`,
+  // suggested-group words the owner dismissed ("WHITE", "PAPER")
+  `CREATE TABLE IF NOT EXISTS hidden_group_suggestions (
+     word text PRIMARY KEY,
+     created_at timestamp NOT NULL DEFAULT now()
+   )`,
 ];
 
 // Phase B: seed the OWNER's password from environment variables on first deploy.

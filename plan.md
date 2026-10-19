@@ -333,9 +333,10 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
   - Products 화면 "품목 묶음 · 가격 비교" 탭: 추천 묶음(2곳 이상 공급처에 같은 단어), 묶음별 단위당 싼 순 비교 + "가장 쌈" 표시(단위가 같을 때만), 이름 바꾸기·지우기(상품은 남음)
   - API: GET/POST /api/product-groups, GET /api/product-groups/suggestions, PATCH/DELETE /api/product-groups/:id, PATCH /api/products/:id {groupId, pack}
   - 미완: 추천에 WHITE·PAPER 같은 넓은 단어도 섞임(사장님이 체크 해제) · 포장 미인식 29개는 직접 입력 필요
-  - [~] 매장별 보기 (2026-10-19, 사장님 요청: 같은 마요라도 매장마다 다른 걸 씀): Products 맨 위 매장 선택 → 목록·추천·묶음 모두 그 매장 인보이스로 산 상품만. `?storeId=` (products / product-groups / suggestions)
+  - [x] 매장별 보기 (2026-10-19 배포, 사장님 요청: 같은 마요라도 매장마다 다른 걸 씀): Products 맨 위 매장 선택 → 목록·추천·묶음 모두 그 매장 인보이스로 산 상품만. `?storeId=` (products / product-groups / suggestions)
     - 고장 수정: 추천의 "공급처 2곳 이상"을 묶기 전 전체 기준으로 셈 → 일부(Sandwich Mayo)를 묶어도 남은 것(Sushi 마요)이 계속 추천됨. 이미 묶인 상품은 흐리게 "이미 'X' 묶음에 있음"
     - 직접 입력 가격만 있는 상품(매장 정보 없음)은 "모든 매장"에서만 보임
+  - [~] 추천 창 보완 (2026-10-19): "어디에 묶을까요?"에서 새 묶음 또는 **기존 묶음에 넣기** · **이 추천 숨기기**(`hidden_group_suggestions` 표, 모든 매장 공통) — 숨긴 추천은 목록 아래 "숨긴 추천 N개"에서 되돌리기
 - [ ] C단계: 주문(공급처별 주문서) — 사장님 주문 방식 확인 후 설계
 
 **덩어리 2 — 미인식 공급처**

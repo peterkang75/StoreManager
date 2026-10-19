@@ -402,16 +402,29 @@ function GroupsView({ storeId, onOpen }: { storeId?: string; onOpen: (id: string
   const [pick, setPick] = useState<Suggestion | null>(null);
   const [pickName, setPickName] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [target, setTarget] = useState("new"); // "new" or an existing group id
   const [busy, setBusy] = useState(false);
+  const { data: allGroups = [] } = useQuery<Group[]>({ queryKey: ["/api/product-groups"] });
+  const { data: hiddenWords = [] } = useQuery<string[]>({ queryKey: ["/api/product-groups/suggestions/hidden"] });
 
   const createFrom = async () => {
-    if (!pickName.trim() || picked.size < 1) { toast({ title: "묶음 이름과 상품을 골라 주세요", variant: "destructive" }); return; }
+    if ((target === "new" && !pickName.trim()) || picked.size < 1) { toast({ title: "묶음 이름과 상품을 골라 주세요", variant: "destructive" }); return; }
     setBusy(true);
     try {
-      await apiRequest("POST", "/api/product-groups", { name: pickName.trim(), productIds: Array.from(picked) });
-      invalidateProducts(); toast({ title: "묶음을 만들었습니다", description: `${pickName.trim()} · 상품 ${picked.size}개` }); setPick(null);
-    } catch (e: any) { toast({ title: "만들지 못했습니다", description: e?.message, variant: "destructive" }); }
+      if (target === "new") {
+        await apiRequest("POST", "/api/product-groups", { name: pickName.trim(), productIds: Array.from(picked) });
+        toast({ title: "묶음을 만들었습니다", description: `${pickName.trim()} · 상품 ${picked.size}개` });
+      } else {
+        for (const id of Array.from(picked)) await apiRequest("PATCH", `/api/products/${id}`, { groupId: target });
+        toast({ title: "기존 묶음에 넣었습니다", description: `${allGroups.find(g => g.id === target)?.name ?? ""} · 상품 ${picked.size}개` });
+      }
+      invalidateProducts(); setPick(null);
+    } catch (e: any) { toast({ title: "묶지 못했습니다", description: e?.message, variant: "destructive" }); invalidateProducts(); }
     finally { setBusy(false); }
+  };
+  const setHidden = async (word: string, hidden: boolean) => {
+    try { await apiRequest("POST", "/api/product-groups/suggestions/hidden", { word, hidden }); invalidateProducts(); if (hidden) setPick(null); }
+    catch (e: any) { toast({ title: hidden ? "숨기지 못했습니다" : "되돌리지 못했습니다", description: e?.message, variant: "destructive" }); }
   };
   const rename = async (g: Group) => {
     const name = window.prompt("새 묶음 이름", g.name)?.trim();
@@ -433,13 +446,21 @@ function GroupsView({ storeId, onOpen }: { storeId?: string; onOpen: (id: string
           <div className="flex flex-wrap gap-1.5">
             {suggestions.slice(0, 30).map(sg => (
               <Button key={sg.word} size="sm" variant="outline" className="h-7 text-xs"
-                onClick={() => { setPick(sg); setPickName(sg.word.charAt(0) + sg.word.slice(1).toLowerCase()); setPicked(new Set(sg.items.filter(i => !i.groupId).map(i => i.id))); }}
+                onClick={() => { setPick(sg); setTarget("new"); setPickName(sg.word.charAt(0) + sg.word.slice(1).toLowerCase()); setPicked(new Set(sg.items.filter(i => !i.groupId).map(i => i.id))); }}
                 data-testid={`button-suggest-${sg.word}`}>
                 {sg.word} <span className="ml-1 text-muted-foreground">상품 {sg.items.filter(i => !i.groupId).length}</span>
               </Button>
             ))}
           </div>
         </div>
+      )}
+      {hiddenWords.length > 0 && (
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer">숨긴 추천 {hiddenWords.length}개</summary>
+          <div className="flex flex-wrap gap-1.5 mt-1.5">
+            {hiddenWords.map(w => <Button key={w} size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setHidden(w, false)} title="다시 추천에 보이기">{w} ↺</Button>)}
+          </div>
+        </details>
       )}
 
       {isLoading ? <p className="text-sm text-muted-foreground">불러오는 중…</p>
@@ -485,7 +506,17 @@ function GroupsView({ storeId, onOpen }: { storeId?: string; onOpen: (id: string
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>묶음 만들기</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <div><Label>묶음 이름</Label><Input value={pickName} onChange={e => setPickName(e.target.value)} /></div>
+            <div>
+              <Label>어디에 묶을까요?</Label>
+              <Select value={target} onValueChange={setTarget}>
+                <SelectTrigger data-testid="select-group-target"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="new">+ 새 묶음 만들기</SelectItem>
+                  {allGroups.map(g => <SelectItem key={g.id} value={g.id}>기존 묶음: {g.name} ({g.items.length})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            {target === "new" && <div><Label>묶음 이름</Label><Input value={pickName} onChange={e => setPickName(e.target.value)} /></div>}
             <p className="text-xs text-muted-foreground">같은 품목만 남기고 나머지는 체크를 빼세요.</p>
             <div className="space-y-1.5">
               {pick?.items.map(i => (
@@ -497,9 +528,12 @@ function GroupsView({ storeId, onOpen }: { storeId?: string; onOpen: (id: string
               ))}
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" disabled={busy} onClick={() => setPick(null)}>취소</Button>
-            <Button disabled={busy || picked.size === 0} onClick={createFrom} data-testid="button-group-create">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}묶음 만들기 ({picked.size})</Button>
+          <DialogFooter className="sm:justify-between gap-2">
+            <Button variant="ghost" disabled={busy} onClick={() => pick && setHidden(pick.word, true)} data-testid="button-suggest-hide">이 추천 숨기기</Button>
+            <div className="flex gap-2">
+              <Button variant="outline" disabled={busy} onClick={() => setPick(null)}>취소</Button>
+              <Button disabled={busy || picked.size === 0} onClick={createFrom} data-testid="button-group-create">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}{target === "new" ? "묶음 만들기" : "묶음에 넣기"} ({picked.size})</Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

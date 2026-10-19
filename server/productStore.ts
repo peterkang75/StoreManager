@@ -229,6 +229,7 @@ const lev = (a: string, b: string) => {
 export async function suggestGroups(storeId?: string) {
   const items = await listProducts({});
   const inStore = storeId ? new Set((await listProducts({ storeId })).map(p => p.id)) : null;
+  const hidden = new Set(await hiddenSuggestions());
   const words = (n: string) => Array.from(new Set(n.toUpperCase().split(/[^A-Z]+/).filter(w => w.length >= 4 && !STOP.has(w))));
   const byWord = new Map<string, typeof items>();
   for (const p of items) for (const w of words(p.name)) {
@@ -238,6 +239,15 @@ export async function suggestGroups(storeId?: string) {
   }
   return Array.from(byWord.entries())
     .map(([word, ps]) => ({ word, suppliers: new Set(ps.map(p => p.supplierId)).size, items: inStore ? ps.filter(p => inStore.has(p.id)) : ps }))
-    .filter(s => s.suppliers >= 2 && s.items.some(p => !p.groupId))
+    .filter(s => s.suppliers >= 2 && s.items.some(p => !p.groupId) && !hidden.has(s.word))
     .sort((a, b) => b.suppliers - a.suppliers || b.items.length - a.items.length);
+}
+
+export async function hiddenSuggestions(): Promise<string[]> {
+  return ((await db.execute(sql`SELECT word FROM hidden_group_suggestions ORDER BY word`)) as any).rows.map((r: any) => r.word);
+}
+
+export async function setSuggestionHidden(word: string, hidden: boolean) {
+  if (hidden) await db.execute(sql`INSERT INTO hidden_group_suggestions (word) VALUES (${word}) ON CONFLICT DO NOTHING`);
+  else await db.execute(sql`DELETE FROM hidden_group_suggestions WHERE word = ${word}`);
 }
