@@ -11,15 +11,13 @@ export interface AutoPayCandidate {
   invoiceDate: string; dueDate: string | null; amount: number; createdAt: string;
 }
 
-export async function findAutoPayCandidates(withinHours?: number): Promise<AutoPayCandidate[]> {
-  const recent = withinHours ? sql`AND i.created_at > now() - make_interval(hours => ${withinHours})` : sql``;
+export async function findAutoPayCandidates(): Promise<AutoPayCandidate[]> {
   const res = await db.execute(sql`
     SELECT i.id, i.supplier_id, s.name, i.invoice_number, i.invoice_date, i.due_date, i.amount, i.created_at
     FROM supplier_invoices i JOIN suppliers s ON s.id = i.supplier_id
     WHERE s.is_auto_pay AND i.status IN ('PENDING', 'OVERDUE') AND i.amount > 0
       AND coalesce(i.notes, '') !~* 'credit'   -- credit memos are not debits
       AND NOT EXISTS (SELECT 1 FROM supplier_payments p WHERE p.invoice_id = i.id)
-      ${recent}
     ORDER BY s.name, i.invoice_date`);
   return ((res as any).rows as any[]).map(r => ({
     id: r.id, supplierId: r.supplier_id, supplierName: r.name, invoiceNumber: r.invoice_number,
@@ -56,11 +54,16 @@ export async function settleAutoPay(cands: AutoPayCandidate[]): Promise<number> 
   return done;
 }
 
-/** New invoices only (last 24 h): past ones are settled by the owner from the To Pay tab. */
+/**
+ * Every unpaid invoice of an auto-pay supplier, whatever its age — owner's rule
+ * (2026-10-19): direct-debit suppliers are debited as they bill, so they are paid.
+ * Runs at startup and every 15 minutes.
+ */
 export function startAutoPaySweep(): void {
   const tick = async () => {
-    try { await settleAutoPay(await findAutoPayCandidates(24)); }
+    try { await settleAutoPay(await findAutoPayCandidates()); }
     catch (err: any) { console.warn("[autoPay] sweep failed:", err?.message ?? err); }
   };
+  void tick();
   setInterval(() => void tick(), 15 * 60 * 1000).unref();
 }

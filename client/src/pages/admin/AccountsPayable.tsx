@@ -1741,7 +1741,6 @@ export function AdminAccountsPayable() {
         {/* ── Content Area ───────────────────────────────────────────────── */}
 
         {/* ── TO PAY ── */}
-        {activeTab === "topay" && <AutoPaySettlePanel />}
         {activeTab === "topay" && <LinkedPdfPanel />}
         {activeTab === "topay" && (
           isLoading ? (
@@ -3784,84 +3783,6 @@ function StatementsTab() {
   );
 }
 
-type AutoPayCandidate = { id: string; supplierId: string; supplierName: string; invoiceNumber: string; invoiceDate: string; dueDate: string | null; amount: number };
-
-// Direct-debit suppliers whose invoices are still unpaid in Crew. Nothing is
-// settled unless the owner ticks the supplier and confirms.
-function AutoPaySettlePanel() {
-  const { toast } = useToast();
-  const [open, setOpen] = useState(false);
-  const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState(false);
-  const { data, refetch } = useQuery<{ candidates: AutoPayCandidate[] }>({
-    queryKey: ["/api/invoices/auto-pay/settle", "preview"],
-    queryFn: async () => (await apiRequest("POST", "/api/invoices/auto-pay/settle", { apply: false })).json(),
-  });
-  const cands = data?.candidates ?? [];
-  if (cands.length === 0) return null;
-  const groups = Array.from(cands.reduce((m, c) => {
-    const g = m.get(c.supplierId) ?? { name: c.supplierName, items: [] as AutoPayCandidate[] };
-    g.items.push(c); return m.set(c.supplierId, g);
-  }, new Map<string, { name: string; items: AutoPayCandidate[] }>()));
-  const total = (xs: AutoPayCandidate[]) => xs.reduce((a, c) => a + c.amount, 0);
-  const chosen = cands.filter(c => picked.has(c.supplierId));
-
-  return (
-    <div className="mb-3 rounded-md border border-amber-300/50 bg-amber-50 dark:bg-amber-950/20 p-3 flex items-center justify-between gap-3">
-      <div className="text-xs text-amber-800 dark:text-amber-200 min-w-0">
-        <strong>자동이체 인보이스 {cands.length}건이 Crew에서 아직 미지급입니다 ({fmtAUD(total(cands))})</strong> — 이 공급처들은 자동이체로 돈을 가져가지만,
-        이 기록들은 명세서나 검토함에서 만들어져서 지급 완료로 표시되지 않았습니다. 은행 내역을 확인한 뒤 정리하세요.
-      </div>
-      <Button size="sm" variant="outline" className="shrink-0" onClick={() => { setPicked(new Set()); setOpen(true); }} data-testid="button-auto-pay-review">
-        검토…
-      </Button>
-      <AlertDialog open={open} onOpenChange={(o) => { if (!busy) setOpen(o); }}>
-        <AlertDialogContent className="max-w-lg">
-          <AlertDialogHeader>
-            <AlertDialogTitle>자동이체 정리</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2 text-sm">
-                <p>은행에서 실제로 돈이 빠져나간 것을 확인한 공급처만 체크하세요. 각 인보이스는 기한 날짜에 지급 완료로 표시됩니다.</p>
-                {groups.map(([sid, g]) => (
-                  <label key={sid} className="flex items-start gap-2 rounded border p-2 cursor-pointer">
-                    <Checkbox checked={picked.has(sid)} onCheckedChange={(v) => setPicked(prev => { const n = new Set(prev); v ? n.add(sid) : n.delete(sid); return n; })} data-testid={`checkbox-auto-pay-${sid}`} />
-                    <span className="min-w-0">
-                      <span className="font-medium text-foreground">{g.name}</span> — 인보이스 {g.items.length}건, {fmtAUD(total(g.items))}
-                      <span className="block text-xs text-muted-foreground">{fmt(g.items[0].invoiceDate)} – {fmt(g.items[g.items.length - 1].invoiceDate)}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>취소</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={busy || chosen.length === 0}
-              onClick={async (e) => {
-                e.preventDefault();
-                setBusy(true);
-                try {
-                  const r = await (await apiRequest("POST", "/api/invoices/auto-pay/settle", { apply: true, supplierIds: Array.from(picked) })).json();
-                  queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-                  await refetch();
-                  toast({ title: "자동이체를 정리했습니다", description: `인보이스 ${r.settled}건을 지급 완료로 표시했습니다.` });
-                  setOpen(false);
-                } catch (err: any) {
-                  toast({ title: "실패했습니다", description: err?.message ?? "다시 시도하세요.", variant: "destructive" });
-                } finally { setBusy(false); }
-              }}
-              data-testid="button-auto-pay-confirm"
-            >
-              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
-              {chosen.length}건 지급 완료로 표시 ({fmtAUD(total(chosen))})
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
-}
 
 type LinkedPdfRow = { id: string; supplier: string; invoiceNumber: string; amount: number; action: string; checkedBy?: "pdf" | "email"; store?: string | null; hadStore?: boolean };
 

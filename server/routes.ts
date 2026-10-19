@@ -17,7 +17,7 @@ import { getDocStatus, refreshDocStatus, startDocStatusRefresh } from "./docStat
 import { sweepLineItems, startLineItemSweep } from "./lineItemStore";
 import { reconcileStatements, fillMissingStatementDates } from "./statementRecon";
 import { resolveStoreFromAliases } from "./storeAliases";
-import { findAutoPayCandidates, settleAutoPay, startAutoPaySweep } from "./autoPay";
+import { startAutoPaySweep } from "./autoPay";
 import { fetchLinkedPdfs, backfillLinkedPdfs } from "./linkedPdf";
 import {
   insertStoreSchema,
@@ -4338,22 +4338,6 @@ export async function registerRoutes(
     } catch (err) {
       console.error("Error serving statement PDF:", err);
       return res.status(500).json({ error: "Failed to serve PDF" });
-    }
-  });
-
-  // Direct-debit invoices left unpaid by paths that skipped auto-pay. Preview
-  // lists them all; apply settles only the suppliers the owner ticked.
-  app.post("/api/invoices/auto-pay/settle", async (req: Request, res: Response) => {
-    try {
-      const cands = await findAutoPayCandidates();
-      if (req.body?.apply !== true) return res.json({ apply: false, candidates: cands });
-      const ids = new Set<string>(Array.isArray(req.body?.supplierIds) ? req.body.supplierIds : []);
-      if (ids.size === 0) return res.status(400).json({ error: "Choose at least one supplier" });
-      const settled = await settleAutoPay(cands.filter(c => ids.has(c.supplierId)));
-      res.json({ apply: true, settled });
-    } catch (err: any) {
-      console.error("Error settling auto-pay invoices:", err);
-      res.status(500).json({ error: err?.message ?? "Failed to settle auto-pay invoices" });
     }
   });
 

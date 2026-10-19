@@ -337,6 +337,8 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - [x] 확인: Foodlink Payment Receipt — `noreply3@foodlinkaustralia.com.au`가 영수증 19통과 **Tax Invoice 19통**(제목 "FOODLINK Inv SI… Cust No …", 4/22~10/8), 크레딧 노트 1통을 보냄. 등록 주소는 `orders@`뿐이라 6개월간 전부 거절됨(Pearl과 같은 문제). 원본 회수 제목 규칙에 "Inv" 추가(영수증·크레딧은 계속 제외). 사장님이 `noreply3@`를 Foodlink에 추가 후 "Recover originals…" 실행 필요. Foodlink는 자동이체 공급처라 새로 생긴 기록은 15분 자동이체 처리로 PAID(영수증이 결제 증거).
 - [ ] 확인 필요: Melrina Sydney(명세서 26통, 미등록)
 - [x] AP 화면 안내 문구 한국어화 (2026-10-19 d4b4ff6 배포): `AccountsPayable.tsx` 약 260개 문구(안내 상자·확인창·알림·빈 화면·툴팁·상태 표시·안내문이 가리키는 버튼) 번역. 탭 이름·표 열 제목·요약 카드·매장 필터·"Add Invoice"·공급처 승인 창의 입력칸 이름은 그대로. 동작에 쓰이는 문자열("Unknown Supplier", NEW:, 상태 코드, API·키)은 유지 확인. 함께 수정: `Badge` import 누락(원래 있던 버그 — 검토함에서 명세서 표시가 나오면 화면이 멈출 수 있었음). 타입 검사 새 오류 없음, vite 빌드 통과.
+- [~] 자동이체 규칙 확정 (2026-10-19 사장님: "자동이체 공급처는 그때그때 빠져나가므로 결제됨으로 표시"): autoPay 처리의 24시간 제한 제거 → 나이와 무관하게 자동이체 공급처 미지급 전부 PAID(만기일자), 서버 시작 시 + 15분마다. To Pay "검토…" 상자와 `POST /api/invoices/auto-pay/settle` 삭제. 배포 시 즉시 처리 대상: 40건 $17,107.40(Bakery 23 · Campos 4 · Riverina 11 · Foodlink 2). 배포 승인 대기.
+- 사장님 확인(2026-10-19): Total Equipment 미지급 $4,800은 실제 미지급 맞음. Campos $0 기록(TSBCN-SIN-0340974)은 같은 날 금액 있는 인보이스가 있어 실수로 생긴 것 → 사장님이 삭제. Bakery OMI432277: 원본 PDF $224.33(Crew 기록·지급 완료) vs Bakery 명세서 $182.43(인보이스 금액·결제 금액 모두) — 인보이스 발행 후 $41.90 감액된 것으로 보임, 사장님 판단 대기.
 - [ ] 후속: Rejected 탭 로딩 17.8초(거절 메일 2,653통을 첨부까지 통째로 받음) — 목록 응답 경량화 필요
 
 ---
