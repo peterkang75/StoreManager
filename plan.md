@@ -727,3 +727,11 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
   - 발견: Escalate 파일 32개 중 진짜 인보이스는 1개뿐(명세서 23·연체 안내 8) → 원본 인보이스 대부분 없음
   - 발견: INV-00042950 장부 금액 $38.43(첫 줄 금액을 잘못 읽음), 실제 $513.58. 2026-05-29 $38.43 '수동 결제'로 표시됨 → 사장님 확인 후 금액 수정 필요. 고치기 전까지는 장부 금액 불일치로 품목 저장 안 됨
 
+### 2026-10-19 인보이스가 앱에 안 들어오던 공급처
+- 원인 1: 실제 발신 주소가 공급처에 미등록 → 거절됨. Escalate는 Unleashed(`noreply@unleashedsoftware.com`)로 보냄, Pomona는 Xero 경유(`info@sweetpomona.com.au`, 연체 안내에 인보이스 PDF 첨부), MULTIZ(QonUS POS 구독), Melrina(명세서)
+- [x] 운영 반영(사장님 승인): Escalate 주소 추가, Pomona (Kaffa Group)·MULTIZ CORP PTY LTD·Melrina Sydney 등록, 해당 FYI_ARCHIVE 규칙 → ROUTE_TO_AP. 정육(Primeline, All That Meat)·쓰레기(JJ's)·일회성은 사장님 지시로 제외
+- [x] 되살리기: 제목에 번호가 없으면 첨부 PDF 이름("Invoice KF2455729.pdf")에서 번호 (`invoiceNumberFrom`)
+- [ ] 사장님이 AP "거절된 원본 되살리기" 미리보기 → 적용. 예상: Escalate 21 원본 붙이기, Pomona 2건 생성($150.96·$308.13), MULTIZ 6건 생성(4~8월 $198, 9월 $246.40)
+- [ ] 원인 2: 2026-05-29 이후 Escalate 메일이 앱에 아예 도착 안 함(거절 기록도 없음) → Gmail/Google 전달 설정 확인 필요(Gmail 커넥터 권한 재연결 필요)
+- [ ] Pomona 2건 결제 여부(배달 때 현금?) 사장님 확인 · Escalate INV-00042950 $38.43→$513.58 확인
+
