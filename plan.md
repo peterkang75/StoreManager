@@ -332,7 +332,8 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
   - [x] Foodlink 회수 완료(2026-10-19, b27dc3b 이후 사장님 실행): Tax Invoice 19건($10,004.30, 4/23~10/9) 새로 추가 — 전부 원본 PDF·Sandwich·자동이체 처리로 PAID(만기일자). 거절함 19통 정리, 남은 20통은 결제 영수증 19 + 크레딧 노트 1(정상 제외). 남은 Foodlink PENDING 3건($675.50, 4월)은 자동이체 검토 창 대상. Foodlink 품목 규칙은 아직 없음(NO_RULE).
   - Foodlink 원본 회수 0건 → 원인: `recoverRejectedOriginals`가 자동이체 공급처의 새 기록 생성을 건너뜀(`skip_autopay`, 자동이체 처리 기능이 없던 때 넣은 조건). 수정(배포 승인 대기): 조건 제거 — 새 PENDING 기록은 autoPay 24시간 처리로 만기일자 PAID. Foodlink Tax Invoice PDF로 나머지 조건(머리글·명세서 아님·번호·금액) 통과 확인.
   - 함께 발견·수정: `/api/invoices`가 목록마다 PDF base64 전체를 내려보내 AP 화면 1회 로딩이 약 153MB(기존 문제, 1-2/1-3에서 더 커짐). 목록 응답에서 `pdfBase64`를 `true` 표시로 바꾸고 `_statementPdfBase64`는 제외 — 화면은 존재 여부만 쓰고 PDF는 `/api/supplier-invoices/:id/pdf`로 따로 받음. 화면이 기록을 통째로 되돌려 보내는 수정 요청이 없음을 확인(덮어쓰기 위험 없음).
-- [ ] NumberKeepers 가게 미지정 3건
+- [x] NumberKeepers 가게 미지정 3건 (2026-10-19): 모두 PYC HOLDINGS PTY LTD 서류 — 국세청 체납 독촉(퇴직연금 보장 부담금 $10,826.73, BAS $4,211.31), ASIC $342 → 사장님 지시로 PYC 매장 지정 + PYC 별칭 'PYC HOLDINGS' 추가.
+- [x] KTC 대조(1-6, 별칭 입력 후, 2026-10-19): 스시 계약 명세서에 없는 Crew 스시 KTC 7건 중 $10,291.25 ×5(샌드위치 월 임대료)를 사장님 지시로 Sandwich로 이동. INV-0184($9,831.42)·INV-0497($616)은 사장님 확인 대기. KTC 명세서(8/31) 스시 계약 잔액 $61,313.89 — 실제 체납액 확인 필요. Bakery OMI467464 $131.44 → $129.24(명세서 기준, 사장님 지시).
 - [~] 등록 공급처 도메인 경보 (구현, 배포 승인 대기): `GET /api/rejected-emails/supplier-domain-alerts` + Rejected 탭 상단 빨간 안내 — 미검토 거절 메일 중 등록 공급처의 회사 도메인(무료 메일 도메인 제외)에서 온 PDF 첨부 메일. 운영 현재: Foodlink `noreply3@` 39통, Escalate `salesnsw@` 4통.
 - [x] 확인: Foodlink Payment Receipt — `noreply3@foodlinkaustralia.com.au`가 영수증 19통과 **Tax Invoice 19통**(제목 "FOODLINK Inv SI… Cust No …", 4/22~10/8), 크레딧 노트 1통을 보냄. 등록 주소는 `orders@`뿐이라 6개월간 전부 거절됨(Pearl과 같은 문제). 원본 회수 제목 규칙에 "Inv" 추가(영수증·크레딧은 계속 제외). 사장님이 `noreply3@`를 Foodlink에 추가 후 "Recover originals…" 실행 필요. Foodlink는 자동이체 공급처라 새로 생긴 기록은 15분 자동이체 처리로 PAID(영수증이 결제 증거).
 - [ ] 확인 필요: Melrina Sydney(명세서 26통, 미등록)
