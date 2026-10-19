@@ -340,7 +340,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
   - [x] 2026-10-19 사장님 지적 수정: 추천 제외 단어에 PIECES/PIECE/SHEETS 추가(캐슈넛+종이봉투가 같이 추천됨) · 포장 개수에서 "200X200" 같은 치수를 개수로 읽지 않고 "500 PIECES"를 읽음 → 종이봉투 200개→500개, 랩 45X600은 미인식(이전 600개는 오답). 161개 중 131개 인식
 - [ ] C단계: 주문(공급처별 주문서) — 2026-10-19 사장님 답: 주문은 매장 매니저가 · Ordermentum 앱/문자/이메일 혼용 · 수량은 학기/방학 주당 사용량 − 남은 재고 · 보낸 주문은 인보이스와 대조
   - Ordermentum 직접 주문 연동: 매장(venue)용 공개 API 없음(회계 연동만) → 주문 목록 보여주고 매니저가 앱에서 입력. 필요하면 사장님이 Ordermentum에 venue API 문의
-  - [~] C-1·2 주당 사용량·재고·추천 주문량 (2026-10-19 구현·로컬 검증, 배포 승인 대기): `/admin/ordering` (Operations → Ordering, 매니저 첫 화면에도)
+  - [x] C-1·2 주당 사용량·재고·추천 주문량 (2026-10-19 배포): `/admin/ordering` (Operations → Ordering, 매니저 첫 화면에도)
     - `ordering_usage`(매장×상품: 학기/방학 주당, 인보이스 단위) · `ordering_supplier_settings`(매장×공급처: 한 번 주문이 몇 주 분량, 기본 1)
     - 이번 주 학기/방학은 school_holidays 표 + classifyWeekSeason(근무표와 같은 기준). 추천 = ceil(주당×주 분량 − 재고), 0 미만 없음 (`shared/orderQty.ts`)
     - 회색 힌트: 지난 1년 이 매장 구매량의 시즌별 주 평균(저장 안 함)
