@@ -369,10 +369,12 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - [~] 보안: 직원 정보 수정 권한 구멍 막기 (2026-10-19 구현·로컬 검증, 배포 승인 대기). 직원 PIN 로그인만으로 아무 직원의 역할(ADMIN 승격)·시급·계좌·PIN을 바꿀 수 있었고, 동료 전원의 TFN·계좌·여권·비자·시급을 볼 수 있었음
   - `server/employeeAccess.ts` 한곳에 규칙: ADMIN 전부(passwordHash·id 제외 — 비밀번호는 set-password로만) · 본인 기록은 누구든 포털 프로필 21개 항목만 · EMPLOYEE가 남의 기록 수정 403 · MANAGER/STAFF는 권한표 `/admin/employees` 있어야 남 수정, ADMIN 기록 수정 403, role·can* 스위치는 조용히 무시 · 자체 점검 `npx tsx server/employeeAccess.check.ts`
   - `apiToRouteKey`: `/api/employees`, `/api/employees/:id`만 포털 허용. interview·vevo-upload·store-assignments·import·import-photos는 권한표(`/admin/employees`)로
-  - 조회: EMPLOYEE가 보는 동료 정보는 id·이름·닉네임·상태·매장·역할·사진만 (`coworkerView`). 매니저/스태프 조회는 그대로(사장님 결정 대기)
+  - 조회: 권한표에 `/admin/employees`가 없는 사람(포털 직원, 로컬 사본 기준 STAFF)이 보는 동료 정보는 id·이름·닉네임·상태·매장·역할·사진만 (`coworkerView`). STAFF 대시보드의 비자 만료 알림은 이제 안 보임. 매니저 조회는 그대로(사장님 결정 대기)
+  - 이메일(=비밀번호 로그인 ID)을 다른 직원이 이미 쓰는 값으로 바꾸면 409 — DB에 이메일 중복 금지가 없어 남의 로그인을 가로막을 수 있었음
   - EmployeeDetail Role 선택칸: ADMIN 아니면 비활성
   - 주의: 주문 기능 브랜치의 canOrder/canSetOrderUsage 제거 코드와 같은 PUT 핸들러라 병합 시 충돌 — can* 규칙이 이미 막으므로 그쪽 제거 코드는 빼도 됨
   - [ ] 사장님 결정: 매니저도 직원 계좌·TFN을 봐야 하나? (지금은 봄)
+  - [ ] 후속: `/api/rosters/employees` 등 다른 목록도 직원 전체 기록(계좌·TFN)을 그대로 내보내는지 점검 · 매니저가 다른 매장 직원도 수정 가능(매장 범위 검사 없음)
 
 ---
 

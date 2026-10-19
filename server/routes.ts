@@ -755,14 +755,14 @@ export async function registerRoutes(
   // viewers EXCEPT when the user is fetching their own record — they already
   // know their PIN and the portal "Edit my profile" page reads its own row.
   // Bank/TFN scoping stays Phase B.1.
-  function sanitizeEmployee(emp: any, viewerRole: string | undefined, viewerId?: string) {
+  function sanitizeEmployee(emp: any, viewerRole: string | undefined, viewerId?: string, viewerRoutes: string[] = []) {
     if (!emp) return emp;
     const { passwordHash, ...rest } = emp;
     const isSelf = viewerId && emp.id === viewerId;
     const isAdmin = (viewerRole ?? "").toUpperCase() === "ADMIN";
     if (!isAdmin && !isSelf) {
-      // Portal sessions only need a coworker's name for pickers — never their bank/TFN/visa/pay.
-      if ((viewerRole ?? "").toUpperCase() === "EMPLOYEE") return coworkerView(rest);
+      // Without Employees-page access (portal, most STAFF) a coworker is just a name — never bank/TFN/visa/pay.
+      if (!viewerRoutes.includes("/admin/employees")) return coworkerView(rest);
       const { pin, ...safeRest } = rest;
       return safeRest;
     }
@@ -770,7 +770,7 @@ export async function registerRoutes(
   }
   // Wrapper for callers that have a Request handy (most common case).
   function sanitizeForReq(emp: any, req: Request) {
-    return sanitizeEmployee(emp, req.user?.role, req.user?.id);
+    return sanitizeEmployee(emp, req.user?.role, req.user?.id, req.user?.allowedRoutes);
   }
 
   app.get("/api/employees", async (req: Request, res: Response) => {
@@ -832,6 +832,11 @@ export async function registerRoutes(
       const decision = filterEmployeeUpdate(req.user!, target, req.body);
       if (!decision.ok) return res.status(decision.status).json({ error: decision.error });
       const body: any = decision.body;
+      // Email is the password-login ID and isn't unique in the DB: refuse a duplicate so nobody can shadow another login.
+      if (body.email && body.email !== target.email) {
+        const owner = await storage.findEmployeeByEmail(String(body.email));
+        if (owner && owner.id !== id) return res.status(409).json({ error: "EMAIL_IN_USE", message: "Another employee already uses this email" });
+      }
       // Hash PIN if a new plain-text value is being set by admin
       if (body.pin && !String(body.pin).startsWith("$2")) {
         body.pin = await bcrypt.hash(String(body.pin), 10);
