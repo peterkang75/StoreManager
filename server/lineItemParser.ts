@@ -165,6 +165,20 @@ const FAMILIES: Family[] = [
     docTotal: t => grab(t, /Total\s+incl\.\s+GST\s+\(AUD\)\s+([\d,]+\.\d{2})/),
   },
   {
+    // Pomona / Kaffa Group (Cafemall): "code, name [wrapped]" then "qty price [disc%] amount"; the
+    // courier tracking number is printed as a $0 line and is not an item
+    name: "pomona",
+    header: /^Description Quantity Unit Price Discount % Amount AUD$/m,
+    end: /^Subtotal\(/,
+    skip: /^(?:TRACKING, TRACKING NUMBER:|[A-Z]{2}\d{8,}|1\.00 0\.00 0\.00)$/,
+    rowStart: /^[A-Z0-9][A-Z0-9%-]*,\s/,
+    endOnJoined: true,
+    rowEnd: new RegExp(String.raw`\s-?[\d.]+\s+${M}\s+(?:[\d.]+\s+)?${M}$`),
+    row: new RegExp(String.raw`^(?<sku>[A-Z0-9][A-Z0-9%-]*),\s*(?<desc>.+?)\s+(?<qty>-?[\d.]+)\s+(?<unitPrice>${M})\s+(?:[\d.]+\s+)?(?<lineTotal>${M})$`),
+    itemsTotal: t => grab(t, /^Subtotal\([^)]*\)\s+([\d,]+\.\d{2})$/m),
+    docTotal: t => grab(t, /^Invoice Total AUD\s+([\d,]+\.\d{2})$/m),
+  },
+  {
     name: "riverina",
     header: /^Item Code Item Description Shipped UOM Item Price GST Line Total$/m,
     end: /^Payment Options/,

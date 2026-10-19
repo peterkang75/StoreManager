@@ -746,4 +746,5 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - [ ] 1~2주 병행 후 Cloudmailin 전달 끄기(사장님 Gmail 자동전달 필터 또는 accounts@ 그룹 회원 c923…@cloudmailin.net 제거)
 - [x] 2026-10-19 실수 되돌림: Melrina Sydney는 정육(사장님 제외 지시) → 등록 때문에 명세서에서 생긴 인보이스 6건($15,768.41) DELETED, 공급처 비활성·메일 주소 제거, 규칙 FYI_ARCHIVE로 복구
 - [x] Gmail: 번호 중복 오류(23505)는 재시도 안 함(5분마다 반복 처리되던 문제), Gmail 호출 속도 조절·제한 시 대기 후 재시도, 놓친 메일 찾기는 `larger:480K` 검색만. 자동 확인 범위 7일, 상태 시간 UTC 표기 수정
+- [x] 2026-10-19 Pomona(Kaffa Group/Cafemall) 품목 읽기 규칙 `pomona`(parser v8): "코드, 이름[줄바꿈]" + "수량 단가 [할인%] 금액", 배송 추적번호 $0 줄 제외. 운영·로컬 글자 동일 확인, PDF 850개 회귀 차이 없음. Pomona 2건은 2026-10-19 사장님이 AP에서 결제됨 처리. Newline Beverage는 메일 원본 없음(종이 수령 추정) → 상품은 수동 추가 필요
 
