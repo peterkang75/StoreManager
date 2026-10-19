@@ -132,7 +132,7 @@ export async function recoverRejectedOriginals(
       continue;
     }
 
-    if (supplier.isAutoPay) { rows.push({ ...base, number, action: "skip_autopay" }); continue; }
+    // auto-pay suppliers too (Foodlink): the new PENDING row is settled by the autoPay sweep, dated its due date
     const parsed = (await parseInvoiceWithAI(text, supplier.name, subject))?.find(p => invoiceKey(p.invoiceNumber) === invoiceKey(number));
     const amount = parsed?.totalAmount ?? 0;
     if (!parsed || !(amount > 0) || !text.includes(amount.toFixed(2))) { rows.push({ ...base, number, action: "skip_parse_failed", amount: amount || null }); continue; }
