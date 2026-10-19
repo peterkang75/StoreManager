@@ -610,6 +610,8 @@ export const purchaseOrders = pgTable("purchase_orders", {
   error: text("error"),
   sentBy: varchar("sent_by"),
   sentAt: timestamp("sent_at"),
+  invoiceId: varchar("invoice_id").references(() => supplierInvoices.id, { onDelete: "set null" }), // C-4 pairing
+  matchMode: text("match_mode"), // auto | manual (manual with no invoice = "none for this order")
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 export const purchaseOrderLines = pgTable("purchase_order_lines", {

@@ -21,8 +21,11 @@ type Item = {
   stock: number | null; stockAt: string | null; stockBy: string | null;
 };
 type SupplierBlock = { supplierId: string; supplierName: string; orderEmail: string | null; coverWeeks: number; items: Item[] };
+type Check = "pending" | "match" | "diff" | "no_items" | "unmatched";
+type CheckLine = { name: string; unit: string | null; ordered: number; received: number | null; flags: string[]; price?: number | null; prev?: number | null };
 type SentOrder = { id: string; supplierName: string; status: "sent" | "failed" | "sending"; channel: "email" | "manual"; toEmail: string | null; error: string | null;
-  sentAt: string | null; createdAt: string; sentByName: string | null; lines: { name: string; unit: string | null; qty: number }[] };
+  sentAt: string | null; createdAt: string; sentByName: string | null; check: Check; lines: CheckLine[];
+  invoice: { id: string; number: string; date: string; amount?: number; mode: "auto" | "manual" } | null };
 type Sheet = { season: "TERM" | "HOLIDAY"; weekStart: string; suppliers: SupplierBlock[]; perms: { canOrder: boolean; canSetUsage: boolean } };
 type Mode = "count" | "order" | "usage";
 type Lang = "ko" | "en";
@@ -49,6 +52,10 @@ const T = {
     copyAsk: "복사했습니다. Ordermentum이나 문자로 이 주문을 넣으시나요?\n'확인'을 누르면 보낸 주문으로 기록해서 나중에 인보이스와 맞춰 봅니다.",
     recorded: "주문을 기록했습니다", copyFail: "복사하지 못했습니다", buildFail: "주문서를 만들지 못했습니다",
     recent: "최근 보낸 주문", st: { email: "메일 보냄", manual: "직접 보냄", failed: "보내기 실패", sending: "보내는 중" },
+    chk: { pending: "⏳ 인보이스 대기", match: "✅ 일치", diff: "⚠️ 차이 있음", no_items: "❔ 품목 정보 없음", unmatched: "인보이스 없음" } as Record<Check, string>,
+    fl: { missing: "안 옴", short: "덜 옴", more: "더 옴", extra: "주문 안 함", price_up: "가격 오름" } as Record<string, string>,
+    cols: ["품목", "주문", "받음", "단가", "이전 단가"], invoiceLbl: "인보이스", changeInv: "다른 인보이스로", noInv: "이 주문은 인보이스 없음", autoLbl: "자동", manualLbl: "직접 지정",
+    noItemsHelp: "이 공급처 인보이스는 품목을 읽지 못해 합계만 있습니다.", pendingHelp: "주문 후 7일 안에 이 공급처 인보이스가 들어오면 자동으로 짝을 짓습니다.",
   },
   en: {
     pickStore: "Store", term: "School term", holiday: "Holidays", weekIs: (h: boolean) => `This week: ${h ? "school holidays" : "school term"}`,
@@ -68,6 +75,10 @@ const T = {
     copyAsk: "Copied. Are you placing this order in Ordermentum or by text?\nOK records it as sent so it can be checked against the invoice.",
     recorded: "Order recorded", copyFail: "Couldn't copy", buildFail: "Couldn't build the order",
     recent: "Recent orders", st: { email: "Emailed", manual: "Sent manually", failed: "Failed", sending: "Sending" },
+    chk: { pending: "⏳ Waiting for invoice", match: "✅ Matches", diff: "⚠️ Differences", no_items: "❔ No item details", unmatched: "No invoice" } as Record<Check, string>,
+    fl: { missing: "not delivered", short: "short", more: "extra qty", extra: "not ordered", price_up: "price up" } as Record<string, string>,
+    cols: ["Item", "Ordered", "Received", "Price", "Before"], invoiceLbl: "Invoice", changeInv: "Use another invoice", noInv: "No invoice for this order", autoLbl: "auto", manualLbl: "set by hand",
+    noItemsHelp: "This supplier's invoice items can't be read — only the total is known.", pendingHelp: "Pairs automatically when this supplier's invoice arrives within 7 days.",
   },
 };
 
@@ -359,26 +370,83 @@ function OrderDialog({ storeId, block, lang, initial, onClose }: { storeId: stri
 function RecentOrders({ storeId, lang }: { storeId: string; lang: Lang }) {
   const t = T[lang];
   const { data: orders = [] } = useQuery<SentOrder[]>({ queryKey: [`/api/ordering/${storeId}/orders`] });
+  const [open, setOpen] = useState<string | null>(null);
   if (!orders.length) return null;
   const when = (d: string | null) => (d ? new Date(d).toLocaleString(lang === "ko" ? "ko-KR" : "en-AU", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
+  const rank: Record<Check, number> = { diff: 0, pending: 1, no_items: 2, unmatched: 3, match: 4 };
+  const sorted = [...orders].sort((a, b) => (rank[a.check] ?? 9) - (rank[b.check] ?? 9));
+  const tone: Record<Check, string> = {
+    diff: "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100", match: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200",
+    pending: "bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100", no_items: "bg-muted text-muted-foreground", unmatched: "bg-muted text-muted-foreground",
+  };
   return (
     <div className="rounded-md border">
       <p className="px-3 py-2 border-b bg-muted/30 text-sm font-medium">{t.recent}</p>
       <div className="divide-y">
-        {orders.map(o => (
-          <div key={o.id} className="px-3 py-2 text-sm">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-medium">{o.supplierName}</span>
-              <span className={`rounded px-1.5 text-[11px] ${o.status === "sent" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200" : "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200"}`}>
-                {o.status === "sent" ? t.st[o.channel] : t.st[o.status]}
-              </span>
-              <span className="text-xs text-muted-foreground">{when(o.sentAt ?? o.createdAt)}{o.sentByName ? ` · ${o.sentByName}` : ""}{o.toEmail ? ` · ${o.toEmail}` : ""}</span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5">{o.lines.map(l => `${l.name} ${l.qty}${l.unit ? ` ${l.unit}` : ""}`).join(" · ")}</p>
-            {o.error && <p className="text-xs text-destructive mt-0.5">{o.error}</p>}
+        {sorted.map(o => (
+          <div key={o.id} className="text-sm">
+            <button type="button" className="w-full text-left px-3 py-2 hover:bg-muted/30" onClick={() => setOpen(open === o.id ? null : o.id)} data-testid={`order-row-${o.id}`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{o.supplierName}</span>
+                <span className={`rounded px-1.5 text-[11px] ${o.status === "sent" ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200" : "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200"}`}>
+                  {o.status === "sent" ? t.st[o.channel] : t.st[o.status]}
+                </span>
+                {o.status === "sent" && <span className={`rounded px-1.5 text-[11px] ${tone[o.check]}`}>{t.chk[o.check]}</span>}
+                <span className="text-xs text-muted-foreground">{when(o.sentAt ?? o.createdAt)}{o.sentByName ? ` · ${o.sentByName}` : ""}</span>
+              </div>
+              {o.invoice && <p className="text-xs text-muted-foreground mt-0.5">{t.invoiceLbl} {o.invoice.number} · {o.invoice.date}{o.invoice.amount != null ? ` · $${o.invoice.amount.toFixed(2)}` : ""} · {o.invoice.mode === "manual" ? t.manualLbl : t.autoLbl}</p>}
+              {o.error && <p className="text-xs text-destructive mt-0.5">{o.error}</p>}
+            </button>
+            {open === o.id && <OrderCheckDetail storeId={storeId} order={o} lang={lang} />}
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function OrderCheckDetail({ storeId, order: o, lang }: { storeId: string; order: SentOrder; lang: Lang }) {
+  const t = T[lang];
+  const { toast } = useToast();
+  const showPrices = o.lines.some(l => l.price !== undefined);
+  const { data: cands = [] } = useQuery<Array<{ id: string; number: string; date: string; takenBy: string | null }>>({ queryKey: [`/api/ordering/${storeId}/orders/${o.id}/candidates`], enabled: o.status === "sent" });
+  const pick = async (v: string) => {
+    try { await apiRequest("PUT", `/api/ordering/${storeId}/orders/${o.id}/invoice`, { invoiceId: v === "none" ? null : v }); queryClient.invalidateQueries({ queryKey: [`/api/ordering/${storeId}/orders`] }); }
+    catch (e: any) { toast({ title: t.saveFail, description: e?.message, variant: "destructive" }); }
+  };
+  return (
+    <div className="px-3 pb-3 space-y-2">
+      {o.check === "pending" && <p className="text-xs text-muted-foreground">{t.pendingHelp}</p>}
+      {o.check === "no_items" && <p className="text-xs text-muted-foreground">{t.noItemsHelp}</p>}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="text-muted-foreground"><tr className="text-left">
+            <th className="py-1 pr-2">{t.cols[0]}</th><th className="py-1 px-2 text-right">{t.cols[1]}</th><th className="py-1 px-2 text-right">{t.cols[2]}</th>
+            {showPrices && <><th className="py-1 px-2 text-right">{t.cols[3]}</th><th className="py-1 pl-2 text-right">{t.cols[4]}</th></>}
+          </tr></thead>
+          <tbody>
+            {o.lines.map((l, i) => (
+              <tr key={i} className={`border-t ${l.flags.length ? "bg-amber-50/60 dark:bg-amber-950/20" : ""}`}>
+                <td className="py-1 pr-2">{l.name}{l.flags.length > 0 && <span className="ml-1 text-amber-800 dark:text-amber-200">· {l.flags.map(f => t.fl[f] ?? f).join(", ")}</span>}</td>
+                <td className="py-1 px-2 text-right font-mono">{l.ordered}</td>
+                <td className="py-1 px-2 text-right font-mono">{l.received ?? "—"}</td>
+                {showPrices && <><td className="py-1 px-2 text-right font-mono">{l.price == null ? "—" : `$${l.price.toFixed(2)}`}</td><td className="py-1 pl-2 text-right font-mono text-muted-foreground">{l.prev == null ? "—" : `$${l.prev.toFixed(2)}`}</td></>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {o.status === "sent" && (
+        <label className="flex flex-wrap items-center gap-2 text-xs">{t.changeInv}
+          <Select value={o.invoice?.id ?? (o.check === "unmatched" ? "none" : "")} onValueChange={pick}>
+            <SelectTrigger className="h-8 w-60" data-testid={`select-order-invoice-${o.id}`}><SelectValue placeholder="—" /></SelectTrigger>
+            <SelectContent>
+              {cands.map(c => <SelectItem key={c.id} value={c.id} disabled={!!c.takenBy}>{c.number} · {c.date}{c.takenBy ? " (used)" : ""}</SelectItem>)}
+              <SelectItem value="none">{t.noInv}</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+      )}
     </div>
   );
 }

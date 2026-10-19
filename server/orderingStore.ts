@@ -174,15 +174,111 @@ export async function sendOrder(storeId: string, supplierId: string, lines: Orde
   }
 }
 
-export async function recentOrders(storeId: string, limit = 20) {
+// ── C-4: order vs invoice ──────────────────────────────────────────────────
+
+const MATCH_BEFORE_DAYS = 1, MATCH_AFTER_DAYS = 7; // an invoice dated the day before (cut-off) up to a week after the order
+
+/**
+ * Pair each sent order (not yet paired, not set by hand) with an invoice from the same supplier and
+ * store dated around it: the one sharing most products, then the closest date. An invoice whose items
+ * could not be read pairs only when it is the sole candidate. One invoice serves one order.
+ */
+async function autoMatch(storeId: string) {
+  const open: any[] = ((await db.execute(sql`
+    SELECT o.id, o.supplier_id, (o.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Australia/Sydney')::date::text AS day
+    FROM purchase_orders o
+    WHERE o.store_id = ${storeId} AND o.status = 'sent' AND o.invoice_id IS NULL AND o.match_mode IS NULL
+      AND o.created_at > now() - interval '60 days'
+    ORDER BY o.created_at`)) as any).rows;
+  for (const o of open) {
+    const cands: any[] = ((await db.execute(sql`
+      SELECT i.id, i.invoice_date, abs(i.invoice_date::date - ${o.day}::date) AS gap,
+             (SELECT count(DISTINCT pp.product_id) FROM product_prices pp WHERE pp.invoice_id = i.id AND pp.product_id IN (SELECT l.product_id FROM purchase_order_lines l WHERE l.order_id = ${o.id})) AS overlap,
+             EXISTS (SELECT 1 FROM product_prices pp WHERE pp.invoice_id = i.id) AS has_items
+      FROM supplier_invoices i
+      WHERE i.supplier_id = ${o.supplier_id} AND i.store_id = ${storeId} AND i.status <> 'DELETED'
+        AND i.invoice_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+        AND i.invoice_date::date BETWEEN ${o.day}::date - ${MATCH_BEFORE_DAYS}::int AND ${o.day}::date + ${MATCH_AFTER_DAYS}::int
+        AND NOT EXISTS (SELECT 1 FROM purchase_orders x WHERE x.invoice_id = i.id)
+      ORDER BY overlap DESC, gap ASC`)) as any).rows;
+    const best = cands.find(c => Number(c.overlap) > 0) ?? (cands.length === 1 && !cands[0].has_items ? cands[0] : null);
+    if (best) await db.execute(sql`UPDATE purchase_orders SET invoice_id = ${best.id}, match_mode = 'auto' WHERE id = ${o.id} AND invoice_id IS NULL`);
+  }
+}
+
+export type OrderCheck = "pending" | "match" | "diff" | "no_items" | "unmatched";
+
+/** Ordered vs invoiced per product; prices (the owner's) only when withPrices. */
+async function compareOrder(o: any, withPrices: boolean) {
+  const lines: any[] = ((await db.execute(sql`SELECT product_id, name, unit, qty FROM purchase_order_lines WHERE order_id = ${o.id} ORDER BY name`)) as any).rows;
+  if (!o.invoice_id) return { check: (o.match_mode === "manual" ? "unmatched" : "pending") as OrderCheck, lines: lines.map(l => ({ name: l.name, unit: l.unit, ordered: Number(l.qty), received: null, flags: [] })) };
+  const got: any[] = ((await db.execute(sql`
+    SELECT pp.product_id, p.name, pp.unit, sum(pp.qty) AS qty, max(pp.unit_price) AS price,
+           (SELECT x.unit_price FROM product_prices x WHERE x.product_id = pp.product_id AND (x.invoice_id IS DISTINCT FROM ${o.invoice_id})
+              AND x.price_date <= max(pp.price_date) AND x.unit_price IS NOT NULL ORDER BY x.price_date DESC, x.created_at DESC LIMIT 1) AS prev
+    FROM product_prices pp JOIN supplier_products p ON p.id = pp.product_id
+    WHERE pp.invoice_id = ${o.invoice_id} AND p.kind = 'goods'
+    GROUP BY pp.product_id, p.name, pp.unit`)) as any).rows;
+  if (!got.length) return { check: "no_items" as OrderCheck, lines: lines.map(l => ({ name: l.name, unit: l.unit, ordered: Number(l.qty), received: null, flags: [] })) };
+  const byProduct = new Map(got.map(g => [g.product_id, g]));
+  const out: any[] = [];
+  for (const l of lines) {
+    const g = l.product_id ? byProduct.get(l.product_id) : undefined;
+    if (g) byProduct.delete(l.product_id);
+    const ordered = Number(l.qty), received = g ? Number(g.qty ?? 0) : 0;
+    const price = g?.price == null ? null : Number(g.price), prev = g?.prev == null ? null : Number(g.prev);
+    const flags = [...(received < ordered ? [received === 0 ? "missing" : "short"] : []), ...(received > ordered ? ["more"] : []), ...(price != null && prev != null && price > prev + 0.004 ? ["price_up"] : [])];
+    out.push({ name: l.name, unit: l.unit, ordered, received, flags, ...(withPrices ? { price, prev } : {}) });
+  }
+  for (const g of Array.from(byProduct.values())) // came without being ordered
+    out.push({ name: g.name, unit: g.unit, ordered: 0, received: Number(g.qty ?? 0), flags: ["extra"], ...(withPrices ? { price: g.price == null ? null : Number(g.price), prev: g.prev == null ? null : Number(g.prev) } : {}) });
+  // a price rise alone is the owner's business: staff see a match unless quantities differ
+  const differs = out.some(r => r.flags.some((f: string) => f !== "price_up" || withPrices));
+  return { check: (differs ? "diff" : "match") as OrderCheck, lines: out };
+}
+
+export async function recentOrders(storeId: string, withPrices = false, limit = 20) {
+  await autoMatch(storeId);
   const orders: any[] = ((await db.execute(sql`
     SELECT o.id, o.supplier_id, s.name AS supplier_name, o.status, o.channel, o.to_email, o.subject, o.error, o.sent_at, o.created_at,
-           coalesce(nullif(e.nickname, ''), e.first_name) AS sent_by_name,
-           (SELECT json_agg(json_build_object('name', l.name, 'unit', l.unit, 'qty', l.qty) ORDER BY l.name) FROM purchase_order_lines l WHERE l.order_id = o.id) AS lines
+           o.invoice_id, o.match_mode, i.invoice_number, i.invoice_date, i.amount AS invoice_amount,
+           coalesce(nullif(e.nickname, ''), e.first_name) AS sent_by_name
     FROM purchase_orders o JOIN suppliers s ON s.id = o.supplier_id LEFT JOIN employees e ON e.id = o.sent_by
+    LEFT JOIN supplier_invoices i ON i.id = o.invoice_id
     WHERE o.store_id = ${storeId} ORDER BY o.created_at DESC LIMIT ${limit}`)) as any).rows;
-  return orders.map(o => ({ id: o.id, supplierId: o.supplier_id, supplierName: o.supplier_name, status: o.status, channel: o.channel, toEmail: o.to_email,
-    subject: o.subject, error: o.error, sentAt: o.sent_at, createdAt: o.created_at, sentByName: o.sent_by_name, lines: o.lines ?? [] }));
+  const out = [];
+  for (const o of orders) {
+    const c = o.status === "sent" ? await compareOrder(o, withPrices) : { check: "pending" as OrderCheck, lines: [] };
+    out.push({ id: o.id, supplierId: o.supplier_id, supplierName: o.supplier_name, status: o.status, channel: o.channel, toEmail: o.to_email,
+      subject: o.subject, error: o.error, sentAt: o.sent_at, createdAt: o.created_at, sentByName: o.sent_by_name,
+      invoice: o.invoice_id ? { id: o.invoice_id, number: o.invoice_number, date: o.invoice_date, ...(withPrices ? { amount: Number(o.invoice_amount) } : {}), mode: o.match_mode } : null,
+      check: c.check, lines: c.lines });
+  }
+  return out;
+}
+
+/** Invoices an order could be paired with (same supplier and store, two weeks either side). */
+export async function matchCandidates(storeId: string, orderId: string): Promise<Array<{ id: string; number: string; date: string; takenBy: string | null }>> {
+  const [o] = ((await db.execute(sql`SELECT supplier_id, (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Australia/Sydney')::date::text AS day FROM purchase_orders WHERE id = ${orderId} AND store_id = ${storeId}`)) as any).rows;
+  if (!o) throw new Error("Order not found");
+  return ((await db.execute(sql`
+    SELECT i.id, i.invoice_number AS number, i.invoice_date AS date,
+           (SELECT x.id FROM purchase_orders x WHERE x.invoice_id = i.id AND x.id <> ${orderId} LIMIT 1) AS taken_by
+    FROM supplier_invoices i
+    WHERE i.supplier_id = ${o.supplier_id} AND i.store_id = ${storeId} AND i.status <> 'DELETED'
+      AND i.invoice_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' AND i.invoice_date::date BETWEEN ${o.day}::date - 14 AND ${o.day}::date + 14
+    ORDER BY i.invoice_date`)) as any).rows.map((r: any) => ({ id: r.id, number: r.number, date: r.date, takenBy: r.taken_by ?? null }));
+}
+
+/** Pair by hand (or say "no invoice for this one" with null); auto-matching leaves it alone afterwards. */
+export async function setOrderInvoice(storeId: string, orderId: string, invoiceId: string | null) {
+  if (invoiceId) {
+    const ok = (await matchCandidates(storeId, orderId)).find(c => c.id === invoiceId);
+    if (!ok) throw new Error("That invoice is not one of this supplier's for this store around the order date");
+    await db.execute(sql`UPDATE purchase_orders SET invoice_id = NULL, match_mode = NULL WHERE invoice_id = ${invoiceId} AND id <> ${orderId} AND match_mode = 'auto'`);
+    if (ok.takenBy) { const [t] = ((await db.execute(sql`SELECT match_mode FROM purchase_orders WHERE id = ${ok.takenBy}`)) as any).rows; if (t?.match_mode === "manual") throw new Error("That invoice is already paired with another order by hand"); }
+  }
+  await db.execute(sql`UPDATE purchase_orders SET invoice_id = ${invoiceId}, match_mode = 'manual' WHERE id = ${orderId} AND store_id = ${storeId}`);
 }
 
 // ── staff portal: who may do what, and the stock count ─────────────────────

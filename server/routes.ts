@@ -21,7 +21,7 @@ import { startAutoPaySweep } from "./autoPay";
 import { syncProducts, startProductSync, listProducts, productHistory, createManualProduct, addManualPrice, updateProduct, listGroups, createGroup, renameGroup, deleteGroup, suggestGroups, hiddenSuggestions, setSuggestionHidden } from "./productStore";
 import { fetchLinkedPdfs, backfillLinkedPdfs } from "./linkedPdf";
 import { gmailConfigured, gmailAuthUrl, gmailCallback, gmailDisconnect, gmailStatus, pollGmail, startGmailPoll, backfillGmail, claimMessageId } from "./gmailInbox";
-import { orderingSheet, orderingPerms, setStock, setUsage, setCoverWeeks, setOrderEmail, buildOrderEmail, sendOrder, recentOrders, validEmail, type OrderLineInput } from "./orderingStore";
+import { orderingSheet, orderingPerms, setStock, setUsage, setCoverWeeks, setOrderEmail, matchCandidates, setOrderInvoice, buildOrderEmail, sendOrder, recentOrders, validEmail, type OrderLineInput } from "./orderingStore";
 import { sendPlainEmail } from "./mailer";
 import {
   insertStoreSchema,
@@ -4569,9 +4569,18 @@ export async function registerRoutes(
     try { res.json(await sendOrder(req.params.storeId, input.supplierId, input.lines, input.note, req.user?.id ?? null, null)); }
     catch (err: any) { res.status(400).json({ error: err?.message ?? "Failed" }); }
   });
+  app.get("/api/ordering/:storeId/orders/:orderId/candidates", async (req: Request, res: Response) => {
+    const deny = await orderGate(req, "order"); if (deny) return res.status(403).json({ error: deny });
+    try { res.json(await matchCandidates(req.params.storeId, req.params.orderId)); } catch (err: any) { res.status(400).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.put("/api/ordering/:storeId/orders/:orderId/invoice", async (req: Request, res: Response) => {
+    const deny = await orderGate(req, "order"); if (deny) return res.status(403).json({ error: deny });
+    const invoiceId = typeof req.body?.invoiceId === "string" && req.body.invoiceId ? req.body.invoiceId : null;
+    try { await setOrderInvoice(req.params.storeId, req.params.orderId, invoiceId); res.json({ ok: true }); } catch (err: any) { res.status(400).json({ error: err?.message ?? "Failed" }); }
+  });
   app.get("/api/ordering/:storeId/orders", async (req: Request, res: Response) => {
     const deny = await orderGate(req, "order"); if (deny) return res.status(403).json({ error: deny });
-    try { res.json(await recentOrders(req.params.storeId)); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
+    try { res.json(await recentOrders(req.params.storeId, req.user?.role === "ADMIN")); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
   });
   app.get("/api/product-groups/suggestions/hidden", async (_req: Request, res: Response) => {
     try { res.json(await hiddenSuggestions()); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }

@@ -356,6 +356,9 @@ const STATEMENTS: string[] = [
      source text NOT NULL,
      seen_at timestamp NOT NULL DEFAULT now()
    )`,
+  // C-4: the invoice each order was paired with (auto, or set by hand)
+  `ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS invoice_id varchar REFERENCES supplier_invoices(id) ON DELETE SET NULL`,
+  `ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS match_mode text`,
   // managers place the orders: give the new screen a row in the Access Control matrix
   `INSERT INTO admin_permissions (role, route, label, allowed) VALUES
      ('ADMIN', '/admin/ordering', 'Ordering', true),
