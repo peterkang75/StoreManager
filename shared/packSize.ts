@@ -62,8 +62,9 @@ export function parsePack(name: string, unit?: string | null): Pack | null {
   } else if (/^(L|LT|LTR)$/i.test(u)) {
     pack = { qty: 1, unit: "L" };
   } else if (!isEgg) {
-    // counts only: "x1000", "(Box 1000)", "100pk", "36P", "300'S", "100S/48"
-    const c = text.match(/(?:[xX]\s?(\d{2,})\b|Box\s+(\d+)|\b(\d+)\s*(?:pk|P|PC|PCS|'S)\b|\b(\d+)S(?=\/))/i);
+    // counts only: "x1000", "(Box 1000)", "100pk", "36P", "300'S", "100S/48", "500 PIECES"
+    // an x right after a digit is a dimension ("200X200"), not a count
+    const c = text.match(/(?:(?<!\d)[xX]\s?(\d{2,})\b|Box\s+(\d+)|\b(\d+)\s*(?:pk|P|PC|PCS|PIECES?|SHEETS?|'S)\b|\b(\d+)S(?=\/))/i);
     const n = c ? Number(c[1] ?? c[2] ?? c[3] ?? c[4]) : NaN;
     if (n > 1) pack = { qty: n, unit: "ea" };
   }

@@ -209,7 +209,7 @@ export async function deleteGroup(id: string) {
 }
 
 // Words that say nothing about what the item is.
-const STOP = new Set("WHOLE PACK PACKS TETRA BOTTLE BOTTLES BUCKET CARTON LOOSE FRESH SLICED MEDIUM LARGE SMALL GLUTEN FREE PURE CATERING CAGED BRAND FARM TRADING STYLE PREMIUM GOURMET PLAIN SAUCE CHEESE OIL".split(" "));
+const STOP = new Set("WHOLE PACK PACKS TETRA BOTTLE BOTTLES BUCKET CARTON LOOSE FRESH SLICED MEDIUM LARGE SMALL GLUTEN FREE PURE CATERING PIECES PIECE SHEETS CAGED BRAND FARM TRADING STYLE PREMIUM GOURMET PLAIN SAUCE CHEESE OIL".split(" "));
 const lev = (a: string, b: string) => {
   const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
   for (let j = 1; j <= b.length; j++) d[0][j] = j;
