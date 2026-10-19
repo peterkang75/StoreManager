@@ -491,6 +491,7 @@ export function AdminEmployeeDetail() {
   const [showVevoModal, setShowVevoModal] = useState(false);
   const [vevoFileName, setVevoFileName] = useState<string | null>(null);
   const vevoFileRef = useRef<HTMLInputElement>(null);
+  const { currentRole } = useAdminRole();
 
   const { data: employee, isLoading: employeeLoading } = useQuery<Employee>({
     queryKey: ["/api/employees", employeeId],
@@ -1381,6 +1382,7 @@ export function AdminEmployeeDetail() {
                   <Select
                     value={currentData.role ?? "EMPLOYEE"}
                     onValueChange={(value) => handleFieldChange("role", value)}
+                    disabled={currentRole !== "ADMIN"} // server ignores role changes from non-admins
                   >
                     <SelectTrigger data-testid="select-role">
                       <SelectValue placeholder="Select role" />

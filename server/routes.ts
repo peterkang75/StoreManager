@@ -61,6 +61,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import bcrypt from "bcryptjs";
+import { filterEmployeeUpdate, coworkerView } from "./employeeAccess";
 
 // ── PIN rate limiting (in-memory) ─────────────────────────────────────────────
 const pinAttempts = new Map<string, { count: number; lockedUntil: number | null }>();
@@ -755,12 +756,14 @@ export async function registerRoutes(
   // viewers EXCEPT when the user is fetching their own record — they already
   // know their PIN and the portal "Edit my profile" page reads its own row.
   // Bank/TFN scoping stays Phase B.1.
-  function sanitizeEmployee(emp: any, viewerRole: string | undefined, viewerId?: string) {
+  function sanitizeEmployee(emp: any, viewerRole: string | undefined, viewerId?: string, viewerRoutes: string[] = []) {
     if (!emp) return emp;
     const { passwordHash, ...rest } = emp;
     const isSelf = viewerId && emp.id === viewerId;
     const isAdmin = (viewerRole ?? "").toUpperCase() === "ADMIN";
     if (!isAdmin && !isSelf) {
+      // Without Employees-page access (portal, most STAFF) a coworker is just a name — never bank/TFN/visa/pay.
+      if (!viewerRoutes.includes("/admin/employees")) return coworkerView(rest);
       const { pin, ...safeRest } = rest;
       return safeRest;
     }
@@ -768,7 +771,7 @@ export async function registerRoutes(
   }
   // Wrapper for callers that have a Request handy (most common case).
   function sanitizeForReq(emp: any, req: Request) {
-    return sanitizeEmployee(emp, req.user?.role, req.user?.id);
+    return sanitizeEmployee(emp, req.user?.role, req.user?.id, req.user?.allowedRoutes);
   }
 
   app.get("/api/employees", async (req: Request, res: Response) => {
@@ -823,26 +826,36 @@ export async function registerRoutes(
   app.put("/api/employees/:id", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      // ordering switches are the owner's call
-      if (req.user?.role !== "ADMIN") { delete req.body.canOrder; delete req.body.canSetOrderUsage; }
-      // Hash PIN if a new plain-text value is being set by admin
-      if (req.body.pin && !req.body.pin.startsWith("$2")) {
-        req.body.pin = await bcrypt.hash(String(req.body.pin), 10);
+      const target = await storage.getEmployee(id);
+      if (!target) {
+        return res.status(404).json({ error: "Employee not found" });
       }
-      const employee = await storage.updateEmployee(id, req.body);
+      const decision = filterEmployeeUpdate(req.user!, target, req.body);
+      if (!decision.ok) return res.status(decision.status).json({ error: decision.error });
+      const body: any = decision.body;
+      // Email is the password-login ID and isn't unique in the DB: refuse a duplicate so nobody can shadow another login.
+      if (body.email && body.email !== target.email) {
+        const owner = await storage.findEmployeeByEmail(String(body.email));
+        if (owner && owner.id !== id) return res.status(409).json({ error: "EMAIL_IN_USE", message: "Another employee already uses this email" });
+      }
+      // Hash PIN if a new plain-text value is being set by admin
+      if (body.pin && !String(body.pin).startsWith("$2")) {
+        body.pin = await bcrypt.hash(String(body.pin), 10);
+      }
+      const employee = await storage.updateEmployee(id, body);
       if (!employee) {
         return res.status(404).json({ error: "Employee not found" });
       }
       const assignments = await storage.getEmployeeStoreAssignments({ employeeId: id });
       if (assignments.length <= 1) {
-        if (req.body.rate !== undefined) {
+        if (body.rate !== undefined) {
           for (const a of assignments) {
-            await storage.updateStoreAssignmentFields(a.id, { rate: req.body.rate });
+            await storage.updateStoreAssignmentFields(a.id, { rate: body.rate });
           }
         }
-        if (req.body.fixedAmount !== undefined) {
+        if (body.fixedAmount !== undefined) {
           for (const a of assignments) {
-            await storage.updateStoreAssignmentFields(a.id, { fixedAmount: req.body.fixedAmount });
+            await storage.updateStoreAssignmentFields(a.id, { fixedAmount: body.fixedAmount });
           }
         }
       }
