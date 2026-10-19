@@ -89,10 +89,19 @@ async function accessToken(): Promise<string> {
   return cachedToken.token;
 }
 
+const pause = (ms: number) => new Promise(r => setTimeout(r, ms));
+// Gmail allows ~15,000 quota units per user per minute (a message read costs 5): keep a steady pace,
+// and on a rate-limit answer wait and try again rather than fail the whole run
 async function gmailGet(path: string): Promise<any> {
-  const r = await fetch(`${GMAIL}${path}`, { headers: { Authorization: `Bearer ${await accessToken()}` } });
-  if (!r.ok) throw new Error(`Gmail ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  return r.json();
+  for (let attempt = 0; ; attempt++) {
+    await pause(60);
+    const r = await fetch(`${GMAIL}${path}`, { headers: { Authorization: `Bearer ${await accessToken()}` } });
+    if (r.ok) return r.json();
+    const text = await r.text();
+    const limited = r.status === 429 || (r.status === 403 && /quota|rate/i.test(text));
+    if (limited && attempt < 5) { await pause(15_000 * (attempt + 1)); continue; }
+    throw new Error(`Gmail ${r.status}: ${text.slice(0, 200)}`);
+  }
 }
 
 // ── Gmail message -> Cloudmailin JSON Normalized ──────────────────────────────
@@ -216,7 +225,8 @@ export async function backfillGmail(since: string, apply: boolean) {
   const suppliers = (await storage.getSuppliers()).filter(s => s.active);
   const supplierOf = (addr: string) => suppliers.find(s => (s.contactEmails ?? []).some(e => e.trim().toLowerCase() === addr));
   const after = since.replace(/-/g, "/");
-  const ids = await listIds(await searchQuery(`after:${after}`), 2000);
+  // Gmail can search by size: only mail big enough that Cloudmailin turned it away
+  const ids = await listIds(await searchQuery(`after:${after} larger:${Math.round(CLOUDMAILIN_LIMIT / 1024)}K`), 2000);
   const rows: any[] = [];
   const ledger = new Map<string, Set<string>>();
   for (const id of ids) {

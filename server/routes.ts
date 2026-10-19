@@ -7398,8 +7398,9 @@ export async function registerRoutes(
 
     } catch (err) {
       console.error("[Webhook/inbound-invoices] Unhandled error:", err);
-      // let the other path (or the next Gmail poll) try this mail again
-      if (webhookClaimed) await db.execute(sql`DELETE FROM inbound_messages WHERE message_id = ${webhookClaimed}`).catch(() => {});
+      // let the other path (or the next Gmail poll) try this mail again — but not when the invoice is already
+      // in the ledger (unique number): retrying that only fails again every poll
+      if (webhookClaimed && (err as any)?.code !== "23505") await db.execute(sql`DELETE FROM inbound_messages WHERE message_id = ${webhookClaimed}`).catch(() => {});
       if (!res.headersSent) return res.status(200).send("OK");
       return;
     }
