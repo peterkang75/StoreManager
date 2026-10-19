@@ -144,6 +144,7 @@ export function apiToRouteKey(apiPath: string): string | "ADMIN_ONLY" | "EMPLOYE
   if (apiPath.startsWith("/api/notices")) return "/admin/notices";
   if (apiPath.startsWith("/api/dashboard")) return "/admin";
   if (apiPath.startsWith("/api/stores")) return "/admin/stores";
+  if (apiPath.startsWith("/api/ordering")) return "/admin/ordering"; // managers order for their own stores (store scope checked in the handler)
 
   // Default to ADMIN_ONLY for unknown admin paths (safe default)
   return "ADMIN_ONLY";

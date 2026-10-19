@@ -18,6 +18,7 @@ import {
   ChevronRight,
   ShieldCheck,
   type LucideIcon,
+  ShoppingCart,
 } from "lucide-react";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { Card } from "@/components/ui/card";
@@ -54,6 +55,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { title: "Attendance History", url: "/admin/timesheets", icon: History, description: "Past clock-ins and timesheets" },
       { title: "Cash & Close", url: "/admin/cash", icon: Wallet, description: "Daily cash and end-of-shift" },
       { title: "Storage", url: "/admin/storage", icon: Package, description: "Track stock and consumption" },
+      { title: "Ordering", url: "/admin/ordering", icon: ShoppingCart, description: "주당 사용량과 재고로 주문량 계산" },
     ],
   },
   {

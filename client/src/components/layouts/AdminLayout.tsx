@@ -29,6 +29,7 @@ import {
   Building2,
   Repeat,
   LogOut,
+  ShoppingCart,
 } from "lucide-react";
 import {
   Sidebar,
@@ -83,6 +84,7 @@ const operationsNavItems = [
   { title: "Attendance History",url: "/admin/timesheets",icon: History },
   { title: "Payroll",           url: "/admin/payrolls",  icon: DollarSign },
   { title: "Storage",           url: "/admin/storage",   icon: Package },
+  { title: "Ordering",          url: "/admin/ordering",  icon: ShoppingCart },
 ];
 
 const hiringNavItems = [

@@ -21,6 +21,7 @@ import { AdminPayrolls } from "@/pages/admin/Payrolls";
 import { AdminCash } from "@/pages/admin/Cash";
 import { AdminSuppliers } from "@/pages/admin/Suppliers";
 import { AdminProducts } from "@/pages/admin/Products";
+import { AdminOrdering } from "@/pages/admin/Ordering";
 import { AdminSupplierInvoices } from "@/pages/admin/SupplierInvoices";
 import { AdminAccountsPayable } from "@/pages/admin/AccountsPayable";
 import { AdminFinance } from "@/pages/admin/Finance";
@@ -81,6 +82,7 @@ function Router() {
       <Route path="/admin/cash"><Admin><AdminCash /></Admin></Route>
       <Route path="/admin/suppliers"><Admin><AdminSuppliers /></Admin></Route>
       <Route path="/admin/products"><Admin><AdminProducts /></Admin></Route>
+      <Route path="/admin/ordering"><Admin><AdminOrdering /></Admin></Route>
       <Route path="/admin/suppliers/invoices"><Admin><AdminSupplierInvoices /></Admin></Route>
       <Route path="/admin/accounts-payable"><Admin><AdminAccountsPayable /></Admin></Route>
       <Route path="/admin/finance"><Admin><AdminFinance /></Admin></Route>

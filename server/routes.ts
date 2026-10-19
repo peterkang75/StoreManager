@@ -20,6 +20,7 @@ import { resolveStoreFromAliases } from "./storeAliases";
 import { startAutoPaySweep } from "./autoPay";
 import { syncProducts, startProductSync, listProducts, productHistory, createManualProduct, addManualPrice, updateProduct, listGroups, createGroup, renameGroup, deleteGroup, suggestGroups, hiddenSuggestions, setSuggestionHidden } from "./productStore";
 import { fetchLinkedPdfs, backfillLinkedPdfs } from "./linkedPdf";
+import { orderingSheet, setUsage, setCoverWeeks } from "./orderingStore";
 import {
   insertStoreSchema,
   insertCandidateSchema,
@@ -4449,6 +4450,25 @@ export async function registerRoutes(
   });
   app.get("/api/product-groups/suggestions", async (req: Request, res: Response) => {
     try { res.json(await suggestGroups(typeof req.query.storeId === "string" && req.query.storeId ? req.query.storeId : undefined)); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
+  // Ordering (C-1/2). Managers only for their own stores.
+  const orderingStoreOk = (req: Request) => req.user?.role === "ADMIN" || (req.user?.allowedStoreIds ?? []).includes(req.params.storeId);
+  const optNum = (v: any) => (v === null || v === "" || v === undefined ? null : Number(v));
+  app.get("/api/ordering/:storeId", async (req: Request, res: Response) => {
+    if (!orderingStoreOk(req)) return res.status(403).json({ error: "FORBIDDEN_STORE" });
+    try { res.json(await orderingSheet(req.params.storeId)); } catch (err: any) { console.error("Error building ordering sheet:", err); res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.put("/api/ordering/:storeId/usage", async (req: Request, res: Response) => {
+    if (!orderingStoreOk(req)) return res.status(403).json({ error: "FORBIDDEN_STORE" });
+    const term = optNum(req.body?.termWeekly), hol = optNum(req.body?.holidayWeekly);
+    if (typeof req.body?.productId !== "string" || [term, hol].some(v => v !== null && !(v >= 0 && v < 100000))) return res.status(400).json({ error: "productId and weekly amounts ≥ 0 are required" });
+    try { await setUsage(req.params.storeId, req.body.productId, term, hol); res.json({ ok: true }); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.put("/api/ordering/:storeId/cover", async (req: Request, res: Response) => {
+    if (!orderingStoreOk(req)) return res.status(403).json({ error: "FORBIDDEN_STORE" });
+    const weeks = Number(req.body?.coverWeeks);
+    if (typeof req.body?.supplierId !== "string" || !(weeks > 0 && weeks <= 12)) return res.status(400).json({ error: "supplierId and coverWeeks (0-12] are required" });
+    try { await setCoverWeeks(req.params.storeId, req.body.supplierId, weeks); res.json({ ok: true }); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
   });
   app.get("/api/product-groups/suggestions/hidden", async (_req: Request, res: Response) => {
     try { res.json(await hiddenSuggestions()); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }

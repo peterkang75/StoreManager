@@ -571,6 +571,19 @@ export const itemGroups = pgTable("item_groups", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 export type ItemGroup = typeof itemGroups.$inferSelect;
+// Ordering: weekly usage per store x product, and order cover per store x supplier.
+export const orderingUsage = pgTable("ordering_usage", {
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  productId: varchar("product_id").references(() => supplierProducts.id, { onDelete: "cascade" }).notNull(),
+  termWeekly: real("term_weekly"),
+  holidayWeekly: real("holiday_weekly"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({ pk: primaryKey({ columns: [t.storeId, t.productId] }) }));
+export const orderingSupplierSettings = pgTable("ordering_supplier_settings", {
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  supplierId: varchar("supplier_id").references(() => suppliers.id).notNull(),
+  coverWeeks: real("cover_weeks").default(1).notNull(),
+}, (t) => ({ pk: primaryKey({ columns: [t.storeId, t.supplierId] }) }));
 // Suggested-group words the owner dismissed.
 export const hiddenGroupSuggestions = pgTable("hidden_group_suggestions", {
   word: text("word").primaryKey(),

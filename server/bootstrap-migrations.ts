@@ -286,6 +286,28 @@ const STATEMENTS: string[] = [
      word text PRIMARY KEY,
      created_at timestamp NOT NULL DEFAULT now()
    )`,
+  // Ordering C-1/2: weekly usage per store x product (term / school holidays), in
+  // the product's invoice unit, and how many weeks one order covers per supplier.
+  `CREATE TABLE IF NOT EXISTS ordering_usage (
+     store_id varchar NOT NULL REFERENCES stores(id),
+     product_id varchar NOT NULL REFERENCES supplier_products(id) ON DELETE CASCADE,
+     term_weekly real,
+     holiday_weekly real,
+     updated_at timestamp NOT NULL DEFAULT now(),
+     PRIMARY KEY (store_id, product_id)
+   )`,
+  `CREATE TABLE IF NOT EXISTS ordering_supplier_settings (
+     store_id varchar NOT NULL REFERENCES stores(id),
+     supplier_id varchar NOT NULL REFERENCES suppliers(id),
+     cover_weeks real NOT NULL DEFAULT 1,
+     PRIMARY KEY (store_id, supplier_id)
+   )`,
+  // managers place the orders: give the new screen a row in the Access Control matrix
+  `INSERT INTO admin_permissions (role, route, label, allowed) VALUES
+     ('ADMIN', '/admin/ordering', 'Ordering', true),
+     ('MANAGER', '/admin/ordering', 'Ordering', true),
+     ('STAFF', '/admin/ordering', 'Ordering', false)
+   ON CONFLICT (role, route) DO NOTHING`,
 ];
 
 // Phase B: seed the OWNER's password from environment variables on first deploy.
