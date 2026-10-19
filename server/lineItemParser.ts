@@ -180,8 +180,12 @@ export function parseInvoiceLines(text: string): { ok: true; result: ParsedInvoi
   const fam = FAMILIES.find(f => f.header.test(text));
   if (!fam) {
     // header-looking lines, so a layout that reads differently on another poppler build can be seen in the DB
-    const heads = text.split(/[\n\f]/).map(l => l.replace(/\s+/g, " ").trim()).filter(l => /\b(?:ITEM|DESCRIPTION|QUANTITY|QTY|PRODUCT)\b/i.test(l));
-    return { ok: false, reason: "no_rule", detail: heads.slice(0, 4).join(" | ").slice(0, 300) || undefined };
+    const ls = text.split(/[\n\f]/).map(l => l.replace(/\s+/g, " ").trim());
+    const heads = ls.filter(l => /\b(?:ITEM|DESCRIPTION|QUANTITY|QTY|PRODUCT)\b/i.test(l));
+    // plus the 30 lines from the first header-looking one, so a layout can be written from what production's poppler reads
+    const at = ls.findIndex(l => /\b(?:DESCRIPTION|QTY|QUANTITY)\b/i.test(l));
+    const around = at < 0 ? "" : ls.slice(Math.max(0, at - 6), at + 30).filter(Boolean).join(" ¦ ");
+    return { ok: false, reason: "no_rule", detail: `${heads.slice(0, 4).join(" | ").slice(0, 300)} ## ${around}`.slice(0, 2000) };
   }
   // a form feed (page break) can sit mid-line, gluing the last row to the next page header
   const all = text.split(/[\n\f]/).map(l => l.replace(/\s+/g, " ").trim());
