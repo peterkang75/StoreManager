@@ -152,6 +152,17 @@ const FAMILIES: Family[] = [
     docTotal: t => foodlinkTotals(t)?.[1] ?? null,
   },
   {
+    // Escalate prints the columns right-to-left: "GST% Amount Price Qty Description Code"
+    name: "escalate",
+    header: /^GST Amount Price Qty Description Code$/m,
+    end: /^(?:GST% Amount Additional Charges|Sub Total\b)/,
+    rowEnd: /\s[A-Z0-9]+-[A-Z0-9/.-]+$/, // every product code has a dash (AC-8018, FTA-PSHS85/3A10); a wrapped name does not end in one
+    rowStart: new RegExp(String.raw`^\d+(?:\.\d+)?%\s`),
+    row: new RegExp(String.raw`^(?<gst>\d+(?:\.\d+)?%)\s+(?<lineTotal>${M})\s+(?<unitPrice>${M})\s+(?<qty>-?[\d.]+)\s+(?<desc>.+?)\s+(?<sku>[A-Z0-9]+-[A-Z0-9/.-]+)$`),
+    itemsTotal: t => grab(t, /^Sub Total\s+([\d,]+\.\d{2})$/m),
+    docTotal: t => grab(t, /^Total incl\. GST \(AUD\)\s+([\d,]+\.\d{2})$/m),
+  },
+  {
     name: "riverina",
     header: /^Item Code Item Description Shipped UOM Item Price GST Line Total$/m,
     end: /^Payment Options/,

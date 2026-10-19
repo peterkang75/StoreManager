@@ -720,3 +720,10 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 | Wave 2 | 📋 PLANNED | – | – | Wave 1 운영 검증 후 |
 | Wave 3 | 📋 PLANNED | – | – | Wave 2 완료 후 |
 | Phase 2+ | 📋 BACKLOG | – | – | PLAN_ARCHIVE.md §7.8 |
+
+### 2026-10-19 상품 목록에서 빠진 공급처 조사
+- 빠진 물품 공급처: Cn Paultry(208건 중 원본 1건 — 금액만 2주마다 몰아 입력, 원본 받는 방법 사장님 확인 대기) · Yangzi(파일 25건 모두 명세서) · Newline(파일 0) · Total Equipment(그림 PDF, 글자 없음) · Escalate
+- [~] Escalate 읽기 규칙 `escalate`(열 순서가 거꾸로: GST% Amount Price Qty Description Code), PARSER_VERSION 5. 로컬 검증: 진짜 인보이스 1건 9품목, 합계=소계 503.90. 배포 승인 대기
+  - 발견: Escalate 파일 32개 중 진짜 인보이스는 1개뿐(명세서 23·연체 안내 8) → 원본 인보이스 대부분 없음
+  - 발견: INV-00042950 장부 금액 $38.43(첫 줄 금액을 잘못 읽음), 실제 $513.58. 2026-05-29 $38.43 '수동 결제'로 표시됨 → 사장님 확인 후 금액 수정 필요. 고치기 전까지는 장부 금액 불일치로 품목 저장 안 됨
+
