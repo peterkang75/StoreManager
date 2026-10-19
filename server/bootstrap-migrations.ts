@@ -341,6 +341,21 @@ const STATEMENTS: string[] = [
      counted_at timestamp NOT NULL DEFAULT now(),
      PRIMARY KEY (store_id, product_id)
    )`,
+  // Inbound mail from Gmail directly (Cloudmailin's free plan drops mail over 512 KB)
+  `CREATE TABLE IF NOT EXISTS gmail_connection (
+     id text PRIMARY KEY,
+     email text,
+     refresh_token text NOT NULL,
+     connected_at timestamp NOT NULL DEFAULT now(),
+     last_poll_at timestamp,
+     last_error text,
+     delivered integer NOT NULL DEFAULT 0
+   )`,
+  `CREATE TABLE IF NOT EXISTS inbound_messages (
+     message_id text PRIMARY KEY,
+     source text NOT NULL,
+     seen_at timestamp NOT NULL DEFAULT now()
+   )`,
   // managers place the orders: give the new screen a row in the Access Control matrix
   `INSERT INTO admin_permissions (role, route, label, allowed) VALUES
      ('ADMIN', '/admin/ordering', 'Ordering', true),

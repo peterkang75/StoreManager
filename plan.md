@@ -735,3 +735,13 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - [ ] 원인 2: 2026-05-29 이후 Escalate 메일이 앱에 아예 도착 안 함(거절 기록도 없음) → Gmail/Google 전달 설정 확인 필요(Gmail 커넥터 권한 재연결 필요)
 - [ ] Pomona 2건 결제 여부(배달 때 현금?) 사장님 확인 · Escalate INV-00042950 $38.43→$513.58 확인
 
+### 2026-10-19 메일을 Gmail에서 직접 받기 (Cloudmailin 512KB 한도 우회)
+- 원인 확정: Cloudmailin 무료 요금제는 메일 1통 512KB 초과 시 "Size"로 거절 → Escalate(첨부 468KB, 인코딩 후 ~640KB) 6월 이후 앱에 미도착
+- [~] `server/gmailInbox.ts`: 사장님 Gmail(peter.kang@) 읽기 전용 OAuth(Internal 앱, GOOGLE_CLIENT_ID/SECRET는 Railway), refresh token은 SESSION_SECRET로 AES-GCM 암호화(`gmail_connection`)
+  - 5분마다 `to/deliveredto/cc:accounts@` + 등록 공급처 발신 메일만, 최근 3일. Gmail 메시지 → Cloudmailin JSON 모양 → 자체 웹훅에 그대로 전달(규칙 한 곳)
+  - `inbound_messages`(Message-ID) 영구 중복 방지: Cloudmailin·Gmail 둘 다 와도 1번 처리, 처리 중 오류면 기록 해제
+  - "놓친 메일 찾기": 기간 지정, 등록 공급처 + 크기 480KB 이상(Cloudmailin이 거절했을 메일)만, 장부에 같은 번호 있으면 건너뜀. 미리보기 → 가져오기
+  - AP To Pay 상단 "Gmail 직접 받기" 칸: 연결/지금 확인/놓친 메일 찾기/연결 끊기, 오류 시 경고
+  - 로컬 검증: 변환·중복·보호(콜백 state, 로그인 필요) 확인. 실제 Gmail 연결은 배포 후 사장님이 버튼으로
+- [ ] 1~2주 병행 후 Cloudmailin 전달 끄기(사장님 Gmail 자동전달 필터 또는 accounts@ 그룹 회원 c923…@cloudmailin.net 제거)
+

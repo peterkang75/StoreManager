@@ -1741,6 +1741,7 @@ export function AdminAccountsPayable() {
         {/* ── Content Area ───────────────────────────────────────────────── */}
 
         {/* ── TO PAY ── */}
+        {activeTab === "topay" && <GmailInboxPanel />}
         {activeTab === "topay" && <LinkedPdfPanel />}
         {activeTab === "topay" && (
           isLoading ? (
@@ -3874,6 +3875,104 @@ function SupplierDomainAlerts() {
         ))}
       </ul>
       <p className="opacity-90">인보이스가 맞다면: 아래 메일 중 하나에서 <strong>‘공급처에 추가…’</strong>를 누른 다음, <strong>‘원본 회수…’</strong>를 눌러 막힌 메일을 가져오세요.</p>
+    </div>
+  );
+}
+
+// Mail read straight from the owner's Gmail (Cloudmailin's free plan drops anything over 512 KB).
+type GmailStatus = { configured: boolean; connected: boolean; email: string | null; lastPollAt: string | null; lastError: string | null; delivered: number };
+type GmailBackfill = { since: string; apply: boolean; scanned: number; summary: Record<string, Record<string, number>>; rows: Array<{ supplier: string; subject: string; date: string; action: string; number?: string | null; error?: string }> };
+const GMAIL_ACTION_KO: Record<string, string> = { to_deliver: "가져올 메일", delivered: "가져옴", in_ledger: "이미 장부에 있음", already_seen: "이미 받음", failed: "실패" };
+function GmailInboxPanel() {
+  const { toast } = useToast();
+  const { data: st, refetch } = useQuery<GmailStatus>({ queryKey: ["/api/gmail/status"], refetchInterval: 60_000 });
+  const [busy, setBusy] = useState<string | null>(null);
+  const [bf, setBf] = useState<GmailBackfill | null>(null);
+  const [since, setSince] = useState("2026-05-01");
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const g = q.get("gmail");
+    if (!g) return;
+    if (g === "connected") toast({ title: "Gmail을 연결했습니다", description: q.get("email") ?? undefined });
+    else toast({ title: "Gmail 연결에 실패했습니다", description: q.get("reason") ?? (g === "denied" ? "허용하지 않으셨습니다" : undefined), variant: "destructive" });
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
+  if (!st) return null;
+  const act = async (label: string, fn: () => Promise<any>) => {
+    setBusy(label);
+    try { return await fn(); } catch (e: any) { toast({ title: "실패했습니다", description: e?.message, variant: "destructive" }); }
+    finally { setBusy(null); refetch(); }
+  };
+  const when = (d: string | null) => (d ? new Date(d).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
+  const toDeliver = bf ? bf.rows.filter(r => r.action === "to_deliver").length : 0;
+
+  return (
+    <div className={`rounded-md border p-3 space-y-2 ${st.connected && !st.lastError ? "border-emerald-300/50 bg-emerald-50 dark:bg-emerald-950/20" : "border-amber-300/60 bg-amber-50 dark:bg-amber-950/20"}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-xs min-w-0">
+          <strong>Gmail 직접 받기</strong>{" "}
+          {!st.configured ? "— 서버에 Google 연결 정보(GOOGLE_CLIENT_ID / SECRET)가 없습니다."
+            : !st.connected ? "— 아직 연결되지 않았습니다. 연결하면 accounts@ 메일과 등록된 공급처 메일을 5분마다 직접 가져옵니다 (읽기 전용)."
+            : <>— {st.email} 연결됨 · 마지막 확인 {when(st.lastPollAt)} · 지금까지 가져온 메일 {st.delivered}통</>}
+          {st.lastError && <p className="text-destructive mt-1">문제: {st.lastError}</p>}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {st.configured && !st.connected && (
+            <Button size="sm" disabled={!!busy} data-testid="button-gmail-connect"
+              onClick={() => act("connect", async () => { const r = await (await apiRequest("POST", "/api/gmail/connect")).json(); window.location.href = r.url; })}>
+              {busy === "connect" && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}Gmail 연결
+            </Button>
+          )}
+          {st.connected && <>
+            <Button size="sm" variant="outline" disabled={!!busy} onClick={() => act("poll", async () => { const r = await (await apiRequest("POST", "/api/gmail/poll")).json(); toast({ title: `확인했습니다 — 새로 가져온 메일 ${r.delivered}통` }); })}>
+              {busy === "poll" && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}지금 확인
+            </Button>
+            <Button size="sm" variant="outline" disabled={!!busy} data-testid="button-gmail-backfill"
+              onClick={() => act("preview", async () => setBf(await (await apiRequest("POST", "/api/gmail/backfill", { since, apply: false })).json()))}>
+              {busy === "preview" && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}놓친 메일 찾기…
+            </Button>
+            <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => { if (window.confirm("Gmail 연결을 끊을까요? 메일을 더 가져오지 않습니다.")) act("disc", () => apiRequest("POST", "/api/gmail/disconnect")); }}>연결 끊기</Button>
+            {st.lastError && <Button size="sm" disabled={!!busy} onClick={() => act("connect", async () => { const r = await (await apiRequest("POST", "/api/gmail/connect")).json(); window.location.href = r.url; })}>다시 연결</Button>}
+          </>}
+        </div>
+      </div>
+
+      <AlertDialog open={bf !== null} onOpenChange={o => { if (!o && !busy) setBf(null); }}>
+        <AlertDialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{bf?.apply ? "가져왔습니다" : "놓친 메일"}</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>크기 때문에 Cloudmailin이 거절해서 앱에 안 들어온 메일 중, 등록된 공급처가 보낸 것입니다.
+                  <span className="whitespace-nowrap"> 기간: <input type="date" className="border rounded px-1 text-xs" value={since} onChange={e => setSince(e.target.value)} disabled={!!busy || bf?.apply} /> 부터</span></p>
+                <table className="w-full text-xs">
+                  <tbody>
+                    {Object.entries(bf?.summary ?? {}).map(([sup, acts]) => (
+                      <tr key={sup} className="border-t"><td className="py-1 pr-2 font-medium">{sup}</td>
+                        <td className="py-1">{Object.entries(acts).map(([a, n]) => `${GMAIL_ACTION_KO[a] ?? a} ${n}`).join(" · ")}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+                {bf && Object.keys(bf.summary).length === 0 && <p>놓친 메일이 없습니다.</p>}
+                {!bf?.apply && toDeliver > 0 && <p>"가져오기"를 누르면 이 {toDeliver}통을 지금 들어온 메일처럼 처리합니다 (인보이스는 To Pay에, 명세서는 명세서함에). 이미 장부에 있는 번호는 건너뜁니다.</p>}
+                {bf?.rows.filter(r => r.action === "failed").map((r, i) => <p key={i} className="text-destructive">{r.subject}: {r.error}</p>)}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={!!busy}>{bf?.apply ? "닫기" : "취소"}</AlertDialogCancel>
+            {!bf?.apply && (
+              <Button variant="outline" disabled={!!busy} onClick={() => act("preview", async () => setBf(await (await apiRequest("POST", "/api/gmail/backfill", { since, apply: false })).json()))}>다시 찾기</Button>
+            )}
+            {!bf?.apply && toDeliver > 0 && (
+              <Button disabled={!!busy} data-testid="button-gmail-backfill-apply"
+                onClick={() => act("apply", async () => { const r = await (await apiRequest("POST", "/api/gmail/backfill", { since, apply: true })).json(); setBf(r); queryClient.invalidateQueries(); })}>
+                {busy === "apply" && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}가져오기 ({toDeliver})
+              </Button>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

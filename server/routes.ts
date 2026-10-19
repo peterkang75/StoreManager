@@ -20,6 +20,7 @@ import { resolveStoreFromAliases } from "./storeAliases";
 import { startAutoPaySweep } from "./autoPay";
 import { syncProducts, startProductSync, listProducts, productHistory, createManualProduct, addManualPrice, updateProduct, listGroups, createGroup, renameGroup, deleteGroup, suggestGroups, hiddenSuggestions, setSuggestionHidden } from "./productStore";
 import { fetchLinkedPdfs, backfillLinkedPdfs } from "./linkedPdf";
+import { gmailConfigured, gmailAuthUrl, gmailCallback, gmailDisconnect, gmailStatus, pollGmail, startGmailPoll, backfillGmail, claimMessageId } from "./gmailInbox";
 import { orderingSheet, orderingPerms, setStock, setUsage, setCoverWeeks, setOrderEmail, buildOrderEmail, sendOrder, recentOrders, validEmail, type OrderLineInput } from "./orderingStore";
 import { sendPlainEmail } from "./mailer";
 import {
@@ -3412,6 +3413,7 @@ export async function registerRoutes(
   startLineItemSweep();
   startAutoPaySweep();
   startProductSync();
+  startGmailPoll();
   fillMissingStatementDates().catch(err => console.warn("[statementRecon] date fill failed:", err?.message ?? err));
 
   app.get("/api/invoices", async (req: Request, res: Response) => {
@@ -4467,6 +4469,38 @@ export async function registerRoutes(
   app.get("/api/product-groups/suggestions", async (req: Request, res: Response) => {
     try { res.json(await suggestGroups(typeof req.query.storeId === "string" && req.query.storeId ? req.query.storeId : undefined)); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
   });
+  // Gmail inbox (owner only): connect, status, poll now, backfill mail Cloudmailin dropped as too big
+  const ownerOnly = (req: Request, res: Response) => { if (req.user?.role !== "ADMIN") { res.status(403).json({ error: "FORBIDDEN_ADMIN_ONLY" }); return false; } return true; };
+  app.get("/api/gmail/status", async (req: Request, res: Response) => {
+    if (!ownerOnly(req, res)) return;
+    try { res.json(await gmailStatus()); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.post("/api/gmail/connect", async (req: Request, res: Response) => {
+    if (!ownerOnly(req, res)) return;
+    if (!gmailConfigured()) return res.status(400).json({ error: "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not set on the server" });
+    res.json({ url: gmailAuthUrl() });
+  });
+  app.post("/api/gmail/disconnect", async (req: Request, res: Response) => {
+    if (!ownerOnly(req, res)) return;
+    try { await gmailDisconnect(); res.json({ ok: true }); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.post("/api/gmail/poll", async (req: Request, res: Response) => {
+    if (!ownerOnly(req, res)) return;
+    try { res.json(await pollGmail()); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.post("/api/gmail/backfill", async (req: Request, res: Response) => {
+    if (!ownerOnly(req, res)) return;
+    const since = typeof req.body?.since === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.body.since) ? req.body.since : "2026-05-01";
+    try { res.json(await backfillGmail(since, req.body?.apply === true)); } catch (err: any) { console.error("Gmail backfill failed:", err); res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
+  // Google sends the owner back here after "allow" (no app login on this hop: the one-time state proves it came from our button)
+  app.get("/api/auth/gmail/callback", async (req: Request, res: Response) => {
+    const back = (q: string) => res.redirect(`/admin/accounts-payable?${q}`);
+    if (typeof req.query.error === "string") return back(`gmail=denied`);
+    try { const email = await gmailCallback(String(req.query.code ?? ""), String(req.query.state ?? "")); back(`gmail=connected&email=${encodeURIComponent(email)}`); }
+    catch (err: any) { console.error("Gmail connect failed:", err); back(`gmail=failed&reason=${encodeURIComponent(err?.message ?? "failed")}`); }
+  });
+
   // Ordering (C-1/2). Managers only for their own stores.
   // store: anyone working there (stock counts) · order: can_order · usage: can_set_order_usage. ADMIN passes all.
   const orderGate = async (req: Request, need: "store" | "order" | "usage"): Promise<string | null> => {
@@ -6553,6 +6587,7 @@ export async function registerRoutes(
   const WEBHOOK_DEDUP_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
   app.post("/api/webhooks/inbound-invoices", async (req: Request, res: Response) => {
+    let webhookClaimed = "";
     try {
       // ── Basic Auth verification ───────────────────────────────────────────────
       const authHeader = req.headers['authorization'];
@@ -6579,6 +6614,7 @@ export async function registerRoutes(
 
       // ── Deduplication: prevent processing the same email twice ───────────────
       // Email providers retry on slow responses (AI processing can take 3–8s).
+      // Message-IDs are also kept in inbound_messages: the same mail can come from Cloudmailin and from the Gmail poller.
       // We use Message-ID (globally unique per RFC 2822) as the dedup key.
       // Fallback: hash of sender+subject for providers that strip Message-ID.
       {
@@ -6609,6 +6645,11 @@ export async function registerRoutes(
         }
         _webhookProcessed.set(dedupKey, now);
         console.log(`[Webhook] Dedup key registered: ${dedupKey}`);
+        if (msgId && !(await claimMessageId(msgId, payload?._source === "gmail" ? "gmail" : "cloudmailin"))) {
+          console.log(`[Webhook] Already taken in (${msgId}) — skipped`);
+          return res.status(200).json({ received: true, action: "duplicate_skipped", dedupKey });
+        }
+        if (msgId) webhookClaimed = msgId;
       }
 
       // ── Extract sender (use headers.from only — envelope.from has Gmail artifacts) ──
@@ -7357,6 +7398,8 @@ export async function registerRoutes(
 
     } catch (err) {
       console.error("[Webhook/inbound-invoices] Unhandled error:", err);
+      // let the other path (or the next Gmail poll) try this mail again
+      if (webhookClaimed) await db.execute(sql`DELETE FROM inbound_messages WHERE message_id = ${webhookClaimed}`).catch(() => {});
       if (!res.headersSent) return res.status(200).send("OK");
       return;
     }

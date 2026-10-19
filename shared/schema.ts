@@ -622,6 +622,22 @@ export const purchaseOrderLines = pgTable("purchase_order_lines", {
   qty: real("qty").notNull(),
   stock: real("stock"),
 });
+// Inbound mail read straight from the owner's Gmail (refresh token sealed with the server secret).
+export const gmailConnection = pgTable("gmail_connection", {
+  id: text("id").primaryKey(),
+  email: text("email"),
+  refreshToken: text("refresh_token").notNull(),
+  connectedAt: timestamp("connected_at").defaultNow().notNull(),
+  lastPollAt: timestamp("last_poll_at"),
+  lastError: text("last_error"),
+  delivered: integer("delivered").default(0).notNull(),
+});
+// Message-IDs already taken in (Cloudmailin or Gmail), so one mail is processed once.
+export const inboundMessages = pgTable("inbound_messages", {
+  messageId: text("message_id").primaryKey(),
+  source: text("source").notNull(),
+  seenAt: timestamp("seen_at").defaultNow().notNull(),
+});
 // Suggested-group words the owner dismissed.
 export const hiddenGroupSuggestions = pgTable("hidden_group_suggestions", {
   word: text("word").primaryKey(),
