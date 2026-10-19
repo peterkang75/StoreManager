@@ -71,6 +71,18 @@ export function invoiceKey(n: string | null | undefined): string {
   return cleanInvoiceNumber(n ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
+const INV_NO = /\b(?:invoice|inv)\s*#?\s*:?\s*([A-Za-z0-9][A-Za-z0-9\-\/]*\d)/i;
+/** The invoice number from the subject, else from a PDF attachment named like "Invoice KF2455729.pdf". */
+export function invoiceNumberFrom(subject: string, attachments: any[] | null | undefined): string | null {
+  const fromSubject = subject.match(INV_NO)?.[1];
+  if (fromSubject) return fromSubject;
+  for (const a of attachments ?? []) {
+    const name = String(a?.file_name ?? a?.filename ?? "").replace(/\.pdf$/i, "");
+    if (String(a?.content_type ?? "").includes("pdf")) { const m = name.match(INV_NO)?.[1]; if (m) return m; }
+  }
+  return null;
+}
+
 /**
  * Recover invoice originals that were rejected because the sender wasn't
  * whitelisted yet (e.g. Pearl's daniel@ address, May–Oct 2026). Only emails
@@ -103,9 +115,10 @@ export async function recoverRejectedOriginals(
     const subject: string = r.subject ?? "";
     const base = { rejectedId: r.id, supplier: supplier.name, subject, receivedAt: r.received_at };
     // "Inv" too: Foodlink's subjects read "FOODLINK Inv SI4631694 Cust No …"
-    if (!/\b(?:invoice|inv)\b/i.test(subject) || /receipt|statement|remittance|credit/i.test(subject)) { rows.push({ ...base, action: "skip_not_invoice" }); continue; }
-    const number = subject.match(/\b(?:invoice|inv)\s*#?\s*:?\s*([A-Za-z0-9][A-Za-z0-9\-\/]*\d)/i)?.[1];
-    if (!number) { rows.push({ ...base, action: "skip_no_number" }); continue; }
+    if (/receipt|statement|remittance|credit/i.test(subject)) { rows.push({ ...base, action: "skip_not_invoice" }); continue; }
+    // Pomona's overdue reminders say nothing of an invoice in the subject but attach "Invoice KF2455729.pdf"
+    const number = invoiceNumberFrom(subject, r.attachments);
+    if (!number) { rows.push({ ...base, action: /\b(?:invoice|inv)\b/i.test(subject) ? "skip_no_number" : "skip_not_invoice" }); continue; }
     const key = `${supplier.id}|${invoiceKey(number)}`;
     if (seen.has(key)) { await (apply ? storage.markRejectedReviewed(r.id, true) : null); rows.push({ ...base, number, action: "duplicate_email" }); continue; }
     seen.add(key);
