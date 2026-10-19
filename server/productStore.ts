@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db } from "./db";
+import { parsePack, type Pack, type PackUnit } from "@shared/packSize";
 
 // Product catalogue (stage A). invoice_line_items → one card per supplier product
 // (supplier_products) and one price-history row per line (product_prices).
@@ -83,36 +84,49 @@ export function startProductSync(): void {
 }
 
 /** Catalogue rows with latest / previous price (previous = the last different unit price). */
-export async function listProducts(opts: { supplierId?: string; q?: string; includeHidden?: boolean; includeFees?: boolean }) {
+export async function listProducts(opts: { supplierId?: string; q?: string; includeHidden?: boolean; includeFees?: boolean; groupId?: string }) {
   const where = [sql`TRUE`];
   if (opts.supplierId) where.push(sql`p.supplier_id = ${opts.supplierId}`);
   if (!opts.includeHidden) where.push(sql`NOT p.hidden`);
   if (!opts.includeFees) where.push(sql`p.kind = 'goods'`);
+  if (opts.groupId) where.push(sql`p.group_id = ${opts.groupId}`);
   if (opts.q?.trim()) {
     const like = `%${opts.q.trim()}%`;
     where.push(sql`(p.name ILIKE ${like} OR coalesce(p.brand,'') ILIKE ${like} OR coalesce(p.sku,'') ILIKE ${like} OR coalesce(p.raw_description,'') ILIKE ${like})`);
   }
-  const rows = ((await db.execute(sql`
+  const rows: any[] = ((await db.execute(sql`
     WITH h AS (
       SELECT pp.*, row_number() OVER (PARTITION BY pp.product_id ORDER BY pp.price_date DESC, pp.created_at DESC) rn
       FROM product_prices pp WHERE pp.unit_price IS NOT NULL)
     SELECT p.id, p.supplier_id, s.name AS supplier_name, p.name, p.brand, p.sku, p.unit, p.kind, p.hidden, p.source,
+           p.group_id, g.name AS group_name, p.pack_qty, p.pack_unit, p.raw_description,
            last.unit_price AS last_price, last.price_date AS last_date, last.unit AS last_unit,
            (SELECT h2.unit_price FROM h h2 WHERE h2.product_id = p.id AND h2.rn > 1 AND abs(h2.unit_price - last.unit_price) > 0.004 ORDER BY h2.rn LIMIT 1) AS prev_price,
            (SELECT count(*)::int FROM product_prices x WHERE x.product_id = p.id) AS buy_count,
            (SELECT round(avg(x.qty)::numeric, 2) FROM product_prices x WHERE x.product_id = p.id AND x.qty IS NOT NULL) AS avg_qty
     FROM supplier_products p
     JOIN suppliers s ON s.id = p.supplier_id
+    LEFT JOIN item_groups g ON g.id = p.group_id
     LEFT JOIN h last ON last.product_id = p.id AND last.rn = 1
     WHERE ${sql.join(where, sql` AND `)}
     ORDER BY s.name, p.name`)) as any).rows;
-  return rows.map((r: any) => ({
-    id: r.id, supplierId: r.supplier_id, supplierName: r.supplier_name, name: r.name, brand: r.brand, sku: r.sku,
-    unit: r.last_unit ?? r.unit, kind: r.kind, hidden: r.hidden, source: r.source,
-    lastPrice: r.last_price == null ? null : Number(r.last_price), lastDate: r.last_date,
-    prevPrice: r.prev_price == null ? null : Number(r.prev_price),
-    buyCount: r.buy_count, avgQty: r.avg_qty == null ? null : Number(r.avg_qty),
-  }));
+  return rows.map((r: any) => {
+    const unit = r.last_unit ?? r.unit;
+    const lastPrice = r.last_price == null ? null : Number(r.last_price);
+    // the owner's pack wins; otherwise read it from the invoice description (the name may be renamed)
+    const owner: Pack | null = r.pack_qty > 0 && r.pack_unit ? { qty: Number(r.pack_qty), unit: r.pack_unit as PackUnit } : null;
+    const auto = owner ? null : parsePack(r.raw_description ?? r.name, unit);
+    const pack = owner ?? auto;
+    return {
+      id: r.id, supplierId: r.supplier_id, supplierName: r.supplier_name, name: r.name, brand: r.brand, sku: r.sku,
+      unit, kind: r.kind, hidden: r.hidden, source: r.source, groupId: r.group_id, groupName: r.group_name,
+      pack, packAuto: !owner && !!auto,
+      lastPrice, lastDate: r.last_date,
+      prevPrice: r.prev_price == null ? null : Number(r.prev_price),
+      perUnitPrice: lastPrice != null && pack ? Math.round((lastPrice / pack.qty) * 10000) / 10000 : null,
+      buyCount: r.buy_count, avgQty: r.avg_qty == null ? null : Number(r.avg_qty),
+    };
+  });
 }
 
 export async function productHistory(productId: string) {
@@ -148,7 +162,7 @@ export async function addManualPrice(productId: string, input: { price: number; 
     VALUES (${productId}, ${date}, ${input.price}, ${input.qty ?? null}, ${input.unit ?? null}, 'manual', ${input.note ?? null})`);
 }
 
-export async function updateProduct(productId: string, patch: { name?: string; brand?: string | null; unit?: string | null; hidden?: boolean; kind?: "goods" | "fee" }) {
+export async function updateProduct(productId: string, patch: { name?: string; brand?: string | null; unit?: string | null; hidden?: boolean; kind?: "goods" | "fee"; groupId?: string | null; pack?: Pack | null }) {
   await db.execute(sql`
     UPDATE supplier_products SET
       name = coalesce(${patch.name ?? null}, name),
@@ -157,6 +171,66 @@ export async function updateProduct(productId: string, patch: { name?: string; b
       unit = CASE WHEN ${patch.unit !== undefined} THEN ${patch.unit ?? null} ELSE unit END,
       hidden = coalesce(${patch.hidden ?? null}, hidden),
       kind = coalesce(${patch.kind ?? null}, kind),
+      group_id = CASE WHEN ${patch.groupId !== undefined} THEN ${patch.groupId ?? null} ELSE group_id END,
+      pack_qty = CASE WHEN ${patch.pack !== undefined} THEN ${patch.pack?.qty ?? null}::real ELSE pack_qty END,
+      pack_unit = CASE WHEN ${patch.pack !== undefined} THEN ${patch.pack?.unit ?? null} ELSE pack_unit END,
       updated_at = now()
     WHERE id = ${productId}`);
+}
+
+// ── Item groups (stage B) ─────────────────────────────────────────────────────
+
+export async function listGroups() {
+  const groups = ((await db.execute(sql`SELECT id, name FROM item_groups ORDER BY name`)) as any).rows as Array<{ id: string; name: string }>;
+  const members = await listProducts({ includeHidden: true, includeFees: true });
+  return groups.map(g => {
+    const items = members.filter(m => m.groupId === g.id)
+      .sort((a, b) => (a.perUnitPrice ?? Infinity) - (b.perUnitPrice ?? Infinity));
+    return { ...g, items };
+  });
+}
+
+export async function createGroup(name: string, productIds: string[]) {
+  const [g] = ((await db.execute(sql`INSERT INTO item_groups (name) VALUES (${name}) ON CONFLICT (name) DO NOTHING RETURNING id`)) as any).rows;
+  if (!g) throw new Error("A group with this name already exists");
+  if (productIds.length) await db.execute(sql`UPDATE supplier_products SET group_id = ${g.id}, updated_at = now() WHERE id IN (${sql.join(productIds.map(id => sql`${id}`), sql`, `)})`);
+  return g.id as string;
+}
+
+export async function renameGroup(id: string, name: string) {
+  await db.execute(sql`UPDATE item_groups SET name = ${name} WHERE id = ${id}`);
+}
+
+export async function deleteGroup(id: string) {
+  await db.execute(sql`DELETE FROM item_groups WHERE id = ${id}`); // members fall back to ungrouped (ON DELETE SET NULL)
+}
+
+// Words that say nothing about what the item is.
+const STOP = new Set("WHOLE PACK PACKS TETRA BOTTLE BOTTLES BUCKET CARTON LOOSE FRESH SLICED MEDIUM LARGE SMALL GLUTEN FREE PURE CATERING CAGED BRAND FARM TRADING STYLE PREMIUM GOURMET PLAIN SAUCE CHEESE OIL".split(" "));
+const lev = (a: string, b: string) => {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+};
+
+/**
+ * Candidate groups: a meaningful word shared by ungrouped goods of at least two
+ * suppliers ("MAYONNAISE": Foodlink, Riverina, Nippon, Maru's "MAYONNEISE").
+ * Only suggestions — the owner picks the members.
+ */
+export async function suggestGroups() {
+  const items = (await listProducts({})).filter(p => !p.groupId);
+  const words = (n: string) => Array.from(new Set(n.toUpperCase().split(/[^A-Z]+/).filter(w => w.length >= 4 && !STOP.has(w))));
+  const byWord = new Map<string, typeof items>();
+  for (const p of items) for (const w of words(p.name)) {
+    // fold near-identical spellings into an existing word (MAYONNEISE -> MAYONNAISE)
+    const key = Array.from(byWord.keys()).find(k => k.length >= 7 && Math.abs(k.length - w.length) <= 1 && lev(k, w) <= 1) ?? w;
+    (byWord.get(key) ?? byWord.set(key, []).get(key)!).push(p);
+  }
+  return Array.from(byWord.entries())
+    .map(([word, ps]) => ({ word, items: ps, suppliers: new Set(ps.map(p => p.supplierId)).size }))
+    .filter(s => s.suppliers >= 2)
+    .sort((a, b) => b.suppliers - a.suppliers || b.items.length - a.items.length);
 }

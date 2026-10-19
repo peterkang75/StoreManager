@@ -270,6 +270,17 @@ const STATEMENTS: string[] = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_product_prices_product ON product_prices (product_id, price_date)`,
   `CREATE INDEX IF NOT EXISTS idx_product_prices_invoice ON product_prices (invoice_id)`,
+
+  // Product catalogue stage B: item groups (same item across brands/suppliers) and
+  // the owner's pack size override. Auto pack sizes are computed, never stored.
+  `CREATE TABLE IF NOT EXISTS item_groups (
+     id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+     name text NOT NULL UNIQUE,
+     created_at timestamp NOT NULL DEFAULT now()
+   )`,
+  `ALTER TABLE supplier_products ADD COLUMN IF NOT EXISTS group_id varchar REFERENCES item_groups(id) ON DELETE SET NULL`,
+  `ALTER TABLE supplier_products ADD COLUMN IF NOT EXISTS pack_qty real`,
+  `ALTER TABLE supplier_products ADD COLUMN IF NOT EXISTS pack_unit text`,
 ];
 
 // Phase B: seed the OWNER's password from environment variables on first deploy.

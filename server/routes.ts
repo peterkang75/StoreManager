@@ -18,7 +18,7 @@ import { sweepLineItems, startLineItemSweep } from "./lineItemStore";
 import { reconcileStatements, fillMissingStatementDates } from "./statementRecon";
 import { resolveStoreFromAliases } from "./storeAliases";
 import { startAutoPaySweep } from "./autoPay";
-import { syncProducts, startProductSync, listProducts, productHistory, createManualProduct, addManualPrice, updateProduct } from "./productStore";
+import { syncProducts, startProductSync, listProducts, productHistory, createManualProduct, addManualPrice, updateProduct, listGroups, createGroup, renameGroup, deleteGroup, suggestGroups } from "./productStore";
 import { fetchLinkedPdfs, backfillLinkedPdfs } from "./linkedPdf";
 import {
   insertStoreSchema,
@@ -4434,9 +4434,38 @@ export async function registerRoutes(
         unit: b.unit === undefined ? undefined : (b.unit || null),
         hidden: typeof b.hidden === "boolean" ? b.hidden : undefined,
         kind: b.kind,
+        groupId: b.groupId === undefined ? undefined : (b.groupId || null),
+        // pack: {qty, unit} sets the owner's size; null goes back to the size read from the name
+        pack: b.pack === undefined ? undefined
+          : b.pack === null ? null
+          : (Number(b.pack.qty) > 0 && ["kg", "L", "ea"].includes(b.pack.unit) ? { qty: Number(b.pack.qty), unit: b.pack.unit } : undefined),
       });
       res.json({ ok: true });
     } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.get("/api/product-groups", async (_req: Request, res: Response) => {
+    try { res.json(await listGroups()); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.get("/api/product-groups/suggestions", async (_req: Request, res: Response) => {
+    try { res.json(await suggestGroups()); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.post("/api/product-groups", async (req: Request, res: Response) => {
+    try {
+      const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+      if (!name) return res.status(400).json({ error: "name is required" });
+      const ids = Array.isArray(req.body?.productIds) ? req.body.productIds.filter((x: any) => typeof x === "string") : [];
+      res.json({ id: await createGroup(name, ids) });
+    } catch (err: any) { res.status(400).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.patch("/api/product-groups/:id", async (req: Request, res: Response) => {
+    try {
+      const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+      if (!name) return res.status(400).json({ error: "name is required" });
+      await renameGroup(req.params.id, name); res.json({ ok: true });
+    } catch (err: any) { res.status(400).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.delete("/api/product-groups/:id", async (req: Request, res: Response) => {
+    try { await deleteGroup(req.params.id); res.json({ ok: true }); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
   });
   app.post("/api/products/:id/prices", async (req: Request, res: Response) => {
     try {

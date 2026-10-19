@@ -564,6 +564,14 @@ export const invoiceLineItemRuns = pgTable("invoice_line_item_runs", {
 // Product catalogue (created in bootstrap-migrations). product_key identifies a
 // supplier's product across invoices: "SKU:<code>" or "DESC:<letters+digits>".
 // kind: goods | fee (surcharges, freight, rent…). source: invoice | manual.
+// Same item across brands/suppliers ("Mayonnaise"), compared per kg / L / each.
+export const itemGroups = pgTable("item_groups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type ItemGroup = typeof itemGroups.$inferSelect;
+
 export const supplierProducts = pgTable("supplier_products", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   supplierId: varchar("supplier_id").references(() => suppliers.id).notNull(),
@@ -577,6 +585,9 @@ export const supplierProducts = pgTable("supplier_products", {
   kind: text("kind").default("goods").notNull(),
   hidden: boolean("hidden").default(false).notNull(),
   source: text("source").default("invoice").notNull(),
+  groupId: varchar("group_id").references(() => itemGroups.id, { onDelete: "set null" }),
+  packQty: real("pack_qty"),   // owner's override; otherwise read from the name (server/packSize.ts)
+  packUnit: text("pack_unit"), // kg | L | ea
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

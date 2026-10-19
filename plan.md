@@ -326,7 +326,13 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 
 **상품 장부 (최종 목표: 공급처별 상품 목록 → 가격 조회 → 주문)** — 2026-10-19 사장님 확정: 상품 카드 + 가격 기록장(품목 이력) + 품목 묶음(브랜드·공급처 비교). 자동이체 공급처도 주문은 똑같이.
 - [~] A단계 (구현·로컬 검증, 배포 승인 대기): Foodlink 품목 규칙(`foodlink` 계열: 브랜드 줄바꿈, 원산지 접두, 미공급 단일 숫자 줄 무시, 이름표 뒤 합계 3개, 여러 쪽은 합계 줄을 끝으로·반복 머리글/안내문 건너뜀) — 22장 중 21장 통과(크레딧 메모 제외), PARSER_VERSION 4. 새 표 `supplier_products`(공급처+product_key 유일: `SKU:` 또는 영문·숫자만 남긴 `DESC:` — Pearl 띄어쓰기 없는 품명도 같은 카드, 이름 고치면 `name_edited`로 인보이스가 덮어쓰지 않음, kind goods/fee, hidden, source invoice/manual)와 `product_prices`(인보이스 줄마다 1줄 + 직접 입력, 인보이스 재추출 시 그 인보이스 줄들을 통째로 교체). `server/productStore.ts` 동기화(첫 채우기는 미리보기→확인, 이후 15분 자동) + `GET/POST /api/products`, `PATCH /api/products/:id`, `GET/POST /api/products/:id/prices`, `POST /api/products/sync`(ADMIN 전용 기본값). 화면 `/admin/products`(메뉴 Finance → Products): 검색·공급처 필터·비용/숨김 토글, 최근 단가·이전 대비 인상/인하·최근 구매·구매 횟수, 상품 창(단가 변화 그래프·이력 표·이름/브랜드/단위/숨김/비용 수정·단가 직접 기록), 상품 직접 추가. 로컬(운영 복제) 결과: 상품 139개(상품 129 + 비용 10), 가격 기록 2,929줄, 최근 가격 인상 30개, 재실행 0건, 이름 고정·중복 없음·직접 등록 확인. 화면 모양은 미확인(로그인 필요).
-- [ ] B단계: 품목 묶음 + 포장 크기 읽기 + 단위당 가격 비교
+- [~] B단계: 품목 묶음 + 포장 크기 읽기 + 단위당 가격 비교 (2026-10-19 구현·로컬 검증, 배포 승인 대기)
+  - `item_groups` 테이블 + `supplier_products.group_id / pack_qty / pack_unit` (bootstrap-migrations)
+  - `shared/packSize.ts` parsePack: 상품명에서 포장 크기(kg·L·개) 읽기 — 운영 상품 161개 중 132개 자동 인식. 사장님이 상품 창에서 직접 고치면 그 값 우선, 비우면 자동으로 복귀
+  - 단위당 가격 = 최근 단가 ÷ 포장 크기. 목록에 포장·단위당 칸 추가
+  - Products 화면 "품목 묶음 · 가격 비교" 탭: 추천 묶음(2곳 이상 공급처에 같은 단어), 묶음별 단위당 싼 순 비교 + "가장 쌈" 표시(단위가 같을 때만), 이름 바꾸기·지우기(상품은 남음)
+  - API: GET/POST /api/product-groups, GET /api/product-groups/suggestions, PATCH/DELETE /api/product-groups/:id, PATCH /api/products/:id {groupId, pack}
+  - 미완: 추천에 WHITE·PAPER 같은 넓은 단어도 섞임(사장님이 체크 해제) · 포장 미인식 29개는 직접 입력 필요
 - [ ] C단계: 주문(공급처별 주문서) — 사장님 주문 방식 확인 후 설계
 
 **덩어리 2 — 미인식 공급처**
