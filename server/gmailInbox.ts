@@ -68,7 +68,8 @@ export async function gmailDisconnect() {
 }
 
 export async function gmailStatus() {
-  const [c] = ((await db.execute(sql`SELECT email, connected_at, last_poll_at, last_error, delivered FROM gmail_connection WHERE id = 'main'`)) as any).rows;
+  // timestamps are stored in UTC without a zone: hand them out as UTC so the browser shows Sydney time
+  const [c] = ((await db.execute(sql`SELECT email, to_char(connected_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS connected_at, to_char(last_poll_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS last_poll_at, last_error, delivered FROM gmail_connection WHERE id = 'main'`)) as any).rows;
   return { configured: gmailConfigured(), connected: !!c, email: c?.email ?? null, connectedAt: c?.connected_at ?? null,
     lastPollAt: c?.last_poll_at ?? null, lastError: c?.last_error ?? null, delivered: Number(c?.delivered ?? 0) };
 }
@@ -169,11 +170,12 @@ async function listIds(q: string, max = 500): Promise<string[]> {
 const headerOf = (msg: any, name: string) => (msg.payload?.headers ?? []).find((h: any) => String(h.name).toLowerCase() === name)?.value ?? "";
 const fetchAtt = (id: string) => (attId: string) => gmailGet(`/messages/${id}/attachments/${attId}`).then(a => a.data as string);
 
-/** One pass over the last few days. Anything already seen (either path) is skipped before attachments are fetched. */
+/** One pass over the last week. Anything already seen (either path) is skipped before attachments are fetched. */
 export async function pollGmail(): Promise<{ checked: number; delivered: number; skipped: number }> {
   const out = { checked: 0, delivered: 0, skipped: 0 };
   try {
-    for (const id of await listIds(await searchQuery("newer_than:3d"), 300)) {
+    // a week back, so a mail is not lost to a few hours' downtime (seen ones cost one small metadata call)
+    for (const id of await listIds(await searchQuery("newer_than:7d"), 500)) {
       out.checked++;
       const meta = await gmailGet(`/messages/${id}?format=metadata&metadataHeaders=Message-ID`);
       const mid = headerOf(meta, "message-id");
