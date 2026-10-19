@@ -4402,6 +4402,7 @@ export async function registerRoutes(
         q: typeof req.query.q === "string" ? req.query.q : undefined,
         includeHidden: req.query.includeHidden === "true",
         includeFees: req.query.includeFees === "true",
+        storeId: typeof req.query.storeId === "string" && req.query.storeId ? req.query.storeId : undefined,
       }));
     } catch (err: any) { console.error("Error listing products:", err); res.status(500).json({ error: err?.message ?? "Failed" }); }
   });
@@ -4443,11 +4444,11 @@ export async function registerRoutes(
       res.json({ ok: true });
     } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
   });
-  app.get("/api/product-groups", async (_req: Request, res: Response) => {
-    try { res.json(await listGroups()); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
+  app.get("/api/product-groups", async (req: Request, res: Response) => {
+    try { res.json(await listGroups(typeof req.query.storeId === "string" && req.query.storeId ? req.query.storeId : undefined)); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
   });
-  app.get("/api/product-groups/suggestions", async (_req: Request, res: Response) => {
-    try { res.json(await suggestGroups()); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
+  app.get("/api/product-groups/suggestions", async (req: Request, res: Response) => {
+    try { res.json(await suggestGroups(typeof req.query.storeId === "string" && req.query.storeId ? req.query.storeId : undefined)); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
   });
   app.post("/api/product-groups", async (req: Request, res: Response) => {
     try {

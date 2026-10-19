@@ -12,14 +12,14 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Loader2, Plus, Search, TrendingDown, TrendingUp } from "lucide-react";
-import type { Supplier } from "@shared/schema";
+import type { Store, Supplier } from "@shared/schema";
 import { formatPack, type Pack, type PackUnit } from "@shared/packSize";
 import { Checkbox } from "@/components/ui/checkbox";
 
 type ProductRow = {
   id: string; supplierId: string; supplierName: string; name: string; brand: string | null; sku: string | null;
   unit: string | null; kind: "goods" | "fee"; hidden: boolean; source: "invoice" | "manual";
-  lastPrice: number | null; lastDate: string | null; prevPrice: number | null; buyCount: number; avgQty: number | null;
+  lastPrice: number | null; lastDate: string | null; prevPrice: number | null; buyCount: number; avgQty: number | null; storeIds: string[];
   groupId: string | null; groupName: string | null; pack: Pack | null; packAuto: boolean; perUnitPrice: number | null;
 };
 type Group = { id: string; name: string; items: ProductRow[] };
@@ -57,29 +57,43 @@ export function AdminProducts() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [view, setView] = useState<"list" | "groups">("list");
+  const [storeId, setStoreId] = useState("all");
 
   const params = new URLSearchParams();
   if (supplierId !== "all") params.set("supplierId", supplierId);
   if (q.trim()) params.set("q", q.trim());
   if (includeFees) params.set("includeFees", "true");
   if (includeHidden) params.set("includeHidden", "true");
+  if (storeId !== "all") params.set("storeId", storeId);
   const { data: products = [], isLoading } = useQuery<ProductRow[]>({ queryKey: [`/api/products?${params.toString()}`] });
   const { data: suppliers = [] } = useQuery<Supplier[]>({ queryKey: ["/api/suppliers"] });
+  const { data: stores = [] } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
   const activeSuppliers = suppliers.filter(s => s.active).sort((a, b) => a.name.localeCompare(b.name));
-  const filtersOff = !q.trim() && supplierId === "all" && !includeHidden;
+  const activeStores = stores.filter(s => s.active).sort((a, b) => a.name.localeCompare(b.name));
+  const filtersOff = !q.trim() && supplierId === "all" && !includeHidden && storeId === "all";
 
   return (
     <AdminLayout title="Products">
       <div className="flex flex-col gap-4">
-        <div className="inline-flex rounded-md border p-0.5 self-start" role="tablist">
+        <div className="flex flex-wrap items-center gap-3">
+        <Select value={storeId} onValueChange={setStoreId}>
+          <SelectTrigger className="w-[200px]" data-testid="select-product-store"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">모든 매장</SelectItem>
+            {activeStores.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <div className="inline-flex rounded-md border p-0.5" role="tablist">
           {([["list", "상품 목록"], ["groups", "품목 묶음 · 가격 비교"]] as const).map(([k, label]) => (
             <button key={k} role="tab" aria-selected={view === k} onClick={() => setView(k)}
               className={`px-3 py-1.5 text-sm rounded ${view === k ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
               data-testid={`tab-products-${k}`}>{label}</button>
           ))}
         </div>
+        </div>
+        {storeId !== "all" && <p className="text-xs text-muted-foreground -mt-2">이 매장 인보이스로 산 적이 있는 상품만 보입니다. 직접 입력한 가격만 있는 상품은 "모든 매장"에서 보세요.</p>}
 
-        {view === "groups" ? <GroupsView onOpen={setOpenId} /> : <>
+        {view === "groups" ? <GroupsView key={storeId} storeId={storeId === "all" ? undefined : storeId} onOpen={setOpenId} /> : <>
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden />
@@ -380,10 +394,11 @@ function AddProductDialog({ suppliers, onClose }: { suppliers: Supplier[]; onClo
 }
 
 // Item groups: the same item across brands/suppliers, compared per kg / L / each.
-function GroupsView({ onOpen }: { onOpen: (id: string) => void }) {
+function GroupsView({ storeId, onOpen }: { storeId?: string; onOpen: (id: string) => void }) {
   const { toast } = useToast();
-  const { data: groups = [], isLoading } = useQuery<Group[]>({ queryKey: ["/api/product-groups"] });
-  const { data: suggestions = [] } = useQuery<Suggestion[]>({ queryKey: ["/api/product-groups/suggestions"] });
+  const qs = storeId ? `?storeId=${storeId}` : "";
+  const { data: groups = [], isLoading } = useQuery<Group[]>({ queryKey: [`/api/product-groups${qs}`] });
+  const { data: suggestions = [] } = useQuery<Suggestion[]>({ queryKey: [`/api/product-groups/suggestions${qs}`] });
   const [pick, setPick] = useState<Suggestion | null>(null);
   const [pickName, setPickName] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -418,9 +433,9 @@ function GroupsView({ onOpen }: { onOpen: (id: string) => void }) {
           <div className="flex flex-wrap gap-1.5">
             {suggestions.slice(0, 30).map(sg => (
               <Button key={sg.word} size="sm" variant="outline" className="h-7 text-xs"
-                onClick={() => { setPick(sg); setPickName(sg.word.charAt(0) + sg.word.slice(1).toLowerCase()); setPicked(new Set(sg.items.map(i => i.id))); }}
+                onClick={() => { setPick(sg); setPickName(sg.word.charAt(0) + sg.word.slice(1).toLowerCase()); setPicked(new Set(sg.items.filter(i => !i.groupId).map(i => i.id))); }}
                 data-testid={`button-suggest-${sg.word}`}>
-                {sg.word} <span className="ml-1 text-muted-foreground">공급처 {sg.suppliers} · 상품 {sg.items.length}</span>
+                {sg.word} <span className="ml-1 text-muted-foreground">상품 {sg.items.filter(i => !i.groupId).length}</span>
               </Button>
             ))}
           </div>
@@ -474,9 +489,10 @@ function GroupsView({ onOpen }: { onOpen: (id: string) => void }) {
             <p className="text-xs text-muted-foreground">같은 품목만 남기고 나머지는 체크를 빼세요.</p>
             <div className="space-y-1.5">
               {pick?.items.map(i => (
-                <label key={i.id} className="flex items-start gap-2 text-sm cursor-pointer">
-                  <Checkbox checked={picked.has(i.id)} onCheckedChange={v => setPicked(prev => { const n = new Set(prev); v ? n.add(i.id) : n.delete(i.id); return n; })} />
-                  <span>{i.name} <span className="text-xs text-muted-foreground">· {i.supplierName} · {formatPack(i.pack)} · {perUnit(i)}</span></span>
+                <label key={i.id} className={`flex items-start gap-2 text-sm ${i.groupId ? "opacity-50" : "cursor-pointer"}`}>
+                  <Checkbox disabled={!!i.groupId} checked={picked.has(i.id)} onCheckedChange={v => setPicked(prev => { const n = new Set(prev); v ? n.add(i.id) : n.delete(i.id); return n; })} />
+                  <span>{i.name} <span className="text-xs text-muted-foreground">· {i.supplierName} · {formatPack(i.pack)} · {perUnit(i)}</span>
+                    {i.groupId && <span className="ml-1 text-xs">· 이미 '{i.groupName}' 묶음에 있음</span>}</span>
                 </label>
               ))}
             </div>

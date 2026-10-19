@@ -84,12 +84,14 @@ export function startProductSync(): void {
 }
 
 /** Catalogue rows with latest / previous price (previous = the last different unit price). */
-export async function listProducts(opts: { supplierId?: string; q?: string; includeHidden?: boolean; includeFees?: boolean; groupId?: string }) {
+export async function listProducts(opts: { supplierId?: string; q?: string; includeHidden?: boolean; includeFees?: boolean; groupId?: string; storeId?: string }) {
   const where = [sql`TRUE`];
   if (opts.supplierId) where.push(sql`p.supplier_id = ${opts.supplierId}`);
   if (!opts.includeHidden) where.push(sql`NOT p.hidden`);
   if (!opts.includeFees) where.push(sql`p.kind = 'goods'`);
   if (opts.groupId) where.push(sql`p.group_id = ${opts.groupId}`);
+  // a store "uses" a product once one of its invoices bought it
+  if (opts.storeId) where.push(sql`EXISTS (SELECT 1 FROM product_prices x WHERE x.product_id = p.id AND x.store_id = ${opts.storeId})`);
   if (opts.q?.trim()) {
     const like = `%${opts.q.trim()}%`;
     where.push(sql`(p.name ILIKE ${like} OR coalesce(p.brand,'') ILIKE ${like} OR coalesce(p.sku,'') ILIKE ${like} OR coalesce(p.raw_description,'') ILIKE ${like})`);
@@ -103,6 +105,7 @@ export async function listProducts(opts: { supplierId?: string; q?: string; incl
            last.unit_price AS last_price, last.price_date AS last_date, last.unit AS last_unit,
            (SELECT h2.unit_price FROM h h2 WHERE h2.product_id = p.id AND h2.rn > 1 AND abs(h2.unit_price - last.unit_price) > 0.004 ORDER BY h2.rn LIMIT 1) AS prev_price,
            (SELECT count(*)::int FROM product_prices x WHERE x.product_id = p.id) AS buy_count,
+           (SELECT coalesce(array_agg(DISTINCT x.store_id), '{}') FROM product_prices x WHERE x.product_id = p.id AND x.store_id IS NOT NULL) AS store_ids,
            (SELECT round(avg(x.qty)::numeric, 2) FROM product_prices x WHERE x.product_id = p.id AND x.qty IS NOT NULL) AS avg_qty
     FROM supplier_products p
     JOIN suppliers s ON s.id = p.supplier_id
@@ -124,7 +127,7 @@ export async function listProducts(opts: { supplierId?: string; q?: string; incl
       lastPrice, lastDate: r.last_date,
       prevPrice: r.prev_price == null ? null : Number(r.prev_price),
       perUnitPrice: lastPrice != null && pack ? Math.round((lastPrice / pack.qty) * 10000) / 10000 : null,
-      buyCount: r.buy_count, avgQty: r.avg_qty == null ? null : Number(r.avg_qty),
+      buyCount: r.buy_count, storeIds: (r.store_ids ?? []) as string[], avgQty: r.avg_qty == null ? null : Number(r.avg_qty),
     };
   });
 }
@@ -180,14 +183,14 @@ export async function updateProduct(productId: string, patch: { name?: string; b
 
 // ── Item groups (stage B) ─────────────────────────────────────────────────────
 
-export async function listGroups() {
+export async function listGroups(storeId?: string) {
   const groups = ((await db.execute(sql`SELECT id, name FROM item_groups ORDER BY name`)) as any).rows as Array<{ id: string; name: string }>;
-  const members = await listProducts({ includeHidden: true, includeFees: true });
+  const members = await listProducts({ includeHidden: true, includeFees: true, storeId });
   return groups.map(g => {
     const items = members.filter(m => m.groupId === g.id)
       .sort((a, b) => (a.perUnitPrice ?? Infinity) - (b.perUnitPrice ?? Infinity));
     return { ...g, items };
-  });
+  }).filter(g => !storeId || g.items.length > 0); // with a store picked, only groups that store buys from
 }
 
 export async function createGroup(name: string, productIds: string[]) {
@@ -216,12 +219,16 @@ const lev = (a: string, b: string) => {
 };
 
 /**
- * Candidate groups: a meaningful word shared by ungrouped goods of at least two
- * suppliers ("MAYONNAISE": Foodlink, Riverina, Nippon, Maru's "MAYONNEISE").
- * Only suggestions — the owner picks the members.
+ * Candidate groups: a meaningful word shared by goods of at least two suppliers
+ * ("MAYONNAISE": Foodlink, Riverina, Nippon, Maru's "MAYONNEISE"). The supplier
+ * count is taken over every product, so a word stays suggested after part of it
+ * is grouped (Sandwich mayo grouped, Sushi mayo still left). Items are limited to
+ * the picked store; already-grouped ones come along (shown greyed) while at least
+ * one is still ungrouped. Only suggestions — the owner picks the members.
  */
-export async function suggestGroups() {
-  const items = (await listProducts({})).filter(p => !p.groupId);
+export async function suggestGroups(storeId?: string) {
+  const items = await listProducts({});
+  const inStore = storeId ? new Set((await listProducts({ storeId })).map(p => p.id)) : null;
   const words = (n: string) => Array.from(new Set(n.toUpperCase().split(/[^A-Z]+/).filter(w => w.length >= 4 && !STOP.has(w))));
   const byWord = new Map<string, typeof items>();
   for (const p of items) for (const w of words(p.name)) {
@@ -230,7 +237,7 @@ export async function suggestGroups() {
     (byWord.get(key) ?? byWord.set(key, []).get(key)!).push(p);
   }
   return Array.from(byWord.entries())
-    .map(([word, ps]) => ({ word, items: ps, suppliers: new Set(ps.map(p => p.supplierId)).size }))
-    .filter(s => s.suppliers >= 2)
+    .map(([word, ps]) => ({ word, suppliers: new Set(ps.map(p => p.supplierId)).size, items: inStore ? ps.filter(p => inStore.has(p.id)) : ps }))
+    .filter(s => s.suppliers >= 2 && s.items.some(p => !p.groupId))
     .sort((a, b) => b.suppliers - a.suppliers || b.items.length - a.items.length);
 }
