@@ -60,6 +60,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import bcrypt from "bcryptjs";
+import { filterEmployeeUpdate, coworkerView } from "./employeeAccess";
 
 // ── PIN rate limiting (in-memory) ─────────────────────────────────────────────
 const pinAttempts = new Map<string, { count: number; lockedUntil: number | null }>();
@@ -760,6 +761,8 @@ export async function registerRoutes(
     const isSelf = viewerId && emp.id === viewerId;
     const isAdmin = (viewerRole ?? "").toUpperCase() === "ADMIN";
     if (!isAdmin && !isSelf) {
+      // Portal sessions only need a coworker's name for pickers — never their bank/TFN/visa/pay.
+      if ((viewerRole ?? "").toUpperCase() === "EMPLOYEE") return coworkerView(rest);
       const { pin, ...safeRest } = rest;
       return safeRest;
     }
@@ -822,24 +825,31 @@ export async function registerRoutes(
   app.put("/api/employees/:id", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      // Hash PIN if a new plain-text value is being set by admin
-      if (req.body.pin && !req.body.pin.startsWith("$2")) {
-        req.body.pin = await bcrypt.hash(String(req.body.pin), 10);
+      const target = await storage.getEmployee(id);
+      if (!target) {
+        return res.status(404).json({ error: "Employee not found" });
       }
-      const employee = await storage.updateEmployee(id, req.body);
+      const decision = filterEmployeeUpdate(req.user!, target, req.body);
+      if (!decision.ok) return res.status(decision.status).json({ error: decision.error });
+      const body: any = decision.body;
+      // Hash PIN if a new plain-text value is being set by admin
+      if (body.pin && !String(body.pin).startsWith("$2")) {
+        body.pin = await bcrypt.hash(String(body.pin), 10);
+      }
+      const employee = await storage.updateEmployee(id, body);
       if (!employee) {
         return res.status(404).json({ error: "Employee not found" });
       }
       const assignments = await storage.getEmployeeStoreAssignments({ employeeId: id });
       if (assignments.length <= 1) {
-        if (req.body.rate !== undefined) {
+        if (body.rate !== undefined) {
           for (const a of assignments) {
-            await storage.updateStoreAssignmentFields(a.id, { rate: req.body.rate });
+            await storage.updateStoreAssignmentFields(a.id, { rate: body.rate });
           }
         }
-        if (req.body.fixedAmount !== undefined) {
+        if (body.fixedAmount !== undefined) {
           for (const a of assignments) {
-            await storage.updateStoreAssignmentFields(a.id, { fixedAmount: req.body.fixedAmount });
+            await storage.updateStoreAssignmentFields(a.id, { fixedAmount: body.fixedAmount });
           }
         }
       }

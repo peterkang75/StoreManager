@@ -366,6 +366,13 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - [x] 자동이체 규칙 확정 (f6b93cd 배포, 서버 시작 직후 40건 처리 확인 — 전부 PAID·지급일 = 만기일. 남은 미지급: Campos $0 기록 1(사장님 삭제 예정), Foodlink 크레딧 메모 SC333504 -$87.50 1(지급 대상 아님). 2026-10-19 사장님: "자동이체 공급처는 그때그때 빠져나가므로 결제됨으로 표시"): autoPay 처리의 24시간 제한 제거 → 나이와 무관하게 자동이체 공급처 미지급 전부 PAID(만기일자), 서버 시작 시 + 15분마다. To Pay "검토…" 상자와 `POST /api/invoices/auto-pay/settle` 삭제. 배포 시 즉시 처리 대상: 40건 $17,107.40(Bakery 23 · Campos 4 · Riverina 11 · Foodlink 2). 배포 승인 대기.
 - 사장님 확인(2026-10-19): Total Equipment 미지급 $4,800은 실제 미지급 맞음. Campos $0 기록(TSBCN-SIN-0340974)은 같은 날 금액 있는 인보이스가 있어 실수로 생긴 것 → 사장님이 삭제. Bakery OMI432277: 원본 PDF $224.33(Crew 기록·지급 완료) vs Bakery 명세서 $182.43(인보이스 금액·결제 금액 모두) — 인보이스 발행 후 $41.90 감액된 것으로 보임 → 사장님 지시로 수정 완료(2026-10-19): 인보이스·자동이체 결제 금액 $182.43, 메모 추가, 원본 PDF·품목은 그대로.
 - [ ] 후속: Rejected 탭 로딩 17.8초(거절 메일 2,653통을 첨부까지 통째로 받음) — 목록 응답 경량화 필요
+- [~] 보안: 직원 정보 수정 권한 구멍 막기 (2026-10-19 구현·로컬 검증, 배포 승인 대기). 직원 PIN 로그인만으로 아무 직원의 역할(ADMIN 승격)·시급·계좌·PIN을 바꿀 수 있었고, 동료 전원의 TFN·계좌·여권·비자·시급을 볼 수 있었음
+  - `server/employeeAccess.ts` 한곳에 규칙: ADMIN 전부(passwordHash·id 제외 — 비밀번호는 set-password로만) · 본인 기록은 누구든 포털 프로필 21개 항목만 · EMPLOYEE가 남의 기록 수정 403 · MANAGER/STAFF는 권한표 `/admin/employees` 있어야 남 수정, ADMIN 기록 수정 403, role·can* 스위치는 조용히 무시 · 자체 점검 `npx tsx server/employeeAccess.check.ts`
+  - `apiToRouteKey`: `/api/employees`, `/api/employees/:id`만 포털 허용. interview·vevo-upload·store-assignments·import·import-photos는 권한표(`/admin/employees`)로
+  - 조회: EMPLOYEE가 보는 동료 정보는 id·이름·닉네임·상태·매장·역할·사진만 (`coworkerView`). 매니저/스태프 조회는 그대로(사장님 결정 대기)
+  - EmployeeDetail Role 선택칸: ADMIN 아니면 비활성
+  - 주의: 주문 기능 브랜치의 canOrder/canSetOrderUsage 제거 코드와 같은 PUT 핸들러라 병합 시 충돌 — can* 규칙이 이미 막으므로 그쪽 제거 코드는 빼도 됨
+  - [ ] 사장님 결정: 매니저도 직원 계좌·TFN을 봐야 하나? (지금은 봄)
 
 ---
 

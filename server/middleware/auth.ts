@@ -101,7 +101,9 @@ export function apiToRouteKey(apiPath: string): string | "ADMIN_ONLY" | "EMPLOYE
   // (store dropdown, own roster, own time logs, etc.). Phase B.1 (per-handler role
   // filtering) will add fine-grained data scoping later.
   if (apiPath.startsWith("/api/stores") && !apiPath.startsWith("/api/store-config")) return "EMPLOYEE_OK";
-  if (apiPath.startsWith("/api/employees") && !apiPath.startsWith("/api/employee-store-assignments")) return "EMPLOYEE_OK";
+  // Only the list and a single record (GET/PUT) are portal-reachable; the PUT handler limits
+  // what each role may change. Sub-routes (interview, vevo-upload, store-assignments, import*) fall to the matrix.
+  if (/^\/api\/employees(\/(?!import)[^/]+)?\/?$/.test(apiPath)) return "EMPLOYEE_OK";
   if (apiPath.startsWith("/api/notices")) return "EMPLOYEE_OK";
   if (apiPath.startsWith("/api/shifts")) return "EMPLOYEE_OK";
   if (apiPath.startsWith("/api/time-logs")) return "EMPLOYEE_OK";
