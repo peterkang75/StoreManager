@@ -749,4 +749,5 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - [x] 2026-10-19 Pomona(Kaffa Group/Cafemall) 품목 읽기 규칙 `pomona`(parser v8): "코드, 이름[줄바꿈]" + "수량 단가 [할인%] 금액", 배송 추적번호 $0 줄 제외. 운영·로컬 글자 동일 확인, PDF 850개 회귀 차이 없음. Pomona 2건은 2026-10-19 사장님이 AP에서 결제됨 처리. Newline Beverage는 메일 원본 없음(종이 수령 추정) → 상품은 수동 추가 필요
 - [x] 2026-10-19 Maru $0 메모 줄("AE10040, KOSHIHIKARI 20KG 3.00 0.00 0.00")이 다음 품목에 붙던 문제: xero 규칙에 rowStart(코드로 시작) 추가(parser v9). 해당은 INV-7918 1건 1줄 → 재읽기, 쌀 상품 가격에서 $22.70 제거, 이름 "KOSHIHIKARI 20KG"로 복구(저장 눌러 name_edited였던 것 해제). Pomona 상품 6개 반영
 - [ ] 아이디어: Products 화면 "지금 정리" 버튼(상품 정리를 15분 기다리지 않게)
+- [x] 2026-10-19 포털 아래 메뉴: Timesheets 숨김(기능은 남김, ?dest=timesheets로 열림) → 그 자리에 Order. Home 안 Order 탭 제거. 사장님: Timesheets는 나중에 보강해서 다시 보여줌
 

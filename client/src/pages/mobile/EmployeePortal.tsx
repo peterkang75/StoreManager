@@ -71,7 +71,7 @@ import { storeColorFor } from "@shared/storeColors";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type Tab = "home" | "schedule" | "timesheets" | "settings";
+type Tab = "home" | "schedule" | "timesheets" | "order" | "settings";
 
 interface Session { id: string; nickname: string | null; firstName: string; selfieUrl?: string | null; role?: string | null; storeId?: string | null; storeIds?: string[]; isFirstLogin?: boolean }
 
@@ -217,7 +217,7 @@ function readDest(): Dest {
   let raw: string | null = null;
   try { raw = new URLSearchParams(window.location.search).get("dest"); } catch { return null; }
   if (raw === "edit-profile") return { activeTab: "settings", subView: "edit-profile" };
-  if (raw === "schedule" || raw === "timesheets" || raw === "settings") return { activeTab: raw, subView: null };
+  if (raw === "schedule" || raw === "timesheets" || raw === "order" || raw === "settings") return { activeTab: raw, subView: null };
   return null;
 }
 
@@ -1800,7 +1800,7 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
 
 // ── Tab: Home ─────────────────────────────────────────────────────────────────
 
-type HomeSubTab = "myDay" | "shopping" | "storage" | "order";
+type HomeSubTab = "myDay" | "shopping" | "storage";
 
 function HomeTab({ session, onEditProfile }: { session: Session; onEditProfile: () => void }) {
   const today = getTodayStr();
@@ -1943,7 +1943,6 @@ function HomeTab({ session, onEditProfile }: { session: Session; onEditProfile: 
           { id: "myDay", label: "My Day", icon: Home },
           { id: "shopping", label: "Shopping", icon: ShoppingCart },
           { id: "storage", label: "Storage", icon: Package },
-          { id: "order", label: "Order", icon: ClipboardList },
         ] as { id: HomeSubTab; label: string; icon: React.ElementType }[]).map(({ id, label, icon: Icon }) => {
           const isActive = homeSubTab === id;
           return (
@@ -1982,9 +1981,6 @@ function HomeTab({ session, onEditProfile }: { session: Session; onEditProfile: 
       {homeSubTab === "shopping" && (
         <ShoppingListView storeId={employeeProfile?.storeId ?? null} />
       )}
-
-      {/* Order tab: stock counts for everyone in the store; ordering / weekly usage need the switches on the employee card */}
-      {homeSubTab === "order" && <PortalOrdering session={session} />}
 
       {/* Storage tab */}
       {homeSubTab === "storage" && (
@@ -3748,7 +3744,8 @@ function SettingsTab({ session, onLogout, onEditProfile }: { session: Session; o
 const NAV_ITEMS: { tab: Tab; label: string; Icon: typeof Home }[] = [
   { tab: "home",       label: "Home",       Icon: Home },
   { tab: "schedule",   label: "Schedule",   Icon: CalendarDays },
-  { tab: "timesheets", label: "Timesheets", Icon: ListChecks },
+  // Timesheets is hidden from the menu until it is reworked (the tab still opens via ?dest=timesheets)
+  { tab: "order",      label: "Order",      Icon: ClipboardList },
   { tab: "settings",   label: "Settings",   Icon: Settings },
 ];
 
@@ -3827,6 +3824,8 @@ function AppShell({
         {activeTab === "home"       && <HomeTab session={session} onEditProfile={() => setSubView("edit-profile")} />}
         {activeTab === "schedule"   && <ScheduleTab session={session} />}
         {activeTab === "timesheets" && <TimesheetsTab session={session} />}
+        {/* stock counts for everyone in the store; ordering / weekly usage need the switches on the employee card */}
+        {activeTab === "order"      && <div style={{ padding: "16px 16px 96px" }}><PortalOrdering session={session} /></div>}
         {activeTab === "settings"   && (
           <SettingsTab
             session={session}
