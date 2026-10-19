@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { db } from "./db";
 import { extractPdfText, cleanInvoiceNumber, parseInvoiceWithAI } from "./invoiceParser";
 import type { SupplierInvoice } from "@shared/schema";
+import { resolveStoreFromAliases } from "./storeAliases";
 
 /**
  * Text-level document check: statements, aged-receivables reports and reminder
@@ -149,7 +150,8 @@ export async function recoverRejectedOriginals(
     const parsed = (await parseInvoiceWithAI(text, supplier.name, subject))?.find(p => invoiceKey(p.invoiceNumber) === invoiceKey(number));
     const amount = parsed?.totalAmount ?? 0;
     if (!parsed || !(amount > 0) || !text.includes(amount.toFixed(2))) { rows.push({ ...base, number, action: "skip_parse_failed", amount: amount || null }); continue; }
-    const storeId = await resolveStore({ parsedStoreCode: parsed.storeCode, supplierId: supplier.id, storesCache });
+    // the store's own names in the PDF (Pomona: "Eatem pty ltd" → Sandwich) beat the AI's guess; a new supplier has no history to fall back on
+    const storeId = resolveStoreFromAliases(text, storesCache as any) ?? await resolveStore({ parsedStoreCode: parsed.storeCode, supplierId: supplier.id, storesCache });
     if (apply) {
       await storage.createSupplierInvoice({
         supplierId: supplier.id, storeId, invoiceNumber: number,
