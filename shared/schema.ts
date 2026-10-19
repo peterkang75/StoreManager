@@ -116,6 +116,9 @@ export const employees = pgTable("employees", {
   canSubmitCloseForm: boolean("can_submit_close_form").default(false).notNull(),
   canManageSchedule: boolean("can_manage_schedule").default(false).notNull(),
   canApproveTimesheet: boolean("can_approve_timesheet").default(false).notNull(),
+  // Ordering (set on the employee card, ADMIN only): send orders / set weekly usage. Stock counts are open to everyone in the store.
+  canOrder: boolean("can_order").default(false).notNull(),
+  canSetOrderUsage: boolean("can_set_order_usage").default(false).notNull(),
   // Phase B: admin/manager/staff login (email + password). EMPLOYEE-role users have null hash.
   passwordHash: text("password_hash"),
   lastLoginAt: timestamp("last_login_at"),
@@ -441,6 +444,7 @@ export const suppliers = pgTable("suppliers", {
   contactName: text("contact_name"),
   contactEmails: text("contact_emails").array(),
   email: text("email"),
+  orderEmail: text("order_email"), // where orders go (Ordering screen); not an invoice sender
   phone: text("phone"),
   address: text("address"),
   bsb: text("bsb"),
@@ -584,6 +588,40 @@ export const orderingSupplierSettings = pgTable("ordering_supplier_settings", {
   supplierId: varchar("supplier_id").references(() => suppliers.id).notNull(),
   coverWeeks: real("cover_weeks").default(1).notNull(),
 }, (t) => ({ pk: primaryKey({ columns: [t.storeId, t.supplierId] }) }));
+// Ordering: latest stock count per store x product (anyone in the store may count).
+export const orderingStock = pgTable("ordering_stock", {
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  productId: varchar("product_id").references(() => supplierProducts.id, { onDelete: "cascade" }).notNull(),
+  qty: real("qty").notNull(),
+  countedBy: varchar("counted_by"),
+  countedAt: timestamp("counted_at").defaultNow().notNull(),
+}, (t) => ({ pk: primaryKey({ columns: [t.storeId, t.productId] }) }));
+// Ordering C-3: orders sent to suppliers (status sent | failed; channel email).
+export const purchaseOrders = pgTable("purchase_orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => stores.id).notNull(),
+  supplierId: varchar("supplier_id").references(() => suppliers.id).notNull(),
+  status: text("status").notNull(),
+  channel: text("channel").notNull(),
+  toEmail: text("to_email"),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  note: text("note"),
+  error: text("error"),
+  sentBy: varchar("sent_by"),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export const purchaseOrderLines = pgTable("purchase_order_lines", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  orderId: varchar("order_id").references(() => purchaseOrders.id, { onDelete: "cascade" }).notNull(),
+  productId: varchar("product_id").references(() => supplierProducts.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  sku: text("sku"),
+  unit: text("unit"),
+  qty: real("qty").notNull(),
+  stock: real("stock"),
+});
 // Suggested-group words the owner dismissed.
 export const hiddenGroupSuggestions = pgTable("hidden_group_suggestions", {
   word: text("word").primaryKey(),

@@ -302,6 +302,45 @@ const STATEMENTS: string[] = [
      cover_weeks real NOT NULL DEFAULT 1,
      PRIMARY KEY (store_id, supplier_id)
    )`,
+  // Ordering C-3: where a supplier takes orders (kept apart from the invoice sender
+  // addresses), and every order sent, with its lines and the stock counted then.
+  `ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS order_email text`,
+  `CREATE TABLE IF NOT EXISTS purchase_orders (
+     id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+     store_id varchar NOT NULL REFERENCES stores(id),
+     supplier_id varchar NOT NULL REFERENCES suppliers(id),
+     status text NOT NULL,
+     channel text NOT NULL,
+     to_email text,
+     subject text NOT NULL,
+     body text NOT NULL,
+     note text,
+     error text,
+     sent_by varchar,
+     sent_at timestamp,
+     created_at timestamp NOT NULL DEFAULT now()
+   )`,
+  `CREATE TABLE IF NOT EXISTS purchase_order_lines (
+     id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+     order_id varchar NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+     product_id varchar REFERENCES supplier_products(id) ON DELETE SET NULL,
+     name text NOT NULL,
+     sku text,
+     unit text,
+     qty real NOT NULL,
+     stock real
+   )`,
+  // Ordering from the staff portal: per-employee switches (all off until the owner turns them on) and the latest stock count
+  `ALTER TABLE employees ADD COLUMN IF NOT EXISTS can_order boolean NOT NULL DEFAULT false`,
+  `ALTER TABLE employees ADD COLUMN IF NOT EXISTS can_set_order_usage boolean NOT NULL DEFAULT false`,
+  `CREATE TABLE IF NOT EXISTS ordering_stock (
+     store_id varchar NOT NULL REFERENCES stores(id),
+     product_id varchar NOT NULL REFERENCES supplier_products(id) ON DELETE CASCADE,
+     qty real NOT NULL,
+     counted_by varchar,
+     counted_at timestamp NOT NULL DEFAULT now(),
+     PRIMARY KEY (store_id, product_id)
+   )`,
   // managers place the orders: give the new screen a row in the Access Control matrix
   `INSERT INTO admin_permissions (role, route, label, allowed) VALUES
      ('ADMIN', '/admin/ordering', 'Ordering', true),

@@ -20,7 +20,8 @@ import { resolveStoreFromAliases } from "./storeAliases";
 import { startAutoPaySweep } from "./autoPay";
 import { syncProducts, startProductSync, listProducts, productHistory, createManualProduct, addManualPrice, updateProduct, listGroups, createGroup, renameGroup, deleteGroup, suggestGroups, hiddenSuggestions, setSuggestionHidden } from "./productStore";
 import { fetchLinkedPdfs, backfillLinkedPdfs } from "./linkedPdf";
-import { orderingSheet, setUsage, setCoverWeeks } from "./orderingStore";
+import { orderingSheet, orderingPerms, setStock, setUsage, setCoverWeeks, setOrderEmail, buildOrderEmail, sendOrder, recentOrders, validEmail, type OrderLineInput } from "./orderingStore";
+import { sendPlainEmail } from "./mailer";
 import {
   insertStoreSchema,
   insertCandidateSchema,
@@ -822,6 +823,8 @@ export async function registerRoutes(
   app.put("/api/employees/:id", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
+      // ordering switches are the owner's call
+      if (req.user?.role !== "ADMIN") { delete req.body.canOrder; delete req.body.canSetOrderUsage; }
       // Hash PIN if a new plain-text value is being set by admin
       if (req.body.pin && !req.body.pin.startsWith("$2")) {
         req.body.pin = await bcrypt.hash(String(req.body.pin), 10);
@@ -4452,23 +4455,76 @@ export async function registerRoutes(
     try { res.json(await suggestGroups(typeof req.query.storeId === "string" && req.query.storeId ? req.query.storeId : undefined)); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
   });
   // Ordering (C-1/2). Managers only for their own stores.
-  const orderingStoreOk = (req: Request) => req.user?.role === "ADMIN" || (req.user?.allowedStoreIds ?? []).includes(req.params.storeId);
+  // store: anyone working there (stock counts) · order: can_order · usage: can_set_order_usage. ADMIN passes all.
+  const orderGate = async (req: Request, need: "store" | "order" | "usage"): Promise<string | null> => {
+    if (req.user?.role === "ADMIN") return null;
+    if (!req.user || !(req.user.allowedStoreIds ?? []).includes(req.params.storeId)) return "FORBIDDEN_STORE";
+    if (need === "store") return null;
+    const p = await orderingPerms(req.user.id);
+    return (need === "order" ? p.canOrder : p.canSetUsage) ? null : need === "order" ? "NO_ORDER_PERMISSION" : "NO_USAGE_PERMISSION";
+  };
   const optNum = (v: any) => (v === null || v === "" || v === undefined ? null : Number(v));
   app.get("/api/ordering/:storeId", async (req: Request, res: Response) => {
-    if (!orderingStoreOk(req)) return res.status(403).json({ error: "FORBIDDEN_STORE" });
-    try { res.json(await orderingSheet(req.params.storeId)); } catch (err: any) { console.error("Error building ordering sheet:", err); res.status(500).json({ error: err?.message ?? "Failed" }); }
+    const deny = await orderGate(req, "store"); if (deny) return res.status(403).json({ error: deny });
+    try { res.json({ ...(await orderingSheet(req.params.storeId)), perms: req.user?.role === "ADMIN" ? { canOrder: true, canSetUsage: true } : await orderingPerms(req.user!.id) }); } catch (err: any) { console.error("Error building ordering sheet:", err); res.status(500).json({ error: err?.message ?? "Failed" }); }
   });
   app.put("/api/ordering/:storeId/usage", async (req: Request, res: Response) => {
-    if (!orderingStoreOk(req)) return res.status(403).json({ error: "FORBIDDEN_STORE" });
+    const deny = await orderGate(req, "usage"); if (deny) return res.status(403).json({ error: deny });
     const term = optNum(req.body?.termWeekly), hol = optNum(req.body?.holidayWeekly);
     if (typeof req.body?.productId !== "string" || [term, hol].some(v => v !== null && !(v >= 0 && v < 100000))) return res.status(400).json({ error: "productId and weekly amounts ≥ 0 are required" });
     try { await setUsage(req.params.storeId, req.body.productId, term, hol); res.json({ ok: true }); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
   });
+  app.put("/api/ordering/:storeId/stock", async (req: Request, res: Response) => {
+    const deny = await orderGate(req, "store"); if (deny) return res.status(403).json({ error: deny });
+    const qty = optNum(req.body?.qty);
+    if (typeof req.body?.productId !== "string" || (qty !== null && !(qty >= 0 && qty < 100000))) return res.status(400).json({ error: "productId and qty ≥ 0 (or null to clear) are required" });
+    try { res.json(await setStock(req.params.storeId, req.body.productId, qty, req.user?.id ?? null)); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
   app.put("/api/ordering/:storeId/cover", async (req: Request, res: Response) => {
-    if (!orderingStoreOk(req)) return res.status(403).json({ error: "FORBIDDEN_STORE" });
+    const deny = await orderGate(req, "usage"); if (deny) return res.status(403).json({ error: deny });
     const weeks = Number(req.body?.coverWeeks);
     if (typeof req.body?.supplierId !== "string" || !(weeks > 0 && weeks <= 12)) return res.status(400).json({ error: "supplierId and coverWeeks (0-12] are required" });
     try { await setCoverWeeks(req.params.storeId, req.body.supplierId, weeks); res.json({ ok: true }); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
+  // C-3: order email per supplier (owner sets it), preview, send, history
+  app.put("/api/ordering/supplier/:supplierId/email", async (req: Request, res: Response) => {
+    if (req.user?.role !== "ADMIN") return res.status(403).json({ error: "FORBIDDEN_ADMIN_ONLY" });
+    const email = typeof req.body?.email === "string" ? req.body.email.trim() : "";
+    if (email && !validEmail(email)) return res.status(400).json({ error: "Not an email address" });
+    try { await setOrderEmail(req.params.supplierId, email || null); res.json({ ok: true }); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
+  });
+  const orderInput = (b: any): { supplierId: string; lines: OrderLineInput[]; note: string | null } | null => {
+    if (typeof b?.supplierId !== "string" || !Array.isArray(b?.lines) || b.lines.length > 300) return null;
+    const lines: OrderLineInput[] = [];
+    for (const l of b.lines) {
+      const qty = Number(l?.qty), stock = optNum(l?.stock);
+      if (typeof l?.productId !== "string" || !(qty >= 0 && qty < 100000) || (stock !== null && !(stock >= 0 && stock < 100000))) return null;
+      lines.push({ productId: l.productId, qty, stock });
+    }
+    return { supplierId: b.supplierId, lines, note: typeof b.note === "string" ? b.note.slice(0, 2000) : null };
+  };
+  app.post("/api/ordering/:storeId/preview", async (req: Request, res: Response) => {
+    const deny = await orderGate(req, "order"); if (deny) return res.status(403).json({ error: deny });
+    const input = orderInput(req.body); if (!input) return res.status(400).json({ error: "supplierId and lines [{productId, qty ≥ 0}] are required" });
+    try { const m = await buildOrderEmail(req.params.storeId, input.supplierId, input.lines, input.note, req.user?.id ?? null); res.json({ to: m.to, subject: m.subject, body: m.body }); }
+    catch (err: any) { res.status(400).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.post("/api/ordering/:storeId/send", async (req: Request, res: Response) => {
+    const deny = await orderGate(req, "order"); if (deny) return res.status(403).json({ error: deny });
+    const input = orderInput(req.body); if (!input) return res.status(400).json({ error: "supplierId and lines [{productId, qty ≥ 0}] are required" });
+    try { res.json(await sendOrder(req.params.storeId, input.supplierId, input.lines, input.note, req.user?.id ?? null, sendPlainEmail)); }
+    catch (err: any) { res.status(400).json({ error: err?.message ?? "Failed" }); }
+  });
+  // the manager copied the order into Ordermentum / a text: keep it for invoice matching
+  app.post("/api/ordering/:storeId/record", async (req: Request, res: Response) => {
+    const deny = await orderGate(req, "order"); if (deny) return res.status(403).json({ error: deny });
+    const input = orderInput(req.body); if (!input) return res.status(400).json({ error: "supplierId and lines [{productId, qty ≥ 0}] are required" });
+    try { res.json(await sendOrder(req.params.storeId, input.supplierId, input.lines, input.note, req.user?.id ?? null, null)); }
+    catch (err: any) { res.status(400).json({ error: err?.message ?? "Failed" }); }
+  });
+  app.get("/api/ordering/:storeId/orders", async (req: Request, res: Response) => {
+    const deny = await orderGate(req, "order"); if (deny) return res.status(403).json({ error: deny });
+    try { res.json(await recentOrders(req.params.storeId)); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }
   });
   app.get("/api/product-groups/suggestions/hidden", async (_req: Request, res: Response) => {
     try { res.json(await hiddenSuggestions()); } catch (err: any) { res.status(500).json({ error: err?.message ?? "Failed" }); }

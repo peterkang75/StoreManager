@@ -475,6 +475,8 @@ function InterviewField({ label, value }: { label: string; value: string | null 
 
 export function AdminEmployeeDetail() {
   const { toast } = useToast();
+  const { user: viewer } = useAuth();
+  const canEditOrdering = (viewer?.role ?? "").toUpperCase() === "ADMIN";
   const [, params] = useRoute("/admin/employees/:id");
   const employeeId = params?.id;
 
@@ -1407,6 +1409,17 @@ export function AdminEmployeeDetail() {
                   />
                   <p className="text-xs text-muted-foreground">4-digit numeric PIN for mobile app access</p>
                 </div>
+              </div>
+              <div className="space-y-2 border-t pt-4">
+                <p className="text-sm font-medium">Ordering (portal) {!canEditOrdering && <span className="text-xs font-normal text-muted-foreground">— only the owner can change these</span>}</p>
+                <label className="flex items-start gap-2 text-sm">
+                  <Checkbox disabled={!canEditOrdering} checked={!!currentData.canOrder} onCheckedChange={v => setFormData(f => ({ ...f, canOrder: v === true }))} data-testid="checkbox-can-order" />
+                  <span>Can send orders<span className="block text-xs text-muted-foreground">Sees suggested quantities and sends orders to suppliers for their stores. Everyone in the store can count stock.</span></span>
+                </label>
+                <label className="flex items-start gap-2 text-sm">
+                  <Checkbox disabled={!canEditOrdering} checked={!!currentData.canSetOrderUsage} onCheckedChange={v => setFormData(f => ({ ...f, canSetOrderUsage: v === true }))} data-testid="checkbox-can-set-usage" />
+                  <span>Can set weekly usage<span className="block text-xs text-muted-foreground">Sets how much of each item the store uses a week (school term / holidays) and how many weeks an order covers.</span></span>
+                </label>
               </div>
             </CardContent>
           </Card>

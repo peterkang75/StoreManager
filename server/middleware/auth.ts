@@ -107,6 +107,7 @@ export function apiToRouteKey(apiPath: string): string | "ADMIN_ONLY" | "EMPLOYE
   if (apiPath.startsWith("/api/time-logs")) return "EMPLOYEE_OK";
   if (apiPath.startsWith("/api/shopping")) return "EMPLOYEE_OK";
   if (apiPath.startsWith("/api/storage")) return "EMPLOYEE_OK";
+  if (apiPath.startsWith("/api/ordering")) return "EMPLOYEE_OK"; // staff portal; store scope + can_order / can_set_order_usage checked in each handler
   if (apiPath.startsWith("/api/upload")) return "EMPLOYEE_OK";
   if (apiPath.startsWith("/api/candidates")) return "EMPLOYEE_OK"; // mobile interview POST
   if (apiPath.startsWith("/api/daily-closings") || apiPath.startsWith("/api/daily-close-forms")) return "EMPLOYEE_OK"; // mobile DailyClose POST
@@ -144,7 +145,6 @@ export function apiToRouteKey(apiPath: string): string | "ADMIN_ONLY" | "EMPLOYE
   if (apiPath.startsWith("/api/notices")) return "/admin/notices";
   if (apiPath.startsWith("/api/dashboard")) return "/admin";
   if (apiPath.startsWith("/api/stores")) return "/admin/stores";
-  if (apiPath.startsWith("/api/ordering")) return "/admin/ordering"; // managers order for their own stores (store scope checked in the handler)
 
   // Default to ADMIN_ONLY for unknown admin paths (safe default)
   return "ADMIN_ONLY";

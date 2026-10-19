@@ -17,6 +17,14 @@ function getTransporter(): nodemailer.Transporter {
   return _transporter;
 }
 
+/** Plain-text mail from the company mailbox (orders to suppliers); replies come back to it. */
+export async function sendPlainEmail({ to, subject, text }: { to: string; subject: string; text: string }): Promise<void> {
+  const from = process.env.SMTP_USER;
+  if (!from) throw new Error("SMTP_USER is not configured");
+  // ORDER_REPLY_TO (optional): a shared mailbox for supplier replies instead of SMTP_USER's inbox
+  await getTransporter().sendMail({ from, to, subject, text, ...(process.env.ORDER_REPLY_TO ? { replyTo: process.env.ORDER_REPLY_TO } : {}) });
+}
+
 export interface SendReplyOptions {
   to: string;
   originalSubject: string;

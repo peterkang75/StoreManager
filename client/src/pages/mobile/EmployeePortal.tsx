@@ -63,8 +63,9 @@ import {
   CheckCheck,
   Search,
   LayoutDashboard,
-} from "lucide-react";
-import type { Notice, ShiftTimesheet, ShoppingItem, ActiveShoppingListItem, StorageItem, ActiveStorageListItem, StorageUnit } from "@shared/schema";
+ClipboardList, } from "lucide-react";
+import type { Notice, ShiftTimesheet, ShoppingItem, ActiveShoppingListItem, StorageItem, ActiveStorageListItem, StorageUnit, Store } from "@shared/schema";
+import { OrderingPanel } from "@/pages/admin/Ordering";
 import { getPayrollCycleStart, getPayrollCycleEnd, shiftDate } from "@shared/payrollCycle";
 import { storeColorFor } from "@shared/storeColors";
 
@@ -1799,7 +1800,7 @@ function StorageListView({ storeId, employeeName }: { storeId?: string | null; e
 
 // ── Tab: Home ─────────────────────────────────────────────────────────────────
 
-type HomeSubTab = "myDay" | "shopping" | "storage";
+type HomeSubTab = "myDay" | "shopping" | "storage" | "order";
 
 function HomeTab({ session, onEditProfile }: { session: Session; onEditProfile: () => void }) {
   const today = getTodayStr();
@@ -1942,6 +1943,7 @@ function HomeTab({ session, onEditProfile }: { session: Session; onEditProfile: 
           { id: "myDay", label: "My Day", icon: Home },
           { id: "shopping", label: "Shopping", icon: ShoppingCart },
           { id: "storage", label: "Storage", icon: Package },
+          { id: "order", label: "Order", icon: ClipboardList },
         ] as { id: HomeSubTab; label: string; icon: React.ElementType }[]).map(({ id, label, icon: Icon }) => {
           const isActive = homeSubTab === id;
           return (
@@ -1980,6 +1982,9 @@ function HomeTab({ session, onEditProfile }: { session: Session; onEditProfile: 
       {homeSubTab === "shopping" && (
         <ShoppingListView storeId={employeeProfile?.storeId ?? null} />
       )}
+
+      {/* Order tab: stock counts for everyone in the store; ordering / weekly usage need the switches on the employee card */}
+      {homeSubTab === "order" && <PortalOrdering session={session} />}
 
       {/* Storage tab */}
       {homeSubTab === "storage" && (
@@ -3972,4 +3977,12 @@ export function EmployeePortal() {
       </div>
     </div>
   );
+}
+
+function PortalOrdering({ session }: { session: Session }) {
+  const { data: stores = [] } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
+  const ids = new Set([...(session.storeIds ?? []), ...(session.storeId ? [session.storeId] : [])]);
+  const mine = stores.filter(s => s.active && ids.has(s.id)).sort((a, b) => a.name.localeCompare(b.name));
+  if (!mine.length) return <p style={{ fontSize: 14, color: "#6a6a6a" }}>You are not assigned to a store yet.</p>;
+  return <OrderingPanel stores={mine} lang="en" isAdmin={false} />;
 }
