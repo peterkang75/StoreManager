@@ -54,6 +54,15 @@ function storeCode(storeName: string): string {
   return storeName;
 }
 
+// The owner takes a pay slip but no printed envelope (owner's request 2026-10-20).
+// shortcut: matched by name, move to an employee flag if more exceptions appear.
+const ENVELOPE_EXCLUDED_NAMES = ["peter kang"];
+function isEnvelopeExcluded(slip: PaySlip): boolean {
+  return [slip.employee.name, slip.employee.nickname].some(
+    (n) => !!n && ENVELOPE_EXCLUDED_NAMES.includes(n.trim().toLowerCase()),
+  );
+}
+
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr + "T00:00:00");
   return d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
@@ -187,20 +196,21 @@ export function AdminPaySlips() {
             break-inside: avoid;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            /* bottom-right; 25mm from the bottom since the owner's envelopes are
+               ~100mm tall on a 110mm DL page */
+            align-items: flex-end;
+            justify-content: flex-end;
+            padding: 0 20mm 25mm 0;
             font-family: Arial, Helvetica, sans-serif;
             color: #000;
           }
-          .envelope .env-name { font-size: 32pt; font-weight: 700; line-height: 1.1; text-align: center; padding: 0 15mm; overflow-wrap: anywhere; }
-          .envelope .env-period { font-size: 11pt; margin-top: 4mm; color: #333; }
+          .envelope .env-name { font-size: 32pt; font-weight: 700; line-height: 1.1; text-align: right; max-width: 150mm; overflow-wrap: anywhere; }
         `}</style>
         {toolbar}
         <div className="envelope-container">
-          {slips.map((slip) => (
+          {slips.filter((slip) => !isEnvelopeExcluded(slip)).map((slip) => (
             <div key={slip.employee.id} className="envelope" data-testid={`envelope-${slip.employee.id}`}>
               <div className="env-name">{slip.employee.nickname || slip.employee.name}</div>
-              <div className="env-period">{formatDate(slip.periodStart)} – {formatDate(slip.periodEnd)}</div>
             </div>
           ))}
         </div>
