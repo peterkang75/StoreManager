@@ -66,6 +66,8 @@ function fmtMoney(v: number): string {
 export function AdminPaySlips() {
   const [slips, setSlips] = useState<PaySlip[]>([]);
   const [loading, setLoading] = useState(true);
+  // Same list and order as the slips, so the envelope stack pairs 1:1 with the slip stack.
+  const [mode, setMode] = useState<"slips" | "envelopes">("slips");
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -119,6 +121,92 @@ export function AdminPaySlips() {
   }
 
   const sheets = chunkIntoSheets(slips);
+  const toolbarBtn = (active: boolean) => ({ padding: "8px 24px", fontSize: "14px", cursor: "pointer", marginRight: "12px", background: active ? "#000" : "#fff", color: active ? "#fff" : "#000", border: "1px solid #000", borderRadius: "4px" });
+
+  const toolbar = (
+    <div className="no-print" style={{ textAlign: "center", padding: "12px", background: "#f5f5f5", borderBottom: "1px solid #ddd" }}>
+      <button onClick={() => setMode("slips")} style={toolbarBtn(mode === "slips")} data-testid="button-mode-slips">
+        Pay Slips
+      </button>
+      <button onClick={() => setMode("envelopes")} style={toolbarBtn(mode === "envelopes")} data-testid="button-mode-envelopes">
+        Envelopes
+      </button>
+      <button
+        onClick={() => window.print()}
+        style={{ padding: "8px 24px", fontSize: "14px", fontWeight: 600, cursor: "pointer", marginRight: "12px", background: "#000", color: "#fff", border: "none", borderRadius: "4px" }}
+        data-testid="button-print-slips"
+      >
+        Print
+      </button>
+      <button
+        onClick={() => setLocation("/admin/payrolls")}
+        style={{ padding: "8px 24px", fontSize: "14px", cursor: "pointer", background: "#fff", border: "1px solid #ccc", borderRadius: "4px" }}
+        data-testid="button-back-payrolls"
+      >
+        Back to Payrolls
+      </button>
+      {/* Manager-reachable screen, so English only (see PLAN §5, 2026-06-21). */}
+      <div style={{ marginTop: "8px", fontSize: "12px", color: "#555" }} data-testid="text-print-settings-hint">
+        {mode === "slips" ? (
+          <>
+            3 slips per A4 sheet. The cut lines print in the same place on every sheet, so a stack can be cut in one go.<br />
+            Print settings: <strong>Scale 100%</strong>, <strong>Margins: None</strong>, <strong>Headers and footers: off</strong> — any other scale shifts the cut lines.
+          </>
+        ) : (
+          <>
+            One DL envelope (220 × 110mm) per name, in the same order as the pay slips.<br />
+            Print settings: <strong>Paper size: Envelope DL</strong>, <strong>Scale 100%</strong>, <strong>Margins: None</strong>, <strong>Headers and footers: off</strong>. Test on plain paper first to find which way envelopes go in the tray.
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  if (mode === "envelopes") {
+    return (
+      <>
+        <style>{`
+          @page { size: 220mm 110mm; margin: 0; }
+          @media print {
+            body { margin: 0; padding: 0; background: #fff; }
+            .no-print { display: none !important; }
+            .envelope-container { padding: 0; margin: 0; }
+            .envelope { break-after: page; page-break-after: always; }
+            .envelope:last-child { break-after: auto; page-break-after: auto; }
+          }
+          @media screen {
+            .envelope-container { padding: 20px 0 40px; background: #e8e8e8; overflow-x: auto; }
+            .envelope { margin: 0 auto 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
+          }
+          .envelope {
+            width: 220mm;
+            height: 109.9mm; /* not 110mm: same Chrome rounding that blanks pages on A4 */
+            box-sizing: border-box;
+            background: #fff;
+            overflow: hidden;
+            break-inside: avoid;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: Arial, Helvetica, sans-serif;
+            color: #000;
+          }
+          .envelope .env-name { font-size: 32pt; font-weight: 700; line-height: 1.1; text-align: center; padding: 0 15mm; overflow-wrap: anywhere; }
+          .envelope .env-period { font-size: 11pt; margin-top: 4mm; color: #333; }
+        `}</style>
+        {toolbar}
+        <div className="envelope-container">
+          {slips.map((slip) => (
+            <div key={slip.employee.id} className="envelope" data-testid={`envelope-${slip.employee.id}`}>
+              <div className="env-name">{slip.employee.nickname || slip.employee.name}</div>
+              <div className="env-period">{formatDate(slip.periodStart)} – {formatDate(slip.periodEnd)}</div>
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -272,27 +360,7 @@ export function AdminPaySlips() {
         }
       `}</style>
 
-      <div className="no-print" style={{ textAlign: "center", padding: "12px", background: "#f5f5f5", borderBottom: "1px solid #ddd" }}>
-        <button
-          onClick={() => window.print()}
-          style={{ padding: "8px 24px", fontSize: "14px", fontWeight: 600, cursor: "pointer", marginRight: "12px", background: "#000", color: "#fff", border: "none", borderRadius: "4px" }}
-          data-testid="button-print-slips"
-        >
-          Print
-        </button>
-        <button
-          onClick={() => setLocation("/admin/payrolls")}
-          style={{ padding: "8px 24px", fontSize: "14px", cursor: "pointer", background: "#fff", border: "1px solid #ccc", borderRadius: "4px" }}
-          data-testid="button-back-payrolls"
-        >
-          Back to Payrolls
-        </button>
-        {/* Manager-reachable screen, so English only (see PLAN §5, 2026-06-21). */}
-        <div style={{ marginTop: "8px", fontSize: "12px", color: "#555" }} data-testid="text-print-settings-hint">
-          3 slips per A4 sheet. The cut lines print in the same place on every sheet, so a stack can be cut in one go.<br />
-          Print settings: <strong>Scale 100%</strong>, <strong>Margins: None</strong>, <strong>Headers and footers: off</strong> — any other scale shifts the cut lines.
-        </div>
-      </div>
+      {toolbar}
 
       <div className="payslip-container">
         {sheets.map((sheet, sheetIdx) => (
