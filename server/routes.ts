@@ -1681,6 +1681,34 @@ export async function registerRoutes(
     }
   });
 
+  // Extra envelopes (bank-deposit etc) printed after the employee envelopes.
+  app.get("/api/payrolls/extra-envelopes", async (_req: Request, res: Response) => {
+    try {
+      const r = ((await db.execute(sql`SELECT envelopes FROM extra_envelopes WHERE id = 1`)) as any).rows[0];
+      res.json({ envelopes: r?.envelopes ?? [] });
+    } catch (error) {
+      console.error("Error fetching extra envelopes:", error);
+      res.status(500).json({ error: "Failed to fetch extra envelopes" });
+    }
+  });
+
+  // PUT { envelopes: [{ id, text, enabled }] } — replaces the list wholesale.
+  app.put("/api/payrolls/extra-envelopes", async (req: Request, res: Response) => {
+    try {
+      const { envelopes } = req.body as { envelopes?: unknown };
+      const valid = Array.isArray(envelopes) && envelopes.length <= 50 && envelopes.every((e: any) =>
+        e && typeof e.id === "string" && typeof e.text === "string" && e.text.length <= 1000 && typeof e.enabled === "boolean");
+      if (!valid) return res.status(400).json({ error: "envelopes must be [{ id, text, enabled }]" });
+      const clean = (envelopes as any[]).map(({ id, text, enabled }) => ({ id, text, enabled }));
+      await db.execute(sql`INSERT INTO extra_envelopes (id, envelopes, updated_at) VALUES (1, ${JSON.stringify(clean)}::jsonb, now())
+        ON CONFLICT (id) DO UPDATE SET envelopes = EXCLUDED.envelopes, updated_at = now()`);
+      res.json({ envelopes: clean });
+    } catch (error) {
+      console.error("Error saving extra envelopes:", error);
+      res.status(500).json({ error: "Failed to save extra envelopes" });
+    }
+  });
+
   app.get("/api/payrolls/envelope-slips", async (req: Request, res: Response) => {
     try {
       const { period_start, period_end, store_id } = req.query as Record<string, string>;

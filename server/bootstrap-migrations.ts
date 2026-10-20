@@ -158,6 +158,15 @@ const STATEMENTS: string[] = [
   `INSERT INTO employee_field_requirements (id, required_fields) VALUES (1, '[]'::jsonb)
    ON CONFLICT (id) DO NOTHING`,
 
+  // Extra envelopes printed with every Envelopes run (bank-deposit envelopes etc).
+  // One row; envelopes = [{ id, text, enabled }].
+  `CREATE TABLE IF NOT EXISTS extra_envelopes (
+     id integer PRIMARY KEY,
+     envelopes jsonb NOT NULL DEFAULT '[]'::jsonb,
+     updated_at timestamp NOT NULL DEFAULT now()
+   )`,
+  `INSERT INTO extra_envelopes (id) VALUES (1) ON CONFLICT (id) DO NOTHING`,
+
   // §6.3.14 Bank account name — Australian payroll requires Account Name in
   // addition to BSB + Account Number.
   `ALTER TABLE employees ADD COLUMN IF NOT EXISTS account_name text`,

@@ -1,5 +1,14 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
+import { apiRequest } from "@/lib/queryClient";
+
+// Saved server-side and printed after the employee envelopes on every run until
+// unticked or deleted (bank-deposit envelopes: account, amount, reference…).
+interface ExtraEnvelope {
+  id: string;
+  text: string;
+  enabled: boolean;
+}
 
 interface SlipEntry {
   storeName: string;
@@ -77,6 +86,22 @@ export function AdminPaySlips() {
   const [loading, setLoading] = useState(true);
   // Same list and order as the slips, so the envelope stack pairs 1:1 with the slip stack.
   const [mode, setMode] = useState<"slips" | "envelopes">("slips");
+  const [extras, setExtras] = useState<ExtraEnvelope[]>([]);
+  const [saveError, setSaveError] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/payrolls/extra-envelopes")
+      .then((res) => res.json())
+      .then((data: { envelopes?: ExtraEnvelope[] }) => setExtras(data.envelopes ?? []))
+      .catch(() => {});
+  }, []);
+
+  const saveExtras = (next: ExtraEnvelope[]) => {
+    setExtras(next);
+    apiRequest("PUT", "/api/payrolls/extra-envelopes", { envelopes: next })
+      .then(() => setSaveError(false))
+      .catch(() => setSaveError(true));
+  };
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -163,7 +188,7 @@ export function AdminPaySlips() {
           </>
         ) : (
           <>
-            One DL envelope (220 × 110mm) per name, in the same order as the pay slips.<br />
+            One DL envelope (220 × 110mm) per name, in the same order as the pay slips, then any ticked extra envelopes.<br />
             Print settings: <strong>Paper size: Envelope DL</strong>, <strong>Scale 100%</strong>, <strong>Margins: None</strong>, <strong>Headers and footers: off</strong>. Test on plain paper first to find which way envelopes go in the tray.
           </>
         )}
@@ -204,13 +229,61 @@ export function AdminPaySlips() {
             font-family: Arial, Helvetica, sans-serif;
             color: #000;
           }
+          .envelope.extra { align-items: center; justify-content: center; padding: 0 20mm; }
+          .envelope .env-extra { font-size: 14pt; line-height: 1.5; text-align: center; white-space: pre-line; overflow-wrap: anywhere; }
           .envelope .env-name { font-size: 32pt; font-weight: 700; line-height: 1.1; text-align: right; max-width: 150mm; overflow-wrap: anywhere; }
         `}</style>
         {toolbar}
+        <div className="no-print" style={{ maxWidth: "220mm", margin: "16px auto 0", padding: "12px", background: "#fff", border: "1px solid #ddd", borderRadius: "4px", fontSize: "14px" }}>
+          {extras.map((env, idx) => (
+            <div key={env.id} style={{ display: "flex", gap: "8px", alignItems: "flex-start", marginBottom: "8px" }}>
+              <label style={{ whiteSpace: "nowrap", paddingTop: "6px" }}>
+                <input
+                  type="checkbox"
+                  checked={env.enabled}
+                  onChange={(e) => saveExtras(extras.map((x) => (x.id === env.id ? { ...x, enabled: e.target.checked } : x)))}
+                  data-testid={`checkbox-extra-envelope-${idx}`}
+                />{" "}
+                Print
+              </label>
+              <textarea
+                value={env.text}
+                rows={4}
+                maxLength={1000}
+                placeholder={"Account name\nBSB / Account number\nAmount\nReference"}
+                onChange={(e) => setExtras(extras.map((x) => (x.id === env.id ? { ...x, text: e.target.value } : x)))}
+                onBlur={() => saveExtras(extras)}
+                style={{ flex: 1, padding: "6px", border: "1px solid #ccc", borderRadius: "4px", fontFamily: "inherit", fontSize: "14px" }}
+                data-testid={`textarea-extra-envelope-${idx}`}
+              />
+              <button
+                onClick={() => { if (confirm("Delete this envelope?")) saveExtras(extras.filter((x) => x.id !== env.id)); }}
+                style={{ padding: "6px 12px", cursor: "pointer", background: "#fff", border: "1px solid #ccc", borderRadius: "4px" }}
+                data-testid={`button-delete-extra-envelope-${idx}`}
+              >
+                Delete
+              </button>
+            </div>
+          ))}
+          <button
+            onClick={() => saveExtras([...extras, { id: crypto.randomUUID(), text: "", enabled: true }])}
+            style={{ padding: "6px 16px", cursor: "pointer", background: "#fff", border: "1px solid #000", borderRadius: "4px" }}
+            data-testid="button-add-extra-envelope"
+          >
+            인쇄봉투추가
+          </button>
+          {saveError && <span style={{ marginLeft: "12px", color: "#b91c1c" }}>Not saved — check the connection and try again.</span>}
+        </div>
         <div className="envelope-container">
           {slips.filter((slip) => !isEnvelopeExcluded(slip)).map((slip) => (
             <div key={slip.employee.id} className="envelope" data-testid={`envelope-${slip.employee.id}`}>
               <div className="env-name">{slip.employee.nickname || slip.employee.name}</div>
+            </div>
+          ))}
+          {/* After the employee envelopes, so the slip/envelope pairing is undisturbed. */}
+          {extras.filter((env) => env.enabled && env.text.trim()).map((env) => (
+            <div key={env.id} className="envelope extra" data-testid={`envelope-extra-${env.id}`}>
+              <div className="env-extra">{env.text.trim()}</div>
             </div>
           ))}
         </div>
