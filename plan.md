@@ -756,4 +756,7 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - [x] 2026-10-19 Maru $0 메모 줄("AE10040, KOSHIHIKARI 20KG 3.00 0.00 0.00")이 다음 품목에 붙던 문제: xero 규칙에 rowStart(코드로 시작) 추가(parser v9). 해당은 INV-7918 1건 1줄 → 재읽기, 쌀 상품 가격에서 $22.70 제거, 이름 "KOSHIHIKARI 20KG"로 복구(저장 눌러 name_edited였던 것 해제). Pomona 상품 6개 반영
 - [ ] 아이디어: Products 화면 "지금 정리" 버튼(상품 정리를 15분 기다리지 않게)
 - [x] 2026-10-19 포털 아래 메뉴: Timesheets 숨김(기능은 남김, ?dest=timesheets로 열림) → 그 자리에 Order. Home 안 Order 탭 제거. 사장님: Timesheets는 나중에 보강해서 다시 보여줌
+- [x] 2026-10-22 송금 표(Bank Transfer Tracker)가 지난 기간 수정·재저장 후에도 예전 금액을 보여 주던 문제(화면 캐시, 저장 시 새로 고침 안 함) 수정 — Kabita $1,292 → $1,270
+- [x] 2026-10-22 Newline: 실제 발신은 MYOB(accountright@apps.myob.com, 답장 주소 accounts@newlinebeverages.com.au). 공급처에 주소 등록 + 회계 프로그램 판정을 하위 도메인까지(apps.myob.com) → 답장 주소를 보낸 사람으로 봄. Newline은 메일로 명세서(EStatement)만 보냄, 인보이스는 종이
+- [ ] 2026-10-22 Railway 자동 배포가 10/20 이후 멈춤(푸시는 GitHub에 있음) — 원인 확인 필요
 
