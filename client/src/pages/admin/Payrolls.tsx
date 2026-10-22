@@ -849,6 +849,8 @@ export function AdminPayrolls() {
         ],
       });
       queryClient.invalidateQueries({ queryKey: ["/api/payrolls"] });
+      // the Bank Transfer Tracker reads the saved bank deposits: drop what it cached before this save
+      queryClient.invalidateQueries({ queryKey: ["/api/payrolls/bank-deposits"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
       queryClient.invalidateQueries({ queryKey: ["/api/finance/balances"] });
       queryClient.invalidateQueries({
@@ -894,6 +896,7 @@ export function AdminPayrolls() {
       return res.json();
     },
     enabled: bankTrackerOpen,
+    staleTime: 0, // re-read every time the tracker opens (amounts change when a past period is unlocked and re-saved)
   });
 
   // Rows currently on screen in the tracker. The TOTAL line and the all-done
