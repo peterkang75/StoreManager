@@ -759,4 +759,5 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - [x] 2026-10-22 송금 표(Bank Transfer Tracker)가 지난 기간 수정·재저장 후에도 예전 금액을 보여 주던 문제(화면 캐시, 저장 시 새로 고침 안 함) 수정 — Kabita $1,292 → $1,270
 - [x] 2026-10-22 Newline: 실제 발신은 MYOB(accountright@apps.myob.com, 답장 주소 accounts@newlinebeverages.com.au). 공급처에 주소 등록 + 회계 프로그램 판정을 하위 도메인까지(apps.myob.com) → 답장 주소를 보낸 사람으로 봄. Newline은 메일로 명세서(EStatement)만 보냄, 인보이스는 종이
 - [ ] 2026-10-22 Railway 자동 배포가 10/20 이후 멈춤(푸시는 GitHub에 있음) — 원인 확인 필요
+- [x] 2026-10-29 Primeline Butchery 받기(사장님 요청, 정육 제외의 예외): invoicemaker.au를 회계 프로그램 목록에 추가(답장 주소 primelinebutchery@gmail.com이 보낸 사람), 공급처 등록, 거절함 7월 4통 발신 주소 정정 → AP "원본 회수"로 되살리기. Gmail에 Primeline 메일은 7월 4통뿐
 

@@ -6742,6 +6742,8 @@ export async function registerRoutes(
         // Inventory/ERP SaaS that sends on the supplier's behalf — the
         // real sender lives in Reply-To. Escalate Hospitality uses this.
         "unleashedsoftware.com",
+        // invoice apps: Primeline Butchery's invoices come from noreply@invoicemaker.au, its address is the Reply-To
+        "invoicemaker.au",
       ]);
 
       function isGenericService(email: string): boolean {
