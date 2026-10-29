@@ -760,4 +760,6 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - [x] 2026-10-22 Newline: 실제 발신은 MYOB(accountright@apps.myob.com, 답장 주소 accounts@newlinebeverages.com.au). 공급처에 주소 등록 + 회계 프로그램 판정을 하위 도메인까지(apps.myob.com) → 답장 주소를 보낸 사람으로 봄. Newline은 메일로 명세서(EStatement)만 보냄, 인보이스는 종이
 - [ ] 2026-10-22 Railway 자동 배포가 10/20 이후 멈춤(푸시는 GitHub에 있음) — 원인 확인 필요
 - [x] 2026-10-29 Primeline Butchery 받기(사장님 요청, 정육 제외의 예외): invoicemaker.au를 회계 프로그램 목록에 추가(답장 주소 primelinebutchery@gmail.com이 보낸 사람), 공급처 등록, 거절함 7월 4통 발신 주소 정정 → AP "원본 회수"로 되살리기. Gmail에 Primeline 메일은 7월 4통뿐
+- [x] 2026-10-29 AP "선택 항목 지급"이 다른 매장 탭에서 선택해 둔 인보이스까지 지급 처리하던 문제: 10/29 17:29 Sushi 27건 + 안 보이던 Sandwich 11건($2,394.04)이 함께 PAID → 11건 결제 기록 삭제·PENDING 복구(사장님 승인). 재발 방지: 지급 전 확인 창(매장별 건수·금액, 지금 탭에 없는 선택 건수 경고). 선택 유지 기능은 그대로
+- [ ] 확인 필요: Cn Paultry와 Primeline Butchery가 같은 업체인지(사장님이 "Primeline" 수동 입력이라 한 건이 Cn Paultry 아래에 있음, 인보이스 번호 형식 동일)
 

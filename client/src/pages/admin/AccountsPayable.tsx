@@ -900,6 +900,7 @@ export function AdminAccountsPayable() {
   const [approveInvoiceGroup, setApproveInvoiceGroup] = useState<SupplierInvoice[]>([]);
   const [revertInvoice, setRevertInvoice] = useState<EnrichedInvoice | null>(null);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
+  const [payConfirmOpen, setPayConfirmOpen] = useState(false);
   const [viewEmailInvoice, setViewEmailInvoice] = useState<SupplierInvoice | null>(null);
   const [reassignInvoice, setReassignInvoice] = useState<EnrichedInvoice | null>(null);
 
@@ -1663,7 +1664,7 @@ export function AdminAccountsPayable() {
                 </Button>
                 <Button
                   size="sm"
-                  onClick={() => bulkMarkPaidMutation.mutate(Array.from(selected))}
+                  onClick={() => setPayConfirmOpen(true)}
                   disabled={bulkMarkPaidMutation.isPending}
                   data-testid="button-bulk-mark-paid"
                   className="h-8 sm:h-9 px-2.5 text-xs sm:text-sm gap-1 sm:gap-1.5 whitespace-nowrap flex-1 sm:flex-initial"
@@ -3489,6 +3490,57 @@ export function AdminAccountsPayable() {
       })()}
 
       {/* ── Bulk Delete Confirmation Dialog ───────────────────────────────────── */}
+      {/* The selection survives store-tab switches (owner builds a batch over several visits), so
+          before paying show every selected invoice by store — a Sandwich pick must not ride along unseen. */}
+      <AlertDialog open={payConfirmOpen} onOpenChange={open => !open && setPayConfirmOpen(false)}>
+        <AlertDialogContent data-testid="dialog-bulk-pay-confirm">
+          {(() => {
+            const picked = allInvoices.filter(inv => selected.has(inv.id));
+            const byStore = new Map<string, { count: number; total: number }>();
+            for (const inv of picked) {
+              const name = stores.find(st => st.id === inv.storeId)?.name ?? "매장 미지정";
+              const e = byStore.get(name) ?? { count: 0, total: 0 };
+              e.count++; e.total += inv.amount ?? 0; byStore.set(name, e);
+            }
+            const visible = new Set(toPayInvoices.map(i => i.id));
+            const hidden = picked.filter(inv => !visible.has(inv.id)).length;
+            return (
+              <>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>인보이스 {picked.length}건을 지급 완료로 표시할까요?</AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="space-y-2 text-sm">
+                      <table className="w-full">
+                        <tbody>
+                          {Array.from(byStore.entries()).map(([name, e]) => (
+                            <tr key={name} className="border-t"><td className="py-1 font-medium">{name}</td><td className="py-1 text-right">{e.count}건</td><td className="py-1 text-right tabular-nums">{fmtAUD(e.total)}</td></tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {hidden > 0 && (
+                        <p className="rounded bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100 px-2 py-1.5">
+                          ⚠️ 이 중 <strong>{hidden}건</strong>은 지금 보고 있는 탭에 없는 인보이스입니다(다른 매장 탭에서 선택해 둔 것). 원하지 않으면 취소하고 "선택 해제"를 누르세요.
+                        </p>
+                      )}
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={bulkMarkPaidMutation.isPending} data-testid="button-bulk-pay-cancel">취소</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => { bulkMarkPaidMutation.mutate(Array.from(selected)); setPayConfirmOpen(false); }}
+                    disabled={bulkMarkPaidMutation.isPending}
+                    data-testid="button-bulk-pay-confirm"
+                  >
+                    지급 완료로 표시 ({picked.length})
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </>
+            );
+          })()}
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={bulkDeleteConfirmOpen} onOpenChange={open => !open && setBulkDeleteConfirmOpen(false)}>
         <AlertDialogContent data-testid="dialog-bulk-delete-confirm">
           <AlertDialogHeader>
