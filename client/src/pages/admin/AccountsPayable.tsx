@@ -1086,6 +1086,11 @@ export function AdminAccountsPayable() {
       .reduce((s, inv) => s + (inv.amount ?? 0), 0);
   }, [toPayInvoices, selected]);
 
+  // Pay / delete act on the picks visible in the current store tab only; picks made on another tab stay selected for later
+  const visibleSelectedIds = useMemo(() => toPayInvoices.filter(inv => selected.has(inv.id)).map(inv => inv.id), [toPayInvoices, selected]);
+  const hiddenSelectedCount = selected.size - visibleSelectedIds.length;
+  const dropFromSelection = (ids: string[]) => setSelected(prev => { const next = new Set(prev); ids.forEach(id => next.delete(id)); return next; });
+
   const selectedBySupplier = useMemo(() => {
     const map = new Map<string, { name: string; total: number }>();
     toPayInvoices
@@ -1108,11 +1113,10 @@ export function AdminAccountsPayable() {
     mutationFn: async (ids: string[]) => {
       await Promise.all(ids.map(id => apiRequest("PATCH", `/api/invoices/${id}/status`, { status: "PAID" })));
     },
-    onSuccess: () => {
+    onSuccess: (_data, ids) => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-      const n = selected.size;
-      setSelected(new Set());
-      toast({ title: `인보이스 ${n}건을 지급 완료로 표시했습니다` });
+      dropFromSelection(ids);
+      toast({ title: `인보이스 ${ids.length}건을 지급 완료로 표시했습니다` });
     },
     onError: () => toast({ title: "인보이스 업데이트에 실패했습니다", variant: "destructive" }),
   });
@@ -1184,9 +1188,9 @@ export function AdminAccountsPayable() {
     mutationFn: async (ids: string[]) => {
       await Promise.all(ids.map(id => apiRequest("PATCH", `/api/supplier-invoices/${id}/soft-delete`)));
     },
-    onSuccess: () => {
-      const n = selected.size;
-      setSelected(new Set());
+    onSuccess: (_data, ids) => {
+      const n = ids.length;
+      dropFromSelection(ids);
       setBulkDeleteConfirmOpen(false);
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/supplier-invoices/deleted"] });
@@ -1655,24 +1659,24 @@ export function AdminAccountsPayable() {
                   variant="outline"
                   size="sm"
                   onClick={() => setBulkDeleteConfirmOpen(true)}
-                  disabled={bulkSoftDeleteMutation.isPending}
+                  disabled={bulkSoftDeleteMutation.isPending || visibleSelectedIds.length === 0}
                   data-testid="button-bulk-delete"
                   className="h-8 sm:h-9 px-2.5 text-xs sm:text-sm gap-1 sm:gap-1.5 whitespace-nowrap text-destructive border-destructive/40 hover:bg-destructive/5"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
-                  삭제 ({selected.size})
+                  삭제 ({visibleSelectedIds.length})
                 </Button>
                 <Button
                   size="sm"
                   onClick={() => setPayConfirmOpen(true)}
-                  disabled={bulkMarkPaidMutation.isPending}
+                  disabled={bulkMarkPaidMutation.isPending || visibleSelectedIds.length === 0}
                   data-testid="button-bulk-mark-paid"
                   className="h-8 sm:h-9 px-2.5 text-xs sm:text-sm gap-1 sm:gap-1.5 whitespace-nowrap flex-1 sm:flex-initial"
                 >
                   {bulkMarkPaidMutation.isPending ? (
                     <><Loader2 className="h-3.5 w-3.5 animate-spin" />지급 처리 중…</>
                   ) : (
-                    <><CheckCircle className="h-3.5 w-3.5" />선택 항목 지급 ({selected.size})</>
+                    <><CheckCircle className="h-3.5 w-3.5" />선택 항목 지급 ({visibleSelectedIds.length})</>
                   )}
                 </Button>
               </div>
@@ -3495,15 +3499,14 @@ export function AdminAccountsPayable() {
       <AlertDialog open={payConfirmOpen} onOpenChange={open => !open && setPayConfirmOpen(false)}>
         <AlertDialogContent data-testid="dialog-bulk-pay-confirm">
           {(() => {
-            const picked = allInvoices.filter(inv => selected.has(inv.id));
+            const picked = toPayInvoices.filter(inv => selected.has(inv.id));
             const byStore = new Map<string, { count: number; total: number }>();
             for (const inv of picked) {
               const name = stores.find(st => st.id === inv.storeId)?.name ?? "매장 미지정";
               const e = byStore.get(name) ?? { count: 0, total: 0 };
               e.count++; e.total += inv.amount ?? 0; byStore.set(name, e);
             }
-            const visible = new Set(toPayInvoices.map(i => i.id));
-            const hidden = picked.filter(inv => !visible.has(inv.id)).length;
+            const hidden = hiddenSelectedCount;
             return (
               <>
                 <AlertDialogHeader>
@@ -3519,7 +3522,7 @@ export function AdminAccountsPayable() {
                       </table>
                       {hidden > 0 && (
                         <p className="rounded bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100 px-2 py-1.5">
-                          ⚠️ 이 중 <strong>{hidden}건</strong>은 지금 보고 있는 탭에 없는 인보이스입니다(다른 매장 탭에서 선택해 둔 것). 원하지 않으면 취소하고 "선택 해제"를 누르세요.
+                          다른 매장 탭에서 선택해 둔 <strong>{hidden}건</strong>은 이번에 처리하지 않고 선택된 채로 둡니다. 그 탭에서 따로 지급하세요.
                         </p>
                       )}
                     </div>
@@ -3528,7 +3531,7 @@ export function AdminAccountsPayable() {
                 <AlertDialogFooter>
                   <AlertDialogCancel disabled={bulkMarkPaidMutation.isPending} data-testid="button-bulk-pay-cancel">취소</AlertDialogCancel>
                   <AlertDialogAction
-                    onClick={() => { bulkMarkPaidMutation.mutate(Array.from(selected)); setPayConfirmOpen(false); }}
+                    onClick={() => { bulkMarkPaidMutation.mutate(picked.map(inv => inv.id)); setPayConfirmOpen(false); }}
                     disabled={bulkMarkPaidMutation.isPending}
                     data-testid="button-bulk-pay-confirm"
                   >
@@ -3546,7 +3549,7 @@ export function AdminAccountsPayable() {
           <AlertDialogHeader>
             <AlertDialogTitle>휴지통으로 옮길까요?</AlertDialogTitle>
             <AlertDialogDescription>
-              인보이스 {selected.size}건을 휴지통으로 옮깁니다.
+              이 탭에서 선택한 인보이스 {visibleSelectedIds.length}건을 휴지통으로 옮깁니다.{hiddenSelectedCount > 0 ? ` 다른 매장 탭에서 선택한 ${hiddenSelectedCount}건은 그대로 둡니다.` : ""}
               필요하면 <strong>Trash</strong> 탭(휴지통)에서 되살릴 수 있습니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -3558,7 +3561,7 @@ export function AdminAccountsPayable() {
               취소
             </AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => bulkSoftDeleteMutation.mutate(Array.from(selected))}
+              onClick={() => bulkSoftDeleteMutation.mutate(visibleSelectedIds)}
               disabled={bulkSoftDeleteMutation.isPending}
               className="bg-destructive text-destructive-foreground"
               data-testid="button-bulk-delete-confirm"

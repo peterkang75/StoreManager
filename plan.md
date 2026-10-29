@@ -762,4 +762,5 @@ All tables use `varchar` UUID primary keys (`gen_random_uuid()`).
 - [x] 2026-10-29 Primeline Butchery 받기(사장님 요청, 정육 제외의 예외): invoicemaker.au를 회계 프로그램 목록에 추가(답장 주소 primelinebutchery@gmail.com이 보낸 사람), 공급처 등록, 거절함 7월 4통 발신 주소 정정 → AP "원본 회수"로 되살리기. Gmail에 Primeline 메일은 7월 4통뿐
 - [x] 2026-10-29 AP "선택 항목 지급"이 다른 매장 탭에서 선택해 둔 인보이스까지 지급 처리하던 문제: 10/29 17:29 Sushi 27건 + 안 보이던 Sandwich 11건($2,394.04)이 함께 PAID → 11건 결제 기록 삭제·PENDING 복구(사장님 승인). 재발 방지: 지급 전 확인 창(매장별 건수·금액, 지금 탭에 없는 선택 건수 경고). 선택 유지 기능은 그대로
 - [x] 2026-10-29 Cn Paultry = Primeline Butchery(사장님 확인): primelinebutchery@gmail.com을 Cn Paultry 주소로 옮김, "Primeline Butchery" 공급처 비활성(인보이스 0건). 7월 4건은 이미 Cn Paultry 장부에 PAID → 원본 회수 시 PDF만 붙음
+- [x] 2026-10-29 AP 지급·삭제는 지금 보고 있는 매장 탭에 보이는 선택 항목만 처리(사장님 지시: Sushi 화면에서 누르면 Sushi만). 다른 탭 선택은 그대로 남김, 확인 창에 안내. 로컬 확인: Sushi 2 + Sandwich 3 선택 → Sushi 탭 지급 → Sushi 2건만 PAID, Sandwich 3건 PENDING·선택 유지
 
